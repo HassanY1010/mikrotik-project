@@ -25,10 +25,16 @@ export const envSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().default(10),
 
   // Redis
-  REDIS_URL: z.string().optional(),
-  REDIS_HOST: z.string().default('localhost'),
+  REDIS_URL: z
+    .string()
+    .default(
+      'rediss://default:gQAAAAAAAxYyAAIgcDIxZGVlODk0Yzg2NmE0NzNlYTEzZWE1Y2E0NmNjNDBiYQ@blessed-thrush-202290.upstash.io:6379',
+    ),
+  REDIS_HOST: z.string().default('blessed-thrush-202290.upstash.io'),
   REDIS_PORT: z.coerce.number().default(6379),
-  REDIS_PASSWORD: z.string().optional(),
+  REDIS_PASSWORD: z
+    .string()
+    .default('gQAAAAAAAxYyAAIgcDIxZGVlODk0Yzg2NmE0NzNlYTEzZWE1Y2E0NmNjNDBiYQ'),
   REDIS_DB: z.coerce.number().default(0),
 
   // JWT

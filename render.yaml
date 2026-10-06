@@ -24,6 +24,8 @@ services:
         generateValue: true
       - key: CORS_ORIGINS
         sync: false
+      - key: REDIS_URL
+        value: rediss://default:gQAAAAAAAxYyAAIgcDIxZGVlODk0Yzg2NmE0NzNlYTEzZWE1Y2E0NmNjNDBiYQ@blessed-thrush-202290.upstash.io:6379
 
   # -------------------------------------------------------------
   # 2) Admin Dashboard (React / Vite Static Site)
