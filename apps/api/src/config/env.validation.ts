@@ -13,12 +13,14 @@ export const envSchema = z.object({
   // Database
   DATABASE_URL: z
     .string()
-    .default('postgresql://postgres:postgres@localhost:5432/mikrotik_saas?schema=public'),
-  DATABASE_HOST: z.string().default('localhost'),
+    .default(
+      'postgresql://postgres.mtstlpvqjxfzsrkzuvhq:hhaall112233hhaa@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres?sslmode=require',
+    ),
+  DATABASE_HOST: z.string().default('aws-0-ap-northeast-2.pooler.supabase.com'),
   DATABASE_PORT: z.coerce.number().default(5432),
-  DATABASE_NAME: z.string().default('mikrotik_saas'),
-  DATABASE_USER: z.string().default('postgres'),
-  DATABASE_PASSWORD: z.string().default('postgres'),
+  DATABASE_NAME: z.string().default('postgres'),
+  DATABASE_USER: z.string().default('postgres.mtstlpvqjxfzsrkzuvhq'),
+  DATABASE_PASSWORD: z.string().default('hhaall112233hhaa'),
   DATABASE_POOL_MIN: z.coerce.number().default(2),
   DATABASE_POOL_MAX: z.coerce.number().default(10),
 
@@ -68,7 +70,9 @@ export const envSchema = z.object({
   SWAGGER_PATH: z.string().default('docs'),
 
   // CORS
-  CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:3001'),
+  CORS_ORIGINS: z
+    .string()
+    .default('https://mikrotik-admin.onrender.com,http://localhost:5173,*'),
   CORS_CREDENTIALS: z.preprocess(
     (val) => (typeof val === 'string' ? val === 'true' : val),
     z.boolean().default(true),
