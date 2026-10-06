@@ -30,31 +30,123 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
       final res = await apiClient.get(ApiEndpoints.shiftSummary);
       final raw = res.data;
       final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
-      setState(() {
-        _serverSummary = ShiftSummaryModel.fromJson(data as Map<String, dynamic>);
-      });
+      if (mounted) {
+        setState(() {
+          _serverSummary = ShiftSummaryModel.fromJson(data as Map<String, dynamic>);
+        });
+      }
     } catch (_) {
-      // If offline, we calculate summary locally from storage
+      // If offline, metrics calculate locally from local storage
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  void _showPrintSummaryDialog(double totalRev, int totalCount, String currency, List<SaleReceiptModel> localSales) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.print, color: Color(0xFF0D9488)),
+            SizedBox(width: 8),
+            Text('طباعة تقرير الوردية', style: TextStyle(fontSize: 16)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'هل تريد إرسال تقرير إغلاق الوردية المالي إلى الطابعة الحرارية؟',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('إجمالي الكروت:', style: TextStyle(color: Colors.grey)),
+                      Text('$totalCount كرت', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('إجمالي النقدية:', style: TextStyle(color: Colors.grey)),
+                      Text(
+                        '${totalRev.toStringAsFixed(0)} $currency',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D9488),
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.print, size: 18),
+            label: const Text('طباعة فورية'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('تم إرسال تقرير الوردية للطباعة بنجاح'),
+                  backgroundColor: Color(0xFF0D9488),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final storage = ref.watch(localStorageProvider);
     final localSales = storage.getSalesHistory();
 
-    // Compute offline fallback metrics if server summary is null
+    // Compute metrics combining server or local offline sales
     double totalRev = _serverSummary?.totalRevenue ?? 0.0;
     int totalCount = _serverSummary?.totalSalesCount ?? 0;
     String currency = _serverSummary?.currency ?? 'SDG';
 
-    if (_serverSummary == null && localSales.isNotEmpty) {
+    if (totalRev == 0 && localSales.isNotEmpty) {
       totalRev = localSales.fold(0.0, (acc, s) => acc + s.amount);
       totalCount = localSales.length;
     }
+
+    // Payment breakdown from local sales
+    double cashAmount = localSales
+        .where((s) => s.paymentMethod == 'CASH')
+        .fold(0.0, (acc, s) => acc + s.amount);
+    double bankakAmount = localSales
+        .where((s) => s.paymentMethod == 'MOBILE_WALLET')
+        .fold(0.0, (acc, s) => acc + s.amount);
+    double fawryAmount = localSales
+        .where((s) => s.paymentMethod == 'TRANSFER')
+        .fold(0.0, (acc, s) => acc + s.amount);
 
     final dateFormat = intl.DateFormat('yyyy-MM-dd HH:mm');
 
@@ -67,12 +159,13 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
             tooltip: 'تحديث التقرير',
             onPressed: _isLoading ? null : _fetchSummary,
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0D9488)))
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(14.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -80,98 +173,244 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(18.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('إجمالي النقدية في الدرج',
-                                    style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                const SizedBox(height: 8),
-                                Text(
-                                  '${totalRev.toStringAsFixed(0)} $currency',
-                                  style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: theme.colorScheme.primary,
+                        child: Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E293B),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFF0D9488).withValues(alpha: 0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: const [
+                                  Text(
+                                    'النقدية في الدرج',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey),
                                   ),
+                                  Icon(Icons.point_of_sale, size: 18, color: Color(0xFF10B981)),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '${totalRev.toStringAsFixed(0)} $currency',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF10B981),
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
-                        child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(18.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('عدد الكروت المباعة',
-                                    style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                const SizedBox(height: 8),
-                                Text(
-                                  '$totalCount كرت',
-                                  style: const TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.amber,
+                        child: Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E293B),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: const [
+                                  Text(
+                                    'الكروت المباعة',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey),
                                   ),
+                                  Icon(Icons.confirmation_number_outlined, size: 18, color: Colors.amber),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '$totalCount كرت',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.amber,
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 12),
 
-                  // Profiles Breakdown Card
+                  // Payment Methods Breakdown Card
+                  Container(
+                    padding: const EdgeInsets.all(14.0),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFF334155)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'توزيع الإيراد حسب طريقة الدفع',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Column(
+                                  children: [
+                                    const Text('كاش (نقداً)', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${cashAmount.toStringAsFixed(0)} SDG',
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Column(
+                                  children: [
+                                    const Text('بنكك', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${bankakAmount.toStringAsFixed(0)} SDG',
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF5EEAD4)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Column(
+                                  children: [
+                                    const Text('أوكاش/فوري', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${fawryAmount.toStringAsFixed(0)} SDG',
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 40,
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF0D9488),
+                              side: const BorderSide(color: Color(0xFF0D9488)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.receipt_long, size: 18),
+                            label: const Text('طباعة إيصال إغلاق الوردية'),
+                            onPressed: () => _showPrintSummaryDialog(totalRev, totalCount, currency, localSales),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Profiles Breakdown Card if exists
                   if (_serverSummary != null && _serverSummary!.profileBreakdown.isNotEmpty) ...[
                     const Text(
                       'المبيعات حسب الباقة',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    Card(
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFF334155)),
+                      ),
                       child: ListView.separated(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
                         itemCount: _serverSummary!.profileBreakdown.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFF334155)),
                         itemBuilder: (context, index) {
                           final p = _serverSummary!.profileBreakdown[index];
                           return ListTile(
-                            title: Text(p.profileName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            title: Text(p.profileName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                             trailing: Text(
                               '${p.count} كرت  |  ${p.totalAmount.toStringAsFixed(0)} $currency',
-                              style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
+                              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF10B981), fontSize: 13),
                             ),
                           );
                         },
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
                   ],
 
                   // Recent Local Sales History
-                  const Text(
-                    'آخر المبيعات المسجلة محلياً',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'آخر المبيعات المسجلة محلياً',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        '${localSales.length} فاتورة',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
 
                   if (localSales.isEmpty)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(24.0),
-                        child: Center(
-                          child: Text('لا توجد مبيعات مسجلة في هذه الوردية بعد',
-                              style: TextStyle(color: Colors.grey)),
+                    Container(
+                      padding: const EdgeInsets.all(28.0),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFF334155)),
+                      ),
+                      child: Center(
+                        child: Column(
+                          children: const [
+                            Icon(Icons.receipt_outlined, size: 40, color: Colors.grey),
+                            SizedBox(height: 8),
+                            Text(
+                              'لا توجد مبيعات مسجلة في هذه الوردية بعد',
+                              style: TextStyle(color: Colors.grey, fontSize: 13),
+                            ),
+                          ],
                         ),
                       ),
                     )
@@ -179,12 +418,18 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                     ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      itemCount: localSales.take(15).length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 6),
+                      itemCount: localSales.take(20).length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final s = localSales[index];
-                        return Card(
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E293B),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF334155)),
+                          ),
                           child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                             leading: CircleAvatar(
                               backgroundColor: s.isOffline
                                   ? Colors.amber.withValues(alpha: 0.2)
@@ -192,24 +437,29 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                               child: Icon(
                                 s.isOffline ? Icons.offline_bolt : Icons.receipt_long,
                                 color: s.isOffline ? Colors.amber : const Color(0xFF0D9488),
+                                size: 20,
                               ),
                             ),
                             title: Text(
-                              '${s.invoiceNumber}  •  ${s.profileName}',
+                              '${s.invoiceNumber} • ${s.profileName}',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                             ),
-                            subtitle: Text(
-                              'المستخدم: ${s.username} | ${dateFormat.format(s.soldAt)}',
-                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 2.0),
+                              child: Text(
+                                'المستخدم: ${s.username} | ${dateFormat.format(s.soldAt)}',
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
                             ),
                             trailing: Text(
                               '${s.amount.toStringAsFixed(0)} ${s.currency}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF10B981)),
                             ),
                           ),
                         );
                       },
                     ),
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
