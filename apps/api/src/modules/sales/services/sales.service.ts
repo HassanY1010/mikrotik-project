@@ -36,10 +36,11 @@ export interface ShiftSummaryReport {
   periodStart: Date;
   periodEnd: Date;
   totalTransactions: number;
+  totalSalesCount?: number;
   totalRevenue: number;
   currency: string;
   paymentMethodBreakdown: Record<PaymentMethod, { count: number; total: number }>;
-  profileBreakdown: Array<{ profileName: string; count: number; total: number }>;
+  profileBreakdown: Array<{ profileName: string; count: number; total: number; totalAmount?: number }>;
 }
 
 export interface DailySalesReport {
@@ -431,27 +432,27 @@ export class SalesService {
   }
 
   async getShiftSummary(tenantId: string, cashierId: string): Promise<ShiftSummaryReport> {
-    const cashier = await this.prisma.user.findFirst({
-      where: { id: cashierId, tenantId },
+    const user = await this.prisma.user.findFirst({
+      where: { id: cashierId },
+      include: { role: true },
     });
-
-    if (!cashier) {
-      throw new NotFoundException({
-        code: 'CASHIER_NOT_FOUND',
-        message: 'Cashier user not found',
-      });
-    }
 
     // Today's shift (starts at 00:00:00 today)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    const where: any = {
+      tenantId,
+      createdAt: { gte: today },
+    };
+
+    // If the caller is specifically a CASHIER, scope to their own transactions
+    if (user?.role?.name === 'CASHIER') {
+      where.cashierId = cashierId;
+    }
+
     const transactions = await this.prisma.saleTransaction.findMany({
-      where: {
-        tenantId,
-        cashierId,
-        createdAt: { gte: today },
-      },
+      where,
       include: {
         card: {
           include: { profile: true },
@@ -493,14 +494,16 @@ export class SalesService {
       profileName,
       count: data.count,
       total: data.total,
+      totalAmount: data.total,
     }));
 
     return {
-      cashierId,
-      cashierName: cashier.fullName,
+      cashierId: user?.id ?? cashierId,
+      cashierName: user?.fullName ?? 'الوردية العامة',
       periodStart: today,
       periodEnd: new Date(),
       totalTransactions: transactions.length,
+      totalSalesCount: transactions.length,
       totalRevenue,
       currency,
       paymentMethodBreakdown,

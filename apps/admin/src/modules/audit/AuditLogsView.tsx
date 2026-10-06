@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
-import { ShieldCheck, RefreshCw, Filter, Eye } from 'lucide-react';
+import { ShieldCheck, RefreshCw, Filter, Eye, Download } from 'lucide-react';
 import { Modal } from '../../components/common/Modal';
 import { AuditLogItem } from '../../core/types/view-models';
 
@@ -9,22 +9,52 @@ export const AuditLogsView: React.FC = () => {
   const { showToast } = useToast();
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [actionFilter, setActionFilter] = useState('ALL');
   const [selectedLog, setSelectedLog] = useState<AuditLogItem | null>(null);
 
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const data = await apiClient.get<AuditLogItem[]>('/audit-logs', {
+      const data = await apiClient.get<AuditLogItem[] | { data: AuditLogItem[]; total: number }>('/audit-logs', {
         action: actionFilter !== 'ALL' ? actionFilter : undefined,
       });
-      if (Array.isArray(data)) setLogs(data);
+      const items = Array.isArray(data)
+        ? data
+        : (data && typeof data === 'object' && Array.isArray((data as any).data))
+        ? (data as any).data
+        : [];
+      setLogs(items);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحميل سجل التدقيق من الخادم';
       showToast(msg, 'error');
       setLogs([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    setExporting(true);
+    try {
+      const csvText = await apiClient.get<string>('/audit-logs/export', {
+        action: actionFilter !== 'ALL' ? actionFilter : undefined,
+      });
+      const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `audit_logs_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('تم تصدير سجل التدقيق والأمان بنجاح!', 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تصدير سجل التدقيق';
+      showToast(msg, 'error');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -53,10 +83,16 @@ export const AuditLogsView: React.FC = () => {
           </p>
         </div>
 
-        <button className="btn btn-outline" onClick={fetchLogs} disabled={loading}>
-          <RefreshCw size={16} />
-          تحديث السجل
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button className="btn btn-outline" onClick={handleExportCsv} disabled={exporting}>
+            <Download size={16} />
+            {exporting ? 'جاري التصدير...' : 'تصدير السجل (CSV)'}
+          </button>
+          <button className="btn btn-primary" onClick={fetchLogs} disabled={loading}>
+            <RefreshCw size={16} className={loading ? 'spin' : ''} />
+            تحديث السجل
+          </button>
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -116,7 +152,7 @@ export const AuditLogsView: React.FC = () => {
                   {log.ipAddress || '127.0.0.1'}
                 </td>
                 <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  {new Date(log.createdAt).toLocaleString('ar-YE')}
+                  {new Date(log.createdAt).toLocaleString('ar-SD')}
                 </td>
                 <td style={{ textAlign: 'left' }}>
                   <button
@@ -154,7 +190,7 @@ export const AuditLogsView: React.FC = () => {
             <div>
               التوقيت:{' '}
               <strong>
-                {selectedLog && new Date(selectedLog.createdAt).toLocaleString('ar-YE')}
+                {selectedLog && new Date(selectedLog.createdAt).toLocaleString('ar-SD')}
               </strong>
             </div>
           </div>
