@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
@@ -46,8 +47,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final apiClient = ref.read(apiClientProvider);
 
     try {
-      // Save custom base URL if changed
-      await storage.setBaseUrl(_serverUrlController.text.trim());
+      // Save custom base URL if changed, or ensure default
+      final currentUrl = _serverUrlController.text.trim();
+      final effectiveUrl = currentUrl.isNotEmpty ? currentUrl : ApiEndpoints.defaultBaseUrl;
+      await storage.setBaseUrl(effectiveUrl);
+      _serverUrlController.text = effectiveUrl;
 
       final response = await apiClient.post(
         ApiEndpoints.login,
@@ -72,8 +76,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       await storage.setUser(user);
       ref.read(currentUserProvider.notifier).setUser(user);
 
-      // Pre-fetch profiles into cache
-      await ref.read(profilesProvider.notifier).fetchProfiles();
+      // Pre-fetch profiles into cache safely without blocking login
+      try {
+        await ref.read(profilesProvider.notifier).fetchProfiles();
+      } catch (_) {}
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -84,8 +90,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
       }
     } catch (e) {
+      String msg = 'فشل تسجيل الدخول: يرجى التحقق من صحة البيانات والاتصال بالخادم';
+      if (e is DioException) {
+        if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {
+          msg = 'السيرفر السحابي يستيقظ الآن (استغرق وقتاً أطول). يرجى إعادة المحاولة الآن.';
+        } else if (e.response != null && e.response?.data is Map) {
+          final errorData = e.response!.data as Map;
+          if (errorData['error'] != null && errorData['error']['message'] != null) {
+            msg = errorData['error']['message'].toString();
+          } else if (errorData['message'] != null) {
+            msg = errorData['message'].toString();
+          }
+        } else if (e.type == DioExceptionType.connectionError) {
+          msg = 'تعذر الاتصال بالخادم. يرجى التأكد من اتصال الإنترنت وعنوان السيرفر.';
+        }
+      }
       setState(() {
-        _errorMessage = 'فشل تسجيل الدخول: يرجى التحقق من صحة البيانات والاتصال بالخادم';
+        _errorMessage = msg;
       });
     } finally {
       if (mounted) {
