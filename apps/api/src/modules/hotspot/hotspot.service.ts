@@ -63,10 +63,21 @@ export class HotspotService {
       const validity =
         p.sessionTimeout ||
         (p.cardBatches[0]?.validityDays ? `${p.cardBatches[0].validityDays}d` : '1d');
+      let displayName = p.name;
+      const lower = p.name.toLowerCase();
+      if (lower === '1hour-unlimited') displayName = 'باقة 1 ساعة (إنترنت مفتوح)';
+      else if (lower === '3hours-unlimited') displayName = 'باقة 3 ساعات (إنترنت مفتوح)';
+      else if (lower === '1day-unlimited') displayName = 'باقة 1 يوم (إنترنت مفتوح)';
+      else if (lower === '1week-unlimited') displayName = 'باقة 1 أسبوع (إنترنت مفتوح)';
+      else if (lower === '1month-unlimited') displayName = 'باقة 1 شهر (إنترنت مفتوح)';
+      else if (lower.includes('-unlimited')) {
+        displayName = p.name.replace(/-unlimited/gi, ' (إنترنت مفتوح)');
+      }
+
       return {
         id: p.id,
         name: p.name,
-        displayName: p.name,
+        displayName,
         price,
         validity,
         rateLimit: p.rateLimit || '2M/5M',

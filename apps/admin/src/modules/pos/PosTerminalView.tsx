@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { Modal } from '../../components/common/Modal';
-import { ShoppingBag, Printer, QrCode, Phone, User, CheckCircle2 } from 'lucide-react';
+import { ShoppingBag, Printer, Phone, User, CheckCircle2 } from 'lucide-react';
 import { HotspotProfileItem } from '../../core/types/view-models';
 
 interface ReceiptData {
@@ -16,11 +16,33 @@ interface ReceiptData {
   time: string;
 }
 
+export const formatProfileTitle = (name?: string, displayName?: string) => {
+  if (displayName && displayName !== name) return displayName;
+  if (!name) return 'باقة إنترنت';
+  const lower = name.toLowerCase();
+  if (lower === '1hour-unlimited' || (lower.includes('1hour') && lower.includes('unlimited'))) {
+    return 'باقة 1 ساعة (إنترنت مفتوح)';
+  }
+  if (lower === '3hours-unlimited' || (lower.includes('3hour') && lower.includes('unlimited'))) {
+    return 'باقة 3 ساعات (إنترنت مفتوح)';
+  }
+  if (lower === '1day-unlimited' || (lower.includes('1day') && lower.includes('unlimited'))) {
+    return 'باقة 1 يوم (إنترنت مفتوح)';
+  }
+  if (lower === '1week-unlimited' || (lower.includes('1week') && lower.includes('unlimited'))) {
+    return 'باقة 1 أسبوع (إنترنت مفتوح)';
+  }
+  if (lower === '1month-unlimited' || (lower.includes('1month') && lower.includes('unlimited'))) {
+    return 'باقة 1 شهر (إنترنت مفتوح)';
+  }
+  return name.replace(/-unlimited/gi, ' (إنترنت مفتوح)');
+};
+
 export const PosTerminalView: React.FC = () => {
   const { showToast } = useToast();
   const [profiles, setProfiles] = useState<HotspotProfileItem[]>([]);
   const [selectedProfile, setSelectedProfile] = useState<HotspotProfileItem | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'KURAIMI' | 'JAWALI'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'MOBILE_WALLET' | 'TRANSFER'>('CASH');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -77,10 +99,10 @@ export const PosTerminalView: React.FC = () => {
         serialNumber: res?.card?.serialNumber || 'SN-00918',
         username: res?.card?.username || 'HS98214',
         password: res?.card?.clearPassword || '4821',
-        profileName: selectedProfile.displayName || selectedProfile.name || 'باقة هوتسبوت',
+        profileName: formatProfileTitle(selectedProfile.name, selectedProfile.displayName),
         amount: selectedProfile.price,
         paymentMethod,
-        time: new Date().toLocaleTimeString('ar-YE'),
+        time: new Date().toLocaleTimeString('ar-SD'),
       });
 
       // Clear customer inputs
@@ -153,7 +175,7 @@ export const PosTerminalView: React.FC = () => {
                     }}
                   >
                     <div style={{ fontWeight: 800, fontSize: '1rem' }}>
-                      {p.displayName || p.name}
+                      {formatProfileTitle(p.name, p.displayName)}
                     </div>
                     <span className="badge badge-success">{p.availableCards ?? 50} كرت</span>
                   </div>
@@ -216,7 +238,7 @@ export const PosTerminalView: React.FC = () => {
             >
               <span style={{ color: 'var(--text-secondary)' }}>الباقة:</span>
               <strong style={{ fontSize: '1rem' }}>
-                {selectedProfile?.displayName || 'لم يتم التحديد'}
+                {formatProfileTitle(selectedProfile?.name, selectedProfile?.displayName) || 'لم يتم التحديد'}
               </strong>
             </div>
             <div
@@ -233,19 +255,19 @@ export const PosTerminalView: React.FC = () => {
           <div className="form-group">
             <label className="form-label">طريقة تحصيل المبلغ</label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
-              {(['CASH', 'KURAIMI', 'JAWALI'] as const).map((method) => (
+              {(['CASH', 'MOBILE_WALLET', 'TRANSFER'] as const).map((method) => (
                 <button
                   key={method}
                   type="button"
                   className={`btn ${paymentMethod === method ? 'btn-primary' : 'btn-outline'}`}
-                  style={{ fontSize: '0.8rem', padding: '0.5rem' }}
+                  style={{ fontSize: '0.82rem', padding: '0.55rem 0.35rem', fontWeight: 700 }}
                   onClick={() => setPaymentMethod(method)}
                 >
                   {method === 'CASH'
-                    ? 'نقداً'
-                    : method === 'KURAIMI'
-                      ? 'بنك الكريمي'
-                      : 'محفظة جوالي'}
+                    ? 'نقداً (كاش)'
+                    : method === 'MOBILE_WALLET'
+                      ? 'تطبيق بنكك'
+                      : 'أوكاش / فوري'}
                 </button>
               ))}
             </div>
@@ -261,7 +283,7 @@ export const PosTerminalView: React.FC = () => {
                 id="pos-phone"
                 className="input"
                 style={{ paddingRight: '2.5rem', direction: 'ltr', textAlign: 'left' }}
-                placeholder="770-000000"
+                placeholder="09xxxxxxxx أو 01xxxxxxxx"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
               />
@@ -350,6 +372,16 @@ export const PosTerminalView: React.FC = () => {
               <span>المبلغ:</span>
               <span style={{ fontWeight: 'bold' }}>{receipt?.amount} SDG</span>
             </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', margin: '4px 0' }}>
+              <span>طريقة الدفع:</span>
+              <span style={{ fontWeight: 'bold' }}>
+                {receipt?.paymentMethod === 'CASH'
+                  ? 'نقداً (كاش)'
+                  : receipt?.paymentMethod === 'MOBILE_WALLET'
+                    ? 'تطبيق بنكك'
+                    : 'أوكاش / فوري'}
+              </span>
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>التسلسلي:</span>
               <span>{receipt?.serialNumber}</span>
@@ -376,15 +408,23 @@ export const PosTerminalView: React.FC = () => {
 
             <div
               style={{
-                width: 100,
-                height: 100,
+                width: 90,
+                height: 90,
                 margin: '8px auto',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                overflow: 'hidden',
               }}
             >
-              <QrCode size={90} color="#000000" />
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(receipt?.username || '')}`}
+                alt="QR Code"
+                style={{ width: 84, height: 84, display: 'block' }}
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                }}
+              />
             </div>
             <div style={{ fontSize: '10px', color: '#666' }}>امسح الرمز للدخول الفوري للإنترنت</div>
           </div>
