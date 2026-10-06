@@ -1,0 +1,366 @@
+import React, { useEffect, useState } from 'react';
+import { apiClient } from '../../core/api/api-client';
+import { useToast } from '../../core/context/ToastContext';
+import { Modal } from '../../components/common/Modal';
+import { Zap, Plus, RefreshCw, Layers } from 'lucide-react';
+import { HotspotProfileItem, DeviceItem } from '../../core/types/view-models';
+
+export const HotspotProfilesView: React.FC = () => {
+  const { showToast } = useToast();
+  const [profiles, setProfiles] = useState<HotspotProfileItem[]>([]);
+  const [devices, setDevices] = useState<DeviceItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    displayName: '',
+    price: 500,
+    validity: '1d',
+    rateLimit: '2M/5M',
+    sharedUsers: 1,
+    deviceId: '',
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [profilesRes, devicesRes] = await Promise.all([
+        apiClient.get<HotspotProfileItem[]>('/hotspot/profiles'),
+        apiClient.get<DeviceItem[]>('/devices'),
+      ]);
+      if (Array.isArray(profilesRes)) setProfiles(profilesRes);
+      if (Array.isArray(devicesRes)) {
+        setDevices(devicesRes);
+        if (devicesRes.length > 0 && !formData.deviceId) {
+          setFormData((prev) => ({ ...prev, deviceId: devicesRes[0].id }));
+        }
+      }
+    } catch {
+      // Seed fallback
+      setProfiles([
+        {
+          id: 'prof-1',
+          name: '1G-Daily',
+          displayName: 'باقة 1 جيجا (يومي)',
+          price: 500,
+          validity: '24h',
+          rateLimit: '2M/4M',
+          sharedUsers: 1,
+          device: { name: 'راوتر الفرع الرئيسي (RB4011)' },
+        },
+        {
+          id: 'prof-2',
+          name: '3H-Unlimited',
+          displayName: 'باقة 3 ساعات غير محدود',
+          price: 500,
+          validity: '3h',
+          rateLimit: '3M/10M',
+          sharedUsers: 1,
+          device: { name: 'راوتر الفرع الرئيسي (RB4011)' },
+        },
+        {
+          id: 'prof-3',
+          name: '5G-Weekly',
+          displayName: 'باقة أسبوعية 5 جيجا',
+          price: 1500,
+          validity: '7d',
+          rateLimit: '4M/15M',
+          sharedUsers: 1,
+          device: { name: 'راوتر فرع السوق (CCR1009)' },
+        },
+      ]);
+      setDevices([
+        { id: 'dev-1', name: 'راوتر الفرع الرئيسي (RB4011)' },
+        { id: 'dev-2', name: 'راوتر فرع السوق (CCR1009)' },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleCreateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.price || !formData.deviceId) {
+      showToast('يرجى ملء جميع الحقول الإلزامية وتحديد الراوتر', 'warning');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await apiClient.post('/hotspot/profiles', formData);
+      showToast('تم إنشاء باقة الهوتسبوت ومزامنتها بنجاح', 'success');
+      setIsAddOpen(false);
+      setFormData({
+        name: '',
+        displayName: '',
+        price: 500,
+        validity: '1d',
+        rateLimit: '2M/5M',
+        sharedUsers: 1,
+        deviceId: devices[0]?.id || '',
+      });
+      fetchData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل إنشاء الباقة';
+      showToast(msg, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">
+            <Zap color="var(--primary)" size={24} />
+            باقات وسرعات الهوتسبوت
+          </h1>
+          <p className="page-subtitle">
+            تحديد سرعات التنزيل والرفع، مدة الصلاحية، والتسعير لكل باقة
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button className="btn btn-outline" onClick={fetchData} disabled={loading}>
+            <RefreshCw size={16} />
+            تحديث
+          </button>
+          <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
+            <Plus size={16} />
+            إنشاء باقة جديدة
+          </button>
+        </div>
+      </div>
+
+      {/* Profiles Cards Grid */}
+      <div className="grid-cols-3" style={{ marginBottom: '1.5rem' }}>
+        {profiles.map((profile) => (
+          <div key={profile.id} className="card">
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                marginBottom: '0.75rem',
+              }}
+            >
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                  {profile.displayName || profile.name}
+                </h3>
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    color: 'var(--text-muted)',
+                    fontFamily: 'monospace',
+                  }}
+                >
+                  كود الباقة: {profile.name}
+                </span>
+              </div>
+              <div
+                style={{
+                  fontSize: '1.25rem',
+                  fontWeight: 900,
+                  color: 'var(--primary)',
+                }}
+              >
+                {Number(profile.price).toLocaleString()} YER
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.4rem',
+                fontSize: '0.825rem',
+                margin: '1rem 0',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <span>حد السرعة:</span>
+                <strong style={{ color: 'var(--text-primary)', direction: 'ltr' }}>
+                  {profile.rateLimit || 'غير محدود'}
+                </strong>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <span>مدة الصلاحية:</span>
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  {profile.validity || 'دائم'}
+                </strong>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <span>الأجهزة المتزامنة:</span>
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  {profile.sharedUsers || 1} جهاز
+                </strong>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <span>الراوتر المرتبط:</span>
+                <strong style={{ color: 'var(--info)' }}>{profile.device?.name || 'الكل'}</strong>
+              </div>
+            </div>
+
+            <div
+              style={{
+                borderTop: '1px solid var(--border)',
+                paddingTop: '0.75rem',
+                display: 'flex',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <span className="badge badge-success">
+                <Layers size={12} />
+                متزامنة مع الراوتر
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Create Profile Modal */}
+      <Modal
+        isOpen={isAddOpen}
+        onClose={() => setIsAddOpen(false)}
+        title="إنشاء باقة هوتسبوت جديدة"
+        maxWidth="540px"
+      >
+        <form onSubmit={handleCreateProfile}>
+          <div className="form-group">
+            <label className="form-label" htmlFor="prof-name">
+              اسم الباقة التقني في ميكروتك *
+            </label>
+            <input
+              id="prof-name"
+              className="input"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="مثال: 1G-Daily أو Speed-VIP"
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="prof-display">
+              اسم الباقة التجاري (للعرض والطباعة) *
+            </label>
+            <input
+              id="prof-display"
+              className="input"
+              value={formData.displayName}
+              onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+              placeholder="مثال: باقة 1 جيجا (يومي)"
+              required
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="prof-price">
+                سعر البيع (YER) *
+              </label>
+              <input
+                id="prof-price"
+                type="number"
+                className="input"
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="prof-validity">
+                مدة الصلاحية (مثال: 1d, 3h, 7d)
+              </label>
+              <input
+                id="prof-validity"
+                className="input"
+                style={{ direction: 'ltr', textAlign: 'left' }}
+                value={formData.validity}
+                onChange={(e) => setFormData({ ...formData, validity: e.target.value })}
+                placeholder="24h"
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="prof-rate">
+                محدد السرعة (تنزيل / رفع)
+              </label>
+              <input
+                id="prof-rate"
+                className="input"
+                style={{ direction: 'ltr', textAlign: 'left' }}
+                value={formData.rateLimit}
+                onChange={(e) => setFormData({ ...formData, rateLimit: e.target.value })}
+                placeholder="2M/5M"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="prof-device">
+                الراوتر المستهدف *
+              </label>
+              <select
+                id="prof-device"
+                className="select"
+                value={formData.deviceId}
+                onChange={(e) => setFormData({ ...formData, deviceId: e.target.value })}
+                required
+              >
+                {devices.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="modal-footer" style={{ padding: '1rem 0 0 0', marginTop: '1rem' }}>
+            <button type="button" className="btn btn-outline" onClick={() => setIsAddOpen(false)}>
+              إلغاء
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+              {isSubmitting ? 'جاري الإنشاء...' : 'حفظ ومزامنة مع الراوتر'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+};

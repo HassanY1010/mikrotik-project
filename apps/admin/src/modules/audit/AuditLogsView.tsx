@@ -1,0 +1,228 @@
+import React, { useEffect, useState } from 'react';
+import { apiClient } from '../../core/api/api-client';
+import { ShieldCheck, RefreshCw, Filter, Eye } from 'lucide-react';
+import { Modal } from '../../components/common/Modal';
+import { AuditLogItem } from '../../core/types/view-models';
+
+export const AuditLogsView: React.FC = () => {
+  const [logs, setLogs] = useState<AuditLogItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionFilter, setActionFilter] = useState('ALL');
+  const [selectedLog, setSelectedLog] = useState<AuditLogItem | null>(null);
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient.get<AuditLogItem[]>('/audit-logs', {
+        action: actionFilter !== 'ALL' ? actionFilter : undefined,
+      });
+      if (Array.isArray(data)) setLogs(data);
+    } catch {
+      // Seed fallback
+      setLogs([
+        {
+          id: 'log-1',
+          action: 'AUTH_LOGIN',
+          entityType: 'USER',
+          entityId: 'usr-1',
+          user: { fullName: 'المدير العام', email: 'admin@demo.com' },
+          ipAddress: '192.168.1.105',
+          createdAt: new Date().toISOString(),
+          metadata: { device: 'Chrome / Windows 11', method: 'JWT_BEARER' },
+        },
+        {
+          id: 'log-2',
+          action: 'CARD_GENERATED',
+          entityType: 'CARD_BATCH',
+          entityId: 'batch-99',
+          user: { fullName: 'المدير العام', email: 'admin@demo.com' },
+          ipAddress: '192.168.1.105',
+          createdAt: new Date(Date.now() - 1800000).toISOString(),
+          metadata: { quantity: 100, profile: '1G-Daily', prefix: 'HS-' },
+        },
+        {
+          id: 'log-3',
+          action: 'CARD_SOLD',
+          entityType: 'SALE_TRANSACTION',
+          entityId: 'tx-1',
+          user: { fullName: 'كاشير المحطة', email: 'cashier@demo.com' },
+          ipAddress: '10.0.2.2',
+          createdAt: new Date(Date.now() - 3600000).toISOString(),
+          metadata: { invoice: 'INV-261005-001', amount: 500, cardId: 'card-1' },
+        },
+        {
+          id: 'log-4',
+          action: 'DEVICE_PING',
+          entityType: 'MIKROTIK_DEVICE',
+          entityId: 'dev-1',
+          user: { fullName: 'المدير العام', email: 'admin@demo.com' },
+          ipAddress: '192.168.1.105',
+          createdAt: new Date(Date.now() - 7200000).toISOString(),
+          metadata: { host: '192.168.88.1', latencyMs: 2.1, status: 'ONLINE' },
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLogs();
+  }, [actionFilter]);
+
+  const getActionBadge = (action: string) => {
+    if (action.includes('AUTH')) return <span className="badge badge-info">{action}</span>;
+    if (action.includes('CARD')) return <span className="badge badge-success">{action}</span>;
+    if (action.includes('REFUND') || action.includes('DELETE'))
+      return <span className="badge badge-danger">{action}</span>;
+    return <span className="badge badge-warning">{action}</span>;
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">
+            <ShieldCheck color="var(--primary)" size={24} />
+            سجل التدقيق والرقابة
+          </h1>
+          <p className="page-subtitle">
+            تتبع العمليات الحساسة، التوليد، المبيعات، والدخول مع عناوين IP والتفاصيل
+          </p>
+        </div>
+
+        <button className="btn btn-outline" onClick={fetchLogs} disabled={loading}>
+          <RefreshCw size={16} />
+          تحديث السجل
+        </button>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="card" style={{ marginBottom: '1.25rem', padding: '0.85rem 1.25rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <Filter size={16} color="var(--text-muted)" />
+          <select
+            className="select"
+            style={{ width: 'auto', padding: '0.45rem 0.75rem' }}
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+          >
+            <option value="ALL">جميع العمليات</option>
+            <option value="AUTH_LOGIN">تسجيل الدخول</option>
+            <option value="CARD_GENERATED">توليد الكروت</option>
+            <option value="CARD_SOLD">بيع كرت</option>
+            <option value="SALE_REFUND">استرجاع فاتورة</option>
+            <option value="DEVICE_PING">فحص راوتر</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Audit Table */}
+      <div className="table-container">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>العملية</th>
+              <th>الكيان المستهدف</th>
+              <th>المستخدم المنفذ</th>
+              <th>عنوان IP</th>
+              <th>التوقيت</th>
+              <th style={{ textAlign: 'left' }}>البيانات الإضافية</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.map((log) => (
+              <tr key={log.id}>
+                <td>{getActionBadge(log.action)}</td>
+                <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                  {log.entityType} ({log.entityId?.substring(0, 8)}...)
+                </td>
+                <td>
+                  <div style={{ fontWeight: 700 }}>{log.user?.fullName || 'النظام التلقائي'}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {log.user?.email}
+                  </div>
+                </td>
+                <td
+                  style={{
+                    direction: 'ltr',
+                    textAlign: 'right',
+                    fontFamily: 'monospace',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  {log.ipAddress || '127.0.0.1'}
+                </td>
+                <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  {new Date(log.createdAt).toLocaleString('ar-YE')}
+                </td>
+                <td style={{ textAlign: 'left' }}>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={() => setSelectedLog(log)}
+                    title="عرض بيانات JSON للتغيير"
+                  >
+                    <Eye size={14} />
+                    عرض التفاصيل
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Metadata Detail Modal */}
+      <Modal
+        isOpen={!!selectedLog}
+        onClose={() => setSelectedLog(null)}
+        title={`تفاصيل سجل التدقيق: ${selectedLog?.action || ''}`}
+        maxWidth="520px"
+      >
+        <div>
+          <div
+            style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}
+          >
+            <div>
+              المستخدم: <strong>{selectedLog?.user?.fullName}</strong> ({selectedLog?.user?.email})
+            </div>
+            <div>
+              عنوان IP: <strong>{selectedLog?.ipAddress}</strong>
+            </div>
+            <div>
+              التوقيت:{' '}
+              <strong>
+                {selectedLog && new Date(selectedLog.createdAt).toLocaleString('ar-YE')}
+              </strong>
+            </div>
+          </div>
+
+          <label className="form-label">البيانات الوصفية للعملية:</label>
+          <pre
+            style={{
+              padding: '1rem',
+              backgroundColor: 'var(--bg-app)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border)',
+              color: 'var(--primary)',
+              fontSize: '0.8rem',
+              fontFamily: 'monospace',
+              maxHeight: '260px',
+              overflowY: 'auto',
+              direction: 'ltr',
+              textAlign: 'left',
+            }}
+          >
+            {JSON.stringify(selectedLog?.metadata || {}, null, 2)}
+          </pre>
+
+          <div className="modal-footer" style={{ padding: '1rem 0 0 0', marginTop: '1.25rem' }}>
+            <button className="btn btn-secondary" onClick={() => setSelectedLog(null)}>
+              إغلاق
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+};

@@ -1,0 +1,111 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { DevicesService, DeviceResponse } from './devices.service';
+import { CreateDeviceDto } from './dto/create-device.dto';
+import { UpdateDeviceDto } from './dto/update-device.dto';
+import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
+import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
+import { RolesGuard } from '../../core/guards/roles.guard';
+import { Roles } from '../../core/decorators/roles.decorator';
+import { TenantId } from '../../core/decorators/tenant-id.decorator';
+import { RoleName } from '@mikrotik-saas/shared-types';
+import { RouterResource } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
+
+@ApiTags('devices')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@Controller('devices')
+export class DevicesController {
+  constructor(private readonly devicesService: DevicesService) {}
+
+  @Get()
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @ApiOperation({ summary: 'List all MikroTik routers belonging to the current tenant' })
+  @ApiResponse({ status: 200, description: 'List of devices' })
+  async findAll(@TenantId() tenantId: string): Promise<DeviceResponse[]> {
+    return this.devicesService.findAll(tenantId);
+  }
+
+  @Get(':id')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @ApiOperation({ summary: 'Get details of a specific MikroTik router' })
+  @ApiResponse({ status: 200, description: 'Device details' })
+  @ApiResponse({ status: 404, description: 'Device not found' })
+  async findById(@TenantId() tenantId: string, @Param('id') id: string): Promise<DeviceResponse> {
+    return this.devicesService.findById(tenantId, id);
+  }
+
+  @Post()
+  @Roles(RoleName.TENANT_ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Add a new MikroTik router (enforces subscription maxRouters limit)' })
+  @ApiResponse({ status: 201, description: 'Device created and credentials encrypted' })
+  @ApiResponse({ status: 403, description: 'Subscription limit reached' })
+  @ApiResponse({ status: 409, description: 'Host and port already registered' })
+  async create(
+    @TenantId() tenantId: string,
+    @Body() dto: CreateDeviceDto,
+  ): Promise<DeviceResponse> {
+    return this.devicesService.create(tenantId, dto);
+  }
+
+  @Patch(':id')
+  @Roles(RoleName.TENANT_ADMIN)
+  @ApiOperation({ summary: 'Update MikroTik router settings or credentials' })
+  @ApiResponse({ status: 200, description: 'Device updated' })
+  @ApiResponse({ status: 404, description: 'Device not found' })
+  async update(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateDeviceDto,
+  ): Promise<DeviceResponse> {
+    return this.devicesService.update(tenantId, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(RoleName.TENANT_ADMIN)
+  @ApiOperation({ summary: 'Soft delete a MikroTik router' })
+  @ApiResponse({ status: 200, description: 'Device deleted' })
+  @ApiResponse({ status: 404, description: 'Device not found' })
+  async remove(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+  ): Promise<{ success: boolean; message: string }> {
+    return this.devicesService.remove(tenantId, id);
+  }
+
+  @Post(':id/test-connection')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Test live connectivity to MikroTik router and sync status' })
+  @ApiResponse({ status: 200, description: 'Test result with latency and router resource metrics' })
+  async testConnection(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+  ): Promise<{ success: boolean; latencyMs?: number; resource?: RouterResource; error?: string }> {
+    return this.devicesService.testConnection(tenantId, id);
+  }
+
+  @Get(':id/resources')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({
+    summary: 'Fetch live system resources (CPU, RAM, Uptime) directly from RouterOS',
+  })
+  @ApiResponse({ status: 200, description: 'Live system resource metrics' })
+  async getSystemResource(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+  ): Promise<RouterResource> {
+    return this.devicesService.getSystemResource(tenantId, id);
+  }
+}

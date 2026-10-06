@@ -1,0 +1,366 @@
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
+import { PrismaService } from '../../core/database/prisma.service';
+import { EncryptionService } from '../../core/security/encryption.service';
+import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
+import { CreateDeviceDto } from './dto/create-device.dto';
+import { UpdateDeviceDto } from './dto/update-device.dto';
+import { DeviceStatus, RouterOsVersion, MikroTikDevice, Prisma } from '@prisma/client';
+import { RouterResource } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
+
+export interface DeviceResponse {
+  id: string;
+  tenantId: string;
+  name: string;
+  host: string;
+  apiPort: number;
+  restPort: number;
+  useSsl: boolean;
+  username: string;
+  rosVersion: RouterOsVersion;
+  isOnline: boolean;
+  status: DeviceStatus;
+  lastSyncAt: Date | null;
+  lastError: string | null;
+  cpuLoad: number | null;
+  memoryFree: number | null;
+  memoryTotal: number | null;
+  uptime: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+@Injectable()
+export class DevicesService {
+  private readonly logger = new Logger(DevicesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly encryptionService: EncryptionService,
+    private readonly mikrotikClientFactory: MikrotikClientFactory,
+  ) {}
+
+  private transformDevice(device: MikroTikDevice): DeviceResponse {
+    return {
+      id: device.id,
+      tenantId: device.tenantId,
+      name: device.name,
+      host: device.host,
+      apiPort: device.apiPort,
+      restPort: device.restPort,
+      useSsl: device.useSsl,
+      username: device.username,
+      rosVersion: device.rosVersion,
+      isOnline: device.isOnline,
+      status: device.status,
+      lastSyncAt: device.lastSyncAt,
+      lastError: device.lastError,
+      cpuLoad: device.cpuLoad,
+      memoryFree: device.memoryFree !== null ? Number(device.memoryFree) : null,
+      memoryTotal: device.memoryTotal !== null ? Number(device.memoryTotal) : null,
+      uptime: device.uptime,
+      createdAt: device.createdAt,
+      updatedAt: device.updatedAt,
+    };
+  }
+
+  async create(tenantId: string, dto: CreateDeviceDto): Promise<DeviceResponse> {
+    // 1. Verify active subscription and router limit
+    const subscription = await this.prisma.subscription.findFirst({
+      where: {
+        tenantId,
+        status: { in: ['ACTIVE', 'TRIAL'] },
+      },
+      include: { plan: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!subscription) {
+      throw new ForbiddenException({
+        code: 'SUBSCRIPTION_REQUIRED',
+        message: 'Tenant does not have an active subscription or trial',
+      });
+    }
+
+    const currentDeviceCount = await this.prisma.mikroTikDevice.count({
+      where: {
+        tenantId,
+        deletedAt: null,
+      },
+    });
+
+    const maxAllowed = subscription.maxRouters ?? subscription.plan.maxRouters;
+    if (currentDeviceCount >= maxAllowed) {
+      throw new ForbiddenException({
+        code: 'ROUTER_LIMIT_EXCEEDED',
+        message: `Subscription limit reached. Your current plan (${subscription.plan.name}) allows a maximum of ${maxAllowed} router(s).`,
+      });
+    }
+
+    // 2. Check duplicate host + port
+    const existing = await this.prisma.mikroTikDevice.findFirst({
+      where: {
+        tenantId,
+        host: dto.host,
+        apiPort: dto.apiPort ?? 8728,
+        deletedAt: null,
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException({
+        code: 'DEVICE_EXISTS',
+        message: `A device with host ${dto.host} and API port ${dto.apiPort ?? 8728} already exists`,
+      });
+    }
+
+    // 3. Encrypt password at rest
+    const { ciphertext, iv, authTag } = this.encryptionService.encrypt(dto.password);
+
+    // 4. Create in DB
+    const device = await this.prisma.mikroTikDevice.create({
+      data: {
+        tenantId,
+        name: dto.name,
+        host: dto.host,
+        apiPort: dto.apiPort ?? 8728,
+        restPort: dto.restPort ?? 443,
+        useSsl: dto.useSsl ?? false,
+        username: dto.username,
+        passwordEncrypted: ciphertext,
+        iv,
+        authTag,
+        rosVersion: dto.rosVersion ?? RouterOsVersion.V7,
+        status: DeviceStatus.OFFLINE,
+        isOnline: false,
+      },
+    });
+
+    this.logger.log(
+      `Created MikroTik device "${device.name}" (${device.id}) for tenant ${tenantId}`,
+    );
+    return this.transformDevice(device);
+  }
+
+  async findAll(tenantId: string): Promise<DeviceResponse[]> {
+    const devices = await this.prisma.mikroTikDevice.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return devices.map((d) => this.transformDevice(d));
+  }
+
+  async findById(tenantId: string, id: string): Promise<DeviceResponse> {
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: {
+        id,
+        tenantId,
+        deletedAt: null,
+      },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `Device with ID ${id} was not found`,
+      });
+    }
+
+    return this.transformDevice(device);
+  }
+
+  async update(tenantId: string, id: string, dto: UpdateDeviceDto): Promise<DeviceResponse> {
+    const existing = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `Device with ID ${id} was not found`,
+      });
+    }
+
+    const data: Prisma.MikroTikDeviceUpdateInput = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.host !== undefined) data.host = dto.host;
+    if (dto.apiPort !== undefined) data.apiPort = dto.apiPort;
+    if (dto.restPort !== undefined) data.restPort = dto.restPort;
+    if (dto.useSsl !== undefined) data.useSsl = dto.useSsl;
+    if (dto.username !== undefined) data.username = dto.username;
+    if (dto.rosVersion !== undefined) data.rosVersion = dto.rosVersion;
+
+    if (dto.password) {
+      const { ciphertext, iv, authTag } = this.encryptionService.encrypt(dto.password);
+      data.passwordEncrypted = ciphertext;
+      data.iv = iv;
+      data.authTag = authTag;
+    }
+
+    const updated = await this.prisma.mikroTikDevice.update({
+      where: { id },
+      data,
+    });
+
+    return this.transformDevice(updated);
+  }
+
+  async remove(tenantId: string, id: string): Promise<{ success: boolean; message: string }> {
+    const existing = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `Device with ID ${id} was not found`,
+      });
+    }
+
+    await this.prisma.mikroTikDevice.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    this.logger.log(`Soft deleted MikroTik device ${id} for tenant ${tenantId}`);
+    return { success: true, message: 'Device deleted successfully' };
+  }
+
+  async testConnection(
+    tenantId: string,
+    id: string,
+  ): Promise<{
+    success: boolean;
+    latencyMs?: number;
+    resource?: RouterResource;
+    error?: string;
+  }> {
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `Device with ID ${id} was not found`,
+      });
+    }
+
+    const startTime = Date.now();
+
+    try {
+      const client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+
+      const pingOk = await client.ping();
+      if (!pingOk) {
+        throw new Error('Ping probe failed to receive RouterOS response');
+      }
+
+      const resource = await client.getSystemResource();
+      const latencyMs = Date.now() - startTime;
+
+      await this.prisma.mikroTikDevice.update({
+        where: { id },
+        data: {
+          isOnline: true,
+          status: DeviceStatus.ONLINE,
+          cpuLoad: resource.cpuLoad,
+          memoryFree: BigInt(resource.freeMemory),
+          memoryTotal: BigInt(resource.totalMemory),
+          uptime: resource.uptime,
+          lastSyncAt: new Date(),
+          lastError: null,
+        },
+      });
+
+      return {
+        success: true,
+        latencyMs,
+        resource,
+      };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Connection test failed for device ${id} (${device.host}): ${errorMsg}`);
+
+      await this.prisma.mikroTikDevice.update({
+        where: { id },
+        data: {
+          isOnline: false,
+          status: DeviceStatus.ERROR,
+          lastSyncAt: new Date(),
+          lastError: errorMsg,
+        },
+      });
+
+      return {
+        success: false,
+        error: errorMsg,
+      };
+    }
+  }
+
+  async getSystemResource(tenantId: string, id: string): Promise<RouterResource> {
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `Device with ID ${id} was not found`,
+      });
+    }
+
+    const client = await this.mikrotikClientFactory.getClient({
+      id: device.id,
+      name: device.name,
+      host: device.host,
+      apiPort: device.apiPort,
+      restPort: device.restPort,
+      useSsl: device.useSsl,
+      username: device.username,
+      passwordEncrypted: device.passwordEncrypted,
+      iv: device.iv,
+      authTag: device.authTag,
+      rosVersion: device.rosVersion,
+    });
+
+    const resource = await client.getSystemResource();
+
+    await this.prisma.mikroTikDevice.update({
+      where: { id },
+      data: {
+        isOnline: true,
+        status: DeviceStatus.ONLINE,
+        cpuLoad: resource.cpuLoad,
+        memoryFree: BigInt(resource.freeMemory),
+        memoryTotal: BigInt(resource.totalMemory),
+        uptime: resource.uptime,
+        lastSyncAt: new Date(),
+      },
+    });
+
+    return resource;
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./",
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "paths": {
+      "@mikrotik-saas/shared-types": ["../../packages/shared-types/dist/index.d.ts"],
+      "@mikrotik-saas/shared-validation": ["../../packages/shared-validation/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*", "prisma/seed.ts"],
+  "exclude": ["node_modules", "dist"]
+}

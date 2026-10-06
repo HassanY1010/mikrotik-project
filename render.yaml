@@ -1,0 +1,43 @@
+services:
+  # -------------------------------------------------------------
+  # 1) Backend API Service (NestJS)
+  # -------------------------------------------------------------
+  - type: web
+    name: mikrotik-api
+    runtime: node
+    plan: free
+    buildCommand: pnpm install && pnpm --filter @mikrotik-saas/api build
+    startCommand: node apps/api/dist/main.js
+    healthCheckPath: /health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+
+  # -------------------------------------------------------------
+  # 2) Admin Dashboard (React / Vite Static Site)
+  # -------------------------------------------------------------
+  - type: web
+    name: mikrotik-admin
+    runtime: static
+    plan: free
+    buildCommand: pnpm install && pnpm --filter @mikrotik-saas/admin build
+    staticPublishPath: ./apps/admin/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false

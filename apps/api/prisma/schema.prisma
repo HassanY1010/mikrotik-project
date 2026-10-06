@@ -1,0 +1,537 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING
+  EXPIRED
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  TENANT_ADMIN
+  MANAGER
+  CASHIER
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum RouterOsVersion {
+  V6
+  V7
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  ERROR
+  CONNECTING
+}
+
+enum CardStatus {
+  GENERATED
+  AVAILABLE
+  SOLD
+  ACTIVE
+  EXPIRED
+  DISABLED
+}
+
+enum CardBatchStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  MOBILE_WALLET
+  TRANSFER
+}
+
+enum PrintJobStatus {
+  PENDING
+  PRINTING
+  COMPLETED
+  FAILED
+}
+
+enum SyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+// =============================================================================
+// PLATFORM & MULTI-TENANCY CORE
+// =============================================================================
+
+model Tenant {
+  id           String       @id @default(uuid())
+  name         String
+  slug         String       @unique
+  logoUrl      String?
+  status       TenantStatus @default(ACTIVE)
+  currency     String       @default("YER")
+  address      String?
+  phone        String?
+  contactEmail String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  // Relations
+  users            User[]
+  roles            Role[]
+  subscriptions    Subscription[]
+  devices          MikroTikDevice[]
+  hotspotProfiles  HotspotProfile[]
+  cardBatches      CardBatch[]
+  cards            Card[]
+  cardTemplates    CardTemplate[]
+  saleTransactions SaleTransaction[]
+  printJobs        PrintJob[]
+  auditLogs        AuditLog[]
+  activeSessions   HotspotActiveSession[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("tenants")
+}
+
+model SubscriptionPlan {
+  id           String   @id @default(uuid())
+  name         String   @unique // BASIC, PRO, BUSINESS
+  nameAr       String
+  description  String?
+  maxRouters   Int      @default(1)
+  priceMonthly Decimal  @db.Decimal(10, 2)
+  priceYearly  Decimal  @db.Decimal(10, 2)
+  features     Json?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id           String             @id @default(uuid())
+  tenantId     String
+  planId       String
+  status       SubscriptionStatus @default(ACTIVE)
+  billingCycle BillingCycle       @default(MONTHLY)
+  startsAt     DateTime           @default(now())
+  expiresAt    DateTime
+  maxRouters   Int                @default(1)
+  price        Decimal            @db.Decimal(10, 2)
+  approvedBy   String?            // Super Admin user ID who manually activated it
+  notes        String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("subscriptions")
+}
+
+// =============================================================================
+// IDENTITY, USERS & RBAC
+// =============================================================================
+
+model User {
+  id           String     @id @default(uuid())
+  tenantId     String?    // null for Super Admin platform operators
+  email        String     @unique
+  passwordHash String
+  fullName     String
+  phone        String?
+  roleId       String
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role   Role    @relation(fields: [roleId], references: [id])
+
+  refreshTokens      RefreshToken[]
+  auditLogs          AuditLog[]
+  cardBatchesCreated CardBatch[]       @relation("CreatedBy")
+  cardsSold          Card[]            @relation("SoldBy")
+  saleTransactions   SaleTransaction[]
+  printJobs          PrintJob[]
+
+  @@index([tenantId])
+  @@index([roleId])
+  @@index([status])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  tenantId    String?  // null for system default roles
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique // e.g. "cards:create", "devices:manage"
+  name        String
+  description String?
+  module      String   // e.g. "cards", "devices", "sales", "tenants"
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  tenantId  String?
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  oldValues Json?
+  newValues Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// MIKROTIK ROUTEROS & HOTSPOT NETWORK
+// =============================================================================
+
+model MikroTikDevice {
+  id                String          @id @default(uuid())
+  tenantId          String
+  name              String
+  host              String
+  apiPort           Int             @default(8728)
+  restPort          Int             @default(443)
+  useSsl            Boolean         @default(false)
+  username          String
+  passwordEncrypted String          // Encrypted with AES-256-GCM
+  iv                String          // Hex IV
+  authTag           String          // Hex authentication tag
+  rosVersion        RouterOsVersion @default(V7)
+  isOnline          Boolean         @default(false)
+  status            DeviceStatus    @default(OFFLINE)
+  lastSyncAt        DateTime?
+  lastError         String?
+  cpuLoad           Int?
+  memoryFree        BigInt?
+  memoryTotal       BigInt?
+  uptime            String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  profiles       HotspotProfile[]
+  cardBatches    CardBatch[]
+  cards          Card[]
+  activeSessions HotspotActiveSession[]
+  sales          SaleTransaction[]
+
+  @@unique([tenantId, host, apiPort])
+  @@index([tenantId])
+  @@index([status])
+  @@index([isOnline])
+  @@map("mikrotik_devices")
+}
+
+model HotspotProfile {
+  id               String   @id @default(uuid())
+  tenantId         String
+  deviceId         String
+  name             String   // e.g. "1hour-unlimited", "1day-500mb"
+  rateLimit        String?  // e.g. "2M/2M"
+  sessionTimeout   String?  // e.g. "1h"
+  idleTimeout      String?  // e.g. "5m"
+  keepaliveTimeout String?
+  sharedUsers      Int      @default(1)
+  addressPool      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device      MikroTikDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  cardBatches CardBatch[]
+  cards       Card[]
+
+  @@unique([tenantId, deviceId, name])
+  @@index([tenantId])
+  @@index([deviceId])
+  @@map("hotspot_profiles")
+}
+
+model HotspotActiveSession {
+  id            String   @id @default(uuid())
+  tenantId      String
+  deviceId      String
+  cardId        String?
+  username      String
+  ipAddress     String
+  macAddress    String
+  uptimeSeconds Int      @default(0)
+  bytesIn       BigInt   @default(0)
+  bytesOut      BigInt   @default(0)
+  startedAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device MikroTikDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  card   Card?          @relation(fields: [cardId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([deviceId])
+  @@index([cardId])
+  @@index([macAddress])
+  @@map("hotspot_active_sessions")
+}
+
+// =============================================================================
+// PREPAID CARDS, BATCHES & PRINTING
+// =============================================================================
+
+model CardTemplate {
+  id               String   @id @default(uuid())
+  tenantId         String
+  name             String
+  widthMm          Int      @default(85)
+  heightMm         Int      @default(54)
+  orientation      String   @default("landscape")
+  backgroundDesign String?
+  layoutConfig     Json     // QR code, PIN, serial, price, network name placements
+  isDefault        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  printJobs PrintJob[]
+
+  @@index([tenantId])
+  @@map("card_templates")
+}
+
+model CardBatch {
+  id             String          @id @default(uuid())
+  tenantId       String
+  deviceId       String
+  profileId      String
+  batchNumber    String          @unique
+  totalCards     Int
+  prefix         String?
+  length         Int             @default(8)
+  pattern        String          @default("NUMERIC") // NUMERIC, ALPHANUMERIC
+  price          Decimal         @db.Decimal(10, 2)
+  validityDays   Int?
+  timeLimit      String?
+  dataLimitBytes BigInt?
+  status         CardBatchStatus @default(PROCESSING)
+  expiresAt      DateTime?
+  createdById    String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device    MikroTikDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  profile   HotspotProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  createdBy User           @relation("CreatedBy", fields: [createdById], references: [id])
+  cards     Card[]
+  printJobs PrintJob[]
+
+  @@index([tenantId])
+  @@index([deviceId])
+  @@index([profileId])
+  @@index([status])
+  @@map("card_batches")
+}
+
+model Card {
+  id                String     @id @default(uuid())
+  tenantId          String
+  batchId           String
+  deviceId          String
+  profileId         String
+  username          String
+  passwordEncrypted String     // AES-256-GCM encrypted
+  iv                String     // Hex IV
+  authTag           String     // Hex auth tag
+  pinCode           String?
+  serialNumber      String     @unique
+  price             Decimal    @db.Decimal(10, 2)
+  validityDays      Int?
+  timeLimit         String?
+  dataLimitBytes    BigInt?
+  status            CardStatus @default(AVAILABLE)
+  soldAt            DateTime?
+  soldById          String?
+  activatedAt       DateTime?
+  expiresAt         DateTime?
+  syncStatus        SyncStatus @default(PENDING)
+  syncError         String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batch          CardBatch              @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  device         MikroTikDevice         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  profile        HotspotProfile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  soldBy         User?                  @relation("SoldBy", fields: [soldById], references: [id], onDelete: SetNull)
+  sales          SaleTransaction[]
+  activeSessions HotspotActiveSession[]
+
+  @@unique([tenantId, deviceId, username])
+  @@index([tenantId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([status])
+  @@index([syncStatus])
+  @@index([soldAt])
+  @@map("cards")
+}
+
+// =============================================================================
+// SALES TRANSACTIONS & PRINT JOBS
+// =============================================================================
+
+model SaleTransaction {
+  id            String        @id @default(uuid())
+  tenantId      String
+  cardId        String
+  cashierId     String
+  deviceId      String
+  amount        Decimal       @db.Decimal(10, 2)
+  currency      String        @default("YER")
+  paymentMethod PaymentMethod @default(CASH)
+  customerPhone String?
+  customerName  String?
+  invoiceNumber String        @unique
+  printedCount  Int           @default(0)
+  lastPrintedAt DateTime?
+  createdAt     DateTime      @default(now())
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  card    Card           @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  cashier User           @relation(fields: [cashierId], references: [id])
+  device  MikroTikDevice @relation(fields: [deviceId], references: [id])
+
+  @@index([tenantId])
+  @@index([cashierId])
+  @@index([deviceId])
+  @@index([cardId])
+  @@index([createdAt])
+  @@map("sale_transactions")
+}
+
+model PrintJob {
+  id           String         @id @default(uuid())
+  tenantId     String
+  templateId   String
+  cardBatchId  String?
+  singleCardId String?
+  printerType  String         @default("THERMAL") // THERMAL, A4_SHEET, ESC_POS
+  status       PrintJobStatus @default(PENDING)
+  totalCards   Int            @default(1)
+  createdById  String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  template  CardTemplate  @relation(fields: [templateId], references: [id])
+  cardBatch CardBatch?    @relation(fields: [cardBatchId], references: [id], onDelete: SetNull)
+  createdBy User          @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("print_jobs")
+}
