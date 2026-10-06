@@ -25,6 +25,7 @@ export const envSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().default(10),
 
   // Redis
+  REDIS_URL: z.string().optional(),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional(),
