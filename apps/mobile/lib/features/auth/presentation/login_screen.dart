@@ -92,8 +92,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } catch (e) {
       String msg = 'فشل تسجيل الدخول: يرجى التحقق من صحة البيانات والاتصال بالخادم';
       if (e is DioException) {
-        if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {
-          msg = 'السيرفر السحابي يستيقظ الآن (استغرق وقتاً أطول). يرجى إعادة المحاولة الآن.';
+        if (e.response?.statusCode == 401) {
+          msg = 'البريد الإلكتروني أو كلمة المرور غير صحيحة. يرجى التأكد من صحة البيانات.';
+        } else if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {
+          msg = 'الخادم السحابي استغرق وقتاً للاستجابة. يرجى المحاولة مرة ثانية الآن.';
+        } else if (e.type == DioExceptionType.connectionError) {
+          msg = 'تعذر الاتصال بالخادم. يرجى التأكد من اتصال الهاتف بالإنترنت وعنوان السيرفر.';
         } else if (e.response != null && e.response?.data is Map) {
           final errorData = e.response!.data as Map;
           if (errorData['error'] != null && errorData['error']['message'] != null) {
@@ -101,9 +105,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           } else if (errorData['message'] != null) {
             msg = errorData['message'].toString();
           }
-        } else if (e.type == DioExceptionType.connectionError) {
-          msg = 'تعذر الاتصال بالخادم. يرجى التأكد من اتصال الإنترنت وعنوان السيرفر.';
         }
+      } else {
+        msg = e.toString();
       }
       setState(() {
         _errorMessage = msg;

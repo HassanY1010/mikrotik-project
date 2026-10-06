@@ -23,11 +23,27 @@ class LocalStorage {
 
   // --- Base URL ---
   String getBaseUrl() {
-    return _prefs.getString(_baseUrlKey) ?? ApiEndpoints.defaultBaseUrl;
+    final raw = _prefs.getString(_baseUrlKey);
+    if (raw == null ||
+        raw.trim().isEmpty ||
+        raw.contains('localhost') ||
+        raw.contains('10.0.2.2') ||
+        raw.contains('127.0.0.1')) {
+      return ApiEndpoints.defaultBaseUrl;
+    }
+    return raw.trim();
   }
 
   Future<void> setBaseUrl(String url) async {
-    await _prefs.setString(_baseUrlKey, url);
+    final trimmed = url.trim();
+    if (trimmed.isEmpty ||
+        trimmed.contains('localhost') ||
+        trimmed.contains('10.0.2.2') ||
+        trimmed.contains('127.0.0.1')) {
+      await _prefs.setString(_baseUrlKey, ApiEndpoints.defaultBaseUrl);
+    } else {
+      await _prefs.setString(_baseUrlKey, trimmed);
+    }
   }
 
   // --- Auth Token ---

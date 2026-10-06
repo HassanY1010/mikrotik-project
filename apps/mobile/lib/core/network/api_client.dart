@@ -22,7 +22,17 @@ class ApiClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          options.baseUrl = localStorage.getBaseUrl();
+          var base = localStorage.getBaseUrl().trim();
+          if (!base.endsWith('/')) {
+            base = '$base/';
+          }
+          options.baseUrl = base;
+
+          // Prevent leading slash in path from overriding the baseUrl path segment (/api/v1)
+          if (options.path.startsWith('/')) {
+            options.path = options.path.substring(1);
+          }
+
           final token = localStorage.getToken();
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
