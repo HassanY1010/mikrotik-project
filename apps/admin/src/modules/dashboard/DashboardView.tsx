@@ -42,32 +42,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         setData(res);
       }
     } catch {
-      // Graceful fallback with representative data if backend is in seed/offline state
+      // In case of error, show 0s and empty real state
       setData({
         kpis: {
-          totalRevenue: 245000,
-          availableCards: 840,
-          totalSoldCards: 320,
-          activeRouters: 3,
-          activeSessions: 78,
+          totalRevenue: 0,
+          availableCards: 0,
+          totalSoldCards: 0,
+          activeRouters: 0,
+          activeSessions: 0,
           currency: 'YER',
         },
-        topProfiles: [
-          { name: 'باقة 1 جيجا (يومي)', count: 145, revenue: 72500 },
-          { name: 'باقة 3 ساعات غير محدود', count: 98, revenue: 49000 },
-          { name: 'باقة أسبوعية 5 جيجا', count: 52, revenue: 52000 },
-          { name: 'باقة شهرية 15 جيجا', count: 25, revenue: 71500 },
-        ],
-        recentSales: [
-          { invoice: 'INV-261005-001', profile: 'باقة 1 جيجا', amount: 500, time: 'منذ 5 دقائق' },
-          { invoice: 'INV-261005-002', profile: 'باقة 3 ساعات', amount: 500, time: 'منذ 12 دقيقة' },
-          {
-            invoice: 'INV-261005-003',
-            profile: 'باقة أسبوعية',
-            amount: 1000,
-            time: 'منذ 25 دقيقة',
-          },
-        ],
+        topProfiles: [],
+        recentSales: [],
       });
     } finally {
       setLoading(false);

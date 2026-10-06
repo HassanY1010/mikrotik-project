@@ -7,17 +7,17 @@ import { TenantSettingsItem } from '../../core/types/view-models';
 export const TenantSettingsView: React.FC = () => {
   const { showToast } = useToast();
   const [tenant, setTenant] = useState<TenantSettingsItem>({
-    name: 'شبكة النجوم للاتصالات والإنترنت',
-    slug: 'stars-network',
+    name: '',
+    slug: '',
     currency: 'YER',
-    contactEmail: 'admin@stars-net.com',
-    contactPhone: '777-123456',
+    contactEmail: '',
+    contactPhone: '',
     subscription: {
-      plan: 'ENTERPRISE',
-      maxRouters: 10,
-      maxCardsPerMonth: 50000,
-      status: 'ACTIVE',
-      expiresAt: '2027-12-31',
+      plan: 'FREE',
+      maxRouters: 0,
+      maxCardsPerMonth: 0,
+      status: 'INACTIVE',
+      expiresAt: '',
     },
   });
   const [loading, setLoading] = useState(false);
@@ -28,8 +28,10 @@ export const TenantSettingsView: React.FC = () => {
       .then((data) => {
         if (data) setTenant(data);
       })
-      .catch(() => {});
-  }, []);
+      .catch(() => {
+        showToast('تعذر جلب بيانات المستأجر من الخادم', 'error');
+      });
+  }, [showToast]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,8 +45,8 @@ export const TenantSettingsView: React.FC = () => {
       });
       showToast('تم حفظ إعدادات الشبكة بنجاح', 'success');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'تم تحديث الإعدادات محلياً';
-      showToast(msg, 'success');
+      const msg = err instanceof Error ? err.message : 'فشل حفظ الإعدادات، يرجى المحاولة لاحقاً';
+      showToast(msg, 'error');
     } finally {
       setLoading(false);
     }

@@ -7,8 +7,8 @@ export const LoginView: React.FC = () => {
   const { login } = useAuth();
   const { showToast } = useToast();
 
-  const [email, setEmail] = useState('admin@demo.com');
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,10 +37,6 @@ export const LoginView: React.FC = () => {
     }
   };
 
-  const fillAccount = (accEmail: string, accPass: string) => {
-    setEmail(accEmail);
-    setPassword(accPass);
-  };
 
   return (
     <div
@@ -169,37 +165,6 @@ export const LoginView: React.FC = () => {
           </button>
         </form>
 
-        {/* Quick demo credentials buttons */}
-        <div
-          style={{ marginTop: '2rem', borderTop: '1px solid var(--border)', paddingTop: '1.25rem' }}
-        >
-          <div
-            style={{
-              fontSize: '0.75rem',
-              color: 'var(--text-muted)',
-              marginBottom: '0.6rem',
-              textAlign: 'center',
-            }}
-          >
-            حسابات تجريبية سريعة للاختبار:
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => fillAccount('admin@demo.com', 'Password123!')}
-            >
-              حساب مدير الشبكة
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => fillAccount('cashier@demo.com', 'Password123!')}
-            >
-              حساب كاشير المبيعات
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );

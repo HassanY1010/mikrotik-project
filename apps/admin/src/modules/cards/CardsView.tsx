@@ -46,44 +46,11 @@ export const CardsView: React.FC = () => {
           setBatchForm((prev) => ({ ...prev, profileId: profilesRes[0].id }));
         }
       }
-    } catch {
-      // Mock seed fallback
-      setCards([
-        {
-          id: 'card-1',
-          serialNumber: 'SN-2610-001',
-          username: 'HS8492',
-          profile: { displayName: 'باقة 1 جيجا (يومي)', price: 500 },
-          device: { name: 'راوتر الفرع الرئيسي' },
-          status: 'AVAILABLE',
-          price: 500,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 'card-2',
-          serialNumber: 'SN-2610-002',
-          username: 'HS9921',
-          profile: { displayName: 'باقة 1 جيجا (يومي)', price: 500 },
-          device: { name: 'راوتر الفرع الرئيسي' },
-          status: 'SOLD',
-          price: 500,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 'card-3',
-          serialNumber: 'SN-2610-003',
-          username: 'HS3321',
-          profile: { displayName: 'باقة 3 ساعات', price: 500 },
-          device: { name: 'راوتر الفرع الرئيسي' },
-          status: 'AVAILABLE',
-          price: 500,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
-      setProfiles([
-        { id: 'prof-1', displayName: 'باقة 1 جيجا (يومي)', price: 500 },
-        { id: 'prof-2', displayName: 'باقة 3 ساعات غير محدود', price: 500 },
-      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تحميل الكروت من الخادم';
+      showToast(msg, 'error');
+      setCards([]);
+      setProfiles([]);
     } finally {
       setLoading(false);
     }

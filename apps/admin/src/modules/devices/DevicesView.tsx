@@ -45,40 +45,10 @@ export const DevicesView: React.FC = () => {
       if (Array.isArray(data)) {
         setDevices(data);
       }
-    } catch {
-      // Fallback seed devices for visual testing if DB empty
-      setDevices([
-        {
-          id: 'dev-1',
-          name: 'راوتر الفرع الرئيسي (RB4011)',
-          host: '192.168.88.1',
-          port: 8728,
-          rosVersion: 'V7',
-          connectionType: 'API_SOCKET',
-          status: 'ONLINE',
-          lastSeenAt: new Date().toISOString(),
-        },
-        {
-          id: 'dev-2',
-          name: 'راوتر فرع السوق (CCR1009)',
-          host: '192.168.10.1',
-          port: 8728,
-          rosVersion: 'V7',
-          connectionType: 'API_SOCKET',
-          status: 'ONLINE',
-          lastSeenAt: new Date().toISOString(),
-        },
-        {
-          id: 'dev-3',
-          name: 'راوتر المقهى (hEX S)',
-          host: '10.0.0.1',
-          port: 443,
-          rosVersion: 'V6',
-          connectionType: 'REST',
-          status: 'ONLINE',
-          lastSeenAt: new Date().toISOString(),
-        },
-      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تحميل قائمة الراوترات من الخادم';
+      showToast(msg, 'error');
+      setDevices([]);
     } finally {
       setLoading(false);
     }
@@ -125,18 +95,10 @@ export const DevicesView: React.FC = () => {
     try {
       const res = await apiClient.get<DiagnosticsData>(`/devices/${device.id}/diagnostics`);
       setDiagnostics(res);
-    } catch {
-      // Diagnostic mock simulation
-      setDiagnostics({
-        cpuLoad: 14,
-        freeMemoryMb: 412,
-        totalMemoryMb: 1024,
-        uptime: '14d 06:42:19',
-        activeHotspotSessions: 42,
-        latencyMs: 1.8,
-        boardName: 'RB4011iGS+5HacQ2HnD',
-        version: '7.12 (stable)',
-      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'تعذر جلب بيانات تشخيص الراوتر من الخادم';
+      showToast(msg, 'error');
+      setDiagnostics(null);
     } finally {
       setDiagLoading(false);
     }

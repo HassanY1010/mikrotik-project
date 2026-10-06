@@ -17,14 +17,10 @@ export const ReportsView: React.FC = () => {
       setShiftSummary(data);
     } catch {
       setShiftSummary({
-        totalRevenue: 245000,
-        totalSalesCount: 420,
+        totalRevenue: 0,
+        totalSalesCount: 0,
         currency: 'YER',
-        profileBreakdown: [
-          { profileName: 'باقة 1 جيجا (يومي)', count: 210, totalAmount: 105000 },
-          { profileName: 'باقة 3 ساعات غير محدود', count: 140, totalAmount: 70000 },
-          { profileName: 'باقة 5 جيجا أسبوعية', count: 70, totalAmount: 70000 },
-        ],
+        profileBreakdown: [],
       });
     } finally {
       setLoading(false);

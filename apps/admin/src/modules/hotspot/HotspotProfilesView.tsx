@@ -37,44 +37,11 @@ export const HotspotProfilesView: React.FC = () => {
           setFormData((prev) => ({ ...prev, deviceId: devicesRes[0].id }));
         }
       }
-    } catch {
-      // Seed fallback
-      setProfiles([
-        {
-          id: 'prof-1',
-          name: '1G-Daily',
-          displayName: 'باقة 1 جيجا (يومي)',
-          price: 500,
-          validity: '24h',
-          rateLimit: '2M/4M',
-          sharedUsers: 1,
-          device: { name: 'راوتر الفرع الرئيسي (RB4011)' },
-        },
-        {
-          id: 'prof-2',
-          name: '3H-Unlimited',
-          displayName: 'باقة 3 ساعات غير محدود',
-          price: 500,
-          validity: '3h',
-          rateLimit: '3M/10M',
-          sharedUsers: 1,
-          device: { name: 'راوتر الفرع الرئيسي (RB4011)' },
-        },
-        {
-          id: 'prof-3',
-          name: '5G-Weekly',
-          displayName: 'باقة أسبوعية 5 جيجا',
-          price: 1500,
-          validity: '7d',
-          rateLimit: '4M/15M',
-          sharedUsers: 1,
-          device: { name: 'راوتر فرع السوق (CCR1009)' },
-        },
-      ]);
-      setDevices([
-        { id: 'dev-1', name: 'راوتر الفرع الرئيسي (RB4011)' },
-        { id: 'dev-2', name: 'راوتر فرع السوق (CCR1009)' },
-      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تحميل بروفايلات الهوت سبوت من الخادم';
+      showToast(msg, 'error');
+      setProfiles([]);
+      setDevices([]);
     } finally {
       setLoading(false);
     }

@@ -37,40 +37,11 @@ export const PosTerminalView: React.FC = () => {
           setSelectedProfile(data[0]);
         }
       }
-    } catch {
-      // Seed fallback
-      const mockProfiles = [
-        {
-          id: 'p1',
-          displayName: 'باقة 1 جيجا (يومي)',
-          price: 500,
-          validity: '24h',
-          availableCards: 140,
-        },
-        {
-          id: 'p2',
-          displayName: 'باقة 3 ساعات غير محدود',
-          price: 500,
-          validity: '3h',
-          availableCards: 95,
-        },
-        {
-          id: 'p3',
-          displayName: 'باقة 5 جيجا أسبوعية',
-          price: 1500,
-          validity: '7d',
-          availableCards: 48,
-        },
-        {
-          id: 'p4',
-          displayName: 'باقة 15 جيجا شهرية',
-          price: 3500,
-          validity: '30d',
-          availableCards: 22,
-        },
-      ];
-      setProfiles(mockProfiles);
-      setSelectedProfile(mockProfiles[0]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تحميل باقات الكروت من الخادم';
+      showToast(msg, 'error');
+      setProfiles([]);
+      setSelectedProfile(null);
     }
   };
 

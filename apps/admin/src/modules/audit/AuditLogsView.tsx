@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
+import { useToast } from '../../core/context/ToastContext';
 import { ShieldCheck, RefreshCw, Filter, Eye } from 'lucide-react';
 import { Modal } from '../../components/common/Modal';
 import { AuditLogItem } from '../../core/types/view-models';
 
 export const AuditLogsView: React.FC = () => {
+  const { showToast } = useToast();
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionFilter, setActionFilter] = useState('ALL');
@@ -17,50 +19,10 @@ export const AuditLogsView: React.FC = () => {
         action: actionFilter !== 'ALL' ? actionFilter : undefined,
       });
       if (Array.isArray(data)) setLogs(data);
-    } catch {
-      // Seed fallback
-      setLogs([
-        {
-          id: 'log-1',
-          action: 'AUTH_LOGIN',
-          entityType: 'USER',
-          entityId: 'usr-1',
-          user: { fullName: 'المدير العام', email: 'admin@demo.com' },
-          ipAddress: '192.168.1.105',
-          createdAt: new Date().toISOString(),
-          metadata: { device: 'Chrome / Windows 11', method: 'JWT_BEARER' },
-        },
-        {
-          id: 'log-2',
-          action: 'CARD_GENERATED',
-          entityType: 'CARD_BATCH',
-          entityId: 'batch-99',
-          user: { fullName: 'المدير العام', email: 'admin@demo.com' },
-          ipAddress: '192.168.1.105',
-          createdAt: new Date(Date.now() - 1800000).toISOString(),
-          metadata: { quantity: 100, profile: '1G-Daily', prefix: 'HS-' },
-        },
-        {
-          id: 'log-3',
-          action: 'CARD_SOLD',
-          entityType: 'SALE_TRANSACTION',
-          entityId: 'tx-1',
-          user: { fullName: 'كاشير المحطة', email: 'cashier@demo.com' },
-          ipAddress: '10.0.2.2',
-          createdAt: new Date(Date.now() - 3600000).toISOString(),
-          metadata: { invoice: 'INV-261005-001', amount: 500, cardId: 'card-1' },
-        },
-        {
-          id: 'log-4',
-          action: 'DEVICE_PING',
-          entityType: 'MIKROTIK_DEVICE',
-          entityId: 'dev-1',
-          user: { fullName: 'المدير العام', email: 'admin@demo.com' },
-          ipAddress: '192.168.1.105',
-          createdAt: new Date(Date.now() - 7200000).toISOString(),
-          metadata: { host: '192.168.88.1', latencyMs: 2.1, status: 'ONLINE' },
-        },
-      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تحميل سجل التدقيق من الخادم';
+      showToast(msg, 'error');
+      setLogs([]);
     } finally {
       setLoading(false);
     }

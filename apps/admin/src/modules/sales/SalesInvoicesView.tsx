@@ -23,34 +23,10 @@ export const SalesInvoicesView: React.FC = () => {
         search: search || undefined,
       });
       if (Array.isArray(data)) setSales(data);
-    } catch {
-      // Seed fallback
-      setSales([
-        {
-          id: 'tx-1',
-          invoiceNumber: 'INV-261005-001',
-          card: { serialNumber: 'SN-001', username: 'HS8192' },
-          amount: 500,
-          currency: 'YER',
-          paymentMethod: 'CASH',
-          customerPhone: '771234567',
-          customerName: 'محمد أحمد',
-          createdAt: new Date().toISOString(),
-          isRefunded: false,
-        },
-        {
-          id: 'tx-2',
-          invoiceNumber: 'INV-261005-002',
-          card: { serialNumber: 'SN-002', username: 'HS9921' },
-          amount: 1500,
-          currency: 'YER',
-          paymentMethod: 'KURAIMI',
-          customerPhone: '739887766',
-          customerName: 'سالم علي',
-          createdAt: new Date(Date.now() - 3600000).toISOString(),
-          isRefunded: false,
-        },
-      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تحميل سجل المبيعات من الخادم';
+      showToast(msg, 'error');
+      setSales([]);
     } finally {
       setLoading(false);
     }
