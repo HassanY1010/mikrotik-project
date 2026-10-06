@@ -160,7 +160,7 @@ export const PosTerminalView: React.FC = () => {
 
                   <div style={{ margin: '1rem 0' }}>
                     <div style={{ fontSize: '1.6rem', fontWeight: 900, color: 'var(--primary)' }}>
-                      {Number(p.price).toLocaleString()} YER
+                      {Number(p.price).toLocaleString()} SDG
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                       الصلاحية: {p.validity || '24 ساعة'}
@@ -224,7 +224,7 @@ export const PosTerminalView: React.FC = () => {
             >
               <span style={{ color: 'var(--text-secondary)' }}>السعر الإجمالي:</span>
               <strong style={{ fontSize: '1.2rem', color: 'var(--primary)' }}>
-                {Number(selectedProfile?.price || 0).toLocaleString()} YER
+                {Number(selectedProfile?.price || 0).toLocaleString()} SDG
               </strong>
             </div>
           </div>
@@ -348,7 +348,7 @@ export const PosTerminalView: React.FC = () => {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', margin: '4px 0' }}>
               <span>المبلغ:</span>
-              <span style={{ fontWeight: 'bold' }}>{receipt?.amount} YER</span>
+              <span style={{ fontWeight: 'bold' }}>{receipt?.amount} SDG</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>التسلسلي:</span>

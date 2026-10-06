@@ -190,7 +190,7 @@ export const CardsView: React.FC = () => {
                   {card.username}
                 </td>
                 <td>{card.profile?.displayName || card.profile?.name || 'عام'}</td>
-                <td style={{ fontWeight: 700 }}>{Number(card.price).toLocaleString()} YER</td>
+                <td style={{ fontWeight: 700 }}>{Number(card.price).toLocaleString()} SDG</td>
                 <td>{getStatusBadge(card.status)}</td>
                 <td style={{ color: 'var(--text-secondary)' }}>{card.device?.name || 'الكل'}</td>
                 <td style={{ textAlign: 'left' }}>
@@ -230,7 +230,7 @@ export const CardsView: React.FC = () => {
             >
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.displayName || p.name} ({p.price} YER)
+                  {p.displayName || p.name} ({p.price} SDG)
                 </option>
               ))}
             </select>
@@ -353,7 +353,7 @@ export const CardsView: React.FC = () => {
             style={{ margin: '0.75rem 0', fontSize: '0.875rem', color: 'var(--text-secondary)' }}
           >
             <div>الباقة: {selectedCard?.profile?.displayName || selectedCard?.profile?.name}</div>
-            <div>السعر: {selectedCard?.price} YER</div>
+            <div>السعر: {selectedCard?.price} SDG</div>
             <div style={{ marginTop: '0.25rem' }}>
               {selectedCard && getStatusBadge(selectedCard.status)}
             </div>

@@ -19,7 +19,7 @@ export const ReportsView: React.FC = () => {
       setShiftSummary({
         totalRevenue: 0,
         totalSalesCount: 0,
-        currency: 'YER',
+        currency: 'SDG',
         profileBreakdown: [],
       });
     } finally {
@@ -222,7 +222,7 @@ export const ReportsView: React.FC = () => {
               }}
             >
               {Number(shiftSummary?.totalRevenue || 0).toLocaleString()}{' '}
-              {shiftSummary?.currency || 'YER'}
+              {shiftSummary?.currency || 'SDG'}
             </div>
           </div>
 
@@ -271,7 +271,7 @@ export const ReportsView: React.FC = () => {
                   <td style={{ fontWeight: 700 }}>{p.profileName}</td>
                   <td>{p.count} كرت</td>
                   <td style={{ fontWeight: 800, color: 'var(--primary)' }}>
-                    {Number(p.totalAmount).toLocaleString()} {shiftSummary?.currency || 'YER'}
+                    {Number(p.totalAmount).toLocaleString()} {shiftSummary?.currency || 'SDG'}
                   </td>
                 </tr>
               ))}

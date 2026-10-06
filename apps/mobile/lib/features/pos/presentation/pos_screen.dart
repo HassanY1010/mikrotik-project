@@ -87,7 +87,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             password: card['clearPassword'] as String? ?? card['password'] as String?,
             profileName: _selectedProfile!.name,
             amount: _selectedProfile!.price,
-            currency: 'YER',
+            currency: 'SDG',
             paymentMethod: _paymentMethod,
             soldAt: DateTime.now(),
             cashierName: user?.fullName ?? 'الكاشير',
@@ -281,7 +281,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                   style: const TextStyle(fontSize: 11, color: Colors.grey),
                                 ),
                               Text(
-                                '${p.price.toStringAsFixed(0)} YER',
+                                '${p.price.toStringAsFixed(0)} SDG',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w900,
@@ -331,8 +331,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                       ),
                       Text(
                         _selectedProfile != null
-                            ? '${_selectedProfile!.price.toStringAsFixed(0)} YER'
-                            : '0 YER',
+                            ? '${_selectedProfile!.price.toStringAsFixed(0)} SDG'
+                            : '0 SDG',
                         style: TextStyle(
                           color: theme.colorScheme.primary,
                           fontWeight: FontWeight.bold,

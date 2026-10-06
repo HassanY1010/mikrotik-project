@@ -101,7 +101,7 @@ model Tenant {
   slug         String       @unique
   logoUrl      String?
   status       TenantStatus @default(ACTIVE)
-  currency     String       @default("YER")
+  currency     String       @default("SDG")
   address      String?
   phone        String?
   contactEmail String
@@ -491,7 +491,7 @@ model SaleTransaction {
   cashierId     String
   deviceId      String
   amount        Decimal       @db.Decimal(10, 2)
-  currency      String        @default("YER")
+  currency      String        @default("SDG")
   paymentMethod PaymentMethod @default(CASH)
   customerPhone String?
   customerName  String?

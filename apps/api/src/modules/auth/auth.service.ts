@@ -199,7 +199,7 @@ export class AuthService {
         data: {
           name: dto.tenantName.trim(),
           slug,
-          currency: dto.currency?.toUpperCase() ?? 'YER',
+          currency: dto.currency?.toUpperCase() ?? 'SDG',
           contactEmail: email,
           phone: dto.adminPhone,
           status: TenantStatus.ACTIVE,

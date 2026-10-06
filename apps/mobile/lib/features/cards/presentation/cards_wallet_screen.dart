@@ -56,7 +56,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
               ),
             const SizedBox(height: 6),
             Text(
-              'الباقة: ${card.profileName} (${card.price.toStringAsFixed(0)} YER)',
+              'الباقة: ${card.profileName} (${card.price.toStringAsFixed(0)} SDG)',
               style: const TextStyle(color: Colors.grey, fontSize: 13),
             ),
           ],
@@ -316,7 +316,7 @@ class _ReserveCardsBottomSheetState extends ConsumerState<_ReserveCardsBottomShe
             items: profiles
                 .map((p) => DropdownMenuItem(
                       value: p,
-                      child: Text('${p.displayName ?? p.name} (${p.price.toStringAsFixed(0)} YER)'),
+                      child: Text('${p.displayName ?? p.name} (${p.price.toStringAsFixed(0)} SDG)'),
                     ))
                 .toList(),
             initialValue: _selectedProfile,

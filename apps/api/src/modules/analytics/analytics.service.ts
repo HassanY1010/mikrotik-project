@@ -86,7 +86,7 @@ export class AnalyticsService {
       where: { id: tenantId },
       select: { currency: true },
     });
-    const currency = tenant?.currency ?? 'YER';
+    const currency = tenant?.currency ?? 'SDG';
 
     // Parallel aggregate queries
     const [

@@ -18,7 +18,7 @@ describe('SyncService', () => {
   beforeEach(async () => {
     prisma = {
       tenant: {
-        findUnique: jest.fn().mockResolvedValue({ currency: 'YER' }),
+        findUnique: jest.fn().mockResolvedValue({ currency: 'SDG' }),
       },
       card: {
         findFirst: jest.fn(),

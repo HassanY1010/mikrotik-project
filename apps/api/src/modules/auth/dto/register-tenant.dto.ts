@@ -60,7 +60,7 @@ export class RegisterTenantDto {
   adminPassword!: string;
 
   @ApiPropertyOptional({
-    example: '+967771122334',
+    example: '+249912345678',
     description: 'Contact phone number',
   })
   @IsOptional()
@@ -68,9 +68,9 @@ export class RegisterTenantDto {
   adminPhone?: string;
 
   @ApiPropertyOptional({
-    example: 'YER',
-    description: 'Primary currency code (e.g. YER, SAR, USD)',
-    default: 'YER',
+    example: 'SDG',
+    description: 'Primary currency code (e.g. SDG, USD, SAR)',
+    default: 'SDG',
   })
   @IsOptional()
   @IsString()

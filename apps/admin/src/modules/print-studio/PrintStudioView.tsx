@@ -295,7 +295,7 @@ export const PrintStudioView: React.FC = () => {
                   }}
                 >
                   <span>{card.profile?.displayName || 'باقة إنترنت'}</span>
-                  <span style={{ color: '#0f766e' }}>{card.price} YER</span>
+                  <span style={{ color: '#0f766e' }}>{card.price} SDG</span>
                 </div>
 
                 <div style={{ fontSize: '0.58rem', color: '#94a3b8', marginTop: '6px' }}>
@@ -333,7 +333,7 @@ export const PrintStudioView: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', margin: '4px 0' }}>
                   <span>السعر:</span>
-                  <span>{card.price} YER</span>
+                  <span>{card.price} SDG</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', margin: '4px 0' }}>
                   <span>الرقم التسلسلي:</span>

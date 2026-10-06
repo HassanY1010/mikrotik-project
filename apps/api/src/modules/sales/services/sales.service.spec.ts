@@ -29,7 +29,7 @@ describe('SalesService', () => {
           id: mockTenantId,
           name: 'Al-Noor Hotspot',
           phone: '+967-1-234567',
-          currency: 'YER',
+          currency: 'SDG',
         }),
       },
       mikroTikDevice: {
@@ -196,21 +196,21 @@ describe('SalesService', () => {
         {
           id: 'tx-1',
           amount: '500',
-          currency: 'YER',
+          currency: 'SDG',
           paymentMethod: PaymentMethod.CASH,
           card: { profile: { name: '1hour' } },
         },
         {
           id: 'tx-2',
           amount: '1000',
-          currency: 'YER',
+          currency: 'SDG',
           paymentMethod: PaymentMethod.CASH,
           card: { profile: { name: '3hours' } },
         },
         {
           id: 'tx-3',
           amount: '500',
-          currency: 'YER',
+          currency: 'SDG',
           paymentMethod: PaymentMethod.MOBILE_WALLET,
           card: { profile: { name: '1hour' } },
         },

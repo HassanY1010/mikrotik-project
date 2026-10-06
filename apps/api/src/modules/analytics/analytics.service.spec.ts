@@ -12,7 +12,7 @@ describe('AnalyticsService', () => {
   beforeEach(async () => {
     prisma = {
       tenant: {
-        findUnique: jest.fn().mockResolvedValue({ currency: 'YER' }),
+        findUnique: jest.fn().mockResolvedValue({ currency: 'SDG' }),
       },
       saleTransaction: {
         aggregate: jest.fn().mockResolvedValue({ _sum: { amount: '5000' } }),
@@ -53,7 +53,7 @@ describe('AnalyticsService', () => {
       const overview = await service.getDashboardOverview(mockTenantId);
 
       expect(overview.revenue.today).toBe(5000);
-      expect(overview.revenue.currency).toBe('YER');
+      expect(overview.revenue.currency).toBe('SDG');
       expect(overview.cardsInventory.available).toBe(150);
       expect(overview.cardsInventory.sold).toBe(50);
       expect(overview.cardsInventory.total).toBe(200);

@@ -124,7 +124,7 @@ class OfflineCardModel {
       profileName: json['profileName'] as String? ?? 'Hotspot Card',
       deviceId: json['deviceId'] as String? ?? '',
       price: (json['price'] != null) ? double.tryParse(json['price'].toString()) ?? 0.0 : 0.0,
-      currency: json['currency'] as String? ?? 'YER',
+      currency: json['currency'] as String? ?? 'SDG',
       status: json['status'] as String? ?? 'AVAILABLE',
       soldAt: json['soldAt'] != null ? DateTime.tryParse(json['soldAt'] as String) : null,
     );
@@ -243,7 +243,7 @@ class ShiftSummaryModel {
           ? double.tryParse(json['totalRevenue'].toString()) ?? 0.0
           : 0.0,
       totalSalesCount: json['totalSalesCount'] as int? ?? 0,
-      currency: json['currency'] as String? ?? 'YER',
+      currency: json['currency'] as String? ?? 'SDG',
       profileBreakdown: breakdownRaw
           .map((item) => ShiftProfileSummary.fromJson(item as Map<String, dynamic>))
           .toList(),

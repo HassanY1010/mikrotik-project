@@ -65,7 +65,7 @@
     "adminEmail": "admin@ofuq.net",
     "adminPassword": "SecurePassword#2026",
     "adminFullName": "أحمد اليماني",
-    "currency": "YER"
+    "currency": "SDG"
   }
   ```
 
@@ -180,7 +180,7 @@
     "validityDurationMinutes": 43200,
     "dataLimitBytes": 10737418240,
     "price": 3000,
-    "currency": "YER",
+    "currency": "SDG",
     "sharedUsers": 1
   }
   ```

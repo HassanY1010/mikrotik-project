@@ -182,7 +182,7 @@ export class SalesService {
             cashierId,
             deviceId: dto.deviceId,
             amount: card.price,
-            currency: tenant.currency ?? 'YER',
+            currency: tenant.currency ?? 'SDG',
             paymentMethod: dto.paymentMethod ?? PaymentMethod.CASH,
             customerPhone: dto.customerPhone ?? null,
             customerName: dto.customerName ?? null,
@@ -225,7 +225,7 @@ export class SalesService {
         password,
         pinCode: card.pinCode ?? password,
         price: Number(card.price),
-        currency: tenant.currency ?? 'YER',
+        currency: tenant.currency ?? 'SDG',
         paymentMethod: tx.paymentMethod,
         timeLimit: card.timeLimit,
         dataLimitBytes: card.dataLimitBytes ? Number(card.dataLimitBytes) : null,
@@ -455,7 +455,7 @@ export class SalesService {
     });
 
     let totalRevenue = 0;
-    const currency = transactions[0]?.currency ?? 'YER';
+    const currency = transactions[0]?.currency ?? 'SDG';
 
     const paymentMethodBreakdown: Record<PaymentMethod, { count: number; total: number }> = {
       [PaymentMethod.CASH]: { count: 0, total: 0 },
@@ -529,7 +529,7 @@ export class SalesService {
     });
 
     let totalRevenue = 0;
-    const currency = transactions[0]?.currency ?? 'YER';
+    const currency = transactions[0]?.currency ?? 'SDG';
 
     const deviceMap = new Map<string, { deviceName: string; count: number; total: number }>();
     const cashierMap = new Map<string, { cashierName: string; count: number; total: number }>();

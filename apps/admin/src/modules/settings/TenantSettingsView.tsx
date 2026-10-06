@@ -9,7 +9,7 @@ export const TenantSettingsView: React.FC = () => {
   const [tenant, setTenant] = useState<TenantSettingsItem>({
     name: '',
     slug: '',
-    currency: 'YER',
+    currency: 'SDG',
     contactEmail: '',
     contactPhone: '',
     subscription: {
@@ -132,9 +132,9 @@ export const TenantSettingsView: React.FC = () => {
                   value={tenant.currency}
                   onChange={(e) => setTenant({ ...tenant, currency: e.target.value })}
                 >
-                  <option value="YER">ريال يمني</option>
-                  <option value="SAR">ريال سعودي</option>
-                  <option value="USD">دولار أمريكي</option>
+                  <option value="SDG">جنيه سوداني (SDG)</option>
+                  <option value="USD">دولار أمريكي (USD)</option>
+                  <option value="SAR">ريال سعودي (SAR)</option>
                 </select>
               </div>
             </div>

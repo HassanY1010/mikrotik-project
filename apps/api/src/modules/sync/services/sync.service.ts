@@ -82,7 +82,7 @@ export class SyncService {
       where: { id: tenantId },
       select: { currency: true },
     });
-    const currency = tenant?.currency ?? 'YER';
+    const currency = tenant?.currency ?? 'SDG';
 
     for (const mutation of dto.mutations) {
       try {

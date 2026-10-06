@@ -13,7 +13,7 @@ void main() {
         profileName: '1-Hour Speed',
         deviceId: 'dev-1',
         price: 500.0,
-        currency: 'YER',
+        currency: 'SDG',
         status: 'AVAILABLE',
       );
 
@@ -66,7 +66,7 @@ void main() {
         password: 'SECRET',
         profileName: 'Daily Unlimited',
         amount: 1500.0,
-        currency: 'YER',
+        currency: 'SDG',
         paymentMethod: 'CASH',
         soldAt: DateTime.now(),
         cashierName: 'Ahmad Cashier',
@@ -82,7 +82,7 @@ void main() {
       final json = {
         'totalRevenue': '12500',
         'totalSalesCount': 25,
-        'currency': 'YER',
+        'currency': 'SDG',
         'profileBreakdown': [
           {
             'profileName': '1-Hour 500MB',

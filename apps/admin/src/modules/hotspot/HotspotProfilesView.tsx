@@ -139,7 +139,7 @@ export const HotspotProfilesView: React.FC = () => {
                   color: 'var(--primary)',
                 }}
               >
-                {Number(profile.price).toLocaleString()} YER
+                {Number(profile.price).toLocaleString()} SDG
               </div>
             </div>
 
@@ -256,7 +256,7 @@ export const HotspotProfilesView: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div className="form-group">
               <label className="form-label" htmlFor="prof-price">
-                سعر البيع (YER) *
+                سعر البيع (SDG) *
               </label>
               <input
                 id="prof-price"

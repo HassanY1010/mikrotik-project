@@ -49,7 +49,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
     // Compute offline fallback metrics if server summary is null
     double totalRev = _serverSummary?.totalRevenue ?? 0.0;
     int totalCount = _serverSummary?.totalSalesCount ?? 0;
-    String currency = _serverSummary?.currency ?? 'YER';
+    String currency = _serverSummary?.currency ?? 'SDG';
 
     if (_serverSummary == null && localSales.isNotEmpty) {
       totalRev = localSales.fold(0.0, (acc, s) => acc + s.amount);

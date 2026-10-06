@@ -32,7 +32,7 @@ describe('ReportsService', () => {
         {
           invoiceNumber: 'INV-261004-AA11',
           amount: '500',
-          currency: 'YER',
+          currency: 'SDG',
           paymentMethod: PaymentMethod.CASH,
           createdAt: new Date(),
           cashier: { fullName: 'Ali Cashier' },

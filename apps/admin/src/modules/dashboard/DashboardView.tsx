@@ -28,7 +28,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       totalSoldCards: 0,
       activeRouters: 0,
       activeSessions: 0,
-      currency: 'YER',
+      currency: 'SDG',
     },
     topProfiles: [],
     recentSales: [],
@@ -50,7 +50,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           totalSoldCards: 0,
           activeRouters: 0,
           activeSessions: 0,
-          currency: 'YER',
+          currency: 'SDG',
         },
         topProfiles: [],
         recentSales: [],
@@ -95,7 +95,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       <div className="grid-cols-4" style={{ marginBottom: '1.5rem' }}>
         <StatCard
           label="إجمالي إيرادات المبيعات"
-          value={`${Number(kpis.totalRevenue || 0).toLocaleString()} ${kpis.currency || 'YER'}`}
+          value={`${Number(kpis.totalRevenue || 0).toLocaleString()} ${kpis.currency || 'SDG'}`}
           icon={<DollarSign size={24} color="var(--primary)" />}
           iconBg="var(--primary-light)"
           trend="+18% مقارنة بالشهر السابق"
@@ -214,7 +214,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                   </div>
                 </div>
                 <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.95rem' }}>
-                  {Number(p.revenue || 0).toLocaleString()} {kpis.currency || 'YER'}
+                  {Number(p.revenue || 0).toLocaleString()} {kpis.currency || 'SDG'}
                 </div>
               </div>
             ))}
@@ -255,7 +255,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                   <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{sale.invoice}</td>
                   <td>{sale.profile}</td>
                   <td style={{ fontWeight: 700 }}>
-                    {sale.amount} {kpis.currency || 'YER'}
+                    {sale.amount} {kpis.currency || 'SDG'}
                   </td>
                   <td style={{ color: 'var(--text-muted)' }}>{sale.time}</td>
                   <td>

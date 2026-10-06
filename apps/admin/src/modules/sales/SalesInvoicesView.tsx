@@ -121,7 +121,7 @@ export const SalesInvoicesView: React.FC = () => {
                   {tx.card?.username} ({tx.card?.serialNumber})
                 </td>
                 <td style={{ fontWeight: 800 }}>
-                  {Number(tx.amount).toLocaleString()} {tx.currency || 'YER'}
+                  {Number(tx.amount).toLocaleString()} {tx.currency || 'SDG'}
                 </td>
                 <td>
                   <span className="badge badge-info">
