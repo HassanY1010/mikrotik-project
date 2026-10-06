@@ -84,7 +84,8 @@ if ($pm2Available) {
 
 Write-Host "`n==========================================================" -ForegroundColor Green
 Write-Host "   Platform is live!                                       " -ForegroundColor Green
-Write-Host "   - API Gateway:    http://localhost:3000                 " -ForegroundColor Green
-Write-Host "   - Swagger Docs:   http://localhost:3000/docs            " -ForegroundColor Green
-Write-Host "   - Admin Portal:   http://localhost:5173                 " -ForegroundColor Green
+Write-Host "   - Cloud Admin:    https://mikrotik-admin.onrender.com   " -ForegroundColor Green
+Write-Host "   - Cloud API:      https://mikrotik-api-yn0e.onrender.com" -ForegroundColor Green
+Write-Host "   - Local API:      http://localhost:3000                 " -ForegroundColor Cyan
+Write-Host "   - Local Admin:    http://localhost:5173                 " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Green

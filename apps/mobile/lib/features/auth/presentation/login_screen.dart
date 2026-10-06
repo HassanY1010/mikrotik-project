@@ -105,7 +105,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           controller: _serverUrlController,
           decoration: const InputDecoration(
             labelText: 'عنوان API للخادم',
-            hintText: 'http://192.168.1.100:3000/api/v1',
+            hintText: 'https://mikrotik-api-yn0e.onrender.com/api/v1',
           ),
         ),
         actions: [
