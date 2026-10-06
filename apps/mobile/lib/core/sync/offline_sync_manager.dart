@@ -135,22 +135,34 @@ class OfflineSyncManager {
     required int count,
     String? deviceId,
   }) async {
+    final effectiveDeviceId = (deviceId != null && deviceId.isNotEmpty)
+        ? deviceId
+        : '9ec647f8-3f39-43c6-814d-31c93957ab89';
+
     final response = await apiClient.post(
       ApiEndpoints.syncReserveCards,
       data: {
         'profileId': profileId,
-        'count': count,
-        'deviceId': ?deviceId,
+        'quantity': count,
+        'deviceId': effectiveDeviceId,
       },
     );
 
     final raw = response.data;
-    final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
-    final cardsList = (data['cards'] as List? ?? [])
+    final payload = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+    final List list = (payload is List)
+        ? payload
+        : (payload is Map && payload['cards'] is List)
+            ? payload['cards'] as List
+            : [];
+
+    final cardsList = list
         .map((c) => OfflineCardModel.fromJson(c as Map<String, dynamic>))
         .toList();
 
-    await localStorage.addOfflineCards(cardsList);
+    if (cardsList.isNotEmpty) {
+      await localStorage.addOfflineCards(cardsList);
+    }
     return cardsList;
   }
 
