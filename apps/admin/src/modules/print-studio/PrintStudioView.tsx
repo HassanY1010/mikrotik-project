@@ -26,8 +26,8 @@ export const PrintStudioView: React.FC = () => {
         const val = cardsRes.value;
         const cardList = Array.isArray(val)
           ? val
-          : (val && typeof val === 'object' && Array.isArray((val as any).data))
-          ? (val as any).data
+          : val && typeof val === 'object' && 'data' in val && Array.isArray((val as { data: CardItem[] }).data)
+          ? (val as { data: CardItem[] }).data
           : [];
         setCards(cardList);
       } else {

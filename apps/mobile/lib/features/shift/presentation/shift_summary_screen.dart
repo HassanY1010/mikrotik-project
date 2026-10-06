@@ -4,6 +4,7 @@ import 'package:intl/intl.dart' as intl;
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/services/thermal_printer_service.dart';
 
 class ShiftSummaryScreen extends ConsumerStatefulWidget {
   const ShiftSummaryScreen({super.key});
@@ -107,12 +108,22 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
             ),
             icon: const Icon(Icons.print, size: 18),
             label: const Text('طباعة فورية'),
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
+              final cashierName = ref.read(currentUserProvider)?.fullName ?? 'Cashier';
+              final bytes = ThermalPrinterService.buildShiftSummaryEscPos(
+                totalRevenue: totalRev,
+                totalSalesCount: totalCount,
+                currency: currency,
+                cashierName: cashierName,
+              );
+              final result = await ThermalPrinterService.printOverNetwork(bytes: bytes);
+              if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('تم إرسال تقرير الوردية للطباعة بنجاح'),
-                  backgroundColor: Color(0xFF0D9488),
+                SnackBar(
+                  content: Text(result.message),
+                  backgroundColor: result.isSuccess ? const Color(0xFF0D9488) : Colors.redAccent,
+                  duration: const Duration(seconds: 4),
                 ),
               );
             },

@@ -40,8 +40,8 @@ export const SalesInvoicesView: React.FC = () => {
       );
       const items = Array.isArray(data)
         ? data
-        : (data && typeof data === 'object' && Array.isArray((data as any).data))
-        ? (data as any).data
+        : (data && typeof data === 'object' && 'data' in data && Array.isArray((data as { data: SaleTransactionItem[] }).data))
+        ? (data as { data: SaleTransactionItem[] }).data
         : [];
       setSales(items);
     } catch (err: unknown) {

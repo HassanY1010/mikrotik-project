@@ -466,8 +466,8 @@ export class DevicesService {
         rosVersion: device.rosVersion,
       });
 
-      if (typeof (client as any).reboot === 'function') {
-        await (client as any).reboot();
+      if (typeof client.reboot === 'function') {
+        await client.reboot();
       }
       return { success: true, message: 'Reboot command issued to router' };
     } catch {

@@ -61,4 +61,5 @@ export interface IMikrotikClient {
   deleteHotspotUser(name: string): Promise<void>;
   listActiveSessions(): Promise<HotspotActiveSessionItem[]>;
   removeActiveSession(sessionOrUserId: string): Promise<void>;
+  reboot?(): Promise<void>;
 }

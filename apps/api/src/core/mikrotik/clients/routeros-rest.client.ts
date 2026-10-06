@@ -264,4 +264,10 @@ export class RouterOsRestClient implements IMikrotikClient {
       method: 'DELETE',
     });
   }
+
+  async reboot(): Promise<void> {
+    await this.request('/system/reboot', {
+      method: 'POST',
+    });
+  }
 }

@@ -219,7 +219,10 @@ export class CardsService {
           rosVersion: device.rosVersion,
         });
 
-        // Add users to RouterOS Hotspot
+        // Add users to RouterOS Hotspot with accurate per-card tracking
+        const syncedUsernames: string[] = [];
+        const failedUsernames: string[] = [];
+
         for (const cred of plainCredentials) {
           try {
             await client.createHotspotUser({
@@ -231,16 +234,32 @@ export class CardsService {
               comment: batchNumber,
             });
             syncedCount++;
+            syncedUsernames.push(cred.username);
           } catch (itemErr) {
-            this.logger.warn(`Failed to sync card ${cred.username} to router: ${itemErr}`);
+            const errStr = itemErr instanceof Error ? itemErr.message : String(itemErr);
+            this.logger.warn(`Failed to sync card ${cred.username} to router: ${errStr}`);
+            failedUsernames.push(cred.username);
           }
         }
 
-        // Mark synced cards
-        await this.prisma.card.updateMany({
-          where: { batchId: batch.id },
-          data: { syncStatus: SyncStatus.SYNCED },
-        });
+        // Mark only genuinely synced cards
+        if (syncedUsernames.length > 0) {
+          await this.prisma.card.updateMany({
+            where: { batchId: batch.id, username: { in: syncedUsernames } },
+            data: { syncStatus: SyncStatus.SYNCED, syncError: null },
+          });
+        }
+
+        // Mark any failed cards
+        if (failedUsernames.length > 0) {
+          await this.prisma.card.updateMany({
+            where: { batchId: batch.id, username: { in: failedUsernames } },
+            data: {
+              syncStatus: SyncStatus.FAILED,
+              syncError: 'Failed to provision on MikroTik HotSpot user list',
+            },
+          });
+        }
       } catch (routerErr) {
         syncError = routerErr instanceof Error ? routerErr.message : String(routerErr);
         this.logger.error(`Batch ${batchNumber} router synchronization failed: ${syncError}`);

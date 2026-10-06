@@ -191,10 +191,10 @@ export const DevicesView: React.FC = () => {
                 </td>
                 <td>
                   <span style={{ fontFamily: 'monospace' }}>
-                    {device.port || (device as any).apiPort || (device as any).restPort || 8728}
+                    {device.port || device.apiPort || device.restPort || 8728}
                   </span>{' '}
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    ({device.connectionType || ((device as any).useSsl ? 'API-SSL' : 'API_SOCKET')})
+                    ({device.connectionType || (device.useSsl ? 'API-SSL' : 'API_SOCKET')})
                   </span>
                 </td>
                 <td>

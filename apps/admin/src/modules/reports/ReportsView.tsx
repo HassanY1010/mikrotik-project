@@ -245,7 +245,7 @@ export const ReportsView: React.FC = () => {
                 marginTop: '0.25rem',
               }}
             >
-              {shiftSummary?.totalSalesCount ?? (shiftSummary as any)?.totalTransactions ?? 0} كرت
+              {shiftSummary?.totalSalesCount ?? shiftSummary?.totalTransactions ?? 0} كرت
             </div>
           </div>
         </div>
@@ -271,7 +271,7 @@ export const ReportsView: React.FC = () => {
                   <td style={{ fontWeight: 700 }}>{p.profileName}</td>
                   <td>{p.count} كرت</td>
                   <td style={{ fontWeight: 800, color: 'var(--primary)' }}>
-                    {Number(p.totalAmount ?? (p as any).total ?? 0).toLocaleString()} {shiftSummary?.currency || 'SDG'}
+                    {Number(p.totalAmount ?? p.total ?? 0).toLocaleString()} {shiftSummary?.currency || 'SDG'}
                   </td>
                 </tr>
               ))}

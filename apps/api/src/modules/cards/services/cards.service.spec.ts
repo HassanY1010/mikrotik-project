@@ -173,8 +173,14 @@ describe('CardsService', () => {
 
       expect(mockClient.createHotspotUser).toHaveBeenCalledTimes(2);
       expect(prisma.card.updateMany).toHaveBeenCalledWith({
-        where: { batchId: mockBatchId },
-        data: { syncStatus: SyncStatus.SYNCED },
+        where: {
+          batchId: mockBatchId,
+          username: { in: ['10010001', '10010002'] },
+        },
+        data: {
+          syncStatus: SyncStatus.SYNCED,
+          syncError: null,
+        },
       });
 
       expect(result.batch.status).toBe(CardBatchStatus.COMPLETED);

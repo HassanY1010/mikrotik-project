@@ -38,6 +38,9 @@ export interface ShiftSummaryReport {
   totalTransactions: number;
   totalSalesCount?: number;
   totalRevenue: number;
+  grossRevenue?: number;
+  totalRefunds?: number;
+  refundedCount?: number;
   currency: string;
   paymentMethodBreakdown: Record<PaymentMethod, { count: number; total: number }>;
   profileBreakdown: Array<{ profileName: string; count: number; total: number; totalAmount?: number }>;
@@ -47,6 +50,9 @@ export interface DailySalesReport {
   date: string;
   totalTransactions: number;
   totalRevenue: number;
+  grossRevenue?: number;
+  totalRefunds?: number;
+  refundedCount?: number;
   currency: string;
   byDevice: Array<{ deviceId: string; deviceName: string; count: number; total: number }>;
   byCashier: Array<{ cashierId: string; cashierName: string; count: number; total: number }>;
@@ -201,11 +207,17 @@ export class SalesService {
       const card = cardsToSell[i];
       const tx = createdTransactions[i];
 
-      const password = this.encryptionService.decrypt(
+      let password = card.pinCode ?? card.username;
+      const decrypted = this.encryptionService.tryDecrypt(
         card.passwordEncrypted,
         card.iv,
         card.authTag,
       );
+      if (decrypted !== null) {
+        password = decrypted;
+      } else {
+        this.logger.warn(`Could not decrypt password for card ${card.username}, using pinCode fallback`);
+      }
 
       const qrPayload = `http://login.hotspot/login?username=${encodeURIComponent(card.username)}&password=${encodeURIComponent(password)}`;
       const qrDataUrl = await qrcode.toDataURL(qrPayload, {
@@ -272,11 +284,17 @@ export class SalesService {
       },
     });
 
-    const password = this.encryptionService.decrypt(
+    let password = tx.card.pinCode ?? tx.card.username;
+    const decrypted = this.encryptionService.tryDecrypt(
       tx.card.passwordEncrypted,
       tx.card.iv,
       tx.card.authTag,
     );
+    if (decrypted !== null) {
+      password = decrypted;
+    } else {
+      this.logger.warn(`Could not decrypt password for transaction ${transactionId}, using pinCode fallback`);
+    }
 
     const qrPayload = `http://login.hotspot/login?username=${encodeURIComponent(tx.card.username)}&password=${encodeURIComponent(password)}`;
     const qrDataUrl = await qrcode.toDataURL(qrPayload, {
@@ -325,6 +343,13 @@ export class SalesService {
       throw new NotFoundException({
         code: 'TRANSACTION_NOT_FOUND',
         message: `Transaction ${transactionId} not found`,
+      });
+    }
+
+    if (tx.card.status === CardStatus.DISABLED) {
+      throw new BadRequestException({
+        code: 'SALE_ALREADY_REFUNDED',
+        message: `Sale transaction ${transactionId} has already been refunded`,
       });
     }
 
@@ -441,7 +466,7 @@ export class SalesService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const where: any = {
+    const where: Prisma.SaleTransactionWhereInput = {
       tenantId,
       createdAt: { gte: today },
     };
@@ -460,7 +485,6 @@ export class SalesService {
       },
     });
 
-    let totalRevenue = 0;
     const currency = transactions[0]?.currency ?? 'SDG';
 
     const paymentMethodBreakdown: Record<PaymentMethod, { count: number; total: number }> = {
@@ -472,8 +496,22 @@ export class SalesService {
 
     const profileMap = new Map<string, { count: number; total: number }>();
 
+    let grossRevenue = 0;
+    let totalRevenue = 0;
+    let totalRefunds = 0;
+    let refundedCount = 0;
+
     for (const t of transactions) {
       const amount = Number(t.amount);
+      const isRefunded = t.card.status === CardStatus.DISABLED;
+
+      if (isRefunded) {
+        totalRefunds += amount;
+        refundedCount++;
+        continue;
+      }
+
+      grossRevenue += amount;
       totalRevenue += amount;
 
       // Payment method tally
@@ -503,8 +541,11 @@ export class SalesService {
       periodStart: today,
       periodEnd: new Date(),
       totalTransactions: transactions.length,
-      totalSalesCount: transactions.length,
+      totalSalesCount: transactions.length - refundedCount,
       totalRevenue,
+      grossRevenue,
+      totalRefunds,
+      refundedCount,
       currency,
       paymentMethodBreakdown,
       profileBreakdown,
@@ -536,15 +577,28 @@ export class SalesService {
       },
     });
 
-    let totalRevenue = 0;
     const currency = transactions[0]?.currency ?? 'SDG';
 
     const deviceMap = new Map<string, { deviceName: string; count: number; total: number }>();
     const cashierMap = new Map<string, { cashierName: string; count: number; total: number }>();
     const profileMap = new Map<string, { count: number; total: number }>();
 
+    let grossRevenue = 0;
+    let totalRevenue = 0;
+    let totalRefunds = 0;
+    let refundedCount = 0;
+
     for (const t of transactions) {
       const amount = Number(t.amount);
+      const isRefunded = t.card.status === CardStatus.DISABLED;
+
+      if (isRefunded) {
+        totalRefunds += amount;
+        refundedCount++;
+        continue;
+      }
+
+      grossRevenue += amount;
       totalRevenue += amount;
 
       // Device aggregation
@@ -574,6 +628,9 @@ export class SalesService {
       date: startOfDay.toISOString().split('T')[0],
       totalTransactions: transactions.length,
       totalRevenue,
+      grossRevenue,
+      totalRefunds,
+      refundedCount,
       currency,
       byDevice: Array.from(deviceMap.entries()).map(([deviceId, d]) => ({
         deviceId,

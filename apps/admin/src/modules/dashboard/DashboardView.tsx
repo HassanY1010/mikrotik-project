@@ -37,7 +37,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const res = await apiClient.get<any>('/analytics/dashboard');
+      const res = await apiClient.get<DashboardData>('/analytics/dashboard');
       if (res && res.kpis) {
         setData(res);
         return;
@@ -45,7 +45,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     } catch {
       // Fallback to /analytics/overview if /analytics/dashboard fails
       try {
-        const ov = await apiClient.get<any>('/analytics/overview');
+        interface OverviewFallback {
+          revenue?: { allTime?: number; currency?: string };
+          cardsInventory?: { available?: number; sold?: number };
+          devices?: { online?: number };
+          activeSessionsCount?: number;
+          recentSales?: Array<{
+            invoiceNumber: string;
+            profileName?: string;
+            deviceName?: string;
+            amount: number;
+            createdAt: string;
+          }>;
+        }
+        const ov = await apiClient.get<OverviewFallback>('/analytics/overview');
         if (ov) {
           setData({
             kpis: {
@@ -57,7 +70,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               currency: ov.revenue?.currency || 'SDG',
             },
             topProfiles: [],
-            recentSales: (ov.recentSales || []).map((s: any) => ({
+            recentSales: (ov.recentSales || []).map((s) => ({
               invoice: s.invoiceNumber,
               profile: s.profileName || s.deviceName || 'باقة هوتسبوت',
               amount: s.amount,

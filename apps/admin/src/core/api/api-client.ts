@@ -91,7 +91,11 @@ class ApiClient {
             body: JSON.stringify({ refreshToken }),
           });
           if (refreshRes.ok) {
-            const refreshPayload = (await refreshRes.json()) as Record<string, any>;
+            const refreshPayload = (await refreshRes.json()) as {
+              data?: { accessToken?: string; refreshToken?: string };
+              accessToken?: string;
+              refreshToken?: string;
+            };
             const refreshData = refreshPayload?.data || refreshPayload;
             if (refreshData?.accessToken) {
               localStorage.setItem('mikrotik_auth_token', refreshData.accessToken);

@@ -21,8 +21,8 @@ export const AuditLogsView: React.FC = () => {
       });
       const items = Array.isArray(data)
         ? data
-        : (data && typeof data === 'object' && Array.isArray((data as any).data))
-        ? (data as any).data
+        : data && typeof data === 'object' && 'data' in data && Array.isArray((data as { data: AuditLogItem[] }).data)
+        ? (data as { data: AuditLogItem[] }).data
         : [];
       setLogs(items);
     } catch (err: unknown) {

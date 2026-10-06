@@ -8,6 +8,7 @@ describe('EncryptionService', () => {
   beforeEach(() => {
     const configService = {
       getOrThrow: jest.fn().mockReturnValue(mockEncryptionKey),
+      get: jest.fn().mockReturnValue(undefined),
     } as unknown as ConfigService;
 
     service = new EncryptionService(configService);
@@ -54,5 +55,36 @@ describe('EncryptionService', () => {
     };
 
     expect(() => service.decrypt(tampered)).toThrow();
+  });
+
+  it('should decrypt using fallback key when primary key differs', () => {
+    const oldKey = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+    const oldConfigService = {
+      getOrThrow: jest.fn().mockReturnValue(oldKey),
+      get: jest.fn().mockReturnValue(undefined),
+    } as unknown as ConfigService;
+    const oldService = new EncryptionService(oldConfigService);
+
+    const secret = 'router-password-legacy';
+    const encryptedWithOld = oldService.encrypt(secret);
+
+    // New service with new key and oldKey in ENCRYPTION_FALLBACK_KEYS
+    const newConfigService = {
+      getOrThrow: jest.fn().mockReturnValue(mockEncryptionKey),
+      get: jest.fn().mockReturnValue(oldKey),
+    } as unknown as ConfigService;
+    const newService = new EncryptionService(newConfigService);
+
+    expect(newService.decrypt(encryptedWithOld)).toEqual(secret);
+    expect(newService.tryDecrypt(encryptedWithOld)).toEqual(secret);
+  });
+
+  it('should return null from tryDecrypt on invalid data without throwing', () => {
+    const invalid = {
+      ciphertext: 'deadbeef',
+      iv: '0123456789abcdef01234567',
+      authTag: '0123456789abcdef0123456789abcdef',
+    };
+    expect(service.tryDecrypt(invalid)).toBeNull();
   });
 });

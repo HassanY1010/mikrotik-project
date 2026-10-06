@@ -414,4 +414,9 @@ export class RouterOsApiClient implements IMikrotikClient {
     await this.connect();
     await this.executeCommand(['/ip/hotspot/active/remove', `numbers=${sessionOrUserId}`]);
   }
+
+  async reboot(): Promise<void> {
+    await this.connect();
+    await this.executeCommand(['/system/reboot']);
+  }
 }

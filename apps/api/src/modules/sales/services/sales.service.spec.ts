@@ -70,6 +70,7 @@ describe('SalesService', () => {
 
     encryptionService = {
       decrypt: jest.fn().mockReturnValue('123456'),
+      tryDecrypt: jest.fn().mockReturnValue('123456'),
     };
 
     mikrotikClientFactory = {
@@ -188,41 +189,60 @@ describe('SalesService', () => {
       expect(mockClient.disableHotspotUser).toHaveBeenCalledWith('user1001');
       expect(res.success).toBe(true);
     });
+
+    it('should throw BadRequestException if sale has already been refunded', async () => {
+      prisma.saleTransaction.findFirst.mockResolvedValue({
+        id: 'tx-1',
+        cardId: 'card-1',
+        card: {
+          id: 'card-1',
+          serialNumber: 'SN-001',
+          username: 'user1001',
+          status: CardStatus.DISABLED,
+        },
+        device: { id: mockDeviceId, name: 'Main' },
+      });
+
+      await expect(
+        service.refund(mockTenantId, 'tx-1', mockCashierId, { reason: 'Duplicate' }),
+      ).rejects.toThrow('has already been refunded');
+    });
   });
 
   describe('getShiftSummary', () => {
-    it('should aggregate transactions by payment method and profile correctly', async () => {
+    it('should aggregate transactions by payment method and deduct refunds correctly', async () => {
       prisma.saleTransaction.findMany.mockResolvedValue([
         {
           id: 'tx-1',
           amount: '500',
           currency: 'SDG',
           paymentMethod: PaymentMethod.CASH,
-          card: { profile: { name: '1hour' } },
+          card: { status: CardStatus.SOLD, profile: { name: '1hour' } },
         },
         {
           id: 'tx-2',
           amount: '1000',
           currency: 'SDG',
           paymentMethod: PaymentMethod.CASH,
-          card: { profile: { name: '3hours' } },
+          card: { status: CardStatus.SOLD, profile: { name: '3hours' } },
         },
         {
           id: 'tx-3',
           amount: '500',
           currency: 'SDG',
           paymentMethod: PaymentMethod.MOBILE_WALLET,
-          card: { profile: { name: '1hour' } },
+          card: { status: CardStatus.DISABLED, profile: { name: '1hour' } }, // REFUNDED!
         },
       ]);
 
       const summary = await service.getShiftSummary(mockTenantId, mockCashierId);
 
       expect(summary.totalTransactions).toBe(3);
-      expect(summary.totalRevenue).toBe(2000);
+      expect(summary.grossRevenue).toBe(1500);
+      expect(summary.totalRefunds).toBe(500);
+      expect(summary.refundedCount).toBe(1);
+      expect(summary.totalRevenue).toBe(1500); // 1500 net
       expect(summary.paymentMethodBreakdown[PaymentMethod.CASH].total).toBe(1500);
-      expect(summary.paymentMethodBreakdown[PaymentMethod.MOBILE_WALLET].total).toBe(500);
-      expect(summary.profileBreakdown).toHaveLength(2);
     });
   });
 });

@@ -3,6 +3,9 @@ export interface DeviceItem {
   name: string;
   host?: string;
   port?: number;
+  apiPort?: number;
+  restPort?: number;
+  useSsl?: boolean;
   rosVersion?: string;
   connectionType?: string;
   status?: string;
@@ -93,11 +96,16 @@ export interface ShiftProfileBreakdown {
   profileName: string;
   count: number;
   totalAmount: number;
+  total?: number;
 }
 
 export interface ShiftSummaryData {
   totalRevenue: number;
   totalSalesCount: number;
+  totalTransactions?: number;
+  grossRevenue?: number;
+  totalRefunds?: number;
+  refundedCount?: number;
   currency: string;
   profileBreakdown: ShiftProfileBreakdown[];
 }
