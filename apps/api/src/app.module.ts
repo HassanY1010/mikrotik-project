@@ -27,6 +27,7 @@ import { TransformInterceptor } from './core/interceptors/transform.interceptor'
 import { RequestIdInterceptor } from './core/interceptors/request-id.interceptor';
 import { LoggingInterceptor } from './core/interceptors/logging.interceptor';
 import { validateConfig } from './config/env.validation';
+import { AppController } from './app.controller';
 
 @Module({
   imports: [
@@ -115,6 +116,7 @@ import { validateConfig } from './config/env.validation';
     ReportsModule,
     SyncModule,
   ],
+  controllers: [AppController],
   providers: [
     // ---- Global Guards ----
     {
