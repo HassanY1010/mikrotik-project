@@ -66,29 +66,56 @@ export class CardsService {
   ) {}
 
   async createBatch(tenantId: string, userId: string, dto: CreateBatchDto) {
-    // 1. Verify device belongs to tenant
+    // 1. Resolve deviceId: if not provided, look up from profile or tenant's active device
+    let effectiveDeviceId = dto.deviceId;
+    if (!effectiveDeviceId) {
+      const p = await this.prisma.hotspotProfile.findFirst({
+        where: { id: dto.profileId, tenantId },
+      });
+      if (p) {
+        effectiveDeviceId = p.deviceId;
+      }
+    }
+
+    if (!effectiveDeviceId) {
+      const firstDevice = await this.prisma.mikroTikDevice.findFirst({
+        where: { tenantId, deletedAt: null },
+      });
+      if (!firstDevice) {
+        throw new NotFoundException({
+          code: 'DEVICE_NOT_FOUND',
+          message: 'يجب إضافة راوتر ميكروتيك أولاً قبل توليد الكروت',
+        });
+      }
+      effectiveDeviceId = firstDevice.id;
+    }
+
     const device = await this.prisma.mikroTikDevice.findFirst({
-      where: { id: dto.deviceId, tenantId, deletedAt: null },
+      where: { id: effectiveDeviceId, tenantId, deletedAt: null },
     });
 
     if (!device) {
       throw new NotFoundException({
         code: 'DEVICE_NOT_FOUND',
-        message: `Device with ID ${dto.deviceId} was not found for this tenant`,
+        message: `Device with ID ${effectiveDeviceId} was not found for this tenant`,
       });
     }
 
-    // 2. Verify profile belongs to tenant and device
+    // 2. Verify profile belongs to tenant
     const profile = await this.prisma.hotspotProfile.findFirst({
-      where: { id: dto.profileId, tenantId, deviceId: dto.deviceId },
+      where: { id: dto.profileId, tenantId },
     });
 
     if (!profile) {
       throw new NotFoundException({
         code: 'PROFILE_NOT_FOUND',
-        message: `Hotspot profile with ID ${dto.profileId} was not found on this device`,
+        message: `Hotspot profile with ID ${dto.profileId} was not found`,
       });
     }
+
+    const effectiveTotalCards = dto.totalCards || dto.quantity || 100;
+    const effectiveLength = dto.length || dto.codeLength || 8;
+    const effectivePrice = dto.price !== undefined ? dto.price : 500;
 
     // 3. Generate unique batch number
     const batchNumber = this.codeGenerator.generateBatchNumber();
@@ -99,14 +126,14 @@ export class CardsService {
     const batch = await this.prisma.cardBatch.create({
       data: {
         tenantId,
-        deviceId: dto.deviceId,
+        deviceId: effectiveDeviceId,
         profileId: dto.profileId,
         batchNumber,
-        totalCards: dto.totalCards,
+        totalCards: effectiveTotalCards,
         prefix: dto.prefix ?? null,
-        length: dto.length ?? 8,
+        length: effectiveLength,
         pattern: dto.pattern ?? 'NUMERIC',
-        price: new Prisma.Decimal(dto.price),
+        price: new Prisma.Decimal(effectivePrice),
         validityDays: dto.validityDays ?? null,
         timeLimit,
         dataLimitBytes,
@@ -117,16 +144,16 @@ export class CardsService {
 
     // 5. Query existing usernames for this device to guarantee uniqueness
     const existingCards = await this.prisma.card.findMany({
-      where: { tenantId, deviceId: dto.deviceId },
+      where: { tenantId, deviceId: effectiveDeviceId },
       select: { username: true },
     });
     const existingSet = new Set(existingCards.map((c) => c.username));
 
     // 6. Generate unique card codes via CSPRNG
     const usernames = this.codeGenerator.generateBatchCodes(
-      dto.totalCards,
+      effectiveTotalCards,
       {
-        length: dto.length ?? 8,
+        length: effectiveLength,
         pattern: dto.pattern ?? 'NUMERIC',
         prefix: dto.prefix,
       },
@@ -148,7 +175,7 @@ export class CardsService {
       cardDataToInsert.push({
         tenantId,
         batchId: batch.id,
-        deviceId: dto.deviceId,
+        deviceId: effectiveDeviceId,
         profileId: dto.profileId,
         username,
         passwordEncrypted: ciphertext,
@@ -156,7 +183,7 @@ export class CardsService {
         authTag,
         pinCode,
         serialNumber,
-        price: new Prisma.Decimal(dto.price),
+        price: new Prisma.Decimal(effectivePrice),
         validityDays: dto.validityDays ?? null,
         timeLimit,
         dataLimitBytes,
@@ -554,5 +581,88 @@ export class CardsService {
       totalUnsynced: batch.cards.length,
       syncedCount,
     };
+  }
+
+  async findAllCards(
+    tenantId: string,
+    query: {
+      status?: string;
+      search?: string;
+      profileId?: string;
+      deviceId?: string;
+      batchId?: string;
+      limit?: number;
+      page?: number;
+    },
+  ) {
+    const where: Prisma.CardWhereInput = {
+      tenantId,
+    };
+
+    if (query.status && query.status !== 'ALL') {
+      where.status = query.status as CardStatus;
+    }
+
+    if (query.profileId) {
+      where.profileId = query.profileId;
+    }
+
+    if (query.deviceId) {
+      where.deviceId = query.deviceId;
+    }
+
+    if (query.batchId) {
+      where.batchId = query.batchId;
+    }
+
+    if (query.search) {
+      const q = query.search.trim();
+      where.OR = [
+        { serialNumber: { contains: q, mode: 'insensitive' } },
+        { username: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const limit = query.limit ? Number(query.limit) : 100;
+    const page = query.page ? Number(query.page) : 1;
+    const skip = (page - 1) * limit;
+
+    const cards = await this.prisma.card.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip,
+      include: {
+        profile: {
+          select: { id: true, name: true, rateLimit: true },
+        },
+        device: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+
+    return cards.map((c) => ({
+      id: c.id,
+      serialNumber: c.serialNumber,
+      username: c.username,
+      pinCode: c.pinCode,
+      price: Number(c.price),
+      status: c.status,
+      createdAt: c.createdAt.toISOString(),
+      profile: c.profile
+        ? {
+            id: c.profile.id,
+            name: c.profile.name,
+            displayName: c.profile.name,
+          }
+        : undefined,
+      device: c.device
+        ? {
+            id: c.device.id,
+            name: c.device.name,
+          }
+        : undefined,
+    }));
   }
 }

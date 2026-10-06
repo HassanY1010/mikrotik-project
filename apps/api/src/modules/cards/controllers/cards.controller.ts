@@ -31,6 +31,38 @@ import { RoleName } from '@mikrotik-saas/shared-types';
 export class CardsController {
   constructor(private readonly cardsService: CardsService) {}
 
+  @Get()
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @ApiOperation({ summary: 'List all cards with filters for status, search, and profiles' })
+  @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'profileId', required: false, type: String })
+  @ApiQuery({ name: 'deviceId', required: false, type: String })
+  @ApiQuery({ name: 'batchId', required: false, type: String })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'List of cards' })
+  async findAll(
+    @TenantId() tenantId: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('profileId') profileId?: string,
+    @Query('deviceId') deviceId?: string,
+    @Query('batchId') batchId?: string,
+    @Query('limit') limit?: number,
+    @Query('page') page?: number,
+  ) {
+    return this.cardsService.findAllCards(tenantId, {
+      status,
+      search,
+      profileId,
+      deviceId,
+      batchId,
+      limit,
+      page,
+    });
+  }
+
   @Post('batches')
   @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @HttpCode(HttpStatus.CREATED)

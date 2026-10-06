@@ -14,17 +14,17 @@ import {
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateBatchDto {
-  @ApiProperty({ description: 'Target MikroTik Device ID (UUID)' })
+  @ApiPropertyOptional({ description: 'Target MikroTik Device ID (UUID)' })
   @IsUUID()
-  @IsNotEmpty()
-  deviceId!: string;
+  @IsOptional()
+  deviceId?: string;
 
   @ApiProperty({ description: 'Target Hotspot Profile ID (UUID)' })
   @IsUUID()
   @IsNotEmpty()
   profileId!: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Number of cards to generate in this batch (1-5000)',
     example: 100,
     default: 100,
@@ -32,7 +32,12 @@ export class CreateBatchDto {
   @IsInt()
   @Min(1)
   @Max(5000)
-  totalCards!: number;
+  @IsOptional()
+  totalCards?: number;
+
+  @ApiPropertyOptional({ description: 'Alias for totalCards (quantity)', example: 100 })
+  @IsOptional()
+  quantity?: number;
 
   @ApiPropertyOptional({ description: 'Optional prefix for code (e.g. "N")', example: 'N' })
   @IsString()
@@ -47,6 +52,10 @@ export class CreateBatchDto {
   @IsOptional()
   length?: number;
 
+  @ApiPropertyOptional({ description: 'Alias for length (codeLength)', example: 8 })
+  @IsOptional()
+  codeLength?: number;
+
   @ApiPropertyOptional({
     description: 'Code pattern type',
     enum: ['NUMERIC', 'ALPHANUMERIC', 'ALPHABETIC', 'HEX'],
@@ -56,10 +65,11 @@ export class CreateBatchDto {
   @IsOptional()
   pattern?: 'NUMERIC' | 'ALPHANUMERIC' | 'ALPHABETIC' | 'HEX';
 
-  @ApiProperty({ description: 'Selling price per card in tenant currency', example: 500 })
+  @ApiPropertyOptional({ description: 'Selling price per card in tenant currency', example: 500 })
   @IsNumber()
   @Min(0)
-  price!: number;
+  @IsOptional()
+  price?: number;
 
   @ApiPropertyOptional({ description: 'Validity duration in days once activated', example: 30 })
   @IsInt()

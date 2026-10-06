@@ -67,9 +67,21 @@ export const CardsView: React.FC = () => {
       return;
     }
 
+    const selectedProf = profiles.find((p) => p.id === batchForm.profileId);
+    const payload = {
+      profileId: batchForm.profileId,
+      deviceId: selectedProf?.deviceId || undefined,
+      totalCards: Number(batchForm.quantity),
+      quantity: Number(batchForm.quantity),
+      length: Number(batchForm.codeLength) || 8,
+      codeLength: Number(batchForm.codeLength) || 8,
+      prefix: batchForm.prefix || 'HS-',
+      price: selectedProf?.price || 500,
+    };
+
     setIsGenerating(true);
     try {
-      await apiClient.post('/cards/batches', batchForm);
+      await apiClient.post('/cards/batches', payload);
       showToast(`تم توليد دفعة جديدة تحوي ${batchForm.quantity} كرت بنجاح وتشفيرها`, 'success');
       setIsGenerateOpen(false);
       fetchCards();
