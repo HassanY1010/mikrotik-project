@@ -503,8 +503,9 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   private async generateTokens(payload: JwtPayload): Promise<AuthTokens> {
+    const accessExpiration = process.env.JWT_ACCESS_EXPIRATION || '7d';
     const accessToken = await this.jwtService.signAsync(payload, {
-      expiresIn: '15m',
+      expiresIn: accessExpiration,
     });
 
     // Generate cryptographically random 64-char refresh token
@@ -513,7 +514,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      expiresIn: 900, // 15 minutes in seconds
+      expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
     };
   }
 

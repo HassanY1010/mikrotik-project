@@ -108,4 +108,28 @@ export class DevicesController {
   ): Promise<RouterResource> {
     return this.devicesService.getSystemResource(tenantId, id);
   }
+
+  @Get(':id/diagnostics')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Get unified diagnostics metrics for a router' })
+  @ApiResponse({ status: 200, description: 'Diagnostics metrics' })
+  async getDiagnostics(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.devicesService.getDiagnostics(tenantId, id);
+  }
+
+  @Post(':id/ping')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Quick ping / test connection to MikroTik router' })
+  @ApiResponse({ status: 200, description: 'Ping response' })
+  async pingDevice(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.devicesService.testConnection(tenantId, id);
+  }
+
+  @Post(':id/reboot')
+  @Roles(RoleName.TENANT_ADMIN)
+  @ApiOperation({ summary: 'Remotely reboot MikroTik router' })
+  @ApiResponse({ status: 200, description: 'Reboot signal sent' })
+  async rebootDevice(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.devicesService.reboot(tenantId, id);
+  }
 }

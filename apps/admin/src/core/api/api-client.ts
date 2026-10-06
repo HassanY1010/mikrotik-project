@@ -33,6 +33,10 @@ class ApiClient {
     return localStorage.getItem('mikrotik_auth_token');
   }
 
+  private getRefreshToken(): string | null {
+    return localStorage.getItem('mikrotik_refresh_token');
+  }
+
   private getActiveTenantId(): string | null {
     return localStorage.getItem('mikrotik_active_tenant_id');
   }
@@ -71,6 +75,48 @@ class ApiClient {
       payload = (await response.json()) as Record<string, unknown>;
     } catch {
       payload = null;
+    }
+
+    // 401 Unauthorized handling & automatic token refresh
+    if (response.status === 401 && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh')) {
+      const refreshToken = this.getRefreshToken();
+      if (refreshToken) {
+        try {
+          const refreshRes = await fetch(`${this.baseUrl}/auth/refresh`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({ refreshToken }),
+          });
+          if (refreshRes.ok) {
+            const refreshPayload = (await refreshRes.json()) as Record<string, any>;
+            const refreshData = refreshPayload?.data || refreshPayload;
+            if (refreshData?.accessToken) {
+              localStorage.setItem('mikrotik_auth_token', refreshData.accessToken);
+              if (refreshData.refreshToken) {
+                localStorage.setItem('mikrotik_refresh_token', refreshData.refreshToken);
+              }
+              // Retry original request with the renewed token
+              const retryHeaders = {
+                ...headers,
+                Authorization: `Bearer ${refreshData.accessToken}`,
+              };
+              return this.request<T>(endpoint, { ...options, headers: retryHeaders });
+            }
+          }
+        } catch {
+          // Refresh failed
+        }
+      }
+
+      // If refresh failed or unavailable: clear stale session and notify
+      localStorage.removeItem('mikrotik_auth_token');
+      localStorage.removeItem('mikrotik_refresh_token');
+      localStorage.removeItem('mikrotik_auth_user');
+      window.dispatchEvent(new CustomEvent('auth:expired'));
+      throw new ApiError('انتهت صلاحية الجلسة، يرجى إعادة تسجيل الدخول لمتابعة العمل', 401, payload);
     }
 
     if (!response.ok) {

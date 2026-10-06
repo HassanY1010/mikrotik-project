@@ -48,8 +48,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
   }, []);
 
+  useEffect(() => {
+    const handleExpired = () => {
+      logout();
+    };
+    window.addEventListener('auth:expired', handleExpired);
+    return () => window.removeEventListener('auth:expired', handleExpired);
+  }, []);
+
   const login = async (email: string, password: string) => {
-    const res = await apiClient.post<{ accessToken: string; user: AuthUser }>('/auth/login', {
+    const res = await apiClient.post<{ accessToken: string; refreshToken?: string; user: AuthUser }>('/auth/login', {
       email,
       password,
     });
@@ -58,6 +66,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const authUser = res.user;
 
     localStorage.setItem('mikrotik_auth_token', authToken);
+    if (res.refreshToken) {
+      localStorage.setItem('mikrotik_refresh_token', res.refreshToken);
+    }
     localStorage.setItem('mikrotik_auth_user', JSON.stringify(authUser));
 
     setToken(authToken);
@@ -71,6 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     localStorage.removeItem('mikrotik_auth_token');
+    localStorage.removeItem('mikrotik_refresh_token');
     localStorage.removeItem('mikrotik_auth_user');
     localStorage.removeItem('mikrotik_active_tenant_id');
     setToken(null);

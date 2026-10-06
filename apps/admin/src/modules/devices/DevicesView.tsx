@@ -190,11 +190,15 @@ export const DevicesView: React.FC = () => {
                   {device.host}
                 </td>
                 <td>
-                  <span style={{ fontFamily: 'monospace' }}>{device.port}</span> (
-                  {device.connectionType})
+                  <span style={{ fontFamily: 'monospace' }}>
+                    {device.port || (device as any).apiPort || (device as any).restPort || 8728}
+                  </span>{' '}
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    ({device.connectionType || ((device as any).useSsl ? 'API-SSL' : 'API_SOCKET')})
+                  </span>
                 </td>
                 <td>
-                  <span className="badge badge-info">{device.rosVersion}</span>
+                  <span className="badge badge-info">{device.rosVersion || 'V7'}</span>
                 </td>
                 <td>
                   <span
