@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { Modal } from '../../components/common/Modal';
-import { Zap, Plus, RefreshCw, Layers } from 'lucide-react';
+import { Zap, Plus, RefreshCw, Layers, Trash2 } from 'lucide-react';
 import { HotspotProfileItem, DeviceItem } from '../../core/types/view-models';
 
 export const HotspotProfilesView: React.FC = () => {
@@ -53,14 +53,15 @@ export const HotspotProfilesView: React.FC = () => {
 
   const handleCreateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.price || !formData.deviceId) {
+    const effectiveDeviceId = formData.deviceId || devices[0]?.id;
+    if (!formData.name || !formData.price || !effectiveDeviceId) {
       showToast('يرجى ملء جميع الحقول الإلزامية وتحديد الراوتر', 'warning');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await apiClient.post('/hotspot/profiles', formData);
+      await apiClient.post('/hotspot/profiles', { ...formData, deviceId: effectiveDeviceId });
       showToast('تم إنشاء باقة الهوتسبوت ومزامنتها بنجاح', 'success');
       setIsAddOpen(false);
       setFormData({
@@ -78,6 +79,18 @@ export const HotspotProfilesView: React.FC = () => {
       showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteProfile = async (id: string, name: string) => {
+    if (!window.confirm(`هل أنت متأكد من رغبتك في حذف الباقة "${name}"؟`)) return;
+    try {
+      await apiClient.delete(`/hotspot/profiles/${id}`);
+      showToast('تم حذف باقة الهوتسبوت بنجاح', 'success');
+      fetchData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل حذف الباقة';
+      showToast(msg, 'error');
     }
   };
 
@@ -205,13 +218,26 @@ export const HotspotProfilesView: React.FC = () => {
                 borderTop: '1px solid var(--border)',
                 paddingTop: '0.75rem',
                 display: 'flex',
-                justifyContent: 'flex-end',
+                justifyContent: 'space-between',
+                alignItems: 'center',
               }}
             >
               <span className="badge badge-success">
                 <Layers size={12} />
-                متزامنة مع الراوتر
+                {profile.availableCards !== undefined ? `${profile.availableCards} كرت متوفر` : 'متزامنة'}
               </span>
+
+              <button
+                className="btn btn-outline btn-sm"
+                style={{ color: 'var(--danger)', borderColor: 'var(--border)' }}
+                onClick={() =>
+                  handleDeleteProfile(profile.id, profile.displayName || profile.name || 'باقة هوتسبوت')
+                }
+                title="حذف الباقة"
+              >
+                <Trash2 size={14} />
+                حذف
+              </button>
             </div>
           </div>
         ))}

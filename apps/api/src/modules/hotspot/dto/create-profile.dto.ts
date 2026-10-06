@@ -45,4 +45,23 @@ export class CreateProfileDto {
   @IsString()
   @IsOptional()
   addressPool?: string;
+
+  @ApiPropertyOptional({ description: 'Price in SDG', example: 500 })
+  @IsOptional()
+  price?: number;
+
+  @ApiPropertyOptional({ description: 'Validity duration (e.g. 1d, 3h, 1w)', example: '1d' })
+  @IsString()
+  @IsOptional()
+  validity?: string;
+
+  @ApiPropertyOptional({ description: 'Commercial display name', example: 'باقة يومية' })
+  @IsString()
+  @IsOptional()
+  displayName?: string;
+
+  @ApiPropertyOptional({ description: 'Router device ID', example: 'uuid' })
+  @IsString()
+  @IsOptional()
+  deviceId?: string;
 }

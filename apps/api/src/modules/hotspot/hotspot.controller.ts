@@ -90,3 +90,39 @@ export class HotspotController {
     return this.hotspotService.kickSession(tenantId, deviceId, sessionId);
   }
 }
+
+@ApiTags('hotspot')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@Controller('hotspot')
+export class TenantHotspotController {
+  constructor(private readonly hotspotService: HotspotService) {}
+
+  @Get('profiles')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @ApiOperation({ summary: 'List all Hotspot user profiles for the current tenant' })
+  @ApiResponse({ status: 200, description: 'List of tenant profiles' })
+  async listAllProfiles(@TenantId() tenantId: string) {
+    return this.hotspotService.listAllProfiles(tenantId);
+  }
+
+  @Post('profiles')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create a new Hotspot user profile for tenant' })
+  @ApiResponse({ status: 201, description: 'Profile created' })
+  async createProfile(@TenantId() tenantId: string, @Body() dto: CreateProfileDto) {
+    return this.hotspotService.createTenantProfile(tenantId, dto);
+  }
+
+  @Delete('profiles/:profileId')
+  @Roles(RoleName.TENANT_ADMIN)
+  @ApiOperation({ summary: 'Delete a Hotspot user profile' })
+  @ApiResponse({ status: 200, description: 'Profile deleted' })
+  async deleteProfile(
+    @TenantId() tenantId: string,
+    @Param('profileId') profileId: string,
+  ) {
+    return this.hotspotService.deleteTenantProfile(tenantId, profileId);
+  }
+}

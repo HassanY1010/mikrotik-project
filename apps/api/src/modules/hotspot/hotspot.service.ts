@@ -37,6 +37,47 @@ export class HotspotService {
     });
   }
 
+  async listAllProfiles(tenantId: string) {
+    const profiles = await this.prisma.hotspotProfile.findMany({
+      where: { tenantId },
+      include: {
+        device: { select: { id: true, name: true } },
+        cardBatches: {
+          select: { price: true, validityDays: true },
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
+        _count: {
+          select: {
+            cards: {
+              where: { status: 'AVAILABLE' },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return profiles.map((p) => {
+      const price = p.cardBatches[0]?.price ? Number(p.cardBatches[0].price) : 500;
+      const validity =
+        p.sessionTimeout ||
+        (p.cardBatches[0]?.validityDays ? `${p.cardBatches[0].validityDays}d` : '1d');
+      return {
+        id: p.id,
+        name: p.name,
+        displayName: p.name,
+        price,
+        validity,
+        rateLimit: p.rateLimit || '2M/5M',
+        sharedUsers: p.sharedUsers,
+        deviceId: p.deviceId,
+        device: p.device,
+        availableCards: p._count.cards,
+      };
+    });
+  }
+
   async syncProfiles(tenantId: string, deviceId: string) {
     const device = await this.getValidDevice(tenantId, deviceId);
 
@@ -138,8 +179,8 @@ export class HotspotService {
         tenantId,
         deviceId,
         name: dto.name,
+        sessionTimeout: dto.validity || dto.sessionTimeout || null,
         rateLimit: dto.rateLimit ?? null,
-        sessionTimeout: dto.sessionTimeout ?? null,
         idleTimeout: dto.idleTimeout ?? null,
         keepaliveTimeout: dto.keepaliveTimeout ?? null,
         sharedUsers: dto.sharedUsers ?? 1,
@@ -149,6 +190,23 @@ export class HotspotService {
 
     this.logger.log(`Created hotspot profile "${profile.name}" on device ${device.id}`);
     return profile;
+  }
+
+  async createTenantProfile(tenantId: string, dto: CreateProfileDto) {
+    let deviceId = dto.deviceId;
+    if (!deviceId) {
+      const firstDevice = await this.prisma.mikroTikDevice.findFirst({
+        where: { tenantId, deletedAt: null },
+      });
+      if (!firstDevice) {
+        throw new NotFoundException({
+          code: 'DEVICE_NOT_FOUND',
+          message: 'يجب إضافة راوتر ميكروتيك أولاً قبل إنشاء باقات الهوتسبوت',
+        });
+      }
+      deviceId = firstDevice.id;
+    }
+    return this.createProfile(tenantId, deviceId, dto);
   }
 
   async deleteProfile(tenantId: string, deviceId: string, profileId: string) {
@@ -193,6 +251,19 @@ export class HotspotService {
     });
 
     return { success: true, message: `Profile "${profile.name}" removed successfully` };
+  }
+
+  async deleteTenantProfile(tenantId: string, profileId: string) {
+    const profile = await this.prisma.hotspotProfile.findFirst({
+      where: { id: profileId, tenantId },
+    });
+    if (!profile) {
+      throw new NotFoundException({
+        code: 'PROFILE_NOT_FOUND',
+        message: 'الباقة غير موجودة',
+      });
+    }
+    return this.deleteProfile(tenantId, profile.deviceId, profileId);
   }
 
   async listActiveSessions(

@@ -5,7 +5,7 @@ import { Public } from '../../core/decorators/public.decorator';
 import { PrismaService } from '../../core/database/prisma.service';
 
 @ApiTags('health')
-@Controller({ path: 'health', version: VERSION_NEUTRAL })
+@Controller({ path: 'health', version: ['1', VERSION_NEUTRAL] })
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,

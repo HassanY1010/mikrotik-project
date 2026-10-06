@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
-import { HotspotController } from './hotspot.controller';
+import { HotspotController, TenantHotspotController } from './hotspot.controller';
 import { HotspotService } from './hotspot.service';
 
 @Module({
-  controllers: [HotspotController],
+  controllers: [HotspotController, TenantHotspotController],
   providers: [HotspotService],
   exports: [HotspotService],
 })
