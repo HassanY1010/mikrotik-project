@@ -30,7 +30,7 @@ class MikrotikPosApp extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
 
     return MaterialApp(
-      title: 'نظام إدارة كروت ميكروتيك',
+      title: 'سودافاي | SudaFi',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,

@@ -58,13 +58,18 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
           padding: EdgeInsets.zero,
           children: [
             UserAccountsDrawerHeader(
-              accountName: Text(user?.fullName ?? 'كاشير المحطة', style: const TextStyle(fontWeight: FontWeight.bold)),
-              accountEmail: Text(user?.email ?? 'cashier@system.local'),
+              accountName: Text(user?.fullName ?? 'مدير النظام', style: const TextStyle(fontWeight: FontWeight.bold)),
+              accountEmail: Text(user?.email ?? 'ahmed@gmail.com'),
               currentAccountPicture: const CircleAvatar(
-                backgroundColor: Colors.white,
-                child: Icon(Icons.person, color: Color(0xFF0D9488), size: 36),
+                backgroundImage: AssetImage('assets/images/sudafi_hero.jpg'),
               ),
-              decoration: const BoxDecoration(color: Color(0xFF0F766E)),
+              decoration: const BoxDecoration(
+                image: DecorationImage(
+                  image: AssetImage('assets/images/sudafi_hero.jpg'),
+                  fit: BoxFit.cover,
+                  colorFilter: ColorFilter.mode(Color(0xCC0F172A), BlendMode.darken),
+                ),
+              ),
             ),
             ListTile(
               leading: const Icon(Icons.point_of_sale),
@@ -110,6 +115,26 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               leading: const Icon(Icons.logout, color: Colors.redAccent),
               title: const Text('تسجيل الخروج', style: TextStyle(color: Colors.redAccent)),
               onTap: _handleLogout,
+            ),
+            const Divider(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.asset('assets/images/sudafi_hero.jpg', width: 34, height: 34, fit: BoxFit.cover),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text('سودافاي | SudaFi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text('منظومة إدارة شبكات ميكروتك', style: TextStyle(color: Colors.grey, fontSize: 10)),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),

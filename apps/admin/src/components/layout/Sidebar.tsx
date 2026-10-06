@@ -55,31 +55,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
           gap: '0.75rem',
         }}
       >
-        <div
+        <img
+          src="/sudafi_hero.jpg"
+          alt="SudaFi Logo"
           style={{
             width: 38,
             height: 38,
             borderRadius: 'var(--radius-md)',
-            background: 'linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            fontWeight: 900,
-            fontSize: '1.2rem',
+            objectFit: 'cover',
             boxShadow: 'var(--shadow-glow)',
             flexShrink: 0,
+            border: '1px solid rgba(13, 148, 136, 0.4)',
           }}
-        >
-          M
-        </div>
+        />
         {!collapsed && (
           <div>
             <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-              منظومة ميكروتك
+              سودافاي | SudaFi
             </div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              إدارة شبكات الهوتسبوت
+              إدارة شبكات ميكروتك الذكية
             </div>
           </div>
         )}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../core/context/AuthContext';
 import { useToast } from '../../core/context/ToastContext';
-import { Wifi, Lock, Mail, ArrowLeft } from 'lucide-react';
+import { Lock, Mail, ArrowLeft } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
@@ -61,23 +61,30 @@ export const LoginView: React.FC = () => {
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div
             style={{
-              width: 56,
-              height: 56,
-              borderRadius: 'var(--radius-lg)',
-              background: 'linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              marginBottom: '1rem',
-              boxShadow: 'var(--shadow-glow)',
+              position: 'relative',
+              width: 80,
+              height: 80,
+              margin: '0 auto 1.25rem',
             }}
           >
-            <Wifi size={28} />
+            <img
+              src="/sudafi_hero.jpg"
+              alt="SudaFi Logo"
+              style={{
+                width: '100%',
+                height: '100%',
+                borderRadius: 'var(--radius-xl)',
+                objectFit: 'cover',
+                boxShadow: 'var(--shadow-glow)',
+                border: '2px solid rgba(13, 148, 136, 0.6)',
+              }}
+            />
           </div>
-          <h1 style={{ fontSize: '1.6rem', fontWeight: 800 }}>منصة شبكات ميكروتك</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            لوحة الإدارة المركزية والتحكم في شبكات الهوتسبوت
+          <h1 style={{ fontSize: '1.6rem', fontWeight: 800, letterSpacing: '-0.02em' }}>
+            سودافاي | SudaFi
+          </h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.35rem' }}>
+            منظومة إدارة شبكات ميكروتك والهوتسبوت الذكية
           </p>
         </div>
 
