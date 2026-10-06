@@ -37,27 +37,57 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const res = await apiClient.get<DashboardData>('/analytics/dashboard');
-      if (res) {
+      const res = await apiClient.get<any>('/analytics/dashboard');
+      if (res && res.kpis) {
         setData(res);
+        return;
       }
     } catch {
-      // In case of error, show 0s and empty real state
-      setData({
-        kpis: {
-          totalRevenue: 0,
-          availableCards: 0,
-          totalSoldCards: 0,
-          activeRouters: 0,
-          activeSessions: 0,
-          currency: 'SDG',
-        },
-        topProfiles: [],
-        recentSales: [],
-      });
+      // Fallback to /analytics/overview if /analytics/dashboard fails
+      try {
+        const ov = await apiClient.get<any>('/analytics/overview');
+        if (ov) {
+          setData({
+            kpis: {
+              totalRevenue: ov.revenue?.allTime || 0,
+              availableCards: ov.cardsInventory?.available || 0,
+              totalSoldCards: ov.cardsInventory?.sold || 0,
+              activeRouters: ov.devices?.online || 0,
+              activeSessions: ov.activeSessionsCount || 0,
+              currency: ov.revenue?.currency || 'SDG',
+            },
+            topProfiles: [],
+            recentSales: (ov.recentSales || []).map((s: any) => ({
+              invoice: s.invoiceNumber,
+              profile: s.profileName || s.deviceName || 'باقة هوتسبوت',
+              amount: s.amount,
+              time: new Date(s.createdAt).toLocaleTimeString('ar-YE', {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+            })),
+          });
+          return;
+        }
+      } catch {
+        // Fallback to zeroed real state
+      }
     } finally {
       setLoading(false);
     }
+
+    setData({
+      kpis: {
+        totalRevenue: 0,
+        availableCards: 0,
+        totalSoldCards: 0,
+        activeRouters: 0,
+        activeSessions: 0,
+        currency: 'SDG',
+      },
+      topProfiles: [],
+      recentSales: [],
+    });
   };
 
   useEffect(() => {

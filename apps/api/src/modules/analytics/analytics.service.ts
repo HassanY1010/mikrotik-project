@@ -32,6 +32,7 @@ export interface DashboardOverview {
     paymentMethod: PaymentMethod;
     cashierName: string;
     deviceName: string;
+    profileName?: string;
     createdAt: Date;
   }>;
   recentBatches: Array<{
@@ -42,6 +43,20 @@ export interface DashboardOverview {
     deviceName: string;
     createdAt: Date;
   }>;
+}
+
+export interface UnifiedDashboardData {
+  kpis: {
+    totalRevenue: number;
+    availableCards: number;
+    totalSoldCards: number;
+    activeRouters: number;
+    activeSessions: number;
+    currency: string;
+  };
+  topProfiles: Array<{ name: string; count: number; revenue: number }>;
+  recentSales: Array<{ invoice: string; profile: string; amount: number; time: string }>;
+  overview: DashboardOverview;
 }
 
 export interface RevenueAnalytics {
@@ -136,6 +151,7 @@ export class AnalyticsService {
         include: {
           cashier: { select: { fullName: true } },
           device: { select: { name: true } },
+          card: { select: { profile: { select: { name: true } } } },
         },
       }),
       this.prisma.cardBatch.findMany({
@@ -204,6 +220,7 @@ export class AnalyticsService {
         paymentMethod: s.paymentMethod,
         cashierName: s.cashier.fullName,
         deviceName: s.device.name,
+        profileName: s.card?.profile?.name,
         createdAt: s.createdAt,
       })),
       recentBatches: recentBatches.map((b) => ({
@@ -214,6 +231,69 @@ export class AnalyticsService {
         deviceName: b.device.name,
         createdAt: b.createdAt,
       })),
+    };
+  }
+
+  async getDashboardData(tenantId: string): Promise<UnifiedDashboardData> {
+    const overview = await this.getDashboardOverview(tenantId);
+
+    // 1. Calculate top profiles by revenue
+    const sales = await this.prisma.saleTransaction.findMany({
+      where: { tenantId },
+      include: {
+        card: { select: { profile: { select: { name: true } } } },
+      },
+    });
+
+    const profileMap = new Map<string, { count: number; revenue: number }>();
+    for (const s of sales) {
+      const pName = s.card?.profile?.name ?? 'باقة هوتسبوت';
+      const cur = profileMap.get(pName) ?? { count: 0, revenue: 0 };
+      cur.count += 1;
+      cur.revenue += Number(s.amount);
+      profileMap.set(pName, cur);
+    }
+
+    // Include existing profiles if some have no sales yet
+    const profiles = await this.prisma.hotspotProfile.findMany({
+      where: { tenantId },
+      select: { name: true },
+      take: 5,
+    });
+    for (const p of profiles) {
+      if (!profileMap.has(p.name)) {
+        profileMap.set(p.name, { count: 0, revenue: 0 });
+      }
+    }
+
+    const topProfiles = Array.from(profileMap.entries())
+      .map(([name, data]) => ({ name, count: data.count, revenue: data.revenue }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5);
+
+    // 2. Format recent sales for dashboard table
+    const recentSales = overview.recentSales.map((s) => ({
+      invoice: s.invoiceNumber,
+      profile: s.profileName ?? s.deviceName ?? 'باقة هوتسبوت',
+      amount: s.amount,
+      time: new Date(s.createdAt).toLocaleTimeString('ar-YE', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    }));
+
+    return {
+      kpis: {
+        totalRevenue: overview.revenue.allTime,
+        availableCards: overview.cardsInventory.available,
+        totalSoldCards: overview.cardsInventory.sold,
+        activeRouters: overview.devices.online,
+        activeSessions: overview.activeSessionsCount,
+        currency: overview.revenue.currency,
+      },
+      topProfiles,
+      recentSales,
+      overview,
     };
   }
 

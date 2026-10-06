@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import {
   AnalyticsService,
   DashboardOverview,
+  UnifiedDashboardData,
   RevenueAnalytics,
   NetworkAnalytics,
 } from './analytics.service';
@@ -19,6 +20,16 @@ import { RoleName } from '@mikrotik-saas/shared-types';
 @Controller('analytics')
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
+
+  @Get('dashboard')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({
+    summary: 'Get unified operational dashboard KPIs, top profiles, and recent sales',
+  })
+  @ApiResponse({ status: 200, description: 'Unified dashboard KPIs' })
+  async getDashboardData(@TenantId() tenantId: string): Promise<UnifiedDashboardData> {
+    return this.analyticsService.getDashboardData(tenantId);
+  }
 
   @Get('overview')
   @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
