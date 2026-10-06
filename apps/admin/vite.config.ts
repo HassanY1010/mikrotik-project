@@ -16,11 +16,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: process.env.VITE_API_URL || 'https://mikrotik-api-yn0e.onrender.com',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:3000',
+        target: process.env.VITE_API_URL || 'https://mikrotik-api-yn0e.onrender.com',
         changeOrigin: true,
       },
     },

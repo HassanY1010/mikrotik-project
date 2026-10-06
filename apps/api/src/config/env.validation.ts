@@ -6,8 +6,8 @@ export const envSchema = z.object({
   APP_PORT: z.coerce.number().default(3000),
   APP_NAME: z.string().default('MikroTik SaaS API'),
   APP_VERSION: z.string().default('1.0.0'),
-  APP_URL: z.string().url().default('http://localhost:3000'),
-  FRONTEND_URL: z.string().url().default('http://localhost:5173'),
+  APP_URL: z.string().url().default('https://mikrotik-api-yn0e.onrender.com'),
+  FRONTEND_URL: z.string().url().default('https://mikrotik-admin.onrender.com'),
   REQUEST_ID_HEADER: z.string().default('X-Request-Id'),
 
   // Database

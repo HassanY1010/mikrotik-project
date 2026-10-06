@@ -21,7 +21,7 @@ async function bootstrap(): Promise<void> {
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');
   const corsOriginsConfig = configService.get<string>(
     'CORS_ORIGINS',
-    'http://localhost:5173,http://localhost:3000',
+    'https://mikrotik-admin.onrender.com,http://localhost:5173,http://localhost:3000,*',
   );
   const corsOrigins = corsOriginsConfig === '*'
     ? true
