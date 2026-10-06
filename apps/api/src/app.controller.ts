@@ -16,6 +16,7 @@ export class AppController {
       version: '1.0.0',
       timestamp: new Date().toISOString(),
       links: {
+        dashboard: 'https://mikrotik-admin.onrender.com',
         docs: '/docs',
         health: '/health',
         ready: '/health/ready',

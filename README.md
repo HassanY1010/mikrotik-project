@@ -8,6 +8,17 @@ tracking, real-time router synchronization, and comprehensive analytics.
 
 ---
 
+## 🌐 الروابط المباشرة على الإنترنت (Live Cloud Deployment)
+
+| الخدمة | الرابط المباشر | الوصف |
+| :--- | :--- | :--- |
+| **لوحة التحكم الإدارية** | [https://mikrotik-admin.onrender.com](https://mikrotik-admin.onrender.com) | الواجهة الرسومية الكاملة باللغة العربية لإدارة الشبكات والكروت والمبيعات |
+| **سيرفر الباك اند (API)** | [https://mikrotik-api-yn0e.onrender.com](https://mikrotik-api-yn0e.onrender.com) | خادم العمليات المركزية وقواعد البيانات السحابية |
+| **توثيق الـ API التفاعلي** | [https://mikrotik-api-yn0e.onrender.com/docs](https://mikrotik-api-yn0e.onrender.com/docs) | وثائق ومُجرّب Swagger لجميع الـ Endpoints |
+| **فاحص الجاهزية** | [https://mikrotik-api-yn0e.onrender.com/health/ready](https://mikrotik-api-yn0e.onrender.com/health/ready) | مراقبة حالة الخادم وقاعدة بيانات Supabase |
+
+---
+
 ## 🏛 المعمارية الشاملة للمشروع (Monorepo Architecture)
 
 ```
