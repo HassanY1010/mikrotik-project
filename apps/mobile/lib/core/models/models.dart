@@ -62,14 +62,35 @@ class HotspotProfileModel {
   });
 
   factory HotspotProfileModel.fromJson(Map<String, dynamic> json) {
+    final rawName = json['name'] as String? ?? 'باقة هوتسبوت';
+    String friendlyName = json['displayName'] as String? ?? rawName;
+    double rawPrice = (json['price'] != null) ? double.tryParse(json['price'].toString()) ?? 0.0 : 0.0;
+
+    // Friendly Arabic naming for standard profiles if english slug is used
+    if (friendlyName == rawName) {
+      if (rawName.contains('1hour') || rawName.contains('1h')) {
+        friendlyName = 'باقة 1 ساعة';
+        if (rawPrice == 0) rawPrice = 200;
+      } else if (rawName.contains('3hour') || rawName.contains('3h')) {
+        friendlyName = 'باقة 3 ساعات';
+        if (rawPrice == 0) rawPrice = 500;
+      } else if (rawName.contains('1day') || rawName.contains('day')) {
+        friendlyName = 'باقة 1 يوم';
+        if (rawPrice == 0) rawPrice = 1200;
+      } else if (rawName.contains('1week') || rawName.contains('week')) {
+        friendlyName = 'باقة أسبوعية';
+        if (rawPrice == 0) rawPrice = 5000;
+      }
+    }
+
     return HotspotProfileModel(
       id: json['id'] as String,
-      name: json['name'] as String,
-      displayName: json['displayName'] as String? ?? json['name'] as String,
+      name: rawName,
+      displayName: friendlyName,
       deviceId: json['deviceId'] as String? ?? '',
       deviceName: json['device']?['name'] as String?,
-      price: (json['price'] != null) ? double.tryParse(json['price'].toString()) ?? 0.0 : 0.0,
-      validity: json['validity'] as String?,
+      price: rawPrice > 0 ? rawPrice : 200.0,
+      validity: json['validity'] as String? ?? json['sessionTimeout'] as String?,
       rateLimit: json['rateLimit'] as String?,
     );
   }
