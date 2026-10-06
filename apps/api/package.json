@@ -5,7 +5,7 @@
   "description": "MikroTik SaaS Platform — NestJS Backend API",
   "license": "UNLICENSED",
   "scripts": {
-    "build": "prisma generate && nest build",
+    "build": "pnpm --filter @mikrotik-saas/shared-types build && pnpm --filter @mikrotik-saas/shared-validation build && prisma generate && nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "dev": "nest start --watch",
     "dev:debug": "nest start --debug --watch",
