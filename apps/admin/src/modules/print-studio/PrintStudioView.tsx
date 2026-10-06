@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Printer, FileText, QrCode, LayoutGrid, Sliders, AlertCircle, RefreshCw } from 'lucide-react';
+import { Printer, FileText, LayoutGrid, Sliders, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiClient } from '../../core/api/api-client';
 import { CardItem } from '../../core/types/view-models';
 
@@ -15,19 +15,29 @@ export const PrintStudioView: React.FC = () => {
     setLoading(true);
     try {
       const [cardsRes, tenantRes] = await Promise.allSettled([
-        apiClient.get<CardItem[]>('/cards', { status: 'AVAILABLE' }),
-        apiClient.get<{ name?: string; contactPhone?: string }>('/tenants/current'),
+        apiClient.get<CardItem[] | { data: CardItem[]; total: number }>('/cards', {
+          status: 'AVAILABLE',
+          limit: 200,
+        }),
+        apiClient.get<{ name?: string; contactPhone?: string; phone?: string }>('/tenants/current'),
       ]);
 
-      if (cardsRes.status === 'fulfilled' && Array.isArray(cardsRes.value)) {
-        setCards(cardsRes.value);
+      if (cardsRes.status === 'fulfilled' && cardsRes.value) {
+        const val = cardsRes.value;
+        const cardList = Array.isArray(val)
+          ? val
+          : (val && typeof val === 'object' && Array.isArray((val as any).data))
+          ? (val as any).data
+          : [];
+        setCards(cardList);
       } else {
         setCards([]);
       }
 
       if (tenantRes.status === 'fulfilled' && tenantRes.value) {
         if (tenantRes.value.name) setNetworkName(tenantRes.value.name);
-        if (tenantRes.value.contactPhone) setSupportPhone(tenantRes.value.contactPhone);
+        const phone = tenantRes.value.contactPhone || tenantRes.value.phone;
+        if (phone) setSupportPhone(phone);
       }
     } catch {
       setCards([]);
@@ -246,10 +256,18 @@ export const PrintStudioView: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: '#f8fafc',
+                    backgroundColor: '#ffffff',
+                    overflow: 'hidden',
                   }}
                 >
-                  <QrCode size={60} color="#000000" />
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(card.username)}`}
+                    alt="QR Code"
+                    style={{ width: 66, height: 66, display: 'block' }}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLElement).style.display = 'none';
+                    }}
+                  />
                 </div>
 
                 <div
@@ -360,7 +378,14 @@ export const PrintStudioView: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0' }}>
-                  <QrCode size={80} color="#000" />
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(card.username)}`}
+                    alt="QR Code"
+                    style={{ width: 80, height: 80, display: 'block' }}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLElement).style.display = 'none';
+                    }}
+                  />
                 </div>
 
                 <div style={{ borderBottom: '1px dashed #000', margin: '8px 0' }} />

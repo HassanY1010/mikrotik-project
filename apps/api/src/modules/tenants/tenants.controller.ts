@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { TenantsService } from './tenants.service';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import { ApproveSubscriptionDto } from './dto/approve-subscription.dto';
+import { UpdateCurrentTenantDto } from './dto/update-current-tenant.dto';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
@@ -12,12 +13,48 @@ import { RoleName } from '@mikrotik-saas/shared-types';
 @ApiTags('tenants')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(RoleName.SUPER_ADMIN)
 @Controller('tenants')
 export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
+  @Get('current')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+    RoleName.EMPLOYEE,
+  )
+  @ApiOperation({ summary: 'Get current tenant organization profile' })
+  @ApiResponse({ status: 200, description: 'Current tenant profile' })
+  async getCurrentTenant(
+    @CurrentUser('tenantId') tenantId?: string,
+  ): Promise<Record<string, unknown>> {
+    return this.tenantsService.getCurrentTenant(tenantId);
+  }
+
+  @Patch('current')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @ApiOperation({ summary: 'Update current tenant settings' })
+  @ApiResponse({ status: 200, description: 'Current tenant updated' })
+  async updateCurrentTenant(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateCurrentTenantDto,
+  ): Promise<Record<string, unknown>> {
+    return this.tenantsService.updateCurrentTenant(tenantId, dto, userId);
+  }
+
   @Get()
+  @Roles(RoleName.SUPER_ADMIN)
   @ApiOperation({ summary: 'List all tenant organizations (Super Admin)' })
   @ApiResponse({ status: 200, description: 'List of tenants with subscription info' })
   async findAll(): Promise<Record<string, unknown>[]> {
@@ -25,6 +62,7 @@ export class TenantsController {
   }
 
   @Get(':id')
+  @Roles(RoleName.SUPER_ADMIN)
   @ApiOperation({ summary: 'Get complete tenant details (Super Admin)' })
   @ApiResponse({ status: 200, description: 'Tenant details' })
   @ApiResponse({ status: 404, description: 'Tenant not found' })
@@ -33,6 +71,7 @@ export class TenantsController {
   }
 
   @Patch(':id/status')
+  @Roles(RoleName.SUPER_ADMIN)
   @ApiOperation({ summary: 'Update tenant status (ACTIVE, SUSPENDED, EXPIRED)' })
   @ApiResponse({ status: 200, description: 'Tenant status updated' })
   async updateStatus(
@@ -44,6 +83,7 @@ export class TenantsController {
   }
 
   @Post(':id/subscription/approve')
+  @Roles(RoleName.SUPER_ADMIN)
   @ApiOperation({ summary: 'Manually activate, approve, or renew tenant subscription' })
   @ApiResponse({ status: 201, description: 'Subscription approved' })
   async approveSubscription(

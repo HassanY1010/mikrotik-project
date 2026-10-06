@@ -3,6 +3,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { SubscriptionStatus, BillingCycle } from '@prisma/client';
 import type { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import type { ApproveSubscriptionDto } from './dto/approve-subscription.dto';
+import type { UpdateCurrentTenantDto } from './dto/update-current-tenant.dto';
 
 @Injectable()
 export class TenantsService {
@@ -194,5 +195,125 @@ export class TenantsService {
     });
 
     return subscription;
+  }
+
+  async getCurrentTenant(tenantId?: string | null): Promise<Record<string, unknown>> {
+    let resolvedId = tenantId;
+    if (!resolvedId) {
+      // Fallback: pick the first active tenant
+      const firstActive = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!firstActive) {
+        throw new NotFoundException('No active tenant found');
+      }
+      resolvedId = firstActive.id;
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: resolvedId },
+      include: {
+        subscriptions: {
+          where: { status: SubscriptionStatus.ACTIVE },
+          include: { plan: true },
+          orderBy: { expiresAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!tenant || tenant.deletedAt !== null) {
+      throw new NotFoundException('Tenant organization not found');
+    }
+
+    const sub = tenant.subscriptions[0];
+
+    return {
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      status: tenant.status,
+      currency: tenant.currency || 'SDG',
+      contactEmail: tenant.contactEmail,
+      contactPhone: tenant.phone || '',
+      phone: tenant.phone || '',
+      address: tenant.address || '',
+      logoUrl: tenant.logoUrl,
+      subscription: sub
+        ? {
+            plan: sub.plan.name,
+            planNameAr: sub.plan.nameAr,
+            maxRouters: sub.maxRouters,
+            maxCardsPerMonth: 100000,
+            status: sub.status,
+            expiresAt: sub.expiresAt.toISOString(),
+          }
+        : {
+            plan: 'FREE',
+            planNameAr: 'الخطة المجانية',
+            maxRouters: 1,
+            maxCardsPerMonth: 5000,
+            status: 'ACTIVE',
+            expiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+          },
+    };
+  }
+
+  async updateCurrentTenant(
+    tenantId: string | null | undefined,
+    dto: UpdateCurrentTenantDto,
+    userId?: string,
+  ): Promise<Record<string, unknown>> {
+    let resolvedId = tenantId;
+    if (!resolvedId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!first) throw new NotFoundException('No active tenant found');
+      resolvedId = first.id;
+    }
+
+    const existing = await this.prisma.tenant.findUnique({ where: { id: resolvedId } });
+    if (!existing) throw new NotFoundException('Tenant not found');
+
+    const updated = await this.prisma.tenant.update({
+      where: { id: resolvedId },
+      data: {
+        name: dto.name ?? existing.name,
+        currency: dto.currency ?? existing.currency,
+        contactEmail: dto.contactEmail ?? existing.contactEmail,
+        phone: dto.contactPhone ?? dto.phone ?? existing.phone,
+        address: dto.address ?? existing.address,
+        logoUrl: dto.logoUrl ?? existing.logoUrl,
+      },
+    });
+
+    if (userId) {
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId: resolvedId,
+          userId,
+          action: 'tenant:settings_updated',
+          entity: 'Tenant',
+          entityId: resolvedId,
+          oldValues: {
+            name: existing.name,
+            currency: existing.currency,
+            phone: existing.phone,
+            contactEmail: existing.contactEmail,
+          },
+          newValues: {
+            name: updated.name,
+            currency: updated.currency,
+            phone: updated.phone,
+            contactEmail: updated.contactEmail,
+          },
+        },
+      });
+    }
+
+    return this.getCurrentTenant(resolvedId);
   }
 }
