@@ -6,7 +6,7 @@ services:
     name: mikrotik-api
     runtime: node
     plan: free
-    buildCommand: pnpm install && pnpm --filter @mikrotik-saas/api build
+    buildCommand: pnpm install && pnpm --filter @mikrotik-saas/api... build
     startCommand: node apps/api/dist/main.js
     healthCheckPath: /health/ready
     envVars:
@@ -32,7 +32,7 @@ services:
     name: mikrotik-admin
     runtime: static
     plan: free
-    buildCommand: pnpm install && pnpm --filter @mikrotik-saas/admin build
+    buildCommand: pnpm install && pnpm --filter @mikrotik-saas/admin... build
     staticPublishPath: ./apps/admin/dist
     routes:
       - type: rewrite

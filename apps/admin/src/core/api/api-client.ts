@@ -18,9 +18,16 @@ export class ApiError extends Error {
 }
 
 class ApiClient {
-  private baseUrl = import.meta.env.VITE_API_URL
-    ? `${String(import.meta.env.VITE_API_URL).replace(/\/$/, '')}/api/v1`
-    : '/api/v1';
+  private baseUrl = (() => {
+    const customUrl = import.meta.env.VITE_API_URL;
+    if (customUrl) {
+      return `${String(customUrl).replace(/\/$/, '')}/api/v1`;
+    }
+    if (import.meta.env.PROD) {
+      return 'https://mikrotik-api-yn0e.onrender.com/api/v1';
+    }
+    return '/api/v1';
+  })();
 
   private getToken(): string | null {
     return localStorage.getItem('mikrotik_auth_token');

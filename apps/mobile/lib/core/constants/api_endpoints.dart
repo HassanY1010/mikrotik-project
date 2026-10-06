@@ -1,6 +1,6 @@
 class ApiEndpoints {
-  // Default base URL (Android emulator: 10.0.2.2, Localhost/Desktop: 127.0.0.1)
-  static const String defaultBaseUrl = 'http://10.0.2.2:3000/api/v1';
+  // Default base URL (Cloud Render API)
+  static const String defaultBaseUrl = 'https://mikrotik-api-yn0e.onrender.com/api/v1';
 
   // Auth endpoints
   static const String login = '/auth/login';
