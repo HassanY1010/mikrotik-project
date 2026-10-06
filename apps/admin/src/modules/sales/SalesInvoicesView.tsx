@@ -5,6 +5,19 @@ import { Modal } from '../../components/common/Modal';
 import { Receipt, Search, RefreshCw, RotateCcw, AlertTriangle } from 'lucide-react';
 import { SaleTransactionItem } from '../../core/types/view-models';
 
+const formatPaymentMethod = (method: string) => {
+  switch (method) {
+    case 'CASH':
+      return 'نقداً (كاش)';
+    case 'MOBILE_WALLET':
+      return 'تطبيق بنكك';
+    case 'TRANSFER':
+      return 'أوكاش / فوري';
+    default:
+      return method;
+  }
+};
+
 export const SalesInvoicesView: React.FC = () => {
   const { showToast } = useToast();
   const [sales, setSales] = useState<SaleTransactionItem[]>([]);
@@ -19,10 +32,18 @@ export const SalesInvoicesView: React.FC = () => {
   const fetchSales = async () => {
     setLoading(true);
     try {
-      const data = await apiClient.get<SaleTransactionItem[]>('/sales/transactions', {
-        search: search || undefined,
-      });
-      if (Array.isArray(data)) setSales(data);
+      const data = await apiClient.get<SaleTransactionItem[] | { data: SaleTransactionItem[]; total: number }>(
+        '/sales/transactions',
+        {
+          search: search || undefined,
+        },
+      );
+      const items = Array.isArray(data)
+        ? data
+        : (data && typeof data === 'object' && Array.isArray((data as any).data))
+        ? (data as any).data
+        : [];
+      setSales(items);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحميل سجل المبيعات من الخادم';
       showToast(msg, 'error');
@@ -103,6 +124,7 @@ export const SalesInvoicesView: React.FC = () => {
             <tr>
               <th>رقم الفاتورة</th>
               <th>الكرت المباع</th>
+              <th>الباقة</th>
               <th>المبلغ</th>
               <th>طريقة الدفع</th>
               <th>بيانات العميل</th>
@@ -118,14 +140,17 @@ export const SalesInvoicesView: React.FC = () => {
                   {tx.invoiceNumber}
                 </td>
                 <td style={{ fontFamily: 'monospace' }}>
-                  {tx.card?.username} ({tx.card?.serialNumber})
+                  {tx.card?.username || tx.cardUsername || '-'} {tx.card?.serialNumber ? `(${tx.card.serialNumber})` : ''}
+                </td>
+                <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                  {tx.profileName || 'باقة هوتسبوت'}
                 </td>
                 <td style={{ fontWeight: 800 }}>
                   {Number(tx.amount).toLocaleString()} {tx.currency || 'SDG'}
                 </td>
                 <td>
                   <span className="badge badge-info">
-                    {tx.paymentMethod === 'CASH' ? 'نقداً' : tx.paymentMethod}
+                    {formatPaymentMethod(tx.paymentMethod)}
                   </span>
                 </td>
                 <td>
@@ -143,7 +168,7 @@ export const SalesInvoicesView: React.FC = () => {
                   )}
                 </td>
                 <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  {new Date(tx.createdAt).toLocaleString('ar-YE')}
+                  {new Date(tx.createdAt).toLocaleString('ar-SD')}
                 </td>
                 <td>
                   {tx.isRefunded ? (

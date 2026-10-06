@@ -420,6 +420,11 @@ export class SalesService {
       printedCount: t.printedCount,
       lastPrintedAt: t.lastPrintedAt,
       createdAt: t.createdAt,
+      isRefunded: t.card.status === CardStatus.DISABLED,
+      card: {
+        serialNumber: t.card.serialNumber,
+        username: t.card.username,
+      },
     }));
 
     return { data, total, page, limit };

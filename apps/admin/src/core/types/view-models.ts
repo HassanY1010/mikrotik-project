@@ -63,6 +63,11 @@ export interface SaleTransactionItem {
   customerName?: string;
   createdAt: string;
   isRefunded: boolean;
+  profileName?: string;
+  cashierName?: string;
+  deviceName?: string;
+  cardUsername?: string;
+  cardSerialNumber?: string;
   card?: {
     serialNumber: string;
     username: string;
