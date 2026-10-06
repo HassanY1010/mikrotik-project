@@ -396,35 +396,9 @@ async function main(): Promise<void> {
   // ===========================================================================
   // 4. SUPER ADMIN USER
   // ===========================================================================
-  console.log('4️⃣ Seeding Super Admin user...');
-
-  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL ?? 'superadmin@mikrotik-saas.local';
-  const superAdminRawPassword = process.env.SUPER_ADMIN_PASSWORD ?? 'SuperAdmin@2026';
-  const superAdminPasswordHash = await hash(superAdminRawPassword, ARGON2_OPTIONS);
-  const superAdminRoleId = rolesMap.get(RoleName.SUPER_ADMIN)!;
-
-  await prisma.user.upsert({
-    where: { email: superAdminEmail },
-    update: {
-      passwordHash: superAdminPasswordHash,
-      roleId: superAdminRoleId,
-      status: UserStatus.ACTIVE,
-    },
-    create: {
-      email: superAdminEmail,
-      passwordHash: superAdminPasswordHash,
-      fullName: 'مدير المنصة العام (Super Admin)',
-      phone: '+967770000000',
-      roleId: superAdminRoleId,
-      status: UserStatus.ACTIVE,
-      tenantId: null,
-    },
-  });
-
+  // 4. TENANT & SUBSCRIPTION
   // ===========================================================================
-  // 5. DEMO TENANT, USERS & SUBSCRIPTION
-  // ===========================================================================
-  console.log('5️⃣ Seeding Demo Tenant (شبكة النور هوت سبوت)...');
+  console.log('4️⃣ Seeding Primary Tenant...');
 
   const demoTenant = await prisma.tenant.upsert({
     where: { slug: 'al-noor' },
@@ -432,7 +406,7 @@ async function main(): Promise<void> {
       name: 'شبكة النور هوت سبوت',
       currency: 'YER',
       status: TenantStatus.ACTIVE,
-      contactEmail: 'contact@alnoor-wifi.local',
+      contactEmail: 'ahmed@gmail.com',
     },
     create: {
       name: 'شبكة النور هوت سبوت',
@@ -441,11 +415,11 @@ async function main(): Promise<void> {
       currency: 'YER',
       address: 'صنعاء - شارع حدة',
       phone: '+967771234567',
-      contactEmail: 'contact@alnoor-wifi.local',
+      contactEmail: 'ahmed@gmail.com',
     },
   });
 
-  // Demo Subscription (PRO plan for 1 year)
+  // Subscription (PRO plan for 1 year)
   const proPlanId = plansMap.get('PRO')!;
   const existingSub = await prisma.subscription.findFirst({
     where: { tenantId: demoTenant.id },
@@ -465,54 +439,36 @@ async function main(): Promise<void> {
         expiresAt: oneYearFromNow,
         maxRouters: 3,
         price: 300.0,
-        notes: 'اشتراك تجريبي مفعل تلقائيًا',
+        notes: 'اشتراك مفعل تلقائيًا',
       },
     });
   }
 
-  // Demo Tenant Admin
-  const tenantAdminEmail = 'admin@alnoor-wifi.local';
-  const tenantAdminHash = await hash('AlNoor@Admin2026', ARGON2_OPTIONS);
+  // ===========================================================================
+  // 5. PRIMARY ADMIN USER (ahmed@gmail.com)
+  // ===========================================================================
+  console.log('5️⃣ Seeding Primary Admin user (ahmed@gmail.com)...');
+
+  const adminEmail = 'ahmed@gmail.com';
+  const adminRawPassword = 'ahmed123';
+  const adminPasswordHash = await hash(adminRawPassword, ARGON2_OPTIONS);
   const tenantAdminRoleId = rolesMap.get(RoleName.TENANT_ADMIN)!;
 
   await prisma.user.upsert({
-    where: { email: tenantAdminEmail },
+    where: { email: adminEmail },
     update: {
-      passwordHash: tenantAdminHash,
+      passwordHash: adminPasswordHash,
       roleId: tenantAdminRoleId,
       tenantId: demoTenant.id,
+      fullName: 'أحمد - مدير النظام',
       status: UserStatus.ACTIVE,
     },
     create: {
-      email: tenantAdminEmail,
-      passwordHash: tenantAdminHash,
-      fullName: 'م. أحمد النور (مدير الشبكة)',
-      phone: '+967771234568',
+      email: adminEmail,
+      passwordHash: adminPasswordHash,
+      fullName: 'أحمد - مدير النظام',
+      phone: '+967771234567',
       roleId: tenantAdminRoleId,
-      tenantId: demoTenant.id,
-      status: UserStatus.ACTIVE,
-    },
-  });
-
-  // Demo Cashier
-  const cashierEmail = 'cashier@alnoor-wifi.local';
-  const cashierHash = await hash('Cashier@2026', ARGON2_OPTIONS);
-  const cashierRoleId = rolesMap.get(RoleName.CASHIER)!;
-
-  await prisma.user.upsert({
-    where: { email: cashierEmail },
-    update: {
-      passwordHash: cashierHash,
-      roleId: cashierRoleId,
-      tenantId: demoTenant.id,
-      status: UserStatus.ACTIVE,
-    },
-    create: {
-      email: cashierEmail,
-      passwordHash: cashierHash,
-      fullName: 'سالم الكاشير (نقطة بيع 1)',
-      phone: '+967771234569',
-      roleId: cashierRoleId,
       tenantId: demoTenant.id,
       status: UserStatus.ACTIVE,
     },
@@ -552,10 +508,8 @@ async function main(): Promise<void> {
 
   console.log('✅ Seeding completed successfully!');
   console.log('--------------------------------------------------');
-  console.log(`🔑 Super Admin Email:    ${superAdminEmail}`);
-  console.log(`🔑 Super Admin Password: ${superAdminRawPassword}`);
-  console.log(`🏢 Demo Tenant Admin:    ${tenantAdminEmail} / AlNoor@Admin2026`);
-  console.log(`💼 Demo Cashier:         ${cashierEmail} / Cashier@2026`);
+  console.log(`🔑 Admin Email:    ${adminEmail}`);
+  console.log(`🔑 Admin Password: ${adminRawPassword}`);
   console.log('--------------------------------------------------');
 }
 
