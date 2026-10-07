@@ -4,10 +4,10 @@ import { apiClient } from '../../core/api/api-client';
 import { CardItem } from '../../core/types/view-models';
 
 export const PrintStudioView: React.FC = () => {
-  const [printFormat, setPrintFormat] = useState<'A4_GRID' | 'THERMAL_ROLL'>('A4_GRID');
+  const [printFormat, setPrintFormat] = useState<'A4_GRID_100' | 'A4_GRID' | 'THERMAL_ROLL'>('A4_GRID_100');
   const [networkName, setNetworkName] = useState('');
   const [supportPhone, setSupportPhone] = useState('');
-  const [cardsCount, setCardsCount] = useState(12);
+  const [cardsCount, setCardsCount] = useState(100);
   const [cards, setCards] = useState<CardItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -66,7 +66,7 @@ export const PrintStudioView: React.FC = () => {
             استوديو طباعة كروت الهوتسبوت
           </h1>
           <p className="page-subtitle">
-            تجهيز قوالب الطباعة لورق A4 أو الطابعات الحرارية مع رموز QR
+            تجهيز قوالب الطباعة لورق A4 (شبكة 100 كرت / 5×20) أو الطابعات الحرارية مع رموز QR
           </p>
         </div>
 
@@ -109,25 +109,40 @@ export const PrintStudioView: React.FC = () => {
           }}
         >
           <div className="form-group">
-            <label className="form-label">نوع ورق الطباعة</label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <label className="form-label">نوع ورق وقالب الطباعة</label>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${printFormat === 'A4_GRID_100' ? 'btn-primary' : 'btn-outline'}`}
+                style={{ flex: 1, minWidth: '130px' }}
+                onClick={() => {
+                  setPrintFormat('A4_GRID_100');
+                  setCardsCount(100);
+                }}
+              >
+                <LayoutGrid size={14} />
+                A4 (100 كرت / 5×20)
+              </button>
               <button
                 type="button"
                 className={`btn btn-sm ${printFormat === 'A4_GRID' ? 'btn-primary' : 'btn-outline'}`}
-                style={{ flex: 1 }}
-                onClick={() => setPrintFormat('A4_GRID')}
+                style={{ flex: 1, minWidth: '130px' }}
+                onClick={() => {
+                  setPrintFormat('A4_GRID');
+                  setCardsCount(12);
+                }}
               >
                 <LayoutGrid size={14} />
-                ورق A4 (شبكة كروت)
+                A4 قياسي (12 كرت / 3×4)
               </button>
               <button
                 type="button"
                 className={`btn btn-sm ${printFormat === 'THERMAL_ROLL' ? 'btn-primary' : 'btn-outline'}`}
-                style={{ flex: 1 }}
+                style={{ flex: 1, minWidth: '130px' }}
                 onClick={() => setPrintFormat('THERMAL_ROLL')}
               >
                 <FileText size={14} />
-                طابعة حرارية (رول)
+                حراري (رول 58/80mm)
               </button>
             </div>
           </div>
@@ -201,8 +216,64 @@ export const PrintStudioView: React.FC = () => {
               جميع الكروت في النظام إما مباعة أو لم يتم توليدها بعد. يمكنك الانتقال إلى قسم «الكروت» وتوليد دفعة جديدة لتظهر هنا فوراً.
             </p>
           </div>
+        ) : printFormat === 'A4_GRID_100' ? (
+          /* 1. A4 Dense Grid Format (5 columns x 20 rows = 100 cards per page) */
+          <div className="a4-print-sheet-100">
+            {printableCards.map((card, idx) => (
+              <div key={card.id || idx} className="a4-card-item-mini">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    borderBottom: '0.5px solid #cbd5e1',
+                    paddingBottom: '1px',
+                    fontWeight: 700,
+                  }}
+                >
+                  <span style={{ color: '#0f766e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>
+                    {card.profile?.displayName || 'باقة إنترنت'}
+                  </span>
+                  <span style={{ color: '#b45309' }}>{card.price} SDG</span>
+                </div>
+
+                <div style={{ textAlign: 'center', margin: '2px 0' }}>
+                  <div
+                    style={{
+                      fontFamily: 'monospace',
+                      fontWeight: 800,
+                      fontSize: '0.8rem',
+                      letterSpacing: '1px',
+                      color: '#0f172a',
+                    }}
+                  >
+                    {card.username}
+                  </div>
+                  {card.clearPassword && card.clearPassword !== card.username && (
+                    <div style={{ fontSize: '0.62rem', color: '#475569', fontWeight: 600 }}>
+                      PIN: {card.clearPassword}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.55rem',
+                    color: '#64748b',
+                    borderTop: '0.5px dotted #e2e8f0',
+                    paddingTop: '1px',
+                  }}
+                >
+                  <span>{networkName || 'SudaFi'}</span>
+                  <span>{card.serialNumber ? `#${card.serialNumber.slice(-5)}` : `#${idx + 1}`}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : printFormat === 'A4_GRID' ? (
-          /* 1. A4 Grid Format */
+          /* 2. A4 Standard Grid Format (3x4 = 12 cards) */
           <div
             className="a4-print-sheet"
             style={{

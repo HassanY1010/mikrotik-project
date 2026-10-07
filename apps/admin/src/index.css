@@ -583,7 +583,7 @@ h6 {
     text-align: center;
   }
 
-  /* A4 Grid format */
+  /* A4 Grid standard format (3x4 = 12 cards) */
   .a4-print-sheet {
     display: grid !important;
     grid-template-columns: repeat(3, 1fr) !important;
@@ -600,4 +600,65 @@ h6 {
     background: #ffffff !important;
     border-radius: 4px;
   }
+
+  /* A4 Dense Grid format (5 columns x 20 rows = 100 cards per A4 page) */
+  .a4-print-sheet-100 {
+    display: grid !important;
+    grid-template-columns: repeat(5, 1fr) !important;
+    grid-template-rows: repeat(20, auto) !important;
+    gap: 1.2mm !important;
+    padding: 4mm !important;
+    max-width: 210mm !important;
+    margin: 0 auto !important;
+    background: #ffffff !important;
+    box-sizing: border-box !important;
+    page-break-after: always;
+  }
+
+  .a4-card-item-mini {
+    border: 0.5px dashed #475569 !important;
+    padding: 1.5mm 1mm !important;
+    text-align: center !important;
+    color: #000000 !important;
+    background: #ffffff !important;
+    border-radius: 2px !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    overflow: hidden !important;
+    line-height: 1.15 !important;
+    min-height: 12.5mm !important;
+    max-height: 13.8mm !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    font-size: 7px !important;
+  }
 }
+
+/* Screen Preview for 100-Cards Sheet */
+.a4-print-sheet-100 {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  max-width: 900px;
+  margin: 0 auto;
+  background-color: #ffffff;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.a4-card-item-mini {
+  border: 1px dashed #0d9488;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background-color: #f8fafc;
+  color: #0f172a;
+  text-align: center;
+  font-size: 9px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 52px;
+}
+
