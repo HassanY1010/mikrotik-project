@@ -51,7 +51,7 @@ const AdminLayout: React.FC = () => {
       case 'hotspot':
         return <HotspotProfilesView />;
       case 'cards':
-        return <CardsView />;
+        return <CardsView onNavigate={(tab) => setCurrentTab(tab as any)} />;
       case 'print':
         return <PrintStudioView />;
       case 'pos':

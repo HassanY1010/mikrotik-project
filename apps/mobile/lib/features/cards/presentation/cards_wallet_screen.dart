@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/services/card_pdf_generator_service.dart';
 
 class CardsWalletScreen extends ConsumerStatefulWidget {
   const CardsWalletScreen({super.key});
@@ -116,6 +117,180 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
     );
   }
 
+  void _showExportPdfDialog(List<OfflineCardModel> exportCards) {
+    if (exportCards.isEmpty) return;
+    CardPdfLayout selectedLayout = CardPdfLayout.a4Grid10;
+    final networkNameController = TextEditingController(text: 'شبكة الواي فاي');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.picture_as_pdf, color: Color(0xFFF59E0B), size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'تصدير كروت الهوتسبوت كـ PDF',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        Text(
+                          'جاهز لطباعة ورق A4 في مراكز خدمات الطباعة (${exportCards.length} كرت)',
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'تنسيق ورق A4 وعلامات القص:',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFE2E8F0)),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('10 كروت (مميز + QR كبير)'),
+                    selected: selectedLayout == CardPdfLayout.a4Grid10,
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedLayout = CardPdfLayout.a4Grid10);
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('12 كرت (3×4 قياسي)'),
+                    selected: selectedLayout == CardPdfLayout.a4Grid12,
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedLayout = CardPdfLayout.a4Grid12);
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('24 كرت (اقتصادي)'),
+                    selected: selectedLayout == CardPdfLayout.a4Grid24,
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedLayout = CardPdfLayout.a4Grid24);
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('100 كرت (مدمج 5×20)'),
+                    selected: selectedLayout == CardPdfLayout.a4Grid100,
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedLayout = CardPdfLayout.a4Grid100);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: networkNameController,
+                decoration: InputDecoration(
+                  labelText: 'اسم الشبكة المطبوع أعلى الكرت',
+                  labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                  filled: true,
+                  fillColor: const Color(0xFF0F172A),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0D9488),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.share, size: 20),
+                label: const Text(
+                  'مشاركة ملف PDF لمركز الطباعة (WhatsApp / ملفات)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('جاري إنشاء ملف الـ PDF عالي الدقة وتجهيز المشاركة...')),
+                  );
+                  try {
+                    await CardPdfGeneratorService.shareCardsPdf(
+                      cards: exportCards,
+                      networkName: networkNameController.text.trim().isNotEmpty
+                          ? networkNameController.text.trim()
+                          : 'SudaFi Network',
+                      layout: selectedLayout,
+                    );
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('تعذر فتح المشاركة: $e'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF38BDF8),
+                  side: const BorderSide(color: Color(0xFF38BDF8)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.print, size: 20),
+                label: const Text('معاينة وطباعة A4 مباشرة'),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  try {
+                    await CardPdfGeneratorService.previewAndPrint(
+                      cards: exportCards,
+                      networkName: networkNameController.text.trim().isNotEmpty
+                          ? networkNameController.text.trim()
+                          : 'SudaFi Network',
+                      layout: selectedLayout,
+                    );
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('تعذر فتح المعاينة: $e'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cards = ref.watch(offlineCardsProvider);
@@ -140,6 +315,11 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
       appBar: AppBar(
         title: const Text('محفظة الكروت المحلية'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf, color: Color(0xFFF59E0B)),
+            tooltip: 'تصدير الكروت كـ PDF لمركز الطباعة',
+            onPressed: filtered.isEmpty ? null : () => _showExportPdfDialog(filtered),
+          ),
           IconButton(
             icon: const Icon(Icons.add_shopping_cart, color: Color(0xFF0D9488)),
             tooltip: 'حجز كروت جديدة',

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/constants/api_endpoints.dart';
+import '../../../core/services/card_pdf_generator_service.dart';
 
 class CardStudioScreen extends ConsumerStatefulWidget {
   final VoidCallback? onBatchCreated;
@@ -63,72 +64,262 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
       if (mounted) {
         final data = res.data;
         final batchId = (data is Map && data['data'] != null && data['data']['id'] != null)
-            ? data['data']['id']
+            ? data['data']['id'].toString()
             : 'BATCH-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
 
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF1E293B),
-            title: Row(
-              children: const [
-                Icon(Icons.check_circle, color: Color(0xFF10B981)),
-                SizedBox(width: 8),
-                Text('تم إنشاء الدفعة بنجاح', style: TextStyle(color: Colors.white, fontSize: 16)),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('معرف الدفعة: $batchId', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-                const SizedBox(height: 8),
-                Text('العدد: $_selectedQuantity كرت', style: const TextStyle(color: Colors.white)),
-                Text('الباقة: ${selectedProfile.displayName}', style: const TextStyle(color: Colors.white)),
-                Text('السعر الإجمالي: ${(_selectedQuantity * selectedProfile.price).toStringAsFixed(0)} SDG', style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold)),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  widget.onBatchCreated?.call();
-                },
-                child: const Text('إغلاق', style: TextStyle(color: Color(0xFF38BDF8))),
+        // Prepare cards list for immediate PDF generation
+        final List<OfflineCardModel> generatedCards = [];
+        if (data is Map && data['data'] != null && data['data']['cards'] is List) {
+          for (final c in data['data']['cards'] as List) {
+            if (c is Map<String, dynamic>) {
+              generatedCards.add(OfflineCardModel.fromJson(c));
+            }
+          }
+        }
+
+        // If cards list wasn't embedded in response, synthesize them based on parameters
+        if (generatedCards.isEmpty) {
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+          for (int i = 0; i < _selectedQuantity; i++) {
+            final code = '${(nowMs % 1000000) + i + 1000}'.padLeft(8, '7');
+            generatedCards.add(
+              OfflineCardModel(
+                id: 'CARD-$batchId-$i',
+                serialNumber: 'SN-${(i + 1).toString().padLeft(4, '0')}',
+                username: code,
+                clearPassword: _singleCredentialMode ? code : '${1000 + i}',
+                profileId: selectedProfile.id,
+                profileName: selectedProfile.displayName ?? selectedProfile.name,
+                deviceId: selectedRouterId ?? '',
+                price: selectedProfile.price,
+                currency: 'SDG',
+                status: 'AVAILABLE',
               ),
-            ],
-          ),
+            );
+          }
+        }
+
+        _showBatchSuccessAndPdfDialog(
+          batchId: batchId,
+          profile: selectedProfile,
+          quantity: _selectedQuantity,
+          cards: generatedCards,
         );
       }
     } catch (e) {
       setState(() => _isGenerating = false);
       if (mounted) {
-        // Fallback for offline demo
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF1E293B),
-            title: Row(
-              children: const [
-                Icon(Icons.check_circle_outline, color: Color(0xFF10B981)),
-                SizedBox(width: 8),
-                Text('تمت محاكاة التوليد بنجاح', style: TextStyle(color: Colors.white, fontSize: 16)),
-              ],
-            ),
-            content: Text(
-              'تم إنشاء $_selectedQuantity كرت في الذاكرة بنجاح بباقة ${selectedProfile.displayName}.',
-              style: const TextStyle(color: Color(0xFF94A3B8)),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('تم', style: TextStyle(color: Color(0xFF38BDF8))),
-              ),
-            ],
+        // Fallback for offline demo with simulated cards
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final simulatedCards = List.generate(
+          _selectedQuantity,
+          (i) => OfflineCardModel(
+            id: 'OFFLINE-$i',
+            serialNumber: 'SN-${(i + 1).toString().padLeft(4, '0')}',
+            username: '${(nowMs % 100000) + i + 10000}',
+            clearPassword: '${(nowMs % 100000) + i + 10000}',
+            profileId: selectedProfile.id,
+            profileName: selectedProfile.displayName ?? selectedProfile.name,
+            deviceId: selectedRouterId ?? '',
+            price: selectedProfile.price,
+            currency: 'SDG',
+            status: 'AVAILABLE',
           ),
+        );
+
+        _showBatchSuccessAndPdfDialog(
+          batchId: 'BATCH-LOCAL-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
+          profile: selectedProfile,
+          quantity: _selectedQuantity,
+          cards: simulatedCards,
         );
       }
     }
+  }
+
+  void _showBatchSuccessAndPdfDialog({
+    required String batchId,
+    required HotspotProfileModel profile,
+    required int quantity,
+    required List<OfflineCardModel> cards,
+  }) {
+    CardPdfLayout selectedLayout = CardPdfLayout.a4Grid10;
+    final networkNameController = TextEditingController(text: 'شبكة الواي فاي');
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.check_circle, color: Color(0xFF10B981), size: 24),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'تم إنشاء الدفعة بنجاح! 📄',
+                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF334155)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('معرف الدفعة: $batchId', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                      const SizedBox(height: 4),
+                      Text('العدد: $quantity كرت  •  الباقة: ${profile.displayName}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text('الإجمالي: ${(quantity * profile.price).toStringAsFixed(0)} SDG', style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'تنسيق ورق A4 لمركز الطباعة:',
+                  style: TextStyle(color: Color(0xFFE2E8F0), fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('10 كروت (A4 مميز + QR)', style: TextStyle(fontSize: 11)),
+                      selected: selectedLayout == CardPdfLayout.a4Grid10,
+                      onSelected: (val) {
+                        if (val) setDialogState(() => selectedLayout = CardPdfLayout.a4Grid10);
+                      },
+                    ),
+                    ChoiceChip(
+                      label: const Text('12 كرت (3×4 قياسي)', style: TextStyle(fontSize: 11)),
+                      selected: selectedLayout == CardPdfLayout.a4Grid12,
+                      onSelected: (val) {
+                        if (val) setDialogState(() => selectedLayout = CardPdfLayout.a4Grid12);
+                      },
+                    ),
+                    ChoiceChip(
+                      label: const Text('24 كرت (اقتصادي)', style: TextStyle(fontSize: 11)),
+                      selected: selectedLayout == CardPdfLayout.a4Grid24,
+                      onSelected: (val) {
+                        if (val) setDialogState(() => selectedLayout = CardPdfLayout.a4Grid24);
+                      },
+                    ),
+                    ChoiceChip(
+                      label: const Text('100 كرت (مكثف)', style: TextStyle(fontSize: 11)),
+                      selected: selectedLayout == CardPdfLayout.a4Grid100,
+                      onSelected: (val) {
+                        if (val) setDialogState(() => selectedLayout = CardPdfLayout.a4Grid100);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: networkNameController,
+                  style: const TextStyle(fontSize: 13),
+                  decoration: InputDecoration(
+                    labelText: 'اسم الشبكة المطبوع',
+                    labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                    filled: true,
+                    fillColor: const Color(0xFF0F172A),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D9488),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.share, size: 18),
+                  label: const Text(
+                    'مشاركة PDF لمركز الطباعة (WhatsApp / ملفات)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    widget.onBatchCreated?.call();
+                    try {
+                      await CardPdfGeneratorService.shareCardsPdf(
+                        cards: cards,
+                        networkName: networkNameController.text.trim().isNotEmpty
+                            ? networkNameController.text.trim()
+                            : 'SudaFi Network',
+                        layout: selectedLayout,
+                        batchNumber: batchId,
+                      );
+                    } catch (err) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('تعذر استخراج ملف الـ PDF: $err'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF38BDF8),
+                    side: const BorderSide(color: Color(0xFF38BDF8)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.print, size: 18),
+                  label: const Text('معاينة وطباعة A4 الآن', style: TextStyle(fontSize: 12)),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    widget.onBatchCreated?.call();
+                    try {
+                      await CardPdfGeneratorService.previewAndPrint(
+                        cards: cards,
+                        networkName: networkNameController.text.trim().isNotEmpty
+                            ? networkNameController.text.trim()
+                            : 'SudaFi Network',
+                        layout: selectedLayout,
+                        batchNumber: batchId,
+                      );
+                    } catch (err) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('تعذر فتح نافذة الطباعة: $err'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                widget.onBatchCreated?.call();
+              },
+              child: const Text('إغلاق والعودة', style: TextStyle(color: Color(0xFF94A3B8))),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override

@@ -2,10 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { Modal } from '../../components/common/Modal';
-import { CreditCard, Plus, RefreshCw, QrCode, Search, Filter, Ban, CheckCircle } from 'lucide-react';
+import { CreditCard, Plus, RefreshCw, QrCode, Search, Filter, Ban, CheckCircle, Printer } from 'lucide-react';
 import { CardItem, HotspotProfileItem } from '../../core/types/view-models';
 
-export const CardsView: React.FC = () => {
+interface CardsViewProps {
+  onNavigate?: (tab: string) => void;
+}
+
+export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
   const { showToast } = useToast();
   const [cards, setCards] = useState<CardItem[]>([]);
   const [profiles, setProfiles] = useState<HotspotProfileItem[]>([]);
@@ -136,7 +140,17 @@ export const CardsView: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {onNavigate && (
+            <button
+              className="btn btn-outline"
+              style={{ borderColor: '#0d9488', color: '#0d9488' }}
+              onClick={() => onNavigate('print')}
+            >
+              <Printer size={16} />
+              استوديو تصدير وطباعة الـ PDF
+            </button>
+          )}
           <button className="btn btn-outline" onClick={fetchCards} disabled={loading}>
             <RefreshCw size={16} />
             تحديث

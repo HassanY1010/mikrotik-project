@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Printer, FileText, LayoutGrid, Sliders, AlertCircle, RefreshCw } from 'lucide-react';
+import { Printer, FileText, LayoutGrid, Sliders, AlertCircle, RefreshCw, Download } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { apiClient } from '../../core/api/api-client';
 import { CardItem } from '../../core/types/view-models';
+
+interface BatchOption {
+  id: string;
+  batchNumber: string;
+  totalCards: number;
+  price: number;
+  profileName?: string;
+}
 
 export const PrintStudioView: React.FC = () => {
   const [printFormat, setPrintFormat] = useState<'A4_GRID_100' | 'A4_GRID' | 'THERMAL_ROLL'>('A4_GRID_100');
@@ -9,17 +18,26 @@ export const PrintStudioView: React.FC = () => {
   const [supportPhone, setSupportPhone] = useState('');
   const [cardsCount, setCardsCount] = useState(100);
   const [cards, setCards] = useState<CardItem[]>([]);
+  const [batches, setBatches] = useState<BatchOption[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
 
-  const fetchData = async () => {
+  const fetchData = async (batchId: string = selectedBatchId) => {
     setLoading(true);
     try {
-      const [cardsRes, tenantRes] = await Promise.allSettled([
-        apiClient.get<CardItem[] | { data: CardItem[]; total: number }>('/cards', {
-          status: 'AVAILABLE',
-          limit: 200,
-        }),
+      const cardsQuery: Record<string, string | number> = {
+        limit: 200,
+      };
+      if (batchId !== 'ALL') {
+        cardsQuery.batchId = batchId;
+      } else {
+        cardsQuery.status = 'AVAILABLE';
+      }
+
+      const [cardsRes, tenantRes, batchesRes] = await Promise.allSettled([
+        apiClient.get<CardItem[] | { data: CardItem[]; total: number }>('/cards', cardsQuery),
         apiClient.get<{ name?: string; contactPhone?: string; phone?: string }>('/tenants/current'),
+        apiClient.get<BatchOption[]>('/cards/batches'),
       ]);
 
       if (cardsRes.status === 'fulfilled' && cardsRes.value) {
@@ -39,6 +57,10 @@ export const PrintStudioView: React.FC = () => {
         const phone = tenantRes.value.contactPhone || tenantRes.value.phone;
         if (phone) setSupportPhone(phone);
       }
+
+      if (batchesRes.status === 'fulfilled' && Array.isArray(batchesRes.value)) {
+        setBatches(batchesRes.value);
+      }
     } catch {
       setCards([]);
     } finally {
@@ -47,8 +69,13 @@ export const PrintStudioView: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData('ALL');
   }, []);
+
+  const handleBatchChange = (batchId: string) => {
+    setSelectedBatchId(batchId);
+    fetchData(batchId);
+  };
 
   const handlePrint = () => {
     window.print();
@@ -57,31 +84,182 @@ export const PrintStudioView: React.FC = () => {
   // Slice available cards up to cardsCount
   const printableCards = cards.slice(0, cardsCount);
 
+  const handleDownloadPdf = () => {
+    if (printableCards.length === 0) return;
+
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 8;
+
+    let cols = 3;
+    let rows = 4;
+    if (printFormat === 'A4_GRID_100') {
+      cols = 5;
+      rows = 20;
+    } else if (printFormat === 'A4_GRID') {
+      cols = 3;
+      rows = 4;
+    } else {
+      cols = 1;
+      rows = 5;
+    }
+
+    const cardsPerPage = cols * rows;
+    const totalPages = Math.ceil(printableCards.length / cardsPerPage);
+
+    const cardWidth = (pageWidth - margin * 2) / cols;
+    const cardHeight = (pageHeight - margin * 2 - 12) / rows;
+
+    for (let p = 0; p < totalPages; p++) {
+      if (p > 0) doc.addPage();
+
+      const pageCards = printableCards.slice(p * cardsPerPage, (p + 1) * cardsPerPage);
+
+      // Page Header with metadata
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `Network: ${networkName || 'SudaFi'} | Support: ${supportPhone || '-'} | Page ${p + 1} of ${totalPages} (${pageCards.length} Cards)`,
+        margin,
+        margin + 4
+      );
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.3);
+      doc.line(margin, margin + 6, pageWidth - margin, margin + 6);
+
+      const startY = margin + 8;
+
+      pageCards.forEach((card, idx) => {
+        const colIdx = idx % cols;
+        const rowIdx = Math.floor(idx / cols);
+
+        const x = margin + colIdx * cardWidth;
+        const y = startY + rowIdx * cardHeight;
+
+        // Dotted cut borders for print shop slicing
+        doc.setDrawColor(148, 163, 184);
+        doc.setLineDashPattern([1.5, 1], 0);
+        doc.setLineWidth(0.25);
+        doc.rect(x + 1, y + 1, cardWidth - 2, cardHeight - 2);
+        doc.setLineDashPattern([], 0);
+
+        if (printFormat === 'A4_GRID_100') {
+          // Dense 100-grid
+          doc.setFillColor(15, 23, 42);
+          doc.rect(x + 1.2, y + 1.2, cardWidth - 2.4, 3, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(5);
+          doc.text(card.profile?.displayName || 'Hotspot', x + 2, y + 3.2);
+          doc.text(`${card.price} SDG`, x + cardWidth - 8, y + 3.2);
+
+          doc.setTextColor(15, 23, 42);
+          doc.setFontSize(7);
+          doc.setFont('courier', 'bold');
+          doc.text(card.username, x + (cardWidth / 2) - 4, y + 7.5);
+          doc.setFont('helvetica', 'normal');
+
+          if (card.clearPassword && card.clearPassword !== card.username) {
+            doc.setFontSize(4.5);
+            doc.setTextColor(185, 28, 28);
+            doc.text(`PIN: ${card.clearPassword}`, x + 2, y + 10.5);
+          }
+
+          doc.setFontSize(4);
+          doc.setTextColor(100, 116, 139);
+          doc.text(`#${card.serialNumber?.slice(-5) || idx + 1}`, x + 2, y + cardHeight - 2);
+        } else {
+          // Standard A4 Grid (Clear & Beautiful)
+          doc.setFillColor(15, 23, 42);
+          doc.roundedRect(x + 1.5, y + 1.5, cardWidth - 3, 7, 1, 1, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(7.5);
+          doc.setFont('helvetica', 'bold');
+          doc.text(networkName || 'HotSpot Wi-Fi', x + 3, y + 6);
+
+          doc.setFillColor(245, 158, 11);
+          doc.roundedRect(x + cardWidth - 19, y + 2.5, 16, 5, 1, 1, 'F');
+          doc.setTextColor(0, 0, 0);
+          doc.setFontSize(6.5);
+          doc.text(`${card.price} SDG`, x + cardWidth - 17, y + 6);
+
+          doc.setTextColor(5, 150, 105);
+          doc.setFontSize(8);
+          doc.text(card.profile?.displayName || 'Card Voucher', x + 3, y + 14);
+
+          doc.setFillColor(241, 245, 249);
+          doc.roundedRect(x + 3, y + 17, cardWidth - 6, 18, 1.5, 1.5, 'F');
+          doc.setDrawColor(226, 232, 240);
+          doc.roundedRect(x + 3, y + 17, cardWidth - 6, 18, 1.5, 1.5, 'S');
+
+          doc.setTextColor(71, 85, 105);
+          doc.setFontSize(6.5);
+          doc.text(card.clearPassword ? 'Username / Code:' : 'Card Code:', x + 5, y + 22);
+
+          doc.setTextColor(15, 23, 42);
+          doc.setFontSize(11);
+          doc.setFont('courier', 'bold');
+          doc.text(card.username, x + 5, y + 28);
+          doc.setFont('helvetica', 'normal');
+
+          if (card.clearPassword && card.clearPassword !== card.username) {
+            doc.setTextColor(220, 38, 38);
+            doc.setFontSize(7.5);
+            doc.setFont('courier', 'bold');
+            doc.text(`PIN: ${card.clearPassword}`, x + cardWidth - 26, y + 28);
+            doc.setFont('helvetica', 'normal');
+          }
+
+          doc.setTextColor(100, 116, 139);
+          doc.setFontSize(5.5);
+          doc.text(`SN: ${card.serialNumber || `#${idx + 1}`}`, x + 3, y + cardHeight - 3);
+          doc.text(`Scan QR or connect to Wi-Fi`, x + cardWidth - 32, y + cardHeight - 3);
+        }
+      });
+    }
+
+    doc.save(`Hotspot_Cards_A4_${printFormat}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
   return (
     <div>
       <div className="page-header no-print">
         <div>
           <h1 className="page-title">
             <Printer color="var(--primary)" size={24} />
-            استوديو طباعة كروت الهوتسبوت
+            استوديو طباعة وتصدير كروت الهوتسبوت (A4 PDF)
           </h1>
           <p className="page-subtitle">
-            تجهيز قوالب الطباعة لورق A4 (شبكة 100 كرت / 5×20) أو الطابعات الحرارية مع رموز QR
+            تجهيز وتنزيل كروت الهوتسبوت كملف PDF عالي الدقة بمقاس A4 لطباعتها في مراكز الطباعة والمكتبات
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button className="btn btn-outline" onClick={fetchData} disabled={loading}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-outline" onClick={() => fetchData()} disabled={loading}>
             <RefreshCw size={16} className={loading ? 'spin' : ''} />
-            تحديث الكروت
+            تحديث
           </button>
           <button
             className="btn btn-primary"
+            style={{ backgroundColor: '#0d9488', borderColor: '#0d9488' }}
+            onClick={handleDownloadPdf}
+            disabled={printableCards.length === 0}
+          >
+            <Download size={16} />
+            تنزيل ملف PDF لمركز الطباعة ({printableCards.length} كرت)
+          </button>
+          <button
+            className="btn btn-outline"
             onClick={handlePrint}
             disabled={printableCards.length === 0}
           >
             <Printer size={16} />
-            بدء الطباعة الآن ({printableCards.length} كرت)
+            معاينة وطباعة المتصفح
           </button>
         </div>
       </div>
@@ -170,6 +348,22 @@ export const PrintStudioView: React.FC = () => {
           </div>
 
           <div className="form-group">
+            <label className="form-label">تصفية حسب الدفعة</label>
+            <select
+              className="input"
+              value={selectedBatchId}
+              onChange={(e) => handleBatchChange(e.target.value)}
+            >
+              <option value="ALL">جميع الكروت المتاحة حالياً</option>
+              {batches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.batchNumber} ({b.totalCards} كرت - {b.price} SDG)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
             <label className="form-label">أقصى عدد كروت للطباعة (المتاح: {cards.length})</label>
             <select
               className="input"
@@ -181,6 +375,7 @@ export const PrintStudioView: React.FC = () => {
               <option value={24}>24 كرت (صفحتين)</option>
               <option value={50}>50 كرت</option>
               <option value={100}>100 كرت</option>
+              <option value={200}>200 كرت</option>
             </select>
           </div>
         </div>
