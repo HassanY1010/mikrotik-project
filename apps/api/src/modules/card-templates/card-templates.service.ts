@@ -64,6 +64,9 @@ export class CardTemplatesService {
         heightMm: dto.heightMm ?? 54,
         orientation: dto.orientation ?? 'landscape',
         backgroundDesign: dto.backgroundDesign ?? null,
+        themePreset: dto.themePreset ?? 'CLASSIC',
+        primaryColor: dto.primaryColor ?? '#1E3A8A',
+        accentColor: dto.accentColor ?? '#10B981',
         layoutConfig: dto.layoutConfig as Prisma.InputJsonValue,
         isDefault: dto.isDefault ?? false,
       },
@@ -71,6 +74,77 @@ export class CardTemplatesService {
   }
 
   async findAll(tenantId: string): Promise<CardTemplate[]> {
+    const existing = await this.prisma.cardTemplate.findMany({
+      where: { tenantId },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+    });
+
+    if (existing.length > 0) {
+      return existing;
+    }
+
+    // Auto-seed default templates for tenant
+    const defaultPresets = [
+      {
+        name: 'قالب كرة القدم الرياضي',
+        themePreset: 'FOOTBALL',
+        primaryColor: '#059669',
+        accentColor: '#10B981',
+        isDefault: true,
+      },
+      {
+        name: 'قالب عيد مبارك',
+        themePreset: 'EID',
+        primaryColor: '#047857',
+        accentColor: '#F59E0B',
+        isDefault: false,
+      },
+      {
+        name: 'قالب نجاح فيروزي',
+        themePreset: 'MODERN_TEAL',
+        primaryColor: '#0D9488',
+        accentColor: '#06B6D4',
+        isDefault: false,
+      },
+      {
+        name: 'قالب تذكرة صعود برقية',
+        themePreset: 'TICKET',
+        primaryColor: '#1E40AF',
+        accentColor: '#3B82F6',
+        isDefault: false,
+      },
+      {
+        name: 'قالب مضغوط تجاري',
+        themePreset: 'COMPACT',
+        primaryColor: '#334155',
+        accentColor: '#64748B',
+        isDefault: false,
+      },
+    ];
+
+    for (const preset of defaultPresets) {
+      await this.prisma.cardTemplate.create({
+        data: {
+          tenantId,
+          name: preset.name,
+          widthMm: 85,
+          heightMm: 54,
+          orientation: 'landscape',
+          themePreset: preset.themePreset,
+          primaryColor: preset.primaryColor,
+          accentColor: preset.accentColor,
+          isDefault: preset.isDefault,
+          layoutConfig: {
+            showQr: true,
+            showPin: true,
+            showPrice: true,
+            showValidity: true,
+            qrSizeMm: 24,
+          },
+        },
+      });
+    }
+
     return this.prisma.cardTemplate.findMany({
       where: { tenantId },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
@@ -108,6 +182,9 @@ export class CardTemplatesService {
     if (dto.heightMm !== undefined) data.heightMm = dto.heightMm;
     if (dto.orientation !== undefined) data.orientation = dto.orientation;
     if (dto.backgroundDesign !== undefined) data.backgroundDesign = dto.backgroundDesign;
+    if (dto.themePreset !== undefined) data.themePreset = dto.themePreset;
+    if (dto.primaryColor !== undefined) data.primaryColor = dto.primaryColor;
+    if (dto.accentColor !== undefined) data.accentColor = dto.accentColor;
     if (dto.layoutConfig !== undefined)
       data.layoutConfig = dto.layoutConfig as Prisma.InputJsonValue;
     if (dto.isDefault !== undefined) data.isDefault = dto.isDefault;

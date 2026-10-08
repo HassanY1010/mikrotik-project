@@ -18,7 +18,28 @@ class ApiEndpoints {
 
   // Hotspot profiles endpoint
   static const String hotspotProfiles = '/hotspot/profiles';
+  static const String hotspotSessions = '/hotspot/sessions';
 
   // Devices endpoint
   static const String devices = '/devices';
+  static String deviceEmergencyLock(String id) => '/devices/$id/emergency-lock';
+  static String deviceAntiTethering(String id) => '/devices/$id/anti-tethering';
+  static String deviceTest(String id) => '/devices/$id/test';
+
+  // Hotspot
+  static String hotspotKick(String sessionId) => '/hotspot/sessions/$sessionId/kick';
+
+  // Cards & Batch Studio
+  static const String cards = '/cards';
+  static const String cardBatches = '/cards/batches';
+  static const String cardTemplates = '/card-templates';
+
+  // Analytics & Reports
+  static const String analyticsDashboard = '/analytics/dashboard';
+  static const String financialReport = '/analytics/financial-report';
+
+  // Cloud Wallet
+  static const String wallet = '/tenants/current/wallet';
+  static const String walletRecharge = '/tenants/current/wallet/recharge';
+  static const String walletTransactions = '/tenants/current/wallet/transactions';
 }

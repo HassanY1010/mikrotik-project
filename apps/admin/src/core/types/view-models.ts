@@ -11,6 +11,15 @@ export interface DeviceItem {
   status?: string;
   lastSeenAt?: string;
   username?: string;
+  isLocked?: boolean;
+  antiTetheringEnabled?: boolean;
+  modelName?: string;
+  cpuLoad?: number;
+  memoryFree?: number;
+  memoryTotal?: number;
+  diskFree?: number;
+  diskTotal?: number;
+  uptime?: string;
 }
 
 export interface DiagnosticsData {

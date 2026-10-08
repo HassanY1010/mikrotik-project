@@ -61,6 +61,21 @@ export class CreateTemplateDto {
   @IsNotEmpty()
   layoutConfig!: Record<string, unknown>;
 
+  @ApiPropertyOptional({ description: 'Theme preset style', example: 'FOOTBALL' })
+  @IsString()
+  @IsOptional()
+  themePreset?: string;
+
+  @ApiPropertyOptional({ description: 'Primary hex color', example: '#1E3A8A' })
+  @IsString()
+  @IsOptional()
+  primaryColor?: string;
+
+  @ApiPropertyOptional({ description: 'Accent hex color', example: '#10B981' })
+  @IsString()
+  @IsOptional()
+  accentColor?: string;
+
   @ApiPropertyOptional({ description: 'Set as tenant default template', default: false })
   @IsBoolean()
   @IsOptional()

@@ -81,6 +81,46 @@ export interface NetworkAnalytics {
   hourlyDistribution: Array<{ hour: number; sessionCount: number }>;
 }
 
+export interface FinancialReport {
+  summary: {
+    todayRevenue: number;
+    todaySalesCount: number;
+    weekRevenue: number;
+    weekSalesCount: number;
+    monthRevenue: number;
+    monthSalesCount: number;
+    allTimeRevenue: number;
+    profitMarginPercent: number;
+    estimatedProfit: number;
+    currency: string;
+  };
+  forecast: {
+    next7Days: number;
+    next30Days: number;
+    trend: 'UP' | 'DOWN' | 'STABLE';
+  };
+  bestSellingProfiles: Array<{
+    name: string;
+    salesCount: number;
+    revenue: number;
+  }>;
+  salesByRouter: Array<{
+    deviceName: string;
+    salesCount: number;
+    revenue: number;
+  }>;
+  salesByCashier: Array<{
+    cashierName: string;
+    salesCount: number;
+    revenue: number;
+  }>;
+  dailyRevenueLast30Days: Array<{
+    date: string;
+    amount: number;
+    count: number;
+  }>;
+}
+
 @Injectable()
 export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -440,6 +480,115 @@ export class AnalyticsService {
       totalBytesOut,
       topUsers,
       hourlyDistribution,
+    };
+  }
+
+  async getFinancialReport(tenantId: string): Promise<FinancialReport> {
+    const overview = await this.getDashboardOverview(tenantId);
+    const revenueAnalytics = await this.getRevenueAnalytics(tenantId, 30);
+
+    // Sales by router
+    const salesByRouter = revenueAnalytics.byDevice.map((d) => ({
+      deviceName: d.deviceName,
+      salesCount: d.count,
+      revenue: d.total,
+    }));
+
+    // Best selling profiles
+    const bestSellingProfiles = revenueAnalytics.byProfile.map((p) => ({
+      name: p.profileName,
+      salesCount: p.count,
+      revenue: p.total,
+    }));
+
+    // Cashier breakdown
+    const salesWithCashier = await this.prisma.saleTransaction.findMany({
+      where: { tenantId },
+      include: { cashier: { select: { fullName: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    const cashierMap = new Map<string, { count: number; revenue: number }>();
+    for (const s of salesWithCashier) {
+      const name = s.cashier?.fullName || 'كاشير';
+      const cur = cashierMap.get(name) ?? { count: 0, revenue: 0 };
+      cur.count += 1;
+      cur.revenue += Number(s.amount);
+      cashierMap.set(name, cur);
+    }
+    const salesByCashier = Array.from(cashierMap.entries()).map(([cashierName, data]) => ({
+      cashierName,
+      salesCount: data.count,
+      revenue: data.revenue,
+    }));
+
+    // Profit margin: 10% default
+    const profitMarginPercent = 10;
+    const estimatedProfit = Math.round(overview.revenue.thisMonth * (profitMarginPercent / 100));
+
+    // Forecast calculation
+    const last7DaysAmounts = revenueAnalytics.timeSeries.slice(-7).map((d) => d.amount);
+    const avgDailyLast7 =
+      last7DaysAmounts.length > 0
+        ? last7DaysAmounts.reduce((a, b) => a + b, 0) / last7DaysAmounts.length
+        : 0;
+    const next7Days = Math.round(avgDailyLast7 * 7);
+    const next30Days = Math.round(avgDailyLast7 * 30);
+
+    const prev7DaysAmounts = revenueAnalytics.timeSeries.slice(-14, -7).map((d) => d.amount);
+    const avgPrev7 =
+      prev7DaysAmounts.length > 0
+        ? prev7DaysAmounts.reduce((a, b) => a + b, 0) / prev7DaysAmounts.length
+        : 0;
+
+    let trend: 'UP' | 'DOWN' | 'STABLE' = 'STABLE';
+    if (avgDailyLast7 > avgPrev7 * 1.05) trend = 'UP';
+    else if (avgDailyLast7 < avgPrev7 * 0.95) trend = 'DOWN';
+
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [todayCount, weekCount, monthCount] = await Promise.all([
+      this.prisma.saleTransaction.count({
+        where: { tenantId, createdAt: { gte: startOfToday } },
+      }),
+      this.prisma.saleTransaction.count({
+        where: { tenantId, createdAt: { gte: startOfWeek } },
+      }),
+      this.prisma.saleTransaction.count({
+        where: { tenantId, createdAt: { gte: startOfMonth } },
+      }),
+    ]);
+
+    return {
+      summary: {
+        todayRevenue: overview.revenue.today,
+        todaySalesCount: todayCount,
+        weekRevenue: overview.revenue.thisWeek,
+        weekSalesCount: weekCount,
+        monthRevenue: overview.revenue.thisMonth,
+        monthSalesCount: monthCount,
+        allTimeRevenue: overview.revenue.allTime,
+        profitMarginPercent,
+        estimatedProfit,
+        currency: overview.revenue.currency,
+      },
+      forecast: {
+        next7Days,
+        next30Days,
+        trend,
+      },
+      bestSellingProfiles,
+      salesByRouter,
+      salesByCashier,
+      dailyRevenueLast30Days: revenueAnalytics.timeSeries,
     };
   }
 }

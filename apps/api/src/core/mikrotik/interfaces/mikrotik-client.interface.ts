@@ -62,4 +62,6 @@ export interface IMikrotikClient {
   listActiveSessions(): Promise<HotspotActiveSessionItem[]>;
   removeActiveSession(sessionOrUserId: string): Promise<void>;
   reboot?(): Promise<void>;
+  setAntiTethering?(enabled: boolean): Promise<void>;
+  setEmergencyLock?(locked: boolean): Promise<void>;
 }

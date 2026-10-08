@@ -293,3 +293,291 @@ class ShiftProfileSummary {
     );
   }
 }
+
+/// MikroTik Router device model
+class RouterDeviceModel {
+  final String id;
+  final String name;
+  final String host;
+  final int apiPort;
+  final int restPort;
+  final bool useSsl;
+  final String username;
+  final String rosVersion;
+  final bool isOnline;
+  final String status;
+  final int? cpuLoad;
+  final int? memoryFreeMb;
+  final int? memoryTotalMb;
+  final int? diskFreeMb;
+  final int? diskTotalMb;
+  final String? uptime;
+  final String? modelName;
+  final bool isLocked;
+  final bool antiTetheringEnabled;
+
+  RouterDeviceModel({
+    required this.id,
+    required this.name,
+    required this.host,
+    this.apiPort = 8728,
+    this.restPort = 443,
+    this.useSsl = false,
+    this.username = 'admin',
+    this.rosVersion = 'V7',
+    this.isOnline = false,
+    this.status = 'OFFLINE',
+    this.cpuLoad,
+    this.memoryFreeMb,
+    this.memoryTotalMb,
+    this.diskFreeMb,
+    this.diskTotalMb,
+    this.uptime,
+    this.modelName,
+    this.isLocked = false,
+    this.antiTetheringEnabled = false,
+  });
+
+  factory RouterDeviceModel.fromJson(Map<String, dynamic> json) {
+    int? parseMb(dynamic val) {
+      if (val == null) return null;
+      final num = double.tryParse(val.toString()) ?? 0;
+      if (num > 1000000) {
+        return (num / (1024 * 1024)).round();
+      }
+      return num.round();
+    }
+
+    return RouterDeviceModel(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? 'MikroTik Router',
+      host: json['host'] as String? ?? '192.168.88.1',
+      apiPort: json['apiPort'] as int? ?? json['port'] as int? ?? 8728,
+      restPort: json['restPort'] as int? ?? 443,
+      useSsl: json['useSsl'] as bool? ?? false,
+      username: json['username'] as String? ?? 'admin',
+      rosVersion: json['rosVersion'] as String? ?? 'V7',
+      isOnline: json['isOnline'] as bool? ?? (json['status'] == 'ONLINE'),
+      status: json['status'] as String? ?? 'OFFLINE',
+      cpuLoad: json['cpuLoad'] as int?,
+      memoryFreeMb: parseMb(json['memoryFree']),
+      memoryTotalMb: parseMb(json['memoryTotal']),
+      diskFreeMb: parseMb(json['diskFree']),
+      diskTotalMb: parseMb(json['diskTotal']),
+      uptime: json['uptime'] as String?,
+      modelName: json['modelName'] as String?,
+      isLocked: json['isLocked'] as bool? ?? false,
+      antiTetheringEnabled: json['antiTetheringEnabled'] as bool? ?? false,
+    );
+  }
+
+  RouterDeviceModel copyWith({
+    String? id,
+    String? name,
+    String? host,
+    int? apiPort,
+    int? restPort,
+    bool? useSsl,
+    String? username,
+    String? rosVersion,
+    bool? isOnline,
+    String? status,
+    int? cpuLoad,
+    int? memoryFreeMb,
+    int? memoryTotalMb,
+    int? diskFreeMb,
+    int? diskTotalMb,
+    String? uptime,
+    String? modelName,
+    bool? isLocked,
+    bool? antiTetheringEnabled,
+  }) {
+    return RouterDeviceModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      host: host ?? this.host,
+      apiPort: apiPort ?? this.apiPort,
+      restPort: restPort ?? this.restPort,
+      useSsl: useSsl ?? this.useSsl,
+      username: username ?? this.username,
+      rosVersion: rosVersion ?? this.rosVersion,
+      isOnline: isOnline ?? this.isOnline,
+      status: status ?? this.status,
+      cpuLoad: cpuLoad ?? this.cpuLoad,
+      memoryFreeMb: memoryFreeMb ?? this.memoryFreeMb,
+      memoryTotalMb: memoryTotalMb ?? this.memoryTotalMb,
+      diskFreeMb: diskFreeMb ?? this.diskFreeMb,
+      diskTotalMb: diskTotalMb ?? this.diskTotalMb,
+      uptime: uptime ?? this.uptime,
+      modelName: modelName ?? this.modelName,
+      isLocked: isLocked ?? this.isLocked,
+      antiTetheringEnabled: antiTetheringEnabled ?? this.antiTetheringEnabled,
+    );
+  }
+}
+
+/// Hotspot Active Session model (Radar)
+class ActiveSessionModel {
+  final String id;
+  final String user;
+  final String address;
+  final String macAddress;
+  final String uptime;
+  final int bytesIn;
+  final int bytesOut;
+  final String? sessionId;
+  final String? deviceId;
+  final String? deviceName;
+
+  ActiveSessionModel({
+    required this.id,
+    required this.user,
+    required this.address,
+    required this.macAddress,
+    required this.uptime,
+    required this.bytesIn,
+    required this.bytesOut,
+    this.sessionId,
+    this.deviceId,
+    this.deviceName,
+  });
+
+  factory ActiveSessionModel.fromJson(Map<String, dynamic> json) {
+    return ActiveSessionModel(
+      id: json['id'] as String? ?? json['user'] as String? ?? '',
+      user: json['user'] as String? ?? json['username'] as String? ?? 'مستخدم',
+      address: json['address'] as String? ?? json['ipAddress'] as String? ?? '',
+      macAddress: json['macAddress'] as String? ?? json['mac-address'] as String? ?? '',
+      uptime: json['uptime'] as String? ?? '0s',
+      bytesIn: int.tryParse(json['bytesIn']?.toString() ?? json['bytes-in']?.toString() ?? '0') ?? 0,
+      bytesOut: int.tryParse(json['bytesOut']?.toString() ?? json['bytes-out']?.toString() ?? '0') ?? 0,
+      sessionId: json['sessionId'] as String?,
+      deviceId: json['deviceId'] as String?,
+      deviceName: json['deviceName'] as String?,
+    );
+  }
+
+  double get totalMb => ((bytesIn + bytesOut) / (1024 * 1024));
+}
+
+/// Card print template model
+class CardTemplateModel {
+  final String id;
+  final String name;
+  final String themePreset;
+  final String primaryColor;
+  final String accentColor;
+  final bool isDefault;
+
+  CardTemplateModel({
+    required this.id,
+    required this.name,
+    this.themePreset = 'CLASSIC',
+    this.primaryColor = '#1E3A8A',
+    this.accentColor = '#10B981',
+    this.isDefault = false,
+  });
+
+  factory CardTemplateModel.fromJson(Map<String, dynamic> json) {
+    return CardTemplateModel(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? 'قالب الكرت',
+      themePreset: json['themePreset'] as String? ?? 'CLASSIC',
+      primaryColor: json['primaryColor'] as String? ?? '#1E3A8A',
+      accentColor: json['accentColor'] as String? ?? '#10B981',
+      isDefault: json['isDefault'] as bool? ?? false,
+    );
+  }
+}
+
+/// Cloud wallet data
+class WalletDataModel {
+  final double walletBalance;
+  final int loyaltyPoints;
+  final bool allowAdminCards;
+  final String currency;
+
+  WalletDataModel({
+    required this.walletBalance,
+    required this.loyaltyPoints,
+    this.allowAdminCards = false,
+    this.currency = 'SDG',
+  });
+
+  factory WalletDataModel.fromJson(Map<String, dynamic> json) {
+    return WalletDataModel(
+      walletBalance: (json['walletBalance'] != null)
+          ? double.tryParse(json['walletBalance'].toString()) ?? 0.0
+          : 0.0,
+      loyaltyPoints: json['loyaltyPoints'] as int? ?? 0,
+      allowAdminCards: json['allowAdminCards'] as bool? ?? false,
+      currency: json['currency'] as String? ?? 'SDG',
+    );
+  }
+}
+
+/// Comprehensive Financial & Analytics Report model
+class FinancialReportModel {
+  final double todayRevenue;
+  final int todaySalesCount;
+  final double weekRevenue;
+  final int weekSalesCount;
+  final double monthRevenue;
+  final int monthSalesCount;
+  final double allTimeRevenue;
+  final double profitMarginPercent;
+  final double estimatedProfit;
+  final String currency;
+  final double next7DaysForecast;
+  final double next30DaysForecast;
+  final String trend;
+  final List<Map<String, dynamic>> bestSellingProfiles;
+  final List<Map<String, dynamic>> salesByRouter;
+  final List<Map<String, dynamic>> salesByCashier;
+  final List<Map<String, dynamic>> dailyRevenueLast30Days;
+
+  FinancialReportModel({
+    required this.todayRevenue,
+    required this.todaySalesCount,
+    required this.weekRevenue,
+    required this.weekSalesCount,
+    required this.monthRevenue,
+    required this.monthSalesCount,
+    required this.allTimeRevenue,
+    required this.profitMarginPercent,
+    required this.estimatedProfit,
+    required this.currency,
+    required this.next7DaysForecast,
+    required this.next30DaysForecast,
+    required this.trend,
+    required this.bestSellingProfiles,
+    required this.salesByRouter,
+    required this.salesByCashier,
+    required this.dailyRevenueLast30Days,
+  });
+
+  factory FinancialReportModel.fromJson(Map<String, dynamic> json) {
+    final summary = json['summary'] as Map<String, dynamic>? ?? {};
+    final forecast = json['forecast'] as Map<String, dynamic>? ?? {};
+
+    return FinancialReportModel(
+      todayRevenue: double.tryParse(summary['todayRevenue']?.toString() ?? '0') ?? 0.0,
+      todaySalesCount: summary['todaySalesCount'] as int? ?? 0,
+      weekRevenue: double.tryParse(summary['weekRevenue']?.toString() ?? '0') ?? 0.0,
+      weekSalesCount: summary['weekSalesCount'] as int? ?? 0,
+      monthRevenue: double.tryParse(summary['monthRevenue']?.toString() ?? '0') ?? 0.0,
+      monthSalesCount: summary['monthSalesCount'] as int? ?? 0,
+      allTimeRevenue: double.tryParse(summary['allTimeRevenue']?.toString() ?? '0') ?? 0.0,
+      profitMarginPercent: double.tryParse(summary['profitMarginPercent']?.toString() ?? '10') ?? 10.0,
+      estimatedProfit: double.tryParse(summary['estimatedProfit']?.toString() ?? '0') ?? 0.0,
+      currency: summary['currency'] as String? ?? 'SDG',
+      next7DaysForecast: double.tryParse(forecast['next7Days']?.toString() ?? '0') ?? 0.0,
+      next30DaysForecast: double.tryParse(forecast['next30Days']?.toString() ?? '0') ?? 0.0,
+      trend: forecast['trend'] as String? ?? 'STABLE',
+      bestSellingProfiles: List<Map<String, dynamic>>.from(json['bestSellingProfiles'] as List? ?? []),
+      salesByRouter: List<Map<String, dynamic>>.from(json['salesByRouter'] as List? ?? []),
+      salesByCashier: List<Map<String, dynamic>>.from(json['salesByCashier'] as List? ?? []),
+      dailyRevenueLast30Days: List<Map<String, dynamic>>.from(json['dailyRevenueLast30Days'] as List? ?? []),
+    );
+  }
+}

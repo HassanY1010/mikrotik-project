@@ -419,4 +419,73 @@ export class RouterOsApiClient implements IMikrotikClient {
     await this.connect();
     await this.executeCommand(['/system/reboot']);
   }
+
+  async setAntiTethering(enabled: boolean): Promise<void> {
+    await this.connect();
+    const mangles = await this.executeCommand(['/ip/firewall/mangle/print']);
+    const target = mangles
+      .filter((r) => r.type === '!re')
+      .find((r) => r.attributes['comment'] === 'SudaFi_Anti_Tethering_TTL');
+
+    if (enabled) {
+      if (target?.attributes['.id']) {
+        await this.executeCommand([
+          '/ip/firewall/mangle/set',
+          `numbers=${target.attributes['.id']}`,
+          '=disabled=no',
+        ]);
+      } else {
+        await this.executeCommand([
+          '/ip/firewall/mangle/add',
+          '=chain=prerouting',
+          '=action=change-ttl',
+          '=new-ttl=set:1',
+          '=comment=SudaFi_Anti_Tethering_TTL',
+          '=disabled=no',
+        ]);
+      }
+    } else {
+      if (target?.attributes['.id']) {
+        await this.executeCommand([
+          '/ip/firewall/mangle/set',
+          `numbers=${target.attributes['.id']}`,
+          '=disabled=yes',
+        ]);
+      }
+    }
+  }
+
+  async setEmergencyLock(locked: boolean): Promise<void> {
+    await this.connect();
+    const filters = await this.executeCommand(['/ip/firewall/filter/print']);
+    const target = filters
+      .filter((r) => r.type === '!re')
+      .find((r) => r.attributes['comment'] === 'SudaFi_Emergency_Lock');
+
+    if (locked) {
+      if (target?.attributes['.id']) {
+        await this.executeCommand([
+          '/ip/firewall/filter/set',
+          `numbers=${target.attributes['.id']}`,
+          '=disabled=no',
+        ]);
+      } else {
+        await this.executeCommand([
+          '/ip/firewall/filter/add',
+          '=chain=forward',
+          '=action=drop',
+          '=comment=SudaFi_Emergency_Lock',
+          '=disabled=no',
+        ]);
+      }
+    } else {
+      if (target?.attributes['.id']) {
+        await this.executeCommand([
+          '/ip/firewall/filter/set',
+          `numbers=${target.attributes['.id']}`,
+          '=disabled=yes',
+        ]);
+      }
+    }
+  }
 }

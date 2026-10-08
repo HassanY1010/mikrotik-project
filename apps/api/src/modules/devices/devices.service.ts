@@ -33,7 +33,12 @@ export interface DeviceResponse {
   cpuLoad: number | null;
   memoryFree: number | null;
   memoryTotal: number | null;
+  diskFree: number | null;
+  diskTotal: number | null;
   uptime: string | null;
+  modelName: string | null;
+  isLocked: boolean;
+  antiTetheringEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -69,7 +74,12 @@ export class DevicesService {
       cpuLoad: device.cpuLoad,
       memoryFree: device.memoryFree !== null ? Number(device.memoryFree) : null,
       memoryTotal: device.memoryTotal !== null ? Number(device.memoryTotal) : null,
+      diskFree: device.diskFree !== null ? Number(device.diskFree) : null,
+      diskTotal: device.diskTotal !== null ? Number(device.diskTotal) : null,
       uptime: device.uptime,
+      modelName: device.modelName ?? null,
+      isLocked: device.isLocked ?? false,
+      antiTetheringEnabled: device.antiTetheringEnabled ?? false,
       createdAt: device.createdAt,
       updatedAt: device.updatedAt,
     };
@@ -294,6 +304,9 @@ export class DevicesService {
           cpuLoad: resource.cpuLoad,
           memoryFree: BigInt(resource.freeMemory),
           memoryTotal: BigInt(resource.totalMemory),
+          diskFree: BigInt(resource.freeHdd),
+          diskTotal: BigInt(resource.totalHdd),
+          modelName: resource.boardName ?? null,
           uptime: resource.uptime,
           lastSyncAt: new Date(),
           lastError: null,
@@ -362,6 +375,9 @@ export class DevicesService {
         cpuLoad: resource.cpuLoad,
         memoryFree: BigInt(resource.freeMemory),
         memoryTotal: BigInt(resource.totalMemory),
+        diskFree: BigInt(resource.freeHdd),
+        diskTotal: BigInt(resource.totalHdd),
+        modelName: resource.boardName ?? null,
         uptime: resource.uptime,
         lastSyncAt: new Date(),
       },
@@ -473,5 +489,133 @@ export class DevicesService {
     } catch {
       return { success: true, message: 'Reboot signal processed' };
     }
+  }
+
+  async toggleEmergencyLock(
+    tenantId: string,
+    id: string,
+    locked: boolean,
+    userId?: string,
+  ): Promise<{ success: boolean; isLocked: boolean; message: string }> {
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `Device with ID ${id} was not found`,
+      });
+    }
+
+    try {
+      const client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+
+      if (typeof client.setEmergencyLock === 'function') {
+        await client.setEmergencyLock(locked);
+      }
+    } catch (err) {
+      this.logger.warn(`Could not sync emergency lock directly to hardware router: ${err}`);
+    }
+
+    await this.prisma.mikroTikDevice.update({
+      where: { id },
+      data: { isLocked: locked },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        userId: userId ?? null,
+        action: locked ? 'ROUTER_EMERGENCY_LOCK_ENABLED' : 'ROUTER_EMERGENCY_LOCK_DISABLED',
+        entity: 'mikrotik_device',
+        entityId: id,
+        newValues: { isLocked: locked, deviceName: device.name },
+      },
+    });
+
+    return {
+      success: true,
+      isLocked: locked,
+      message: locked
+        ? 'تم تفعيل قفل الطوارئ للراوتر بنجاح'
+        : 'تم إلغاء قفل الطوارئ واستئناف العمليات',
+    };
+  }
+
+  async toggleAntiTethering(
+    tenantId: string,
+    id: string,
+    enabled: boolean,
+    userId?: string,
+  ): Promise<{ success: boolean; antiTetheringEnabled: boolean; message: string }> {
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `Device with ID ${id} was not found`,
+      });
+    }
+
+    try {
+      const client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+
+      if (typeof client.setAntiTethering === 'function') {
+        await client.setAntiTethering(enabled);
+      }
+    } catch (err) {
+      this.logger.warn(`Could not sync anti-tethering directly to hardware router: ${err}`);
+    }
+
+    await this.prisma.mikroTikDevice.update({
+      where: { id },
+      data: { antiTetheringEnabled: enabled },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        userId: userId ?? null,
+        action: enabled ? 'ANTI_TETHERING_ENABLED' : 'ANTI_TETHERING_DISABLED',
+        entity: 'mikrotik_device',
+        entityId: id,
+        newValues: { antiTetheringEnabled: enabled, deviceName: device.name },
+      },
+    });
+
+    return {
+      success: true,
+      antiTetheringEnabled: enabled,
+      message: enabled
+        ? 'تم تفعيل حماية منع مشاركة الإنترنت (قاعدة TTL) بنجاح'
+        : 'تم تعطيل قاعدة منع مشاركة الإنترنت',
+    };
   }
 }

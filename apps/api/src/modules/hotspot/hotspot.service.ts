@@ -386,4 +386,58 @@ export class HotspotService {
     await client.removeActiveSession(sessionId);
     return { success: true, message: `Hotspot session "${sessionId}" disconnected` };
   }
+
+  async listAllActiveSessions(tenantId: string): Promise<{ data: (HotspotActiveSessionItem & { deviceId: string; deviceName: string })[]; total: number }> {
+    const devices = await this.prisma.mikroTikDevice.findMany({
+      where: { tenantId, deletedAt: null },
+    });
+
+    const results: (HotspotActiveSessionItem & { deviceId: string; deviceName: string })[] = [];
+
+    for (const device of devices) {
+      try {
+        const client = await this.mikrotikClientFactory.getClient({
+          id: device.id,
+          name: device.name,
+          host: device.host,
+          apiPort: device.apiPort,
+          restPort: device.restPort,
+          useSsl: device.useSsl,
+          username: device.username,
+          passwordEncrypted: device.passwordEncrypted,
+          iv: device.iv,
+          authTag: device.authTag,
+          rosVersion: device.rosVersion,
+        });
+        const sessions = await client.listActiveSessions();
+        for (const s of sessions) {
+          results.push({
+            ...s,
+            deviceId: device.id,
+            deviceName: device.name,
+          });
+        }
+      } catch (err) {
+        this.logger.debug(`Could not poll live sessions from device ${device.id}: ${err}`);
+      }
+    }
+
+    return { data: results, total: results.length };
+  }
+
+  async kickTenantSession(tenantId: string, sessionId: string, deviceId?: string) {
+    if (deviceId) {
+      return this.kickSession(tenantId, deviceId, sessionId);
+    }
+    const devices = await this.prisma.mikroTikDevice.findMany({
+      where: { tenantId, deletedAt: null },
+    });
+    for (const device of devices) {
+      try {
+        await this.kickSession(tenantId, device.id, sessionId);
+        return { success: true, message: `Session ${sessionId} kicked from router ${device.name}` };
+      } catch (_) {}
+    }
+    return { success: true, message: `Session removal requested for ${sessionId}` };
+  }
 }

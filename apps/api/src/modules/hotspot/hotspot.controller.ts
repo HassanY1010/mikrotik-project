@@ -139,4 +139,24 @@ export class TenantHotspotController {
   ) {
     return this.hotspotService.deleteTenantProfile(tenantId, profileId);
   }
+
+  @Get('sessions')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @ApiOperation({ summary: 'List live active Hotspot sessions across tenant routers' })
+  @ApiResponse({ status: 200, description: 'List of active sessions' })
+  async listAllSessions(@TenantId() tenantId: string) {
+    return this.hotspotService.listAllActiveSessions(tenantId);
+  }
+
+  @Post('sessions/:sessionId/kick')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Disconnect an active Hotspot session' })
+  @ApiResponse({ status: 200, description: 'Session kicked' })
+  async kickSession(
+    @TenantId() tenantId: string,
+    @Param('sessionId') sessionId: string,
+    @Body('deviceId') deviceId?: string,
+  ) {
+    return this.hotspotService.kickTenantSession(tenantId, sessionId, deviceId);
+  }
 }

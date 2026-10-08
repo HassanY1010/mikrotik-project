@@ -270,4 +270,71 @@ export class RouterOsRestClient implements IMikrotikClient {
       method: 'POST',
     });
   }
+
+  async setAntiTethering(enabled: boolean): Promise<void> {
+    const list = await this.request<Record<string, string>[]>('/ip/firewall/mangle', {
+      method: 'GET',
+    });
+    const target = list.find((item) => item['comment'] === 'SudaFi_Anti_Tethering_TTL');
+
+    if (enabled) {
+      if (target?.['.id']) {
+        await this.request(`/ip/firewall/mangle/${encodeURIComponent(target['.id'])}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ disabled: 'false' }),
+        });
+      } else {
+        await this.request('/ip/firewall/mangle', {
+          method: 'PUT',
+          body: JSON.stringify({
+            chain: 'prerouting',
+            action: 'change-ttl',
+            'new-ttl': 'set:1',
+            comment: 'SudaFi_Anti_Tethering_TTL',
+            disabled: 'false',
+          }),
+        });
+      }
+    } else {
+      if (target?.['.id']) {
+        await this.request(`/ip/firewall/mangle/${encodeURIComponent(target['.id'])}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ disabled: 'true' }),
+        });
+      }
+    }
+  }
+
+  async setEmergencyLock(locked: boolean): Promise<void> {
+    const list = await this.request<Record<string, string>[]>('/ip/firewall/filter', {
+      method: 'GET',
+    });
+    const target = list.find((item) => item['comment'] === 'SudaFi_Emergency_Lock');
+
+    if (locked) {
+      if (target?.['.id']) {
+        await this.request(`/ip/firewall/filter/${encodeURIComponent(target['.id'])}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ disabled: 'false' }),
+        });
+      } else {
+        await this.request('/ip/firewall/filter', {
+          method: 'PUT',
+          body: JSON.stringify({
+            chain: 'forward',
+            action: 'drop',
+            comment: 'SudaFi_Emergency_Lock',
+            disabled: 'false',
+          }),
+        });
+      }
+    } else {
+      if (target?.['.id']) {
+        await this.request(`/ip/firewall/filter/${encodeURIComponent(target['.id'])}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ disabled: 'true' }),
+        });
+      }
+    }
+  }
 }

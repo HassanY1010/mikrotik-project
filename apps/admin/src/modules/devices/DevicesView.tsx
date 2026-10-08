@@ -13,6 +13,9 @@ import {
   Power,
   Edit,
   Trash2,
+  Shield,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { DeviceItem, DiagnosticsData } from '../../core/types/view-models';
 
@@ -202,6 +205,43 @@ export const DevicesView: React.FC = () => {
     }
   };
 
+  const handleToggleEmergencyLock = async (device: DeviceItem) => {
+    const nextState = !device.isLocked;
+    const actionText = nextState
+      ? 'تفعيل قفل الطوارئ وإيقاف العمليات وتجميد الراوتر فورياً'
+      : 'إلغاء قفل الطوارئ واستئناف العمليات';
+    if (!window.confirm(`هل أنت متأكد من ${actionText} للراوتر (${device.name})؟`)) return;
+
+    try {
+      await apiClient.post(`/devices/${device.id}/emergency-lock`, { locked: nextState });
+      showToast(
+        nextState ? 'تم تفعيل قفل الطوارئ للراوتر بنجاح' : 'تم إلغاء قفل الطوارئ واستئناف العمليات',
+        nextState ? 'warning' : 'success',
+      );
+      fetchDevices();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تغيير حالة قفل الطوارئ';
+      showToast(msg, 'error');
+    }
+  };
+
+  const handleToggleAntiTethering = async (device: DeviceItem) => {
+    const nextState = !device.antiTetheringEnabled;
+    try {
+      await apiClient.post(`/devices/${device.id}/anti-tethering`, { enabled: nextState });
+      showToast(
+        nextState
+          ? 'تم تفعيل قاعدة منع مشاركة الإنترنت (TTL=1) بنجاح'
+          : 'تم تعطيل قاعدة منع مشاركة الإنترنت',
+        'success',
+      );
+      fetchDevices();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تغيير حالة منع مشاركة الإنترنت';
+      showToast(msg, 'error');
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -278,11 +318,23 @@ export const DevicesView: React.FC = () => {
                   <span className="badge badge-info">{device.rosVersion || 'V7'}</span>
                 </td>
                 <td>
-                  <span
-                    className={`badge ${device.status === 'ONLINE' ? 'badge-success' : 'badge-danger'}`}
-                  >
-                    {device.status === 'ONLINE' ? 'متصل بالشبكة' : 'غير متصل'}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span
+                      className={`badge ${device.status === 'ONLINE' ? 'badge-success' : 'badge-danger'}`}
+                    >
+                      {device.status === 'ONLINE' ? 'متصل بالشبكة' : 'غير متصل'}
+                    </span>
+                    {device.isLocked && (
+                      <span className="badge badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <Lock size={11} /> قفل طوارئ
+                      </span>
+                    )}
+                    {device.antiTetheringEnabled && (
+                      <span className="badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <Shield size={11} /> منع المشاركة
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td style={{ fontSize: '0.775rem', color: 'var(--text-muted)' }}>
                   {device.lastSeenAt
@@ -291,6 +343,23 @@ export const DevicesView: React.FC = () => {
                 </td>
                 <td style={{ textAlign: 'left' }}>
                   <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button
+                      className={`btn btn-sm ${device.isLocked ? 'btn-danger' : 'btn-outline'}`}
+                      onClick={() => handleToggleEmergencyLock(device)}
+                      title={device.isLocked ? 'فك قفل الطوارئ' : 'قفل الطوارئ للراوتر'}
+                      style={{ color: device.isLocked ? '#fff' : 'var(--danger)' }}
+                    >
+                      {device.isLocked ? <Unlock size={14} /> : <Lock size={14} />}
+                      {device.isLocked ? 'إلغاء القفل' : 'قفل'}
+                    </button>
+                    <button
+                      className={`btn btn-sm ${device.antiTetheringEnabled ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => handleToggleAntiTethering(device)}
+                      title={device.antiTetheringEnabled ? 'تعطيل منع المشاركة' : 'تفعيل منع المشاركة TTL'}
+                    >
+                      <Shield size={14} />
+                      TTL
+                    </button>
                     <button
                       className="btn btn-outline btn-sm"
                       onClick={() => handlePing(device.id)}

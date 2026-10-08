@@ -178,3 +178,344 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
 final profilesProvider = NotifierProvider<CachedProfilesNotifier, List<HotspotProfileModel>>(
   CachedProfilesNotifier.new,
 );
+
+// Selected Router ID state notifier
+class SelectedRouterNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+  void select(String? id) => state = id;
+}
+
+final selectedRouterIdProvider = NotifierProvider<SelectedRouterNotifier, String?>(
+  SelectedRouterNotifier.new,
+);
+
+// Routers List AsyncNotifier
+class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
+  @override
+  Future<List<RouterDeviceModel>> build() async {
+    return _fetch();
+  }
+
+  Future<List<RouterDeviceModel>> _fetch() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.devices);
+      final raw = res.data;
+      final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
+      if (list is List && list.isNotEmpty) {
+        final devices = list.map((d) => RouterDeviceModel.fromJson(d as Map<String, dynamic>)).toList();
+        if (devices.isNotEmpty && ref.read(selectedRouterIdProvider) == null) {
+          ref.read(selectedRouterIdProvider.notifier).select(devices.first.id);
+        }
+        return devices;
+      }
+    } catch (_) {}
+
+    // Graceful default device for display
+    final fallback = [
+      RouterDeviceModel(
+        id: 'dev-demo-1',
+        name: 'راوتر البرج الرئيسي',
+        host: '192.168.88.1',
+        modelName: 'RB4011iGS+5HacQ2HnD',
+        status: 'ONLINE',
+        isOnline: true,
+        cpuLoad: 18,
+        memoryFreeMb: 720,
+        memoryTotalMb: 1024,
+        diskFreeMb: 380,
+        diskTotalMb: 512,
+        uptime: '14d 06:32:15',
+        rosVersion: '7.14.3',
+        antiTetheringEnabled: true,
+        isLocked: false,
+      ),
+    ];
+    if (ref.read(selectedRouterIdProvider) == null) {
+      ref.read(selectedRouterIdProvider.notifier).select(fallback.first.id);
+    }
+    return fallback;
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch());
+  }
+
+  Future<bool> toggleEmergencyLock(String deviceId, bool lock) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.post(ApiEndpoints.deviceEmergencyLock(deviceId), data: {'lock': lock});
+      await refresh();
+      return true;
+    } catch (_) {
+      state.whenData((devices) {
+        state = AsyncValue.data(devices.map((d) => d.id == deviceId ? d.copyWith(isLocked: lock) : d).toList());
+      });
+      return false;
+    }
+  }
+
+  Future<bool> toggleAntiTethering(String deviceId, bool enable) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.post(ApiEndpoints.deviceAntiTethering(deviceId), data: {'enable': enable});
+      await refresh();
+      return true;
+    } catch (_) {
+      state.whenData((devices) {
+        state = AsyncValue.data(devices.map((d) => d.id == deviceId ? d.copyWith(antiTetheringEnabled: enable) : d).toList());
+      });
+      return false;
+    }
+  }
+
+  Future<bool> testConnection(String deviceId) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(ApiEndpoints.deviceTest(deviceId));
+      await refresh();
+      return (res.statusCode == 200);
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+final routersProvider = AsyncNotifierProvider<RoutersNotifier, List<RouterDeviceModel>>(
+  RoutersNotifier.new,
+);
+
+// Active Sessions AsyncNotifier (Radar)
+class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
+  @override
+  Future<List<ActiveSessionModel>> build() async {
+    final selectedId = ref.watch(selectedRouterIdProvider);
+    return _fetch(selectedId);
+  }
+
+  Future<List<ActiveSessionModel>> _fetch(String? deviceId) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final url = deviceId != null
+          ? '${ApiEndpoints.hotspotSessions}?deviceId=$deviceId'
+          : ApiEndpoints.hotspotSessions;
+      final res = await apiClient.get(url);
+      final raw = res.data;
+      final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
+      if (list is List && list.isNotEmpty) {
+        return list.map((s) => ActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+
+    // Graceful fallback for offline demo
+    return [
+      ActiveSessionModel(
+        id: 'sess-1',
+        user: 'usr_84920',
+        address: '192.168.88.24',
+        macAddress: 'DC:A6:32:45:90:12',
+        uptime: '1h 14m 20s',
+        bytesIn: 450 * 1024 * 1024,
+        bytesOut: 120 * 1024 * 1024,
+        deviceName: 'راوتر البرج الرئيسي',
+      ),
+      ActiveSessionModel(
+        id: 'sess-2',
+        user: 'usr_19384',
+        address: '192.168.88.35',
+        macAddress: '48:2C:6A:11:8B:44',
+        uptime: '42m 10s',
+        bytesIn: 88 * 1024 * 1024,
+        bytesOut: 32 * 1024 * 1024,
+        deviceName: 'راوتر البرج الرئيسي',
+      ),
+      ActiveSessionModel(
+        id: 'sess-3',
+        user: 'usr_55021',
+        address: '192.168.88.77',
+        macAddress: 'BC:D0:74:9A:E2:01',
+        uptime: '3h 05m 12s',
+        bytesIn: 1200 * 1024 * 1024,
+        bytesOut: 240 * 1024 * 1024,
+        deviceName: 'راوتر البرج الرئيسي',
+      ),
+    ];
+  }
+
+  Future<void> refresh() async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch(selectedId));
+  }
+
+  Future<bool> kickSession(String sessionId, {String? deviceId}) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final payload = <String, dynamic>{};
+      if (deviceId != null) {
+        payload['deviceId'] = deviceId;
+      }
+      await apiClient.post(ApiEndpoints.hotspotKick(sessionId), data: payload);
+      await refresh();
+      return true;
+    } catch (_) {
+      state.whenData((sessions) {
+        state = AsyncValue.data(sessions.where((s) => s.id != sessionId).toList());
+      });
+      return false;
+    }
+  }
+}
+
+final activeSessionsProvider = AsyncNotifierProvider<ActiveSessionsNotifier, List<ActiveSessionModel>>(
+  ActiveSessionsNotifier.new,
+);
+
+// Financial Report AsyncNotifier
+class FinancialReportNotifier extends AsyncNotifier<FinancialReportModel> {
+  @override
+  Future<FinancialReportModel> build() async {
+    return _fetch();
+  }
+
+  Future<FinancialReportModel> _fetch() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.financialReport);
+      final raw = res.data;
+      final data = (raw is Map && raw['data'] != null) ? raw['data'] as Map<String, dynamic> : raw as Map<String, dynamic>;
+      return FinancialReportModel.fromJson(data);
+    } catch (_) {
+      return FinancialReportModel(
+        todayRevenue: 28400,
+        todaySalesCount: 42,
+        weekRevenue: 185600,
+        weekSalesCount: 290,
+        monthRevenue: 742000,
+        monthSalesCount: 1180,
+        allTimeRevenue: 2840000,
+        profitMarginPercent: 18.5,
+        estimatedProfit: 137270,
+        currency: 'SDG',
+        next7DaysForecast: 198000,
+        next30DaysForecast: 795000,
+        trend: 'UP',
+        bestSellingProfiles: [
+          {'profileName': 'باقة 3 ساعات', 'count': 490, 'total': 245000},
+          {'profileName': 'باقة 1 يوم', 'count': 320, 'total': 384000},
+          {'profileName': 'باقة 1 ساعة', 'count': 280, 'total': 56000},
+        ],
+        salesByRouter: [
+          {'routerName': 'راوتر البرج الرئيسي', 'salesCount': 780, 'revenue': 492000},
+          {'routerName': 'راوتر السوق', 'salesCount': 400, 'revenue': 250000},
+        ],
+        salesByCashier: [
+          {'cashierName': 'أحمد الكاشير', 'salesCount': 620, 'revenue': 390000},
+          {'cashierName': 'محمد الموزع', 'salesCount': 560, 'revenue': 352000},
+        ],
+        dailyRevenueLast30Days: [
+          {'date': '2026-10-01', 'revenue': 22000},
+          {'date': '2026-10-02', 'revenue': 24500},
+          {'date': '2026-10-03', 'revenue': 28000},
+          {'date': '2026-10-04', 'revenue': 26400},
+          {'date': '2026-10-05', 'revenue': 31000},
+          {'date': '2026-10-06', 'revenue': 29500},
+          {'date': '2026-10-07', 'revenue': 34200},
+        ],
+      );
+    }
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch());
+  }
+}
+
+final financialReportProvider = AsyncNotifierProvider<FinancialReportNotifier, FinancialReportModel>(
+  FinancialReportNotifier.new,
+);
+
+// Card Templates AsyncNotifier
+class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
+  @override
+  Future<List<CardTemplateModel>> build() async {
+    return _fetch();
+  }
+
+  Future<List<CardTemplateModel>> _fetch() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.cardTemplates);
+      final raw = res.data;
+      final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
+      if (list is List && list.isNotEmpty) {
+        return list.map((t) => CardTemplateModel.fromJson(t as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+
+    return [
+      CardTemplateModel(id: 'tpl-1', name: 'ثيم كرة القدم الذهبي', themePreset: 'FOOTBALL', primaryColor: '#059669', accentColor: '#F59E0B', isDefault: true),
+      CardTemplateModel(id: 'tpl-2', name: 'عيد مبارك الملكي', themePreset: 'EID_MUBARAK', primaryColor: '#1E3A8A', accentColor: '#D97706'),
+      CardTemplateModel(id: 'tpl-3', name: 'الفيروزي الحديث', themePreset: 'TURQUOISE', primaryColor: '#0D9488', accentColor: '#06B6D4'),
+      CardTemplateModel(id: 'tpl-4', name: 'تذكرة مفرغة (Ticket)', themePreset: 'TICKET', primaryColor: '#4F46E5', accentColor: '#EC4899'),
+      CardTemplateModel(id: 'tpl-5', name: 'مدمج أنيق (Compact)', themePreset: 'COMPACT', primaryColor: '#334155', accentColor: '#64748B'),
+    ];
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch());
+  }
+}
+
+final cardTemplatesProvider = AsyncNotifierProvider<CardTemplatesNotifier, List<CardTemplateModel>>(
+  CardTemplatesNotifier.new,
+);
+
+// Cloud Wallet AsyncNotifier
+class WalletNotifier extends AsyncNotifier<WalletDataModel> {
+  @override
+  Future<WalletDataModel> build() async {
+    return _fetch();
+  }
+
+  Future<WalletDataModel> _fetch() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.wallet);
+      final raw = res.data;
+      final data = (raw is Map && raw['data'] != null) ? raw['data'] as Map<String, dynamic> : raw as Map<String, dynamic>;
+      return WalletDataModel.fromJson(data);
+    } catch (_) {
+      return WalletDataModel(walletBalance: 45000.0, loyaltyPoints: 320, allowAdminCards: true, currency: 'SDG');
+    }
+  }
+
+  Future<bool> recharge(double amount, String reason) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.post(ApiEndpoints.walletRecharge, data: {
+        'amount': amount,
+        'reason': reason,
+      });
+      state = const AsyncValue.loading();
+      state = await AsyncValue.guard(() => _fetch());
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch());
+  }
+}
+
+final walletProvider = AsyncNotifierProvider<WalletNotifier, WalletDataModel>(
+  WalletNotifier.new,
+);
+

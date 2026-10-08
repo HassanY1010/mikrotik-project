@@ -71,4 +71,14 @@ export class AnalyticsController {
   ): Promise<NetworkAnalytics> {
     return this.analyticsService.getNetworkAnalytics(tenantId, deviceId);
   }
+
+  @Get('financial-report')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({
+    summary: 'Get comprehensive financial report, revenue history, profit margin and 7/30-day forecast',
+  })
+  @ApiResponse({ status: 200, description: 'Comprehensive financial report' })
+  async getFinancialReport(@TenantId() tenantId: string) {
+    return this.analyticsService.getFinancialReport(tenantId);
+  }
 }

@@ -19,6 +19,7 @@ import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { TenantId } from '../../core/decorators/tenant-id.decorator';
+import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
 import { RouterResource } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
 
@@ -131,5 +132,31 @@ export class DevicesController {
   @ApiResponse({ status: 200, description: 'Reboot signal sent' })
   async rebootDevice(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.devicesService.reboot(tenantId, id);
+  }
+
+  @Post(':id/emergency-lock')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Toggle emergency lock to halt or resume router operations' })
+  @ApiResponse({ status: 200, description: 'Emergency lock status updated' })
+  async toggleEmergencyLock(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body('locked') locked: boolean,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.devicesService.toggleEmergencyLock(tenantId, id, locked, userId);
+  }
+
+  @Post(':id/anti-tethering')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Toggle anti-tethering (TTL rule) to prevent hotspot sharing' })
+  @ApiResponse({ status: 200, description: 'Anti-tethering status updated' })
+  async toggleAntiTethering(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body('enabled') enabled: boolean,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.devicesService.toggleAntiTethering(tenantId, id, enabled, userId);
   }
 }

@@ -240,6 +240,9 @@ export class TenantsService {
       phone: tenant.phone || '',
       address: tenant.address || '',
       logoUrl: tenant.logoUrl,
+      walletBalance: Number(tenant.walletBalance ?? 0),
+      loyaltyPoints: tenant.loyaltyPoints ?? 0,
+      allowAdminCards: tenant.allowAdminCards ?? false,
       subscription: sub
         ? {
             plan: sub.plan.name,
@@ -257,6 +260,98 @@ export class TenantsService {
             status: 'ACTIVE',
             expiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
           },
+    };
+  }
+
+  async getWallet(tenantId?: string | null) {
+    const tenantData = await this.getCurrentTenant(tenantId);
+    return {
+      walletBalance: (tenantData.walletBalance as number) ?? 0,
+      loyaltyPoints: (tenantData.loyaltyPoints as number) ?? 0,
+      allowAdminCards: (tenantData.allowAdminCards as boolean) ?? false,
+      currency: (tenantData.currency as string) || 'SDG',
+    };
+  }
+
+  async rechargeWallet(
+    tenantId: string | null | undefined,
+    amount: number,
+    notes?: string,
+    pointsDelta = 0,
+    userId?: string,
+  ) {
+    let resolvedId = tenantId;
+    if (!resolvedId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!first) throw new NotFoundException('No active tenant found');
+      resolvedId = first.id;
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: resolvedId } });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+
+    const newBalance = Number(tenant.walletBalance) + amount;
+    const newPoints = (tenant.loyaltyPoints || 0) + pointsDelta;
+
+    const updated = await this.prisma.tenant.update({
+      where: { id: resolvedId },
+      data: {
+        walletBalance: newBalance,
+        loyaltyPoints: newPoints,
+      },
+    });
+
+    const tx = await this.prisma.tenantWalletTransaction.create({
+      data: {
+        tenantId: resolvedId,
+        amount,
+        type: amount >= 0 ? 'RECHARGE' : 'DEDUCTION',
+        pointsDelta,
+        balanceAfter: newBalance,
+        notes: notes ?? 'شحن يدوي للمحفظة السحابية',
+        createdById: userId ?? null,
+      },
+    });
+
+    return {
+      success: true,
+      walletBalance: Number(updated.walletBalance),
+      loyaltyPoints: updated.loyaltyPoints,
+      transaction: {
+        ...tx,
+        amount: Number(tx.amount),
+        balanceAfter: Number(tx.balanceAfter),
+      },
+    };
+  }
+
+  async getWalletTransactions(tenantId?: string | null, limit = 20) {
+    let resolvedId = tenantId;
+    if (!resolvedId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!first) throw new NotFoundException('No active tenant found');
+      resolvedId = first.id;
+    }
+
+    const transactions = await this.prisma.tenantWalletTransaction.findMany({
+      where: { tenantId: resolvedId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return {
+      data: transactions.map((t) => ({
+        ...t,
+        amount: Number(t.amount),
+        balanceAfter: Number(t.balanceAfter),
+      })),
+      total: transactions.length,
     };
   }
 

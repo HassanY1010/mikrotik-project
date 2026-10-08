@@ -35,6 +35,51 @@ export class TenantsController {
     return this.tenantsService.getCurrentTenant(tenantId);
   }
 
+  @Get('current/wallet')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+    RoleName.EMPLOYEE,
+  )
+  @ApiOperation({ summary: 'Get current tenant cloud wallet balance and points' })
+  @ApiResponse({ status: 200, description: 'Tenant wallet data' })
+  async getWallet(@CurrentUser('tenantId') tenantId?: string) {
+    return this.tenantsService.getWallet(tenantId);
+  }
+
+  @Post('current/wallet/recharge')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.OWNER, RoleName.TENANT_ADMIN)
+  @ApiOperation({ summary: 'Manual top-up or recharge of cloud wallet' })
+  @ApiResponse({ status: 200, description: 'Wallet recharged successfully' })
+  async rechargeWallet(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Body('amount') amount: number,
+    @Body('notes') notes?: string,
+    @Body('pointsDelta') pointsDelta?: number,
+  ) {
+    return this.tenantsService.rechargeWallet(tenantId, Number(amount), notes, Number(pointsDelta || 0), userId);
+  }
+
+  @Get('current/wallet/transactions')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
+  @ApiOperation({ summary: 'List recent wallet transactions' })
+  @ApiResponse({ status: 200, description: 'Wallet transaction history' })
+  async getWalletTransactions(@CurrentUser('tenantId') tenantId?: string) {
+    return this.tenantsService.getWalletTransactions(tenantId);
+  }
+
   @Patch('current')
   @Roles(
     RoleName.SUPER_ADMIN,
