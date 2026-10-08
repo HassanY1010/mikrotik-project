@@ -159,30 +159,39 @@ export class HotspotService {
       });
     }
 
-    // Provision on MikroTik router
-    const client = await this.mikrotikClientFactory.getClient({
-      id: device.id,
-      name: device.name,
-      host: device.host,
-      apiPort: device.apiPort,
-      restPort: device.restPort,
-      useSsl: device.useSsl,
-      username: device.username,
-      passwordEncrypted: device.passwordEncrypted,
-      iv: device.iv,
-      authTag: device.authTag,
-      rosVersion: device.rosVersion,
-    });
+    // Provision on MikroTik router (if reachable)
+    let routerProvisioned = false;
+    try {
+      const client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
 
-    await client.createHotspotProfile({
-      name: dto.name,
-      rateLimit: dto.rateLimit,
-      sessionTimeout: dto.sessionTimeout,
-      idleTimeout: dto.idleTimeout,
-      keepaliveTimeout: dto.keepaliveTimeout,
-      sharedUsers: dto.sharedUsers ?? 1,
-      addressPool: dto.addressPool,
-    });
+      await client.createHotspotProfile({
+        name: dto.name,
+        rateLimit: dto.rateLimit,
+        sessionTimeout: dto.validity || dto.sessionTimeout,
+        idleTimeout: dto.idleTimeout,
+        keepaliveTimeout: dto.keepaliveTimeout,
+        sharedUsers: dto.sharedUsers ?? 1,
+        addressPool: dto.addressPool,
+      });
+      routerProvisioned = true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Could not provision profile "${dto.name}" on physical router (${device.host}): ${msg}. Profile will still be saved in database.`,
+      );
+    }
 
     // Save in DB
     const profile = await this.prisma.hotspotProfile.create({
@@ -199,7 +208,7 @@ export class HotspotService {
       },
     });
 
-    this.logger.log(`Created hotspot profile "${profile.name}" on device ${device.id}`);
+    this.logger.log(`Created hotspot profile "${profile.name}" on device ${device.id} (synced: ${routerProvisioned})`);
     return profile;
   }
 
