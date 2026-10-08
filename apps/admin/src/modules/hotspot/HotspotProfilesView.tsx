@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { Modal } from '../../components/common/Modal';
-import { Zap, Plus, RefreshCw, Layers, Trash2 } from 'lucide-react';
+import { Zap, Plus, RefreshCw, Layers, Trash2, Edit } from 'lucide-react';
 import { HotspotProfileItem, DeviceItem } from '../../core/types/view-models';
 
 export const HotspotProfilesView: React.FC = () => {
@@ -22,6 +22,18 @@ export const HotspotProfilesView: React.FC = () => {
     deviceId: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Edit Profile Modal state
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    displayName: '',
+    price: 500,
+    validity: '1d',
+    rateLimit: '2M/5M',
+    sharedUsers: 1,
+  });
 
   const fetchData = async () => {
     setLoading(true);
@@ -76,6 +88,43 @@ export const HotspotProfilesView: React.FC = () => {
       fetchData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل إنشاء الباقة';
+      showToast(msg, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenEdit = (profile: HotspotProfileItem) => {
+    setEditingProfileId(profile.id);
+    setEditFormData({
+      name: profile.name || '',
+      displayName: profile.displayName || profile.name || '',
+      price: profile.price || 500,
+      validity: profile.validity || '1d',
+      rateLimit: profile.rateLimit || '2M/5M',
+      sharedUsers: profile.sharedUsers || 1,
+    });
+    setIsEditOpen(true);
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProfileId) return;
+
+    setIsSubmitting(true);
+    try {
+      await apiClient.patch(`/hotspot/profiles/${editingProfileId}`, {
+        name: editFormData.name,
+        rateLimit: editFormData.rateLimit,
+        validity: editFormData.validity,
+        sharedUsers: Number(editFormData.sharedUsers) || 1,
+      });
+      showToast('تم تحديث باقة الهوتسبوت بنجاح', 'success');
+      setIsEditOpen(false);
+      setEditingProfileId(null);
+      fetchData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تحديث الباقة';
       showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
@@ -227,17 +276,27 @@ export const HotspotProfilesView: React.FC = () => {
                 {profile.availableCards !== undefined ? `${profile.availableCards} كرت متوفر` : 'متزامنة'}
               </span>
 
-              <button
-                className="btn btn-outline btn-sm"
-                style={{ color: 'var(--danger)', borderColor: 'var(--border)' }}
-                onClick={() =>
-                  handleDeleteProfile(profile.id, profile.displayName || profile.name || 'باقة هوتسبوت')
-                }
-                title="حذف الباقة"
-              >
-                <Trash2 size={14} />
-                حذف
-              </button>
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={() => handleOpenEdit(profile)}
+                  title="تعديل الباقة"
+                >
+                  <Edit size={14} />
+                  تعديل
+                </button>
+                <button
+                  className="btn btn-outline btn-sm"
+                  style={{ color: 'var(--danger)', borderColor: 'var(--border)' }}
+                  onClick={() =>
+                    handleDeleteProfile(profile.id, profile.displayName || profile.name || 'باقة هوتسبوت')
+                  }
+                  title="حذف الباقة"
+                >
+                  <Trash2 size={14} />
+                  حذف
+                </button>
+              </div>
             </div>
           </div>
         ))}
@@ -350,6 +409,103 @@ export const HotspotProfilesView: React.FC = () => {
             </button>
             <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
               {isSubmitting ? 'جاري الإنشاء...' : 'حفظ ومزامنة مع الراوتر'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Profile Modal */}
+      <Modal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        title="تعديل باقة وسرعة الهوتسبوت"
+        maxWidth="540px"
+      >
+        <form onSubmit={handleUpdateProfile}>
+          <div className="form-group">
+            <label className="form-label" htmlFor="edit-prof-name">
+              اسم الباقة في نظام ميكروتيك *
+            </label>
+            <input
+              id="edit-prof-name"
+              className="input"
+              value={editFormData.name}
+              onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+              required
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-prof-rate">
+                السرعة المحددة (Rate Limit) *
+              </label>
+              <input
+                id="edit-prof-rate"
+                className="input"
+                style={{ direction: 'ltr', textAlign: 'left' }}
+                value={editFormData.rateLimit}
+                onChange={(e) => setEditFormData({ ...editFormData, rateLimit: e.target.value })}
+                placeholder="2M/5M"
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-prof-val">
+                مدة الصلاحية (Session Timeout)
+              </label>
+              <input
+                id="edit-prof-val"
+                className="input"
+                style={{ direction: 'ltr', textAlign: 'left' }}
+                value={editFormData.validity}
+                onChange={(e) => setEditFormData({ ...editFormData, validity: e.target.value })}
+                placeholder="1h, 1d, 3d, 1w"
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-prof-shared">
+                عدد الأجهزة المشتركة (Shared Users)
+              </label>
+              <input
+                id="edit-prof-shared"
+                type="number"
+                min={1}
+                max={10}
+                className="input"
+                value={editFormData.sharedUsers}
+                onChange={(e) =>
+                  setEditFormData({ ...editFormData, sharedUsers: Number(e.target.value) })
+                }
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-prof-price">
+                السعر الافتراضي (SDG)
+              </label>
+              <input
+                id="edit-prof-price"
+                type="number"
+                className="input"
+                value={editFormData.price}
+                onChange={(e) =>
+                  setEditFormData({ ...editFormData, price: Number(e.target.value) })
+                }
+              />
+            </div>
+          </div>
+
+          <div className="modal-footer" style={{ padding: '1rem 0 0 0', marginTop: '1rem' }}>
+            <button type="button" className="btn btn-outline" onClick={() => setIsEditOpen(false)}>
+              إلغاء
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+              {isSubmitting ? 'جاري الحفظ...' : 'حفظ التعديلات ومزامنتها'}
             </button>
           </div>
         </form>

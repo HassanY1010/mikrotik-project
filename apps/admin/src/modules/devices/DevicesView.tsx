@@ -11,6 +11,8 @@ import {
   HardDrive,
   Wifi,
   Power,
+  Edit,
+  Trash2,
 } from 'lucide-react';
 import { DeviceItem, DiagnosticsData } from '../../core/types/view-models';
 
@@ -32,6 +34,20 @@ export const DevicesView: React.FC = () => {
     useTls: false,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Edit Device Modal state
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    host: '',
+    port: 8728,
+    username: 'admin',
+    password: '',
+    rosVersion: 'V7',
+    connectionType: 'API_SOCKET',
+    useTls: false,
+  });
 
   // Diagnostics Modal state
   const [selectedDevice, setSelectedDevice] = useState<DeviceItem | null>(null);
@@ -86,6 +102,67 @@ export const DevicesView: React.FC = () => {
       showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenEdit = (device: DeviceItem) => {
+    setEditingDeviceId(device.id);
+    setEditFormData({
+      name: device.name,
+      host: device.host || '',
+      port: device.port || device.apiPort || 8728,
+      username: device.username || 'admin',
+      password: '',
+      rosVersion: device.rosVersion || 'V7',
+      connectionType: device.connectionType || (device.useSsl ? 'API-SSL' : 'API_SOCKET'),
+      useTls: device.useSsl || false,
+    });
+    setIsEditOpen(true);
+  };
+
+  const handleUpdateDevice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDeviceId || !editFormData.name || !editFormData.host) {
+      showToast('يرجى ملء جميع الحقول المطلوبة', 'warning');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: editFormData.name,
+        host: editFormData.host,
+        apiPort: Number(editFormData.port) || 8728,
+        username: editFormData.username,
+        rosVersion: editFormData.rosVersion,
+        useSsl: editFormData.useTls,
+      };
+      if (editFormData.password) {
+        payload.password = editFormData.password;
+      }
+
+      await apiClient.patch(`/devices/${editingDeviceId}`, payload);
+      showToast('تم تحديث إعدادات راوتر ميكروتيك بنجاح', 'success');
+      setIsEditOpen(false);
+      setEditingDeviceId(null);
+      fetchDevices();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تحديث بيانات الراوتر';
+      showToast(msg, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteDevice = async (device: DeviceItem) => {
+    if (!window.confirm(`هل أنت متأكد من رغبتك في حذف الراوتر "${device.name}"؟`)) return;
+    try {
+      await apiClient.delete(`/devices/${device.id}`);
+      showToast('تم حذف الراوتر بنجاح', 'success');
+      fetchDevices();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل حذف الراوتر';
+      showToast(msg, 'error');
     }
   };
 
@@ -213,7 +290,7 @@ export const DevicesView: React.FC = () => {
                     : 'الآن'}
                 </td>
                 <td style={{ textAlign: 'left' }}>
-                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                     <button
                       className="btn btn-outline btn-sm"
                       onClick={() => handlePing(device.id)}
@@ -224,9 +301,27 @@ export const DevicesView: React.FC = () => {
                     <button
                       className="btn btn-secondary btn-sm"
                       onClick={() => handleOpenDiagnostics(device)}
+                      title="التشخيص المباشر"
                     >
                       <Activity size={14} color="var(--primary)" />
-                      التشخيص المباشر
+                      التشخيص
+                    </button>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => handleOpenEdit(device)}
+                      title="تعديل إعدادات الراوتر"
+                    >
+                      <Edit size={14} />
+                      تعديل
+                    </button>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      style={{ color: 'var(--danger)', borderColor: 'var(--border)' }}
+                      onClick={() => handleDeleteDevice(device)}
+                      title="حذف الراوتر"
+                    >
+                      <Trash2 size={14} />
+                      حذف
                     </button>
                   </div>
                 </td>
@@ -358,6 +453,134 @@ export const DevicesView: React.FC = () => {
             </button>
             <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
               {isSubmitting ? 'جاري الحفظ والتحقق...' : 'إضافة وتأكيد الراوتر'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Device Modal */}
+      <Modal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        title="تعديل بيانات راوتر ميكروتيك"
+        maxWidth="580px"
+      >
+        <form onSubmit={handleUpdateDevice}>
+          <div className="form-group">
+            <label className="form-label" htmlFor="edit-dev-name">
+              اسم الراوتر التعريفي *
+            </label>
+            <input
+              id="edit-dev-name"
+              className="input"
+              value={editFormData.name}
+              onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+              placeholder="مثال: راوتر الفرع الرئيسي (RB4011)"
+              required
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.6fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-dev-host">
+                عنوان IP أو Hostname *
+              </label>
+              <input
+                id="edit-dev-host"
+                className="input"
+                style={{ direction: 'ltr', textAlign: 'left' }}
+                value={editFormData.host}
+                onChange={(e) => setEditFormData({ ...editFormData, host: e.target.value })}
+                placeholder="192.168.88.1 أو رابط DDNS"
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-dev-port">
+                المنفذ (Port) *
+              </label>
+              <input
+                id="edit-dev-port"
+                type="number"
+                className="input"
+                style={{ direction: 'ltr', textAlign: 'left' }}
+                value={editFormData.port}
+                onChange={(e) => setEditFormData({ ...editFormData, port: Number(e.target.value) })}
+                required
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-dev-user">
+                اسم مستخدم الراوتر *
+              </label>
+              <input
+                id="edit-dev-user"
+                className="input"
+                style={{ direction: 'ltr', textAlign: 'left' }}
+                value={editFormData.username}
+                onChange={(e) => setEditFormData({ ...editFormData, username: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-dev-pass">
+                كلمة المرور (اتركها فارغة للإبقاء على الحالية)
+              </label>
+              <input
+                id="edit-dev-pass"
+                type="password"
+                className="input"
+                style={{ direction: 'ltr', textAlign: 'left' }}
+                value={editFormData.password}
+                onChange={(e) => setEditFormData({ ...editFormData, password: e.target.value })}
+                placeholder="••••••••"
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-dev-ros">
+                إصدار نظام RouterOS
+              </label>
+              <select
+                id="edit-dev-ros"
+                className="select"
+                value={editFormData.rosVersion}
+                onChange={(e) => setEditFormData({ ...editFormData, rosVersion: e.target.value })}
+              >
+                <option value="V7">RouterOS v7 (مستحسن - Socket أو REST API)</option>
+                <option value="V6">RouterOS v6 (Socket Binary Protocol)</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-dev-proto">
+                بروتوكول الاتصال
+              </label>
+              <select
+                id="edit-dev-proto"
+                className="select"
+                value={editFormData.connectionType}
+                onChange={(e) => setEditFormData({ ...editFormData, connectionType: e.target.value })}
+              >
+                <option value="API_SOCKET">Binary API Socket (منفذ 8728)</option>
+                <option value="REST">REST API (RouterOS v7.1+)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="modal-footer" style={{ padding: '1rem 0 0 0', marginTop: '1rem' }}>
+            <button type="button" className="btn btn-outline" onClick={() => setIsEditOpen(false)}>
+              إلغاء
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+              {isSubmitting ? 'جاري الحفظ...' : 'حفظ التعديلات'}
             </button>
           </div>
         </form>

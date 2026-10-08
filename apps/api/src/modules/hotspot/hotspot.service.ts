@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException, Logger } from '@nestj
 import { PrismaService } from '../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
 import { CreateProfileDto } from './dto/create-profile.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { HotspotActiveSessionItem } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
 
 @Injectable()
@@ -284,6 +285,62 @@ export class HotspotService {
       });
     }
     return this.deleteProfile(tenantId, profile.deviceId, profileId);
+  }
+
+  async updateTenantProfile(tenantId: string, profileId: string, dto: UpdateProfileDto) {
+    const profile = await this.prisma.hotspotProfile.findFirst({
+      where: { id: profileId, tenantId },
+      include: { device: true },
+    });
+
+    if (!profile) {
+      throw new NotFoundException({
+        code: 'PROFILE_NOT_FOUND',
+        message: 'الباقة غير موجودة',
+      });
+    }
+
+    if (profile.device) {
+      try {
+        const client = await this.mikrotikClientFactory.getClient({
+          id: profile.device.id,
+          name: profile.device.name,
+          host: profile.device.host,
+          apiPort: profile.device.apiPort,
+          restPort: profile.device.restPort,
+          useSsl: profile.device.useSsl,
+          username: profile.device.username,
+          passwordEncrypted: profile.device.passwordEncrypted,
+          iv: profile.device.iv,
+          authTag: profile.device.authTag,
+          rosVersion: profile.device.rosVersion,
+        });
+
+        await client.updateHotspotProfile(profile.name, {
+          rateLimit: dto.rateLimit,
+          sessionTimeout: dto.validity || dto.sessionTimeout,
+          sharedUsers: dto.sharedUsers,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Could not update profile on physical router: ${msg}`);
+      }
+    }
+
+    const updated = await this.prisma.hotspotProfile.update({
+      where: { id: profileId },
+      data: {
+        ...(dto.name ? { name: dto.name } : {}),
+        ...(dto.rateLimit !== undefined ? { rateLimit: dto.rateLimit } : {}),
+        ...(dto.validity || dto.sessionTimeout
+          ? { sessionTimeout: dto.validity || dto.sessionTimeout }
+          : {}),
+        ...(dto.sharedUsers !== undefined ? { sharedUsers: dto.sharedUsers } : {}),
+        ...(dto.addressPool !== undefined ? { addressPool: dto.addressPool } : {}),
+      },
+    });
+
+    return updated;
   }
 
   async listActiveSessions(

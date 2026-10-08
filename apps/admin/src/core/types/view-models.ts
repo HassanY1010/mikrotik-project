@@ -10,6 +10,7 @@ export interface DeviceItem {
   connectionType?: string;
   status?: string;
   lastSeenAt?: string;
+  username?: string;
 }
 
 export interface DiagnosticsData {
@@ -136,4 +137,16 @@ export interface TenantSettingsItem {
     status: string;
     expiresAt: string;
   };
+}
+
+export interface UserItem {
+  id: string;
+  email: string;
+  fullName: string;
+  phone?: string;
+  status: string;
+  role?: {
+    name: string;
+  };
+  createdAt?: string;
 }

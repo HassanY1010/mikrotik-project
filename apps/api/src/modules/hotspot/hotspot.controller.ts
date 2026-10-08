@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Param,
   Body,
@@ -12,6 +13,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { HotspotService } from './hotspot.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
@@ -113,6 +115,18 @@ export class TenantHotspotController {
   @ApiResponse({ status: 201, description: 'Profile created' })
   async createProfile(@TenantId() tenantId: string, @Body() dto: CreateProfileDto) {
     return this.hotspotService.createTenantProfile(tenantId, dto);
+  }
+
+  @Patch('profiles/:profileId')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Update a Hotspot user profile' })
+  @ApiResponse({ status: 200, description: 'Profile updated' })
+  async updateProfile(
+    @TenantId() tenantId: string,
+    @Param('profileId') profileId: string,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.hotspotService.updateTenantProfile(tenantId, profileId, dto);
   }
 
   @Delete('profiles/:profileId')

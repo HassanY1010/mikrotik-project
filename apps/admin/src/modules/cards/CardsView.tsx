@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { Modal } from '../../components/common/Modal';
-import { CreditCard, Plus, RefreshCw, QrCode, Search, Filter } from 'lucide-react';
+import { CreditCard, Plus, RefreshCw, QrCode, Search, Filter, Ban, CheckCircle } from 'lucide-react';
 import { CardItem, HotspotProfileItem } from '../../core/types/view-models';
 
 export const CardsView: React.FC = () => {
@@ -90,6 +90,23 @@ export const CardsView: React.FC = () => {
       showToast(msg, 'error');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleToggleCardStatus = async (card: CardItem) => {
+    const isCurrentlyDisabled = card.status === 'DISABLED';
+    const newStatus = isCurrentlyDisabled ? 'AVAILABLE' : 'DISABLED';
+    const actionText = isCurrentlyDisabled ? 'إعادة تفعيل' : 'تعطيل';
+
+    if (!window.confirm(`هل أنت متأكد من رغبتك في ${actionText} الكرت (${card.username})؟`)) return;
+
+    try {
+      await apiClient.patch(`/cards/${card.id}/status`, { status: newStatus });
+      showToast(`تم ${actionText} الكرت بنجاح`, 'success');
+      fetchCards();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : `فشل ${actionText} الكرت`;
+      showToast(msg, 'error');
     }
   };
 
@@ -206,14 +223,30 @@ export const CardsView: React.FC = () => {
                 <td>{getStatusBadge(card.status)}</td>
                 <td style={{ color: 'var(--text-secondary)' }}>{card.device?.name || 'الكل'}</td>
                 <td style={{ textAlign: 'left' }}>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={() => setSelectedCard(card)}
-                    title="عرض رمز الاستجابة السريعة وبيانات الكرت"
-                  >
-                    <QrCode size={14} />
-                    عرض الكرت
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => setSelectedCard(card)}
+                      title="عرض رمز الاستجابة السريعة وبيانات الكرت"
+                    >
+                      <QrCode size={14} />
+                      عرض
+                    </button>
+                    {card.status !== 'SOLD' && (
+                      <button
+                        className="btn btn-outline btn-sm"
+                        style={{
+                          color: card.status === 'DISABLED' ? 'var(--success)' : 'var(--danger)',
+                          borderColor: 'var(--border)',
+                        }}
+                        onClick={() => handleToggleCardStatus(card)}
+                        title={card.status === 'DISABLED' ? 'إعادة تفعيل الكرت' : 'تعطيل الكرت'}
+                      >
+                        {card.status === 'DISABLED' ? <CheckCircle size={14} /> : <Ban size={14} />}
+                        {card.status === 'DISABLED' ? 'تفعيل' : 'تعطيل'}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
