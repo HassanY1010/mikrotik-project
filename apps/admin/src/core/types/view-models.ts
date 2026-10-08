@@ -82,15 +82,21 @@ export interface SaleTransactionItem {
 export interface AuditLogItem {
   id: string;
   action: string;
-  entityType: string;
-  entityId: string;
+  entity?: string;
+  entityType?: string;
+  entityId?: string;
+  userName?: string;
+  userEmail?: string;
   ipAddress?: string;
+  userAgent?: string;
   createdAt: string;
-  metadata?: Record<string, unknown>;
+  oldValues?: Record<string, unknown> | null;
+  newValues?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
   user?: {
-    fullName: string;
-    email: string;
-  };
+    fullName?: string;
+    email?: string;
+  } | null;
 }
 
 export interface ShiftProfileBreakdown {

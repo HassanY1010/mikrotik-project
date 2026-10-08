@@ -21,11 +21,14 @@ export interface AuditLogItemResponse {
   userId: string | null;
   userName: string | null;
   userEmail: string | null;
+  user?: { fullName: string; email: string } | null;
   action: string;
   entity: string;
+  entityType?: string;
   entityId: string | null;
   oldValues: Prisma.JsonValue;
   newValues: Prisma.JsonValue;
+  metadata?: Record<string, unknown>;
   ipAddress: string | null;
   userAgent: string | null;
   createdAt: Date;
@@ -100,11 +103,14 @@ export class AuditLogsService {
       userId: l.userId,
       userName: l.user ? l.user.fullName : null,
       userEmail: l.user ? l.user.email : null,
+      user: l.user ? { fullName: l.user.fullName, email: l.user.email } : null,
       action: l.action,
       entity: l.entity,
+      entityType: l.entity,
       entityId: l.entityId,
       oldValues: l.oldValues,
       newValues: l.newValues,
+      metadata: (l.newValues || l.oldValues || {}) as Record<string, unknown>,
       ipAddress: l.ipAddress,
       userAgent: l.userAgent,
       createdAt: l.createdAt,

@@ -122,6 +122,13 @@ export class AuthService {
         action: 'auth:login',
         entity: 'User',
         entityId: user.id,
+        newValues: {
+          status: 'تسجيل دخول ناجح',
+          email: user.email,
+          fullName: user.fullName,
+          role: user.role.name,
+          platform: userAgent?.includes('Dart') ? 'تطبيق الموبايل (كاشير)' : 'متصفح لوحة التحكم',
+        },
         ipAddress,
         userAgent,
       },
