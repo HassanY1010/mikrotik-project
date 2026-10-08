@@ -7,6 +7,11 @@ import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
+// Support native BigInt JSON serialization globally
+(BigInt.prototype as any).toJSON = function () {
+  return Number(this);
+};
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     // Disable default logger — replaced by Pino

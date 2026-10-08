@@ -31,19 +31,33 @@ export class DevicesController {
   constructor(private readonly devicesService: DevicesService) {}
 
   @Get()
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'List all MikroTik routers belonging to the current tenant' })
   @ApiResponse({ status: 200, description: 'List of devices' })
-  async findAll(@TenantId() tenantId: string): Promise<DeviceResponse[]> {
+  async findAll(@CurrentUser('tenantId') tenantId?: string): Promise<DeviceResponse[]> {
     return this.devicesService.findAll(tenantId);
   }
 
   @Get(':id')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'Get details of a specific MikroTik router' })
   @ApiResponse({ status: 200, description: 'Device details' })
   @ApiResponse({ status: 404, description: 'Device not found' })
-  async findById(@TenantId() tenantId: string, @Param('id') id: string): Promise<DeviceResponse> {
+  async findById(@Param('id') id: string, @CurrentUser('tenantId') tenantId?: string): Promise<DeviceResponse> {
     return this.devicesService.findById(tenantId, id);
   }
 

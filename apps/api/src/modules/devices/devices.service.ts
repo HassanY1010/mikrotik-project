@@ -163,26 +163,41 @@ export class DevicesService {
     return this.transformDevice(device);
   }
 
-  async findAll(tenantId: string): Promise<DeviceResponse[]> {
+  async findAll(tenantId?: string | null): Promise<DeviceResponse[]> {
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (first) {
+        resolvedTenantId = first.id;
+      }
+    }
+
+    const where: Prisma.MikroTikDeviceWhereInput = { deletedAt: null };
+    if (resolvedTenantId) {
+      where.tenantId = resolvedTenantId;
+    }
+
     const devices = await this.prisma.mikroTikDevice.findMany({
-      where: {
-        tenantId,
-        deletedAt: null,
-      },
+      where,
       orderBy: { createdAt: 'desc' },
     });
 
     return devices.map((d) => this.transformDevice(d));
   }
 
-  async findById(tenantId: string, id: string): Promise<DeviceResponse> {
-    const device = await this.prisma.mikroTikDevice.findFirst({
-      where: {
-        id,
-        tenantId,
-        deletedAt: null,
-      },
-    });
+  async findById(tenantId: string | undefined | null, id: string): Promise<DeviceResponse> {
+    const where: Prisma.MikroTikDeviceWhereInput = {
+      id,
+      deletedAt: null,
+    };
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
+
+    const device = await this.prisma.mikroTikDevice.findFirst({ where });
 
     if (!device) {
       throw new NotFoundException({

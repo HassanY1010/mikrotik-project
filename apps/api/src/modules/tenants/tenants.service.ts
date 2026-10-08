@@ -99,6 +99,7 @@ export class TenantsService {
     return tenant;
   }
 
+
   async updateStatus(
     id: string,
     dto: UpdateTenantStatusDto,
