@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SubscriptionStatus, BillingCycle } from '@prisma/client';
 import type { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
@@ -266,11 +266,29 @@ export class TenantsService {
 
   async getWallet(tenantId?: string | null) {
     const tenantData = await this.getCurrentTenant(tenantId);
+    const resolvedId = tenantData.id as string;
+
+    const recentTransactions = await this.prisma.tenantWalletTransaction.findMany({
+      where: { tenantId: resolvedId },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
     return {
       walletBalance: (tenantData.walletBalance as number) ?? 0,
       loyaltyPoints: (tenantData.loyaltyPoints as number) ?? 0,
       allowAdminCards: (tenantData.allowAdminCards as boolean) ?? false,
       currency: (tenantData.currency as string) || 'SDG',
+      recentTransactions: recentTransactions.map((t) => ({
+        id: t.id,
+        amount: Number(t.amount),
+        type: t.type,
+        pointsDelta: t.pointsDelta,
+        balanceAfter: Number(t.balanceAfter),
+        reference: t.reference,
+        notes: t.notes,
+        createdAt: t.createdAt.toISOString(),
+      })),
     };
   }
 
@@ -281,6 +299,13 @@ export class TenantsService {
     pointsDelta = 0,
     userId?: string,
   ) {
+    if (isNaN(amount) || amount <= 0) {
+      throw new BadRequestException('مبلغ الشحن يجب أن يكون رقماً أكبر من الصفر');
+    }
+    if (amount > 10_000_000) {
+      throw new BadRequestException('الحد الأقصى لعملية الشحن الواحدة هو 10,000,000 SDG');
+    }
+
     let resolvedId = tenantId;
     if (!resolvedId) {
       const first = await this.prisma.tenant.findFirst({
@@ -295,27 +320,28 @@ export class TenantsService {
     if (!tenant) throw new NotFoundException('Tenant not found');
 
     const newBalance = Number(tenant.walletBalance) + amount;
-    const newPoints = (tenant.loyaltyPoints || 0) + pointsDelta;
+    const newPoints = (tenant.loyaltyPoints || 0) + (pointsDelta || 0);
 
-    const updated = await this.prisma.tenant.update({
-      where: { id: resolvedId },
-      data: {
-        walletBalance: newBalance,
-        loyaltyPoints: newPoints,
-      },
-    });
-
-    const tx = await this.prisma.tenantWalletTransaction.create({
-      data: {
-        tenantId: resolvedId,
-        amount,
-        type: amount >= 0 ? 'RECHARGE' : 'DEDUCTION',
-        pointsDelta,
-        balanceAfter: newBalance,
-        notes: notes ?? 'شحن يدوي للمحفظة السحابية',
-        createdById: userId ?? null,
-      },
-    });
+    const [updated, tx] = await this.prisma.$transaction([
+      this.prisma.tenant.update({
+        where: { id: resolvedId },
+        data: {
+          walletBalance: newBalance,
+          loyaltyPoints: newPoints,
+        },
+      }),
+      this.prisma.tenantWalletTransaction.create({
+        data: {
+          tenantId: resolvedId,
+          amount,
+          type: 'RECHARGE',
+          pointsDelta: pointsDelta || 0,
+          balanceAfter: newBalance,
+          notes: notes?.trim() || 'شحن رصيد إضافي للمحفظة السحابية',
+          createdById: userId ?? null,
+        },
+      }),
+    ]);
 
     return {
       success: true,
@@ -329,7 +355,113 @@ export class TenantsService {
     };
   }
 
-  async getWalletTransactions(tenantId?: string | null, limit = 20) {
+  async updateWalletSettings(
+    tenantId: string | null | undefined,
+    allowAdminCards: boolean,
+    userId?: string,
+  ) {
+    let resolvedId = tenantId;
+    if (!resolvedId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!first) throw new NotFoundException('No active tenant found');
+      resolvedId = first.id;
+    }
+
+    const updated = await this.prisma.tenant.update({
+      where: { id: resolvedId },
+      data: { allowAdminCards: Boolean(allowAdminCards) },
+    });
+
+    if (userId) {
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId: resolvedId,
+          userId,
+          action: 'tenant:update_wallet_settings',
+          entity: 'Tenant',
+          entityId: resolvedId,
+          newValues: { allowAdminCards: updated.allowAdminCards },
+        },
+      });
+    }
+
+    return {
+      success: true,
+      allowAdminCards: updated.allowAdminCards,
+    };
+  }
+
+  async redeemLoyaltyPoints(
+    tenantId: string | null | undefined,
+    points: number,
+    userId?: string,
+  ) {
+    if (isNaN(points) || points < 1000) {
+      throw new BadRequestException('الحد الأدنى لاستبدال نقاط الولاء هو 1,000 نقطة');
+    }
+
+    let resolvedId = tenantId;
+    if (!resolvedId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!first) throw new NotFoundException('No active tenant found');
+      resolvedId = first.id;
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: resolvedId } });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+
+    const availablePoints = tenant.loyaltyPoints || 0;
+    if (availablePoints < points) {
+      throw new BadRequestException(`رصيد نقاط الولاء غير كافٍ. المتوفر حالياً: ${availablePoints} نقطة`);
+    }
+
+    // 1000 points = 1000 SDG conversion rate (1 point = 1 SDG credit)
+    const creditAmount = points;
+    const newBalance = Number(tenant.walletBalance) + creditAmount;
+    const newPoints = availablePoints - points;
+
+    const [updated, tx] = await this.prisma.$transaction([
+      this.prisma.tenant.update({
+        where: { id: resolvedId },
+        data: {
+          walletBalance: newBalance,
+          loyaltyPoints: newPoints,
+        },
+      }),
+      this.prisma.tenantWalletTransaction.create({
+        data: {
+          tenantId: resolvedId,
+          amount: creditAmount,
+          type: 'REDEEM_POINTS',
+          pointsDelta: -points,
+          balanceAfter: newBalance,
+          notes: `استبدال ${points} نقطة ولاء برصيد محفظة ${creditAmount} SDG`,
+          createdById: userId ?? null,
+        },
+      }),
+    ]);
+
+    return {
+      success: true,
+      redeemedPoints: points,
+      creditAmount,
+      walletBalance: Number(updated.walletBalance),
+      loyaltyPoints: updated.loyaltyPoints,
+      transaction: {
+        ...tx,
+        amount: Number(tx.amount),
+        balanceAfter: Number(tx.balanceAfter),
+      },
+    };
+  }
+
+  async getWalletTransactions(tenantId?: string | null, limit = 5) {
     let resolvedId = tenantId;
     if (!resolvedId) {
       const first = await this.prisma.tenant.findFirst({
@@ -348,9 +480,14 @@ export class TenantsService {
 
     return {
       data: transactions.map((t) => ({
-        ...t,
+        id: t.id,
         amount: Number(t.amount),
+        type: t.type,
+        pointsDelta: t.pointsDelta,
         balanceAfter: Number(t.balanceAfter),
+        reference: t.reference,
+        notes: t.notes,
+        createdAt: t.createdAt.toISOString(),
       })),
       total: transactions.length,
     };

@@ -43,4 +43,6 @@ class ApiEndpoints {
   static const String wallet = '/tenants/current/wallet';
   static const String walletRecharge = '/tenants/current/wallet/recharge';
   static const String walletTransactions = '/tenants/current/wallet/transactions';
+  static const String walletSettings = '/tenants/current/wallet/settings';
+  static const String walletRedeemPoints = '/tenants/current/wallet/redeem-points';
 }

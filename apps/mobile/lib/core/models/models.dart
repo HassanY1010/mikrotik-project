@@ -694,21 +694,89 @@ class CardTemplateModel {
   }
 }
 
+/// Cloud wallet transaction record
+class WalletTransactionModel {
+  final String id;
+  final double amount;
+  final String type; // RECHARGE, USAGE, BONUS, ADJUSTMENT, REDEEM_POINTS, DEDUCTION
+  final int pointsDelta;
+  final double balanceAfter;
+  final String? reference;
+  final String? notes;
+  final DateTime createdAt;
+
+  WalletTransactionModel({
+    required this.id,
+    required this.amount,
+    required this.type,
+    required this.pointsDelta,
+    required this.balanceAfter,
+    this.reference,
+    this.notes,
+    required this.createdAt,
+  });
+
+  factory WalletTransactionModel.fromJson(Map<String, dynamic> json) {
+    return WalletTransactionModel(
+      id: json['id']?.toString() ?? '',
+      amount: (json['amount'] != null)
+          ? double.tryParse(json['amount'].toString()) ?? 0.0
+          : 0.0,
+      type: json['type']?.toString() ?? 'RECHARGE',
+      pointsDelta: json['pointsDelta'] as int? ?? 0,
+      balanceAfter: (json['balanceAfter'] != null)
+          ? double.tryParse(json['balanceAfter'].toString()) ?? 0.0
+          : 0.0,
+      reference: json['reference']?.toString(),
+      notes: json['notes']?.toString(),
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+    );
+  }
+}
+
 /// Cloud wallet data
 class WalletDataModel {
   final double walletBalance;
   final int loyaltyPoints;
   final bool allowAdminCards;
   final String currency;
+  final List<WalletTransactionModel> transactions;
 
   WalletDataModel({
     required this.walletBalance,
     required this.loyaltyPoints,
     this.allowAdminCards = false,
     this.currency = 'SDG',
+    this.transactions = const [],
   });
 
+  WalletDataModel copyWith({
+    double? walletBalance,
+    int? loyaltyPoints,
+    bool? allowAdminCards,
+    String? currency,
+    List<WalletTransactionModel>? transactions,
+  }) {
+    return WalletDataModel(
+      walletBalance: walletBalance ?? this.walletBalance,
+      loyaltyPoints: loyaltyPoints ?? this.loyaltyPoints,
+      allowAdminCards: allowAdminCards ?? this.allowAdminCards,
+      currency: currency ?? this.currency,
+      transactions: transactions ?? this.transactions,
+    );
+  }
+
   factory WalletDataModel.fromJson(Map<String, dynamic> json) {
+    final rawList = json['recentTransactions'] ?? json['transactions'];
+    final txList = (rawList is List)
+        ? rawList
+            .map((item) =>
+                WalletTransactionModel.fromJson(item as Map<String, dynamic>))
+            .toList()
+        : <WalletTransactionModel>[];
+
     return WalletDataModel(
       walletBalance: (json['walletBalance'] != null)
           ? double.tryParse(json['walletBalance'].toString()) ?? 0.0
@@ -716,6 +784,7 @@ class WalletDataModel {
       loyaltyPoints: json['loyaltyPoints'] as int? ?? 0,
       allowAdminCards: json['allowAdminCards'] as bool? ?? false,
       currency: json['currency'] as String? ?? 'SDG',
+      transactions: txList,
     );
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantsService } from './tenants.service';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
@@ -52,7 +52,7 @@ export class TenantsController {
   }
 
   @Post('current/wallet/recharge')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.OWNER, RoleName.TENANT_ADMIN)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.OWNER, RoleName.TENANT_ADMIN, RoleName.ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Manual top-up or recharge of cloud wallet' })
   @ApiResponse({ status: 200, description: 'Wallet recharged successfully' })
   async rechargeWallet(
@@ -65,6 +65,42 @@ export class TenantsController {
     return this.tenantsService.rechargeWallet(tenantId, Number(amount), notes, Number(pointsDelta || 0), userId);
   }
 
+  @Patch('current/wallet/settings')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @ApiOperation({ summary: 'Update cloud wallet settings (e.g. allowAdminCards)' })
+  @ApiResponse({ status: 200, description: 'Wallet settings updated successfully' })
+  async updateWalletSettings(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Body('allowAdminCards') allowAdminCards: boolean,
+  ) {
+    return this.tenantsService.updateWalletSettings(tenantId, Boolean(allowAdminCards), userId);
+  }
+
+  @Post('current/wallet/redeem-points')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @ApiOperation({ summary: 'Redeem loyalty points for cloud wallet balance' })
+  @ApiResponse({ status: 200, description: 'Points redeemed successfully' })
+  async redeemLoyaltyPoints(
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Body('points') points: number,
+  ) {
+    return this.tenantsService.redeemLoyaltyPoints(tenantId, Number(points), userId);
+  }
+
   @Get('current/wallet/transactions')
   @Roles(
     RoleName.SUPER_ADMIN,
@@ -73,11 +109,16 @@ export class TenantsController {
     RoleName.ADMIN,
     RoleName.MANAGER,
     RoleName.CASHIER,
+    RoleName.EMPLOYEE,
   )
   @ApiOperation({ summary: 'List recent wallet transactions' })
   @ApiResponse({ status: 200, description: 'Wallet transaction history' })
-  async getWalletTransactions(@CurrentUser('tenantId') tenantId?: string) {
-    return this.tenantsService.getWalletTransactions(tenantId);
+  async getWalletTransactions(
+    @CurrentUser('tenantId') tenantId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const take = limit ? Math.min(100, Math.max(1, parseInt(limit, 10) || 5)) : 5;
+    return this.tenantsService.getWalletTransactions(tenantId, take);
   }
 
   @Patch('current')

@@ -193,6 +193,17 @@ void main() {
         'loyaltyPoints': 450,
         'allowAdminCards': true,
         'currency': 'SDG',
+        'recentTransactions': [
+          {
+            'id': 'tx-1',
+            'amount': 15000.0,
+            'type': 'RECHARGE',
+            'pointsDelta': 0,
+            'balanceAfter': 50000.75,
+            'notes': 'شحن يدوي تجريبي',
+            'createdAt': '2026-10-09T10:00:00.000Z',
+          },
+        ],
       };
 
       final wallet = WalletDataModel.fromJson(json);
@@ -200,6 +211,10 @@ void main() {
       expect(wallet.loyaltyPoints, 450);
       expect(wallet.allowAdminCards, isTrue);
       expect(wallet.currency, 'SDG');
+      expect(wallet.transactions.length, 1);
+      expect(wallet.transactions.first.amount, 15000.0);
+      expect(wallet.transactions.first.type, 'RECHARGE');
+      expect(wallet.transactions.first.notes, 'شحن يدوي تجريبي');
     });
   });
 }

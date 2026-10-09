@@ -295,6 +295,29 @@ export class SalesService {
         });
         createdTransactions.push(transaction);
       }
+
+      // 6.5. Award Loyalty Points: 1 point per 100 SDG (minimum 1 point)
+      const totalAmountEarned = cardsToSell.reduce((sum, c) => sum + Number(c.price), 0);
+      const pointsEarned = Math.max(1, Math.floor(totalAmountEarned / 100));
+      const refInvoice = createdTransactions[0]?.invoiceNumber ?? 'POS-SALE';
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: {
+          loyaltyPoints: { increment: pointsEarned },
+        },
+      });
+      await tx.tenantWalletTransaction.create({
+        data: {
+          tenantId,
+          amount: 0,
+          type: 'BONUS',
+          pointsDelta: pointsEarned,
+          balanceAfter: Number(tenant.walletBalance ?? 0),
+          reference: refInvoice,
+          notes: `نقاط ولاء مكتسبة من عملية بيع ${refInvoice}`,
+          createdById: cashierId,
+        },
+      });
     });
 
     // 7. Build thermal receipts with decrypted credentials and QR codes
@@ -497,6 +520,34 @@ export class SalesService {
       await client.disableHotspotUser(tx.card.username);
     } catch (err) {
       this.logger.warn(`Could not disable hotspot user on router during refund: ${err}`);
+    }
+
+    // Deduct loyalty points previously awarded for this refunded sale
+    try {
+      const pointsToDeduct = Math.max(1, Math.floor(Number(tx.amount) / 100));
+      const tenantRecord = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+      const currentPoints = tenantRecord?.loyaltyPoints ?? 0;
+      const actualDeduction = Math.min(currentPoints, pointsToDeduct);
+      if (actualDeduction > 0) {
+        await this.prisma.tenant.update({
+          where: { id: tenantId },
+          data: { loyaltyPoints: { decrement: actualDeduction } },
+        });
+        await this.prisma.tenantWalletTransaction.create({
+          data: {
+            tenantId,
+            amount: 0,
+            type: 'ADJUSTMENT',
+            pointsDelta: -actualDeduction,
+            balanceAfter: Number(tenantRecord?.walletBalance ?? 0),
+            reference: tx.invoiceNumber,
+            notes: `خصم نقاط ولاء بسبب استرجاع الفاتورة ${tx.invoiceNumber}`,
+            createdById: _cashierId,
+          },
+        });
+      }
+    } catch (pointsErr) {
+      this.logger.warn(`Could not adjust loyalty points during refund: ${pointsErr}`);
     }
 
     this.logger.log(

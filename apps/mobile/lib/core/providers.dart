@@ -417,10 +417,41 @@ class WalletNotifier extends AsyncNotifier<WalletDataModel> {
     try {
       final res = await apiClient.get(ApiEndpoints.wallet);
       final raw = res.data;
-      final data = (raw is Map && raw['data'] != null) ? raw['data'] as Map<String, dynamic> : raw as Map<String, dynamic>;
-      return WalletDataModel.fromJson(data);
+      final data = (raw is Map && raw['data'] != null)
+          ? raw['data'] as Map<String, dynamic>
+          : raw as Map<String, dynamic>;
+
+      List<WalletTransactionModel> txList = [];
+      if (data['recentTransactions'] != null && data['recentTransactions'] is List) {
+        txList = (data['recentTransactions'] as List)
+            .map((item) => WalletTransactionModel.fromJson(item as Map<String, dynamic>))
+            .toList();
+      } else {
+        try {
+          final txRes = await apiClient.get(
+            ApiEndpoints.walletTransactions,
+            queryParameters: {'limit': 5},
+          );
+          final rawTx = txRes.data;
+          final txData = (rawTx is Map && rawTx['data'] != null)
+              ? rawTx['data'] as List
+              : (rawTx is List ? rawTx : []);
+          txList = txData
+              .map((item) => WalletTransactionModel.fromJson(item as Map<String, dynamic>))
+              .toList();
+        } catch (_) {}
+      }
+
+      final wallet = WalletDataModel.fromJson(data);
+      return wallet.copyWith(transactions: txList);
     } catch (_) {
-      return WalletDataModel(walletBalance: 45000.0, loyaltyPoints: 320, allowAdminCards: true, currency: 'SDG');
+      return WalletDataModel(
+        walletBalance: 0.0,
+        loyaltyPoints: 0,
+        allowAdminCards: false,
+        currency: 'SDG',
+        transactions: [],
+      );
     }
   }
 
@@ -429,7 +460,38 @@ class WalletNotifier extends AsyncNotifier<WalletDataModel> {
     try {
       await apiClient.post(ApiEndpoints.walletRecharge, data: {
         'amount': amount,
-        'reason': reason,
+        'notes': reason,
+      });
+      state = const AsyncValue.loading();
+      state = await AsyncValue.guard(() => _fetch());
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> updateSettings(bool allowAdminCards) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.patch(ApiEndpoints.walletSettings, data: {
+        'allowAdminCards': allowAdminCards,
+      });
+      state.whenData((current) {
+        state = AsyncValue.data(current.copyWith(allowAdminCards: allowAdminCards));
+      });
+      final refreshed = await _fetch();
+      state = AsyncValue.data(refreshed);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> redeemPoints(int points) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.post(ApiEndpoints.walletRedeemPoints, data: {
+        'points': points,
       });
       state = const AsyncValue.loading();
       state = await AsyncValue.guard(() => _fetch());
