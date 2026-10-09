@@ -9,6 +9,7 @@ import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
+import 'pdf_font_service.dart';
 
 class PrinterResult {
   final bool isSuccess;
@@ -95,15 +96,10 @@ class ThermalPrinterService {
       author: receipt.tenantName,
     );
 
-    // Load Arabic Cairo fonts
-    pw.Font? fontRegular;
-    pw.Font? fontBold;
-    try {
-      fontRegular = await PdfGoogleFonts.cairoMedium();
-      fontBold = await PdfGoogleFonts.cairoBold();
-    } catch (_) {
-      // Fallback if offline
-    }
+    // Load reliable Arabic TrueType fonts
+    final fontBundle = await PdfFontService.loadArabicFonts();
+    final fontRegular = fontBundle.regular;
+    final fontBold = fontBundle.bold;
 
     final double widthPt = paperWidthMm * (72 / 25.4); // Convert mm to pt
     final rollFormat = PdfPageFormat(
@@ -230,16 +226,19 @@ class ThermalPrinterService {
                         mainAxisAlignment: pw.MainAxisAlignment.center,
                         children: [
                           pw.Text(
-                            receipt.username,
-                            style: pw.TextStyle(
-                              font: fontBold,
-                              fontSize: paperWidthMm >= 80 ? 14 : 12,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                          ),
-                          pw.Text(
-                            ' :المستخدم ',
+                            'اسم المستخدم: ',
                             style: pw.TextStyle(font: fontRegular, fontSize: 9),
+                          ),
+                          pw.Directionality(
+                            textDirection: pw.TextDirection.ltr,
+                            child: pw.Text(
+                              receipt.username,
+                              style: pw.TextStyle(
+                                font: fontBold,
+                                fontSize: paperWidthMm >= 80 ? 14 : 12,
+                                fontWeight: pw.FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -249,16 +248,19 @@ class ThermalPrinterService {
                           mainAxisAlignment: pw.MainAxisAlignment.center,
                           children: [
                             pw.Text(
-                              receipt.password!,
-                              style: pw.TextStyle(
-                                font: fontBold,
-                                fontSize: paperWidthMm >= 80 ? 14 : 12,
-                                fontWeight: pw.FontWeight.bold,
-                              ),
-                            ),
-                            pw.Text(
-                              ' :كلمة المرور ',
+                              'كلمة المرور: ',
                               style: pw.TextStyle(font: fontRegular, fontSize: 9),
+                            ),
+                            pw.Directionality(
+                              textDirection: pw.TextDirection.ltr,
+                              child: pw.Text(
+                                receipt.password!,
+                                style: pw.TextStyle(
+                                  font: fontBold,
+                                  fontSize: paperWidthMm >= 80 ? 14 : 12,
+                                  fontWeight: pw.FontWeight.bold,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -275,6 +277,7 @@ class ThermalPrinterService {
                   data: receipt.loginUrl,
                   width: paperWidthMm >= 80 ? 95 : 78,
                   height: paperWidthMm >= 80 ? 95 : 78,
+                  drawText: false,
                 ),
                 pw.SizedBox(height: 3),
                 pw.Text(
@@ -547,12 +550,9 @@ ${receipt.loginUrl}
       author: tenantName,
     );
 
-    pw.Font? fontRegular;
-    pw.Font? fontBold;
-    try {
-      fontRegular = await PdfGoogleFonts.cairoMedium();
-      fontBold = await PdfGoogleFonts.cairoBold();
-    } catch (_) {}
+    final fontBundle = await PdfFontService.loadArabicFonts();
+    final fontRegular = fontBundle.regular;
+    final fontBold = fontBundle.bold;
 
     final dateFormat = intl.DateFormat('yyyy-MM-dd HH:mm');
 

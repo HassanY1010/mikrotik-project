@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { Modal } from '../../components/common/Modal';
-import { ShoppingBag, Printer, Phone, User, CheckCircle2 } from 'lucide-react';
+import { ShoppingBag, Printer, Phone, User, CheckCircle2, Download } from 'lucide-react';
 import { HotspotProfileItem } from '../../core/types/view-models';
+import { PdfExportService } from '../../core/services/pdf-export-service';
 
 interface ReceiptData {
   invoiceNumber: string;
@@ -49,6 +50,43 @@ export const PosTerminalView: React.FC = () => {
 
   // Sold receipt dialog state
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  const handleDownloadReceiptPdf = async () => {
+    if (!receipt) return;
+    setExportingPdf(true);
+    try {
+      await PdfExportService.exportCardsPdf(
+        [
+          {
+            id: receipt.invoiceNumber,
+            serialNumber: receipt.serialNumber,
+            username: receipt.username,
+            clearPassword: receipt.password,
+            price: receipt.amount,
+            status: 'SOLD',
+            createdAt: new Date().toISOString(),
+            profile: {
+              name: receipt.profileName,
+              displayName: receipt.profileName,
+            },
+          },
+        ],
+        {
+          format: 'THERMAL_80',
+          networkName: 'شبكة ميكروتيك هوتسبوت',
+          includeQr: true,
+          loginUrl: 'http://login.hotspot',
+        }
+      );
+      showToast('تم تصدير إيصال الكرت كملف PDF حراري بنجاح!', 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تصدير ملف PDF';
+      showToast(msg, 'error');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
 
   const fetchProfiles = async () => {
     try {
@@ -429,7 +467,16 @@ export const PosTerminalView: React.FC = () => {
             <div style={{ fontSize: '10px', color: '#666' }}>امسح الرمز للدخول الفوري للإنترنت</div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-outline"
+              onClick={handleDownloadReceiptPdf}
+              disabled={exportingPdf}
+              style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}
+            >
+              <Download size={16} />
+              {exportingPdf ? 'جاري تجهيز PDF...' : 'تنزيل إيصال PDF'}
+            </button>
             <button className="btn btn-primary" onClick={() => window.print()}>
               <Printer size={16} />
               طباعة حرارية

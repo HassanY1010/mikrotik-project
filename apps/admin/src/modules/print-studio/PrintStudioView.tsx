@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Printer, FileText, LayoutGrid, Sliders, AlertCircle, RefreshCw, Download } from 'lucide-react';
-import { jsPDF } from 'jspdf';
+import { Printer, FileText, LayoutGrid, Sliders, AlertCircle, RefreshCw, Download, Palette, Loader2 } from 'lucide-react';
 import { apiClient } from '../../core/api/api-client';
 import { CardItem } from '../../core/types/view-models';
+import { PdfExportService, CARD_THEMES } from '../../core/services/pdf-export-service';
 
 interface BatchOption {
   id: string;
@@ -14,13 +14,16 @@ interface BatchOption {
 
 export const PrintStudioView: React.FC = () => {
   const [printFormat, setPrintFormat] = useState<'A4_GRID_100' | 'A4_GRID' | 'THERMAL_ROLL'>('A4_GRID_100');
-  const [networkName, setNetworkName] = useState('');
+  const [selectedTheme, setSelectedTheme] = useState<string>('FOOTBALL');
+  const [networkName, setNetworkName] = useState('سودافاي | SudaFi Net');
   const [supportPhone, setSupportPhone] = useState('');
   const [cardsCount, setCardsCount] = useState(100);
   const [cards, setCards] = useState<CardItem[]>([]);
   const [batches, setBatches] = useState<BatchOption[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<{ current: number; total: number } | null>(null);
 
   const fetchData = async (batchId: string = selectedBatchId) => {
     setLoading(true);
@@ -81,149 +84,34 @@ export const PrintStudioView: React.FC = () => {
     window.print();
   };
 
+  // Current active design theme
+  const currentTheme = CARD_THEMES[selectedTheme] || CARD_THEMES.FOOTBALL;
+
   // Slice available cards up to cardsCount
   const printableCards = cards.slice(0, cardsCount);
 
-  const handleDownloadPdf = () => {
-    if (printableCards.length === 0) return;
+  const handleDownloadPdf = async () => {
+    if (printableCards.length === 0 || isExporting) return;
 
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    });
+    setIsExporting(true);
+    setExportProgress(null);
 
-    const pageWidth = 210;
-    const pageHeight = 297;
-    const margin = 8;
-
-    let cols = 3;
-    let rows = 4;
-    if (printFormat === 'A4_GRID_100') {
-      cols = 5;
-      rows = 20;
-    } else if (printFormat === 'A4_GRID') {
-      cols = 3;
-      rows = 4;
-    } else {
-      cols = 1;
-      rows = 5;
-    }
-
-    const cardsPerPage = cols * rows;
-    const totalPages = Math.ceil(printableCards.length / cardsPerPage);
-
-    const cardWidth = (pageWidth - margin * 2) / cols;
-    const cardHeight = (pageHeight - margin * 2 - 12) / rows;
-
-    for (let p = 0; p < totalPages; p++) {
-      if (p > 0) doc.addPage();
-
-      const pageCards = printableCards.slice(p * cardsPerPage, (p + 1) * cardsPerPage);
-
-      // Page Header with metadata
-      doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text(
-        `Network: ${networkName || 'SudaFi'} | Support: ${supportPhone || '-'} | Page ${p + 1} of ${totalPages} (${pageCards.length} Cards)`,
-        margin,
-        margin + 4
-      );
-      doc.setDrawColor(203, 213, 225);
-      doc.setLineWidth(0.3);
-      doc.line(margin, margin + 6, pageWidth - margin, margin + 6);
-
-      const startY = margin + 8;
-
-      pageCards.forEach((card, idx) => {
-        const colIdx = idx % cols;
-        const rowIdx = Math.floor(idx / cols);
-
-        const x = margin + colIdx * cardWidth;
-        const y = startY + rowIdx * cardHeight;
-
-        // Dotted cut borders for print shop slicing
-        doc.setDrawColor(148, 163, 184);
-        doc.setLineDashPattern([1.5, 1], 0);
-        doc.setLineWidth(0.25);
-        doc.rect(x + 1, y + 1, cardWidth - 2, cardHeight - 2);
-        doc.setLineDashPattern([], 0);
-
-        if (printFormat === 'A4_GRID_100') {
-          // Dense 100-grid
-          doc.setFillColor(15, 23, 42);
-          doc.rect(x + 1.2, y + 1.2, cardWidth - 2.4, 3, 'F');
-          doc.setTextColor(255, 255, 255);
-          doc.setFontSize(5);
-          doc.text(card.profile?.displayName || 'Hotspot', x + 2, y + 3.2);
-          doc.text(`${card.price} SDG`, x + cardWidth - 8, y + 3.2);
-
-          doc.setTextColor(15, 23, 42);
-          doc.setFontSize(7);
-          doc.setFont('courier', 'bold');
-          doc.text(card.username, x + (cardWidth / 2) - 4, y + 7.5);
-          doc.setFont('helvetica', 'normal');
-
-          if (card.clearPassword && card.clearPassword !== card.username) {
-            doc.setFontSize(4.5);
-            doc.setTextColor(185, 28, 28);
-            doc.text(`PIN: ${card.clearPassword}`, x + 2, y + 10.5);
-          }
-
-          doc.setFontSize(4);
-          doc.setTextColor(100, 116, 139);
-          doc.text(`#${card.serialNumber?.slice(-5) || idx + 1}`, x + 2, y + cardHeight - 2);
-        } else {
-          // Standard A4 Grid (Clear & Beautiful)
-          doc.setFillColor(15, 23, 42);
-          doc.roundedRect(x + 1.5, y + 1.5, cardWidth - 3, 7, 1, 1, 'F');
-          doc.setTextColor(255, 255, 255);
-          doc.setFontSize(7.5);
-          doc.setFont('helvetica', 'bold');
-          doc.text(networkName || 'HotSpot Wi-Fi', x + 3, y + 6);
-
-          doc.setFillColor(245, 158, 11);
-          doc.roundedRect(x + cardWidth - 19, y + 2.5, 16, 5, 1, 1, 'F');
-          doc.setTextColor(0, 0, 0);
-          doc.setFontSize(6.5);
-          doc.text(`${card.price} SDG`, x + cardWidth - 17, y + 6);
-
-          doc.setTextColor(5, 150, 105);
-          doc.setFontSize(8);
-          doc.text(card.profile?.displayName || 'Card Voucher', x + 3, y + 14);
-
-          doc.setFillColor(241, 245, 249);
-          doc.roundedRect(x + 3, y + 17, cardWidth - 6, 18, 1.5, 1.5, 'F');
-          doc.setDrawColor(226, 232, 240);
-          doc.roundedRect(x + 3, y + 17, cardWidth - 6, 18, 1.5, 1.5, 'S');
-
-          doc.setTextColor(71, 85, 105);
-          doc.setFontSize(6.5);
-          doc.text(card.clearPassword ? 'Username / Code:' : 'Card Code:', x + 5, y + 22);
-
-          doc.setTextColor(15, 23, 42);
-          doc.setFontSize(11);
-          doc.setFont('courier', 'bold');
-          doc.text(card.username, x + 5, y + 28);
-          doc.setFont('helvetica', 'normal');
-
-          if (card.clearPassword && card.clearPassword !== card.username) {
-            doc.setTextColor(220, 38, 38);
-            doc.setFontSize(7.5);
-            doc.setFont('courier', 'bold');
-            doc.text(`PIN: ${card.clearPassword}`, x + cardWidth - 26, y + 28);
-            doc.setFont('helvetica', 'normal');
-          }
-
-          doc.setTextColor(100, 116, 139);
-          doc.setFontSize(5.5);
-          doc.text(`SN: ${card.serialNumber || `#${idx + 1}`}`, x + 3, y + cardHeight - 3);
-          doc.text(`Scan QR or connect to Wi-Fi`, x + cardWidth - 32, y + cardHeight - 3);
-        }
+    try {
+      const selectedBatch = batches.find((b) => b.id === selectedBatchId);
+      await PdfExportService.exportCardsPdf(printableCards, {
+        format: printFormat,
+        themePreset: selectedTheme,
+        networkName: networkName.trim() || 'سودافاي | SudaFi Net',
+        supportPhone: supportPhone.trim() || undefined,
+        batchNumber: selectedBatch ? selectedBatch.batchNumber : undefined,
+        onProgress: (current, total) => setExportProgress({ current, total }),
       });
+    } catch (err) {
+      console.error('Failed to export cards PDF:', err);
+    } finally {
+      setIsExporting(false);
+      setExportProgress(null);
     }
-
-    doc.save(`Hotspot_Cards_A4_${printFormat}_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   return (
@@ -248,15 +136,24 @@ export const PrintStudioView: React.FC = () => {
             className="btn btn-primary"
             style={{ backgroundColor: '#0d9488', borderColor: '#0d9488' }}
             onClick={handleDownloadPdf}
-            disabled={printableCards.length === 0}
+            disabled={printableCards.length === 0 || isExporting}
           >
-            <Download size={16} />
-            تنزيل ملف PDF لمركز الطباعة ({printableCards.length} كرت)
+            {isExporting ? (
+              <>
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                جاري تجهيز الـ PDF ({exportProgress ? `${exportProgress.current}/${exportProgress.total}` : 'يرجى الانتظار...'})
+              </>
+            ) : (
+              <>
+                <Download size={16} />
+                تنزيل ملف PDF لمركز الطباعة ({printableCards.length} كرت)
+              </>
+            )}
           </button>
           <button
             className="btn btn-outline"
             onClick={handlePrint}
-            disabled={printableCards.length === 0}
+            disabled={printableCards.length === 0 || isExporting}
           >
             <Printer size={16} />
             معاينة وطباعة المتصفح
@@ -323,6 +220,24 @@ export const PrintStudioView: React.FC = () => {
                 حراري (رول 58/80mm)
               </button>
             </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Palette size={14} color="var(--primary)" />
+              تصميم وثيم الكرت المختار
+            </label>
+            <select
+              className="input"
+              value={selectedTheme}
+              onChange={(e) => setSelectedTheme(e.target.value)}
+            >
+              {Object.values(CARD_THEMES).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="form-group">
@@ -488,7 +403,7 @@ export const PrintStudioView: React.FC = () => {
                 key={card.id}
                 className="card-ticket"
                 style={{
-                  border: '2px dashed #0d9488',
+                  border: `2px dashed ${currentTheme.primaryColor}`,
                   borderRadius: '8px',
                   padding: '12px',
                   backgroundColor: '#ffffff',
@@ -502,7 +417,7 @@ export const PrintStudioView: React.FC = () => {
                   style={{
                     fontSize: '0.85rem',
                     fontWeight: 800,
-                    color: '#0f766e',
+                    color: currentTheme.primaryColor,
                     marginBottom: '2px',
                   }}
                 >
@@ -549,7 +464,7 @@ export const PrintStudioView: React.FC = () => {
                     style={{
                       fontSize: '1rem',
                       fontWeight: 900,
-                      color: '#0d9488',
+                      color: currentTheme.primaryColor,
                       fontFamily: 'monospace',
                     }}
                   >
@@ -579,7 +494,7 @@ export const PrintStudioView: React.FC = () => {
                   }}
                 >
                   <span>{card.profile?.displayName || 'باقة إنترنت'}</span>
-                  <span style={{ color: '#0f766e' }}>{card.price} SDG</span>
+                  <span style={{ color: currentTheme.accentColor, fontWeight: 800 }}>{card.price} SDG</span>
                 </div>
 
                 <div style={{ fontSize: '0.58rem', color: '#94a3b8', marginTop: '6px' }}>

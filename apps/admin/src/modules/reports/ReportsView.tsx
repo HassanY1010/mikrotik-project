@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
-import { BarChart3, Download, FileSpreadsheet, RefreshCw, Calendar } from 'lucide-react';
+import { BarChart3, Download, FileSpreadsheet, RefreshCw, Calendar, Printer } from 'lucide-react';
 import { ShiftSummaryData } from '../../core/types/view-models';
+import { PdfExportService } from '../../core/services/pdf-export-service';
 
 export const ReportsView: React.FC = () => {
   const { showToast } = useToast();
   const [shiftSummary, setShiftSummary] = useState<ShiftSummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const fetchShift = async (isManual = false) => {
     setLoading(true);
@@ -56,6 +58,20 @@ export const ReportsView: React.FC = () => {
       showToast(msg, 'error');
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleExportShiftPdf = async () => {
+    if (!shiftSummary) return;
+    setExportingPdf(true);
+    try {
+      await PdfExportService.exportShiftSummaryPdf(shiftSummary, 'شبكة ميكروتيك هوتسبوت');
+      showToast('تم تصدير تقرير الوردية عالي الدقة (PDF) بنجاح!', 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تصدير ملف PDF';
+      showToast(msg, 'error');
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -190,13 +206,40 @@ export const ReportsView: React.FC = () => {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '0.5rem',
-              color: 'var(--text-secondary)',
-              fontSize: '0.85rem',
+              gap: '0.75rem',
+              flexWrap: 'wrap',
             }}
           >
-            <Calendar size={16} />
-            <span>اليوم: {new Date().toLocaleDateString('ar-SD')}</span>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                color: 'var(--text-secondary)',
+                fontSize: '0.85rem',
+              }}
+            >
+              <Calendar size={16} />
+              <span>اليوم: {new Date().toLocaleDateString('ar-SD')}</span>
+            </div>
+
+            <button
+              className="btn btn-outline"
+              onClick={handleExportShiftPdf}
+              disabled={exportingPdf || !shiftSummary}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.4rem 0.85rem',
+                fontSize: '0.85rem',
+                borderColor: 'var(--primary)',
+                color: 'var(--primary)',
+              }}
+            >
+              <Printer size={15} />
+              {exportingPdf ? 'جاري تجهيز PDF...' : 'تصدير تقرير الوردية PDF'}
+            </button>
           </div>
         </div>
 

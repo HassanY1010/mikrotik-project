@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { Modal } from '../../components/common/Modal';
-import { CreditCard, Plus, RefreshCw, QrCode, Search, Filter, Ban, CheckCircle, Printer } from 'lucide-react';
+import { CreditCard, Plus, RefreshCw, QrCode, Search, Filter, Ban, CheckCircle, Printer, Download } from 'lucide-react';
 import { CardItem, HotspotProfileItem } from '../../core/types/view-models';
+import { PdfExportService } from '../../core/services/pdf-export-service';
 
 interface CardsViewProps {
   onNavigate?: (tab: string) => void;
@@ -33,6 +34,26 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
 
   // Selected Card for QR / Details Modal
   const [selectedCard, setSelectedCard] = useState<CardItem | null>(null);
+  const [exportingSinglePdf, setExportingSinglePdf] = useState(false);
+
+  const handleExportSingleCardPdf = async () => {
+    if (!selectedCard) return;
+    setExportingSinglePdf(true);
+    try {
+      await PdfExportService.exportCardsPdf([selectedCard], {
+        format: 'THERMAL_80',
+        networkName: 'شبكة ميكروتيك هوتسبوت',
+        includeQr: true,
+        loginUrl: 'http://login.hotspot',
+      });
+      showToast('تم تصدير كرت الهوتسبوت كملف PDF بنجاح!', 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل تصدير ملف PDF';
+      showToast(msg, 'error');
+    } finally {
+      setExportingSinglePdf(false);
+    }
+  };
 
   const fetchCards = async () => {
     setLoading(true);
@@ -471,7 +492,15 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
             http://login.hotspot/login?username={selectedCard?.username}
           </div>
 
-          <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'center' }}>
+          <div style={{ marginTop: '1.25rem', display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+            <button
+              className="btn btn-primary"
+              onClick={handleExportSingleCardPdf}
+              disabled={exportingSinglePdf}
+            >
+              <Download size={16} />
+              {exportingSinglePdf ? 'جاري تجهيز PDF...' : 'تصدير كرت PDF'}
+            </button>
             <button className="btn btn-secondary" onClick={() => setSelectedCard(null)}>
               إغلاق
             </button>

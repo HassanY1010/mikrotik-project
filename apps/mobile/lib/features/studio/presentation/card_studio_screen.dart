@@ -389,9 +389,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                         cards: cards,
                         networkName: networkNameController.text.trim().isNotEmpty
                             ? networkNameController.text.trim()
-                            : 'SudaFi Network',
+                            : 'سودافاي | SudaFi Net',
                         layout: selectedLayout,
                         batchNumber: batchId,
+                        themePreset: _selectedThemePreset,
                       );
                     } catch (err) {
                       if (context.mounted) {
@@ -420,9 +421,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                         cards: cards,
                         networkName: networkNameController.text.trim().isNotEmpty
                             ? networkNameController.text.trim()
-                            : 'SudaFi Network',
+                            : 'سودافاي | SudaFi Net',
                         layout: selectedLayout,
                         batchNumber: batchId,
+                        themePreset: _selectedThemePreset,
                       );
                     } catch (err) {
                       if (context.mounted) {
