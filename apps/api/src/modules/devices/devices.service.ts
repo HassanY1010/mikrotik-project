@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadGatewayException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -759,7 +760,13 @@ export class DevicesService {
         await client.setEmergencyLock(locked);
       }
     } catch (err) {
-      this.logger.warn(`Could not sync emergency lock directly to hardware router: ${err}`);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Could not sync emergency lock directly to hardware router (${device.host}): ${errMsg}`);
+      throw new BadGatewayException({
+        code: 'ROUTER_SYNC_FAILED',
+        message: `تعذر الاتصال بالراوتر (${device.name} - ${device.host}) لتطبيق قفل الطوارئ على جدار الحماية (Firewall). تحقق من اتصال الراوتر بالإنترنت والشبكة.`,
+        error: errMsg,
+      });
     }
 
     await this.prisma.mikroTikDevice.update({
@@ -782,8 +789,8 @@ export class DevicesService {
       success: true,
       isLocked: locked,
       message: locked
-        ? 'تم تفعيل قفل الطوارئ للراوتر بنجاح'
-        : 'تم إلغاء قفل الطوارئ واستئناف العمليات',
+        ? 'تم تفعيل قفل الطوارئ وتجميد حركة المرور في الراوتر بنجاح'
+        : 'تم إلغاء قفل الطوارئ واستئناف حركة المرور في الراوتر بنجاح',
     };
   }
 
@@ -823,7 +830,13 @@ export class DevicesService {
         await client.setAntiTethering(enabled);
       }
     } catch (err) {
-      this.logger.warn(`Could not sync anti-tethering directly to hardware router: ${err}`);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Could not sync anti-tethering directly to hardware router (${device.host}): ${errMsg}`);
+      throw new BadGatewayException({
+        code: 'ROUTER_SYNC_FAILED',
+        message: `تعذر الاتصال بالراوتر (${device.name} - ${device.host}) لتطبيق قاعدة حظر البث (TTL). تحقق من اتصال الراوتر بالإنترنت والشبكة.`,
+        error: errMsg,
+      });
     }
 
     await this.prisma.mikroTikDevice.update({
@@ -846,8 +859,8 @@ export class DevicesService {
       success: true,
       antiTetheringEnabled: enabled,
       message: enabled
-        ? 'تم تفعيل حماية منع مشاركة الإنترنت (قاعدة TTL) بنجاح'
-        : 'تم تعطيل قاعدة منع مشاركة الإنترنت',
+        ? 'تم تفعيل قاعدة حظر البث ومشاركة الإنترنت (TTL=1) على الراوتر بنجاح'
+        : 'تم إلغاء قاعدة حظر البث (TTL) بنجاح',
     };
   }
 }

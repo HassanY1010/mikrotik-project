@@ -269,42 +269,87 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
     }
   }
 
-  Future<bool> toggleEmergencyLock(String deviceId, bool lock) async {
+  Future<Map<String, dynamic>> toggleEmergencyLock(String deviceId, bool lock) async {
     final apiClient = ref.read(apiClientProvider);
     try {
-      await apiClient.post(ApiEndpoints.deviceEmergencyLock(deviceId), data: {'lock': lock});
+      final res = await apiClient.post(
+        ApiEndpoints.deviceEmergencyLock(deviceId),
+        data: {'locked': lock, 'lock': lock},
+      );
       await refresh();
-      return true;
-    } catch (_) {
-      state.whenData((devices) {
-        state = AsyncValue.data(devices.map((d) => d.id == deviceId ? d.copyWith(isLocked: lock) : d).toList());
-      });
-      return false;
+      final resData = res.data;
+      final msg = (resData is Map && resData['message'] != null)
+          ? resData['message'].toString()
+          : (lock ? 'تم تفعيل قفل الطوارئ بنجاح' : 'تم إلغاء قفل الطوارئ بنجاح');
+      return {'success': true, 'message': msg};
+    } catch (e) {
+      String msg = 'فشل تطبيق قفل الطوارئ على الراوتر';
+      if (e is DioException) {
+        final d = e.response?.data;
+        if (d is Map) {
+          if (d['message'] != null) {
+            msg = d['message'].toString();
+          } else if (d['error'] != null) {
+            msg = d['error'].toString();
+          }
+        }
+      }
+      return {'success': false, 'message': msg};
     }
   }
 
-  Future<bool> toggleAntiTethering(String deviceId, bool enable) async {
+  Future<Map<String, dynamic>> toggleAntiTethering(String deviceId, bool enable) async {
     final apiClient = ref.read(apiClientProvider);
     try {
-      await apiClient.post(ApiEndpoints.deviceAntiTethering(deviceId), data: {'enable': enable});
+      final res = await apiClient.post(
+        ApiEndpoints.deviceAntiTethering(deviceId),
+        data: {'enabled': enable, 'enable': enable},
+      );
       await refresh();
-      return true;
-    } catch (_) {
-      state.whenData((devices) {
-        state = AsyncValue.data(devices.map((d) => d.id == deviceId ? d.copyWith(antiTetheringEnabled: enable) : d).toList());
-      });
-      return false;
+      final resData = res.data;
+      final msg = (resData is Map && resData['message'] != null)
+          ? resData['message'].toString()
+          : (enable ? 'تم تفعيل حظر البث (TTL=1) بنجاح' : 'تم تعطيل حظر البث بنجاح');
+      return {'success': true, 'message': msg};
+    } catch (e) {
+      String msg = 'فشل تطبيق قاعدة حظر البث على الراوتر';
+      if (e is DioException) {
+        final d = e.response?.data;
+        if (d is Map) {
+          if (d['message'] != null) {
+            msg = d['message'].toString();
+          } else if (d['error'] != null) {
+            msg = d['error'].toString();
+          }
+        }
+      }
+      return {'success': false, 'message': msg};
     }
   }
 
-  Future<bool> testConnection(String deviceId) async {
+  Future<Map<String, dynamic>> testConnection(String deviceId) async {
     final apiClient = ref.read(apiClientProvider);
     try {
       final res = await apiClient.post(ApiEndpoints.deviceTest(deviceId));
       await refresh();
-      return (res.statusCode == 200);
-    } catch (_) {
-      return false;
+      final data = res.data;
+      final isSuccess = (data is Map && data['success'] == true) || res.statusCode == 200;
+      final msg = (data is Map && data['message'] != null)
+          ? data['message'].toString()
+          : (isSuccess ? 'تم الاتصال بالراوتر بنجاح' : 'فشل فحص الاتصال بالراوتر');
+      final latency = (data is Map && data['latencyMs'] != null) ? data['latencyMs'] : null;
+      return {
+        'success': isSuccess,
+        'message': msg,
+        'latencyMs': latency,
+      };
+    } catch (e) {
+      String msg = 'تعذر الاتصال بالخادم لاختبار الراوتر';
+      if (e is DioException && e.response?.data is Map) {
+        final d = e.response!.data as Map;
+        msg = d['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
     }
   }
 }

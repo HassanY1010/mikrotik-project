@@ -191,28 +191,30 @@ export class DevicesController {
   }
 
   @Post(':id/emergency-lock')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({ summary: 'Toggle emergency lock to halt or resume router operations' })
   @ApiResponse({ status: 200, description: 'Emergency lock status updated' })
   async toggleEmergencyLock(
     @TenantId() tenantId: string,
     @Param('id') id: string,
-    @Body('locked') locked: boolean,
+    @Body() body: any,
     @CurrentUser('id') userId: string,
   ) {
+    const locked = body?.locked !== undefined ? Boolean(body.locked) : Boolean(body?.lock);
     return this.devicesService.toggleEmergencyLock(tenantId, id, locked, userId);
   }
 
   @Post(':id/anti-tethering')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({ summary: 'Toggle anti-tethering (TTL rule) to prevent hotspot sharing' })
   @ApiResponse({ status: 200, description: 'Anti-tethering status updated' })
   async toggleAntiTethering(
     @TenantId() tenantId: string,
     @Param('id') id: string,
-    @Body('enabled') enabled: boolean,
+    @Body() body: any,
     @CurrentUser('id') userId: string,
   ) {
+    const enabled = body?.enabled !== undefined ? Boolean(body.enabled) : Boolean(body?.enable);
     return this.devicesService.toggleAntiTethering(tenantId, id, enabled, userId);
   }
 }

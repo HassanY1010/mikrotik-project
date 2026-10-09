@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../radar/presentation/radar_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   final Function(int tabIndex)? onNavigateTab;
@@ -30,39 +31,94 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _isTogglingLock = false;
   bool _isTogglingAntiTethering = false;
+  bool _isTestingConnection = false;
 
-  void _handleEmergencyLock(RouterDeviceModel router) async {
+  void _navigateToRadar() {
+    if (widget.onNavigateTab != null) {
+      widget.onNavigateTab!(3);
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const RadarScreen()),
+      );
+    }
+  }
+
+  Future<void> _testRouterConnection(RouterDeviceModel router) async {
+    if (_isTestingConnection) return;
+    setState(() => _isTestingConnection = true);
+
+    final res = await ref.read(routersProvider.notifier).testConnection(router.id);
+    if (!mounted) return;
+    setState(() => _isTestingConnection = false);
+
+    final success = res['success'] == true;
+    final msg = res['message']?.toString() ??
+        (success ? 'تم الاتصال بالراوتر بنجاح' : 'تعذر الاتصال بالراوتر');
+    final latency = res['latencyMs'];
+    final displayMsg = latency != null ? '$msg ($latency ms)' : msg;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              success ? Icons.check_circle : Icons.error_outline,
+              color: Colors.white,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                displayMsg,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: success ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  Future<void> _handleEmergencyLock(RouterDeviceModel router) async {
     final willLock = !router.isLocked;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Icon(
-              willLock ? Icons.lock : Icons.lock_open,
-              color: willLock ? Colors.red : Colors.green,
+              willLock ? Icons.warning_amber_rounded : Icons.lock_open,
+              color: willLock ? Colors.redAccent : Colors.greenAccent,
             ),
             const SizedBox(width: 8),
-            Text(willLock ? 'تأكيد قفل الطوارئ' : 'إلغاء قفل الطوارئ'),
+            Text(
+              willLock ? 'تأكيد قفل الطوارئ' : 'إلغاء قفل الطوارئ',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
           ],
         ),
         content: Text(
           willLock
-              ? 'سيتم تجميد وتأمين الراوتر ومنع أي تعديلات غير مصرح بها فوراً. هل تريد المتابعة؟'
-              : 'هل أنت متأكد من رغبتك في فك قفل الطوارئ واستئناف العمليات؟',
+              ? 'تنبيه أمني هام:\nسيتم إضافة وتفعيل قاعدة حظر فورية (Drop Filter) في جدار حماية الراوتر (Firewall) لمنع جميع حركة مرور بيانات الإنترنت عن المشتركين.\n\nهل تريد تنفيذ القفل فوراً؟'
+              : 'سيتم تعطيل قاعدة الحظر في جدار حماية الراوتر واستئناف خدمة الإنترنت لجميع المشتركين.\n\nهل تريد المتابعة؟',
+          style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء'),
+            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: willLock ? Colors.red : Colors.green,
+              backgroundColor: willLock ? Colors.red.shade700 : Colors.green.shade700,
               foregroundColor: Colors.white,
             ),
-            child: Text(willLock ? 'تفعيل القفل الآن' : 'فك القفل'),
+            child: Text(willLock ? 'تفعيل القفل فوراً' : 'استئناف المرور'),
           ),
         ],
       ),
@@ -70,45 +126,96 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     if (confirmed == true) {
       setState(() => _isTogglingLock = true);
-      final success = await ref
+      final result = await ref
           .read(routersProvider.notifier)
           .toggleEmergencyLock(router.id, willLock);
+      if (!mounted) return;
       setState(() => _isTogglingLock = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              success
-                  ? (willLock
-                      ? 'تم تفعيل قفل الطوارئ بنجاح'
-                      : 'تم إلغاء قفل الطوارئ بنجاح')
-                  : 'تم تحديث الحالة محلياً (غير متصل بالراوتر حالياً)',
-            ),
-            backgroundColor: willLock ? Colors.red.shade700 : Colors.green.shade700,
-          ),
-        );
-      }
+
+      final success = result['success'] == true;
+      final msg = result['message']?.toString() ??
+          (success
+              ? (willLock ? 'تم تفعيل قفل الطوارئ في الراوتر بنجاح' : 'تم فك قفل الطوارئ')
+              : 'فشلت العملية');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: success
+              ? (willLock ? Colors.red.shade700 : Colors.green.shade700)
+              : Colors.red.shade900,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 
-  void _handleAntiTethering(RouterDeviceModel router) async {
+  Future<void> _handleAntiTethering(RouterDeviceModel router) async {
     final willEnable = !router.antiTetheringEnabled;
-    setState(() => _isTogglingAntiTethering = true);
-    final success = await ref
-        .read(routersProvider.notifier)
-        .toggleAntiTethering(router.id, willEnable);
-    setState(() => _isTogglingAntiTethering = false);
-    if (mounted) {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(
+              Icons.shield_outlined,
+              color: willEnable ? const Color(0xFF38BDF8) : Colors.amber,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              willEnable ? 'تفعيل حظر البث (TTL=1)' : 'تعطيل حظر البث (TTL)',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+        content: Text(
+          willEnable
+              ? 'سيتم إضافة وتفعيل قاعدة Mangle في الراوتر (change-ttl new-ttl=1) لمنع المشتركين من إعادة توزيع وبث باقات الإنترنت عبر نقاط اتصال أو هواتف أخرى.\n\nهل تريد تفعيل الحماية؟'
+              : 'سيتم تعطيل قاعدة حظر توزيع الإنترنت (TTL) في الراوتر والسماح بتمرير الحزم بالقيمة الافتراضية.\n\nهل تريد المتابعة؟',
+          style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: willEnable ? const Color(0xFF2563EB) : Colors.amber.shade800,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(willEnable ? 'تفعيل الحماية' : 'تعطيل الحظر'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _isTogglingAntiTethering = true);
+      final result = await ref
+          .read(routersProvider.notifier)
+          .toggleAntiTethering(router.id, willEnable);
+      if (!mounted) return;
+      setState(() => _isTogglingAntiTethering = false);
+
+      final success = result['success'] == true;
+      final msg = result['message']?.toString() ??
+          (success
+              ? (willEnable
+                  ? 'تم تفعيل حماية Anti-Tethering (TTL=1) على الراوتر'
+                  : 'تم تعطيل حماية Anti-Tethering')
+              : 'فشلت العملية');
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            success
-                ? (willEnable
-                    ? 'تم تفعيل حماية Anti-Tethering (TTL=1)'
-                    : 'تم تعطيل حماية Anti-Tethering')
-                : 'تم تحديث حالة الحماية محلياً',
-          ),
-          backgroundColor: willEnable ? Colors.blue.shade700 : Colors.grey.shade800,
+          content: Text(msg),
+          backgroundColor: success
+              ? (willEnable ? Colors.blue.shade700 : Colors.grey.shade800)
+              : Colors.red.shade900,
+          duration: const Duration(seconds: 4),
         ),
       );
     }
@@ -210,14 +317,59 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               const SizedBox(height: 16),
 
               // KPI Financial Banner Card
-              financeAsync.when(
-                data: (finance) => sessionsAsync.when(
-                  data: (sessions) => _buildKpiMetricsCard(finance, sessions.length),
-                  loading: () => _buildKpiMetricsCard(finance, 0),
-                  error: (_, _) => _buildKpiMetricsCard(finance, 0),
+              routersAsync.when(
+                data: (routers) {
+                  final currentRouter = routers.isNotEmpty
+                      ? routers.firstWhere(
+                          (r) => r.id == selectedRouterId,
+                          orElse: () => routers.first,
+                        )
+                      : null;
+                  final isRouterOnline = currentRouter?.isOnline ?? false;
+
+                  return financeAsync.when(
+                    data: (finance) => sessionsAsync.when(
+                      data: (sessions) => _buildKpiMetricsCard(
+                        finance: finance,
+                        isRouterOnline: isRouterOnline,
+                        connectedUsersCount: sessions.length,
+                        isLoadingSessions: false,
+                      ),
+                      loading: () => _buildKpiMetricsCard(
+                        finance: finance,
+                        isRouterOnline: isRouterOnline,
+                        connectedUsersCount: null,
+                        isLoadingSessions: true,
+                      ),
+                      error: (_, _) => _buildKpiMetricsCard(
+                        finance: finance,
+                        isRouterOnline: false,
+                        connectedUsersCount: null,
+                        isLoadingSessions: false,
+                      ),
+                    ),
+                    loading: () => const SizedBox(
+                      height: 80,
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                    error: (_, _) => _buildKpiMetricsCard(
+                      finance: null,
+                      isRouterOnline: isRouterOnline,
+                      connectedUsersCount: null,
+                      isLoadingSessions: false,
+                    ),
+                  );
+                },
+                loading: () => const SizedBox(
+                  height: 80,
+                  child: Center(child: CircularProgressIndicator()),
                 ),
-                loading: () => const SizedBox(height: 80, child: Center(child: CircularProgressIndicator())),
-                error: (_, _) => _buildKpiMetricsCard(null, 0),
+                error: (_, _) => _buildKpiMetricsCard(
+                  finance: null,
+                  isRouterOnline: false,
+                  connectedUsersCount: null,
+                  isLoadingSessions: false,
+                ),
               ),
 
               const SizedBox(height: 20),
@@ -260,7 +412,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ),
                   TextButton.icon(
-                    onPressed: () => widget.onNavigateTab?.call(3),
+                    onPressed: _navigateToRadar,
                     icon: const Icon(Icons.arrow_back, size: 16, color: Color(0xFF38BDF8)),
                     label: const Text('عرض الكل', style: TextStyle(color: Color(0xFF38BDF8))),
                   ),
@@ -268,10 +420,65 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               const SizedBox(height: 8),
 
-              sessionsAsync.when(
-                data: (sessions) => _buildRecentSessionsList(sessions),
+              routersAsync.when(
+                data: (routers) {
+                  final currentRouter = routers.isNotEmpty
+                      ? routers.firstWhere(
+                          (r) => r.id == selectedRouterId,
+                          orElse: () => routers.first,
+                        )
+                      : null;
+
+                  if (currentRouter != null && !currentRouter.isOnline) {
+                    return Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF334155)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.wifi_off, color: Colors.redAccent.withValues(alpha: 0.8), size: 22),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'الراوتر غير متصل حالياً؛ لا يمكن جلب جلسات المستخدمين اللحظية (الرادار). اضغط فحص الاتصال للتحقق.',
+                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return sessionsAsync.when(
+                    data: (sessions) => _buildRecentSessionsList(sessions),
+                    loading: () => const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: CircularProgressIndicator(),
+                      ),
+                    ),
+                    error: (_, _) => Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'تعذر جلب جلسات الهوتسبوت من الراوتر',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  );
+                },
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (_, _) => const Text('تعذر تحميل الجلسات', style: TextStyle(color: Colors.grey)),
+                error: (_, _) => const SizedBox.shrink(),
               ),
             ],
           ),
@@ -356,24 +563,60 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
             ),
           ),
+          const SizedBox(width: 6),
+          // Test connection action button
+          InkWell(
+            onTap: _isTestingConnection ? null : () => _testRouterConnection(selected),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF334155).withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_isTestingConnection)
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                    )
+                  else
+                    const Icon(Icons.wifi_find, size: 14, color: Color(0xFF38BDF8)),
+                  const SizedBox(width: 4),
+                  Text(
+                    _isTestingConnection ? 'جارٍ الفحص' : 'فحص',
+                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          // Online / Offline Status Badge
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: selected.isOnline
                   ? Colors.green.withValues(alpha: 0.2)
                   : Colors.red.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: selected.isOnline ? Colors.green : Colors.red,
-                width: 1,
               ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircleAvatar(
-                  radius: 4,
-                  backgroundColor: selected.isOnline ? Colors.green : Colors.red,
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: selected.isOnline ? Colors.greenAccent : Colors.redAccent,
+                    shape: BoxShape.circle,
+                  ),
                 ),
                 const SizedBox(width: 6),
                 Text(
@@ -393,16 +636,66 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildRouterHealthCard(RouterDeviceModel router) {
-    final cpu = router.cpuLoad ?? 0;
-    final memTotal = router.memoryTotalMb ?? 1024;
-    final memFree = router.memoryFreeMb ?? 512;
-    final memUsed = (memTotal - memFree).clamp(0, memTotal);
-    final memPct = ((memUsed / memTotal) * 100).round();
+    final isOnline = router.isOnline;
 
-    final diskTotal = router.diskTotalMb ?? 512;
-    final diskFree = router.diskFreeMb ?? 256;
-    final diskUsed = (diskTotal - diskFree).clamp(0, diskTotal);
-    final diskPct = ((diskUsed / diskTotal) * 100).round();
+    // CPU Metrics
+    final String cpuStr;
+    final double cpuRatio;
+    final Color cpuColor;
+    if (isOnline && router.cpuLoad != null) {
+      final cpu = router.cpuLoad!;
+      cpuStr = '$cpu%';
+      cpuRatio = (cpu / 100.0).clamp(0.0, 1.0);
+      cpuColor = _getColorForPercent(cpu);
+    } else {
+      cpuStr = 'غير متاح';
+      cpuRatio = 0.0;
+      cpuColor = Colors.grey;
+    }
+
+    // RAM Metrics
+    final String ramStr;
+    final double ramRatio;
+    final Color ramColor;
+    if (isOnline &&
+        router.memoryTotalMb != null &&
+        router.memoryTotalMb! > 0 &&
+        router.memoryFreeMb != null) {
+      final memTotal = router.memoryTotalMb!;
+      final memFree = router.memoryFreeMb!;
+      final memUsed = (memTotal - memFree).clamp(0, memTotal);
+      final memPct = ((memUsed / memTotal) * 100).round().clamp(0, 100);
+      ramStr = '$memPct%';
+      ramRatio = (memPct / 100.0).clamp(0.0, 1.0);
+      ramColor = _getColorForPercent(memPct);
+    } else {
+      ramStr = 'غير متاح';
+      ramRatio = 0.0;
+      ramColor = Colors.grey;
+    }
+
+    // DISK Metrics
+    final String diskStr;
+    final double diskRatio;
+    final Color diskColor;
+    if (isOnline &&
+        router.diskTotalMb != null &&
+        router.diskTotalMb! > 0 &&
+        router.diskFreeMb != null) {
+      final diskTotal = router.diskTotalMb!;
+      final diskFree = router.diskFreeMb!;
+      final diskUsed = (diskTotal - diskFree).clamp(0, diskTotal);
+      final diskPct = ((diskUsed / diskTotal) * 100).round().clamp(0, 100);
+      diskStr = '$diskPct%';
+      diskRatio = (diskPct / 100.0).clamp(0.0, 1.0);
+      diskColor = _getColorForPercent(diskPct);
+    } else {
+      diskStr = 'غير متاح';
+      diskRatio = 0.0;
+      diskColor = Colors.grey;
+    }
+
+    final uptimeStr = isOnline ? (router.uptime ?? 'نشط') : 'غير متصل';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -457,7 +750,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 ),
               ),
               Text(
-                'العمل: ${router.uptime ?? '0s'}',
+                'العمل: $uptimeStr',
                 style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
               ),
             ],
@@ -467,13 +760,65 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           // 3 Metric Gauges (CPU, RAM, DISK)
           Row(
             children: [
-              Expanded(child: _buildMetricGauge('المعالج CPU', '$cpu%', cpu / 100.0, _getColorForPercent(cpu))),
+              Expanded(
+                child: _buildMetricGauge(
+                  'المعالج CPU',
+                  cpuStr,
+                  cpuRatio,
+                  cpuColor,
+                  isAvailable: isOnline && router.cpuLoad != null,
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _buildMetricGauge('الذاكرة RAM', '$memPct%', memPct / 100.0, _getColorForPercent(memPct))),
+              Expanded(
+                child: _buildMetricGauge(
+                  'الذاكرة RAM',
+                  ramStr,
+                  ramRatio,
+                  ramColor,
+                  isAvailable: isOnline && router.memoryTotalMb != null,
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _buildMetricGauge('القرص DISK', '$diskPct%', diskPct / 100.0, _getColorForPercent(diskPct))),
+              Expanded(
+                child: _buildMetricGauge(
+                  'القرص DISK',
+                  diskStr,
+                  diskRatio,
+                  diskColor,
+                  isAvailable: isOnline && router.diskTotalMb != null,
+                ),
+              ),
             ],
           ),
+
+          if (!isOnline) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: Colors.amber, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      router.host.startsWith('192.168.') ||
+                              router.host.startsWith('10.') ||
+                              router.host.startsWith('172.')
+                          ? 'الراوتر بعنوان LAN خاص (${router.host}). يلزم VPN/وكيل شبكي للاتصال من السحابة، أو اضغط فحص الاتصال.'
+                          : 'الراوتر غير متصل حالياً بالخادم. قراءات المعالج والذاكرة غير متاحة لحظياً.',
+                      style: const TextStyle(color: Color(0xFFFDE68A), fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           const SizedBox(height: 16),
           const Divider(color: Color(0xFF334155), height: 1),
@@ -508,7 +853,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            router.isLocked ? 'مقفل للطوارئ' : 'قفل الطوارئ',
+                            router.isLocked ? 'قفل الطوارئ (نشط)' : 'قفل الطوارئ',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -549,7 +894,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     child: Row(
                       children: [
                         Icon(
-                          Icons.shield_outlined,
+                          router.antiTetheringEnabled
+                              ? Icons.shield
+                              : Icons.shield_outlined,
                           color: router.antiTetheringEnabled
                               ? const Color(0xFF38BDF8)
                               : Colors.grey,
@@ -558,7 +905,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            router.antiTetheringEnabled ? 'حظر البث نشط' : 'حظر البث (TTL)',
+                            router.antiTetheringEnabled ? 'حظر البث (نشط)' : 'حظر البث (TTL)',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -586,7 +933,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildMetricGauge(String label, String valueStr, double ratio, Color color) {
+  Widget _buildMetricGauge(
+    String label,
+    String valueStr,
+    double ratio,
+    Color color, {
+    bool isAvailable = true,
+  }) {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -600,7 +953,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           const SizedBox(height: 6),
           Text(
             valueStr,
-            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: isAvailable ? 14 : 11,
+            ),
           ),
           const SizedBox(height: 6),
           ClipRRect(
@@ -623,10 +980,38 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return const Color(0xFFEF4444); // Red
   }
 
-  Widget _buildKpiMetricsCard(FinancialReportModel? finance, int connectedUsers) {
-    final revenue = finance?.todayRevenue ?? 28400;
-    final salesCount = finance?.todaySalesCount ?? 42;
+  Widget _buildKpiMetricsCard({
+    required FinancialReportModel? finance,
+    required bool isRouterOnline,
+    required int? connectedUsersCount,
+    required bool isLoadingSessions,
+  }) {
+    // 1. Reconcile server transactions with any local offline receipts for today
+    final storage = ref.read(localStorageProvider);
+    final now = DateTime.now();
+    final startOfToday = DateTime(now.year, now.month, now.day);
+    final localReceipts = storage.getSalesHistory();
+    final todayLocalSales = localReceipts.where(
+      (r) => r.soldAt.isAfter(startOfToday) && r.isOffline,
+    );
+    final localTodayRev = todayLocalSales.fold<double>(0.0, (acc, r) => acc + r.amount);
+    final localTodayCount = todayLocalSales.length;
+
+    final baseRev = finance?.todayRevenue ?? 0.0;
+    final totalRevenue = baseRev + localTodayRev;
+    final baseCount = finance?.todaySalesCount ?? 0;
+    final totalSalesCount = baseCount + localTodayCount;
     final currency = finance?.currency ?? 'SDG';
+
+    // 2. Format connected users
+    String connectedStr;
+    if (!isRouterOnline) {
+      connectedStr = 'غير متاح';
+    } else if (isLoadingSessions) {
+      connectedStr = '...';
+    } else {
+      connectedStr = '${connectedUsersCount ?? 0} جهاز';
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -650,19 +1035,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         children: [
           _buildKpiItem(
             'مبيعات اليوم',
-            '${revenue.toStringAsFixed(0)} $currency',
+            '${totalRevenue.toStringAsFixed(0)} $currency',
             Icons.account_balance_wallet,
           ),
           Container(width: 1, height: 40, color: Colors.white.withValues(alpha: 0.2)),
           _buildKpiItem(
             'كروت مباعة',
-            '$salesCount كرت',
+            '$totalSalesCount كرت',
             Icons.credit_card,
           ),
           Container(width: 1, height: 40, color: Colors.white.withValues(alpha: 0.2)),
           _buildKpiItem(
             'المتصلون الآن',
-            '$connectedUsers جهاز',
+            connectedStr,
             Icons.wifi_tethering,
           ),
         ],
@@ -675,7 +1060,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       children: [
         Icon(icon, color: const Color(0xFF93C5FD), size: 20),
         const SizedBox(height: 4),
-        Text(val, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+        Text(val, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(height: 2),
         Text(title, style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 10)),
       ],
     );
@@ -684,7 +1070,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Widget _buildQuickActionsGrid() {
     final actions = [
       _ActionItem('استوديو الكروت', Icons.auto_awesome, const Color(0xFF8B5CF6), () => widget.onNavigateTab?.call(2)),
-      _ActionItem('رادار الشبكة', Icons.radar, const Color(0xFF06B6D4), () => widget.onNavigateTab?.call(3)),
+      _ActionItem('رادار الشبكة', Icons.radar, const Color(0xFF06B6D4), _navigateToRadar),
       _ActionItem('نقطة البيع POS', Icons.point_of_sale, const Color(0xFF10B981), widget.onOpenPos),
       _ActionItem('مخزن الكروت', Icons.inventory_2, const Color(0xFF3B82F6), () => widget.onNavigateTab?.call(1)),
       _ActionItem('التقارير المالية', Icons.bar_chart, const Color(0xFFF59E0B), () => widget.onNavigateTab?.call(4)),
@@ -751,10 +1137,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Widget _buildRecentSessionsList(List<ActiveSessionModel> sessions) {
     if (sessions.isEmpty) {
       return Container(
+        width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: const Color(0xFF1E293B),
           borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF334155)),
         ),
         child: const Center(
           child: Text(
