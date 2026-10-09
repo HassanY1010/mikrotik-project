@@ -19,6 +19,7 @@ import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { TenantId } from '../../core/decorators/tenant-id.decorator';
+import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
 
 @ApiTags('hotspot')
@@ -101,10 +102,17 @@ export class TenantHotspotController {
   constructor(private readonly hotspotService: HotspotService) {}
 
   @Get('profiles')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'List all Hotspot user profiles for the current tenant' })
   @ApiResponse({ status: 200, description: 'List of tenant profiles' })
-  async listAllProfiles(@TenantId() tenantId: string) {
+  async listAllProfiles(@CurrentUser('tenantId') tenantId?: string) {
     return this.hotspotService.listAllProfiles(tenantId);
   }
 

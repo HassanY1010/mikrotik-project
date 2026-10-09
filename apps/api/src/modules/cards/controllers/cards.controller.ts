@@ -32,7 +32,14 @@ export class CardsController {
   constructor(private readonly cardsService: CardsService) {}
 
   @Get()
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'List all cards with filters for status, search, and profiles' })
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'search', required: false, type: String })
@@ -43,7 +50,7 @@ export class CardsController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'List of cards' })
   async findAll(
-    @TenantId() tenantId: string,
+    @CurrentUser('tenantId') tenantId?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
     @Query('profileId') profileId?: string,
@@ -52,7 +59,7 @@ export class CardsController {
     @Query('limit') limit?: number,
     @Query('page') page?: number,
   ) {
-    return this.cardsService.findAllCards(tenantId, {
+    return this.cardsService.findAllCards(tenantId ?? '', {
       status,
       search,
       profileId,
@@ -64,62 +71,101 @@ export class CardsController {
   }
 
   @Post('batches')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Generate a new batch of prepaid Hotspot cards and provision on MikroTik',
   })
   @ApiResponse({ status: 201, description: 'Batch generated successfully' })
   async createBatch(
-    @TenantId() tenantId: string,
-    @CurrentUser('id') userId: string,
-    @Body() dto: CreateBatchDto,
+    @CurrentUser('tenantId') tenantId?: string,
+    @CurrentUser('id') userId?: string,
+    @Body() dto?: CreateBatchDto,
   ) {
-    return this.cardsService.createBatch(tenantId, userId, dto);
+    return this.cardsService.createBatch(tenantId, userId, dto!);
   }
 
   @Get('batches')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'List all card batches for tenant' })
   @ApiQuery({ name: 'deviceId', required: false, type: String })
   @ApiResponse({ status: 200, description: 'List of batches' })
-  async listBatches(@TenantId() tenantId: string, @Query('deviceId') deviceId?: string) {
-    return this.cardsService.listBatches(tenantId, deviceId);
+  async listBatches(
+    @CurrentUser('tenantId') tenantId?: string,
+    @Query('deviceId') deviceId?: string,
+  ) {
+    return this.cardsService.listBatches(tenantId ?? '', deviceId);
   }
 
   @Get('batches/:id')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'Get details and summary statistics of a specific card batch' })
   @ApiResponse({ status: 200, description: 'Batch statistics' })
   @ApiResponse({ status: 404, description: 'Batch not found' })
   async getBatchById(
-    @TenantId() tenantId: string,
     @Param('id') id: string,
+    @CurrentUser('tenantId') tenantId?: string,
   ): Promise<CardBatchSummary> {
-    return this.cardsService.getBatchById(tenantId, id);
+    return this.cardsService.getBatchById(tenantId ?? '', id);
   }
 
   @Get('batches/:id/cards')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'List paginated cards in a batch' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'Paginated card records' })
   async listCardsInBatch(
-    @TenantId() tenantId: string,
     @Param('id') id: string,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+    @CurrentUser('tenantId') tenantId?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number = 1,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number = 50,
   ): Promise<{ data: CardItemResponse[]; total: number; page: number; limit: number }> {
-    return this.cardsService.listCardsInBatch(tenantId, id, page, limit);
+    return this.cardsService.listCardsInBatch(tenantId ?? '', id, page, limit);
   }
 
   @Post('batches/:id/sync')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Re-sync all pending or failed cards in batch to the MikroTik router' })
   @ApiResponse({ status: 200, description: 'Sync completed' })
-  async syncBatchToRouter(@TenantId() tenantId: string, @Param('id') id: string) {
-    return this.cardsService.syncBatchToRouter(tenantId, id);
+  async syncBatchToRouter(
+    @Param('id') id: string,
+    @CurrentUser('tenantId') tenantId?: string,
+  ) {
+    return this.cardsService.syncBatchToRouter(tenantId ?? '', id);
   }
 
   @Patch(':id/status')

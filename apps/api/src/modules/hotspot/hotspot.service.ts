@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
 import { CreateProfileDto } from './dto/create-profile.dto';
@@ -38,9 +39,23 @@ export class HotspotService {
     });
   }
 
-  async listAllProfiles(tenantId: string) {
+  async listAllProfiles(tenantId?: string | null) {
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (first) resolvedTenantId = first.id;
+    }
+
+    const where: Prisma.HotspotProfileWhereInput = {};
+    if (resolvedTenantId) {
+      where.tenantId = resolvedTenantId;
+    }
+
     const profiles = await this.prisma.hotspotProfile.findMany({
-      where: { tenantId },
+      where,
       include: {
         device: { select: { id: true, name: true } },
         cardBatches: {

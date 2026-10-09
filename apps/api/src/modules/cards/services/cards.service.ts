@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
@@ -65,12 +66,49 @@ export class CardsService {
     private readonly codeGenerator: CardCodeGeneratorService,
   ) {}
 
-  async createBatch(tenantId: string, userId: string, dto: CreateBatchDto) {
-    // 1. Resolve deviceId: if not provided, look up from profile or tenant's active device
+  async createBatch(tenantId?: string | null, userId?: string | null, dto?: CreateBatchDto) {
+    if (!dto) {
+      throw new BadRequestException('Batch creation payload is required');
+    }
+
+    // 1. Resolve tenantId
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const p = await this.prisma.hotspotProfile.findFirst({
+        where: { id: dto.profileId },
+      });
+      if (p) {
+        resolvedTenantId = p.tenantId;
+      } else {
+        const firstTenant = await this.prisma.tenant.findFirst({
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (firstTenant) resolvedTenantId = firstTenant.id;
+      }
+    }
+
+    if (!resolvedTenantId) {
+      throw new NotFoundException({
+        code: 'TENANT_NOT_FOUND',
+        message: 'تعذر تحديد هوية المنظمة/الشبكة لتوليد الدفعة',
+      });
+    }
+
+    // Resolve userId if not provided
+    let effectiveUserId = userId;
+    if (!effectiveUserId) {
+      const u = await this.prisma.user.findFirst({
+        where: { tenantId: resolvedTenantId, deletedAt: null },
+      });
+      effectiveUserId = u?.id ?? 'system';
+    }
+
+    // 2. Resolve deviceId: if not provided, look up from profile or tenant's active device
     let effectiveDeviceId = dto.deviceId;
     if (!effectiveDeviceId) {
       const p = await this.prisma.hotspotProfile.findFirst({
-        where: { id: dto.profileId, tenantId },
+        where: { id: dto.profileId, tenantId: resolvedTenantId },
       });
       if (p) {
         effectiveDeviceId = p.deviceId;
@@ -79,7 +117,7 @@ export class CardsService {
 
     if (!effectiveDeviceId) {
       const firstDevice = await this.prisma.mikroTikDevice.findFirst({
-        where: { tenantId, deletedAt: null },
+        where: { tenantId: resolvedTenantId, deletedAt: null },
       });
       if (!firstDevice) {
         throw new NotFoundException({
@@ -91,7 +129,7 @@ export class CardsService {
     }
 
     const device = await this.prisma.mikroTikDevice.findFirst({
-      where: { id: effectiveDeviceId, tenantId, deletedAt: null },
+      where: { id: effectiveDeviceId, tenantId: resolvedTenantId, deletedAt: null },
     });
 
     if (!device) {
@@ -101,9 +139,9 @@ export class CardsService {
       });
     }
 
-    // 2. Verify profile belongs to tenant
+    // 3. Verify profile belongs to tenant
     const profile = await this.prisma.hotspotProfile.findFirst({
-      where: { id: dto.profileId, tenantId },
+      where: { id: dto.profileId, tenantId: resolvedTenantId },
     });
 
     if (!profile) {
@@ -115,17 +153,17 @@ export class CardsService {
 
     const effectiveTotalCards = dto.totalCards || dto.quantity || 100;
     const effectiveLength = dto.length || dto.codeLength || 8;
-    const effectivePrice = dto.price !== undefined ? dto.price : 500;
+    const effectivePrice = dto.price !== undefined ? dto.price : (Number((profile as any)?.price) || 500);
 
-    // 3. Generate unique batch number
+    // 4. Generate unique batch number
     const batchNumber = this.codeGenerator.generateBatchNumber();
     const timeLimit = dto.timeLimit ?? profile.sessionTimeout ?? null;
     const dataLimitBytes = dto.dataLimitMb ? BigInt(dto.dataLimitMb) * BigInt(1024 * 1024) : null;
 
-    // 4. Create batch record in PROCESSING state
+    // 5. Create batch record in PROCESSING state
     const batch = await this.prisma.cardBatch.create({
       data: {
-        tenantId,
+        tenantId: resolvedTenantId,
         deviceId: effectiveDeviceId,
         profileId: dto.profileId,
         batchNumber,
@@ -138,18 +176,19 @@ export class CardsService {
         timeLimit,
         dataLimitBytes,
         status: CardBatchStatus.PROCESSING,
-        createdById: userId,
+        themePreset: dto.themePreset ?? 'FOOTBALL',
+        createdById: effectiveUserId,
       },
     });
 
-    // 5. Query existing usernames for this device to guarantee uniqueness
+    // 6. Query existing usernames for this device to guarantee uniqueness
     const existingCards = await this.prisma.card.findMany({
-      where: { tenantId, deviceId: effectiveDeviceId },
+      where: { tenantId: resolvedTenantId, deviceId: effectiveDeviceId },
       select: { username: true },
     });
     const existingSet = new Set(existingCards.map((c) => c.username));
 
-    // 6. Generate unique card codes via CSPRNG
+    // 7. Generate unique card codes via CSPRNG
     const usernames = this.codeGenerator.generateBatchCodes(
       effectiveTotalCards,
       {
@@ -160,20 +199,24 @@ export class CardsService {
       existingSet,
     );
 
-    // 7. Prepare card records with encrypted passwords
+    // 8. Prepare card records with encrypted passwords and individual UUIDs
     const cardDataToInsert: Prisma.CardCreateManyInput[] = [];
     const plainCredentials: Array<{ username: string; password: string }> = [];
 
+    const isSinglePin = dto.singleUserPin === true || dto.singleCredential === true;
+
     for (let i = 0; i < usernames.length; i++) {
       const username = usernames[i];
-      const password = dto.singleUserPin ? username : this.codeGenerator.generatePin(4);
+      const password = isSinglePin ? username : this.codeGenerator.generatePin(4);
       const pinCode = password;
 
       const { ciphertext, iv, authTag } = this.encryptionService.encrypt(password);
       const serialNumber = this.codeGenerator.generateSerialNumber(batchNumber, i + 1);
+      const cardId = randomUUID();
 
       cardDataToInsert.push({
-        tenantId,
+        id: cardId,
+        tenantId: resolvedTenantId,
         batchId: batch.id,
         deviceId: effectiveDeviceId,
         profileId: dto.profileId,
@@ -194,14 +237,16 @@ export class CardsService {
       plainCredentials.push({ username, password });
     }
 
-    // 8. Bulk insert cards in PostgreSQL
+    // 9. Bulk insert cards in PostgreSQL
     await this.prisma.card.createMany({
       data: cardDataToInsert,
     });
 
-    // 9. Synchronize with RouterOS if requested
+    // 10. Synchronize with RouterOS if requested
     let syncedCount = 0;
     let syncError: string | null = null;
+    const syncedUsernames: string[] = [];
+    const failedUsernames: string[] = [];
 
     if (dto.syncToRouter !== false) {
       try {
@@ -220,9 +265,6 @@ export class CardsService {
         });
 
         // Add users to RouterOS Hotspot with accurate per-card tracking
-        const syncedUsernames: string[] = [];
-        const failedUsernames: string[] = [];
-
         for (const cred of plainCredentials) {
           try {
             await client.createHotspotUser({
@@ -274,7 +316,7 @@ export class CardsService {
       }
     }
 
-    // 10. Update batch status to COMPLETED
+    // 11. Update batch status to COMPLETED
     const updatedBatch = await this.prisma.cardBatch.update({
       where: { id: batch.id },
       data: { status: CardBatchStatus.COMPLETED },
@@ -293,11 +335,29 @@ export class CardsService {
         profileName: updatedBatch.profile.name,
         price: Number(updatedBatch.price),
         status: updatedBatch.status,
-        syncedToRouter: syncedCount === dto.totalCards,
+        syncedToRouter: syncedCount === effectiveTotalCards,
         syncedCount,
         syncError,
+        themePreset: updatedBatch.themePreset ?? dto.themePreset ?? 'FOOTBALL',
         createdAt: updatedBatch.createdAt,
       },
+      cards: cardDataToInsert.map((c, i) => {
+        const isSynced = syncedUsernames.includes(c.username);
+        return {
+          id: c.id,
+          serialNumber: c.serialNumber,
+          username: c.username,
+          clearPassword: plainCredentials[i]?.password,
+          profileId: c.profileId,
+          profileName: updatedBatch.profile.name,
+          deviceId: c.deviceId,
+          price: Number(c.price),
+          currency: 'SDG',
+          status: c.status,
+          syncStatus: isSynced ? SyncStatus.SYNCED : (syncError ? SyncStatus.FAILED : SyncStatus.PENDING),
+          syncError: isSynced ? null : (syncError ?? 'Pending router sync'),
+        };
+      }),
     };
   }
 

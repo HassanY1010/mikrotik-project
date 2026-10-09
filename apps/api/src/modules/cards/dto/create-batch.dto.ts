@@ -104,6 +104,22 @@ export class CreateBatchDto {
   singleUserPin?: boolean;
 
   @ApiPropertyOptional({
+    description: 'Alias for singleUserPin (singleCredential)',
+    default: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  singleCredential?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Visual theme preset for cards in this batch (e.g. FOOTBALL, EID_MUBARAK, TURQUOISE)',
+    default: 'FOOTBALL',
+  })
+  @IsString()
+  @IsOptional()
+  themePreset?: string;
+
+  @ApiPropertyOptional({
     description: 'Whether to immediately provision cards on the MikroTik router',
     default: true,
   })

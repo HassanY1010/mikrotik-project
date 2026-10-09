@@ -26,6 +26,8 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
     quantity: 100,
     prefix: 'HS-',
     codeLength: 8,
+    singleCredential: true,
+    themePreset: 'FOOTBALL',
   });
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -81,6 +83,9 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
       codeLength: Number(batchForm.codeLength) || 8,
       prefix: batchForm.prefix || 'HS-',
       price: selectedProf?.price || 500,
+      singleCredential: batchForm.singleCredential,
+      singleUserPin: batchForm.singleCredential,
+      themePreset: batchForm.themePreset,
     };
 
     setIsGenerating(true);
@@ -341,6 +346,35 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
               onChange={(e) => setBatchForm({ ...batchForm, prefix: e.target.value })}
               placeholder="HS-"
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={batchForm.singleCredential}
+                onChange={(e) => setBatchForm({ ...batchForm, singleCredential: e.target.checked })}
+              />
+              <span style={{ fontWeight: 600 }}>اسم المستخدم = كلمة المرور (رمز PIN موحد لتسجيل الدخول السريع)</span>
+            </label>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="gen-theme">
+              تصميم وثيم الكرت المخصص
+            </label>
+            <select
+              id="gen-theme"
+              className="input"
+              value={batchForm.themePreset}
+              onChange={(e) => setBatchForm({ ...batchForm, themePreset: e.target.value })}
+            >
+              <option value="FOOTBALL">ثيم كرة القدم الذهبي (Football Gold)</option>
+              <option value="EID_MUBARAK">عيد مبارك الملكي (Royal Eid)</option>
+              <option value="TURQUOISE">الفيروزي الحديث (Modern Turquoise)</option>
+              <option value="TICKET">تذكرة كلاسيكية (Classic Ticket)</option>
+              <option value="COMPACT">مدمج أنيق (Compact Slate)</option>
+            </select>
           </div>
 
           <div

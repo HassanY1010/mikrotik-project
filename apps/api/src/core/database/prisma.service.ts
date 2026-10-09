@@ -27,6 +27,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       `ALTER TABLE "tenants" ADD COLUMN IF NOT EXISTS "loyaltyPoints" INTEGER NOT NULL DEFAULT 0;`,
       `ALTER TABLE "tenants" ADD COLUMN IF NOT EXISTS "allowAdminCards" BOOLEAN NOT NULL DEFAULT false;`,
 
+      // card_batches table
+      `ALTER TABLE "card_batches" ADD COLUMN IF NOT EXISTS "themePreset" TEXT DEFAULT 'FOOTBALL';`,
+
       // card_templates table
       `ALTER TABLE "card_templates" ADD COLUMN IF NOT EXISTS "themePreset" TEXT NOT NULL DEFAULT 'CLASSIC';`,
       `ALTER TABLE "card_templates" ADD COLUMN IF NOT EXISTS "primaryColor" TEXT NOT NULL DEFAULT '#1E3A8A';`,

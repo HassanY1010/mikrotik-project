@@ -430,6 +430,7 @@ model CardBatch {
   timeLimit      String?
   dataLimitBytes BigInt?
   status         CardBatchStatus @default(PROCESSING)
+  themePreset    String?         @default("FOOTBALL")
   expiresAt      DateTime?
   createdById    String
   createdAt      DateTime        @default(now())

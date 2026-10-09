@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/constants/api_endpoints.dart';
@@ -20,7 +21,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
 
   String? _selectedProfileId;
   String _selectedThemePreset = 'FOOTBALL';
-  bool _singleCredentialMode = true; // User = Pass
+  bool _singleCredentialMode = true; // User = Pass (PIN)
   bool _isGenerating = false;
 
   final Map<String, _ThemeConfig> _themes = {
@@ -31,7 +32,67 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     'COMPACT': _ThemeConfig('مدمج أنيق', const Color(0xFF334155), const Color(0xFF64748B), Icons.grid_view),
   };
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadData();
+    });
+  }
+
+  void _loadData() {
+    ref.read(profilesProvider.notifier).fetchProfiles();
+    ref.invalidate(routersProvider);
+  }
+
+  void _handleCustomQuantity() async {
+    final controller = TextEditingController(text: _selectedQuantity.toString());
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('تحديد كمية مخصصة', style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+          decoration: const InputDecoration(
+            hintText: 'أدخل عدد الكروت (1 - 5000)',
+            hintStyle: TextStyle(color: Color(0xFF64748B)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = int.tryParse(controller.text.trim());
+              if (val != null && val > 0 && val <= 5000) {
+                Navigator.pop(ctx, val);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('الرجاء إدخال رقم صحيح بين 1 و 5000')),
+                );
+              }
+            },
+            child: const Text('تأكيد'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      setState(() => _selectedQuantity = result);
+    }
+  }
+
   void _handleGenerateBatch(List<HotspotProfileModel> profiles, List<RouterDeviceModel> routers) async {
+    if (_isGenerating) return;
+
     if (profiles.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('الرجاء الانتظار حتى تحميل الباقات أو إنشاء باقة أولاً')),
@@ -51,87 +112,113 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     final apiClient = ref.read(apiClientProvider);
 
     try {
-      final res = await apiClient.post(ApiEndpoints.cardBatches, data: {
+      final payload = <String, dynamic>{
         'profileId': selectedProfile.id,
         'quantity': _selectedQuantity,
-        if (selectedRouterId != null) ...{'deviceId': selectedRouterId},
         'themePreset': _selectedThemePreset,
         'singleCredential': _singleCredentialMode,
-      });
+        'singleUserPin': _singleCredentialMode,
+      };
+      if (selectedRouterId != null) {
+        payload['deviceId'] = selectedRouterId;
+      }
+
+      final res = await apiClient.post(ApiEndpoints.cardBatches, data: payload);
 
       setState(() => _isGenerating = false);
 
       if (mounted) {
         final data = res.data;
-        final batchId = (data is Map && data['data'] != null && data['data']['id'] != null)
-            ? data['data']['id'].toString()
-            : 'BATCH-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+        final responseData = (data is Map && data['data'] != null)
+            ? data['data']
+            : (data is Map ? data : <String, dynamic>{});
 
-        // Prepare cards list for immediate PDF generation
+        final batchObj = (responseData is Map && responseData['batch'] != null)
+            ? responseData['batch']
+            : responseData;
+
+        final batchId = (batchObj is Map && batchObj['batchNumber'] != null)
+            ? batchObj['batchNumber'].toString()
+            : (batchObj is Map && batchObj['id'] != null)
+                ? batchObj['id'].toString()
+                : 'BATCH-${DateTime.now().millisecondsSinceEpoch}';
+
+        final bool syncedToRouter = responseData is Map && responseData['syncedToRouter'] == true;
+        final String? routerError = responseData is Map ? responseData['routerError']?.toString() : null;
+
+        // Parse real cards returned from database
         final List<OfflineCardModel> generatedCards = [];
-        if (data is Map && data['data'] != null && data['data']['cards'] is List) {
-          for (final c in data['data']['cards'] as List) {
+        if (responseData is Map && responseData['cards'] is List) {
+          for (final c in responseData['cards'] as List) {
             if (c is Map<String, dynamic>) {
               generatedCards.add(OfflineCardModel.fromJson(c));
             }
           }
         }
 
-        // If cards list wasn't embedded in response, synthesize them based on parameters
-        if (generatedCards.isEmpty) {
-          final nowMs = DateTime.now().millisecondsSinceEpoch;
-          for (int i = 0; i < _selectedQuantity; i++) {
-            final code = '${(nowMs % 1000000) + i + 1000}'.padLeft(8, '7');
-            generatedCards.add(
-              OfflineCardModel(
-                id: 'CARD-$batchId-$i',
-                serialNumber: 'SN-${(i + 1).toString().padLeft(4, '0')}',
-                username: code,
-                clearPassword: _singleCredentialMode ? code : '${1000 + i}',
-                profileId: selectedProfile.id,
-                profileName: selectedProfile.displayName ?? selectedProfile.name,
-                deviceId: selectedRouterId ?? '',
-                price: selectedProfile.price,
-                currency: 'SDG',
-                status: 'AVAILABLE',
-              ),
-            );
-          }
+        // Store generated cards locally so Cards Store and POS instantly reflect them
+        if (generatedCards.isNotEmpty) {
+          await ref.read(localStorageProvider).addOfflineCards(generatedCards);
+          ref.read(offlineCardsProvider.notifier).refresh();
         }
 
         _showBatchSuccessAndPdfDialog(
           batchId: batchId,
           profile: selectedProfile,
-          quantity: _selectedQuantity,
+          quantity: generatedCards.isNotEmpty ? generatedCards.length : _selectedQuantity,
           cards: generatedCards,
+          syncedToRouter: syncedToRouter,
+          routerError: routerError,
         );
       }
     } catch (e) {
       setState(() => _isGenerating = false);
       if (mounted) {
-        // Fallback for offline demo with simulated cards
-        final nowMs = DateTime.now().millisecondsSinceEpoch;
-        final simulatedCards = List.generate(
-          _selectedQuantity,
-          (i) => OfflineCardModel(
-            id: 'OFFLINE-$i',
-            serialNumber: 'SN-${(i + 1).toString().padLeft(4, '0')}',
-            username: '${(nowMs % 100000) + i + 10000}',
-            clearPassword: '${(nowMs % 100000) + i + 10000}',
-            profileId: selectedProfile.id,
-            profileName: selectedProfile.displayName ?? selectedProfile.name,
-            deviceId: selectedRouterId ?? '',
-            price: selectedProfile.price,
-            currency: 'SDG',
-            status: 'AVAILABLE',
-          ),
-        );
+        String errorMessage = 'تعذر الاتصال بالخادم وتوليد الدفعة';
+        if (e is DioException) {
+          final resData = e.response?.data;
+          if (resData is Map && resData['error'] != null) {
+            final errObj = resData['error'];
+            errorMessage = (errObj is Map && errObj['message'] != null)
+                ? errObj['message'].toString()
+                : errObj.toString();
+          } else if (resData is Map && resData['message'] != null) {
+            errorMessage = resData['message'].toString();
+          } else if (e.message != null && e.message!.isNotEmpty) {
+            errorMessage = e.message!;
+          }
+        } else {
+          errorMessage = e.toString();
+        }
 
-        _showBatchSuccessAndPdfDialog(
-          batchId: 'BATCH-LOCAL-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
-          profile: selectedProfile,
-          quantity: _selectedQuantity,
-          cards: simulatedCards,
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E293B),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: const [
+                Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 24),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'فشل توليد الدفعة',
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              errorMessage,
+              style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('حسناً', style: TextStyle(color: Color(0xFF38BDF8))),
+              ),
+            ],
+          ),
         );
       }
     }
@@ -142,9 +229,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     required HotspotProfileModel profile,
     required int quantity,
     required List<OfflineCardModel> cards,
+    required bool syncedToRouter,
+    String? routerError,
   }) {
     CardPdfLayout selectedLayout = CardPdfLayout.a4Grid10;
-    final networkNameController = TextEditingController(text: 'شبكة الواي فاي');
+    final networkNameController = TextEditingController(text: 'سودافاي | SudaFi Net');
 
     showDialog(
       context: context,
@@ -182,8 +271,47 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                     children: [
                       Text('معرف الدفعة: $batchId', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
                       const SizedBox(height: 4),
-                      Text('العدد: $quantity كرت  •  الباقة: ${profile.displayName}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                      Text('الإجمالي: ${(quantity * profile.price).toStringAsFixed(0)} SDG', style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text('العدد الفعلي: $quantity كرت  •  الباقة: ${profile.displayName ?? profile.name}',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text('الإجمالي: ${(quantity * profile.price).toStringAsFixed(0)} SDG',
+                          style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 8),
+                      // Real MikroTik Sync Status Indicator
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: syncedToRouter
+                              ? const Color(0xFF059669).withValues(alpha: 0.2)
+                              : const Color(0xFFD97706).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: syncedToRouter ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              syncedToRouter ? Icons.router : Icons.cloud_done,
+                              size: 16,
+                              color: syncedToRouter ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                syncedToRouter
+                                    ? 'تم تفعيل الكروت ومزامنتها على راوتر MikroTik بنجاح'
+                                    : 'تم حفظ الكروت بالسحابة (الراوتر غير متصل حالياً). الكروت جاهزة للطباعة.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: syncedToRouter ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -230,7 +358,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: networkNameController,
-                  style: const TextStyle(fontSize: 13),
+                  style: const TextStyle(fontSize: 13, color: Colors.white),
                   decoration: InputDecoration(
                     labelText: 'اسم الشبكة المطبوع',
                     labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
@@ -327,22 +455,18 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     final profiles = ref.watch(profilesProvider);
     final routersAsync = ref.watch(routersProvider);
     final routers = routersAsync.asData?.value ?? [];
+    final selectedRouterId = ref.watch(selectedRouterIdProvider) ?? (routers.isNotEmpty ? routers.first.id : null);
 
     if (_selectedProfileId == null && profiles.isNotEmpty) {
       _selectedProfileId = profiles.first.id;
     }
 
     final currentProfile = profiles.isNotEmpty
-        ? profiles.firstWhere((p) => p.id == _selectedProfileId, orElse: () => profiles.first)
-        : HotspotProfileModel(
-            id: 'demo',
-            name: '1hour',
-            displayName: 'باقة 1 ساعة غير محدود',
-            deviceId: '',
-            price: 200,
-            validity: '1h',
-            rateLimit: '2M/1M',
-          );
+        ? profiles.firstWhere(
+            (p) => p.id == _selectedProfileId,
+            orElse: () => profiles.first,
+          )
+        : null;
 
     final currentTheme = _themes[_selectedThemePreset] ?? _themes['FOOTBALL']!;
 
@@ -381,6 +505,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
+            tooltip: 'تحديث الباقات والأجهزة',
+            onPressed: _loadData,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -397,10 +528,76 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
 
             const SizedBox(height: 20),
 
+            // Router Target Selector (if available)
+            if (routers.isNotEmpty) ...[
+              const Text(
+                'راوتر MikroTik المستهدف',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF334155)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: selectedRouterId,
+                    dropdownColor: const Color(0xFF1E293B),
+                    isExpanded: true,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    items: routers.map((r) {
+                      final isOnline = r.status.toUpperCase() == 'ONLINE';
+                      return DropdownMenuItem<String>(
+                        value: r.id,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.router,
+                              size: 16,
+                              color: isOnline ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(r.name, overflow: TextOverflow.ellipsis)),
+                            Text(
+                              isOnline ? 'متصل' : 'غير متصل',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isOnline ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (id) {
+                      if (id != null) {
+                        ref.read(selectedRouterIdProvider.notifier).select(id);
+                      }
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+            ],
+
             // Profile Selection Dropdown
-            const Text(
-              'اختر باقة الهوتسبوت',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'اختر باقة الهوتسبوت',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                if (profiles.isEmpty)
+                  TextButton.icon(
+                    icon: const Icon(Icons.sync, size: 14, color: Color(0xFF38BDF8)),
+                    label: const Text('جلب الباقات', style: TextStyle(fontSize: 12, color: Color(0xFF38BDF8))),
+                    onPressed: () => ref.read(profilesProvider.notifier).fetchProfiles(),
+                  ),
+              ],
             ),
             const SizedBox(height: 8),
             Container(
@@ -410,57 +607,96 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFF334155)),
               ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: _selectedProfileId,
-                  dropdownColor: const Color(0xFF1E293B),
-                  isExpanded: true,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  items: profiles.map((p) {
-                    return DropdownMenuItem<String>(
-                      value: p.id,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(p.displayName ?? p.name),
-                          Text('${p.price.toStringAsFixed(0)} SDG', style: const TextStyle(color: Color(0xFF38BDF8))),
-                        ],
+              child: profiles.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'لا توجد باقات متاحة حالياً، يرجى إنشاء باقة من لوحة التحكم أو الضغط على تحديث',
+                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
                       ),
-                    );
-                  }).toList(),
-                  onChanged: (id) => setState(() => _selectedProfileId = id),
-                ),
-              ),
+                    )
+                  : DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedProfileId,
+                        dropdownColor: const Color(0xFF1E293B),
+                        isExpanded: true,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        items: profiles.map((p) {
+                          return DropdownMenuItem<String>(
+                            value: p.id,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    p.displayName ?? p.name,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Text(
+                                  '${p.price.toStringAsFixed(0)} SDG',
+                                  style: const TextStyle(color: Color(0xFF38BDF8)),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (id) => setState(() => _selectedProfileId = id),
+                      ),
+                    ),
             ),
 
             const SizedBox(height: 18),
 
-            // Quantity Selection Pills
-            const Text(
-              'الكمية المطلوبة للدفعة',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+            // Quantity Selection Pills + Custom Option
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'الكمية المطلوبة للدفعة',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                TextButton(
+                  onPressed: _handleCustomQuantity,
+                  child: const Text('كمية مخصصة...', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: _quantityOptions.map((qty) {
-                  final isSelected = _selectedQuantity == qty;
-                  return Padding(
-                    padding: const EdgeInsets.only(left: 8.0),
-                    child: ChoiceChip(
-                      label: Text('$qty كرت'),
-                      selected: isSelected,
-                      selectedColor: const Color(0xFF2563EB),
-                      backgroundColor: const Color(0xFF1E293B),
-                      labelStyle: TextStyle(
-                        color: isSelected ? Colors.white : const Color(0xFF94A3B8),
-                        fontWeight: FontWeight.bold,
+                children: [
+                  ..._quantityOptions.map((qty) {
+                    final isSelected = _selectedQuantity == qty;
+                    return Padding(
+                      padding: const EdgeInsets.only(left: 8.0),
+                      child: ChoiceChip(
+                        label: Text('$qty كرت'),
+                        selected: isSelected,
+                        selectedColor: const Color(0xFF2563EB),
+                        backgroundColor: const Color(0xFF1E293B),
+                        labelStyle: TextStyle(
+                          color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                          fontWeight: FontWeight.bold,
+                        ),
+                        onSelected: (_) => setState(() => _selectedQuantity = qty),
                       ),
-                      onSelected: (_) => setState(() => _selectedQuantity = qty),
+                    );
+                  }),
+                  if (!_quantityOptions.contains(_selectedQuantity))
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8.0),
+                      child: ChoiceChip(
+                        label: Text('$_selectedQuantity كرت (مخصص)'),
+                        selected: true,
+                        selectedColor: const Color(0xFF0D9488),
+                        backgroundColor: const Color(0xFF1E293B),
+                        labelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        onSelected: (_) {},
+                      ),
                     ),
-                  );
-                }).toList(),
+                ],
               ),
             ),
 
@@ -486,7 +722,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                       ),
                       Text(
                         _singleCredentialMode
-                            ? 'إدخال رمز واحد فقط عند تسجيل الدخول'
+                            ? 'إدخال رمز PIN واحد فقط عند تسجيل الدخول'
                             : 'اسم مستخدم وكلمة مرور منفصلين',
                         style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
                       ),
@@ -557,6 +793,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                 onPressed: _isGenerating ? null : () => _handleGenerateBatch(profiles, routers),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2563EB),
+                  disabledBackgroundColor: const Color(0xFF1E3A8A),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   elevation: 4,
                 ),
@@ -568,7 +805,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                       )
                     : const Icon(Icons.print, color: Colors.white),
                 label: Text(
-                  _isGenerating ? 'جاري توليد الدفعة...' : 'توليد الدفعة ($_selectedQuantity كرت)',
+                  _isGenerating ? 'جاري توليد الدفعة والتحقق...' : 'توليد الدفعة ($_selectedQuantity كرت)',
                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
               ),
@@ -579,7 +816,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     );
   }
 
-  Widget _buildLiveCardPreview(HotspotProfileModel profile, _ThemeConfig theme) {
+  Widget _buildLiveCardPreview(HotspotProfileModel? profile, _ThemeConfig theme) {
+    final profileTitle = profile != null ? (profile.displayName ?? profile.name) : 'باقة هوتسبوت قياسية';
+    final priceText = profile != null ? '${profile.price.toStringAsFixed(0)} SDG' : '--- SDG';
+    final validityText = profile?.validity ?? '24 ساعة';
+    final speedText = profile?.rateLimit ?? '4M/2M';
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -629,7 +871,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                     border: Border.all(color: theme.accentColor, width: 1),
                   ),
                   child: Text(
-                    '${profile.price.toStringAsFixed(0)} SDG',
+                    priceText,
                     style: TextStyle(
                       color: theme.accentColor,
                       fontWeight: FontWeight.bold,
@@ -654,7 +896,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        profile.displayName ?? profile.name,
+                        profileTitle,
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -663,7 +905,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'الصلاحية: ${profile.validity ?? 'مفتوحة'} • السرعة: ${profile.rateLimit ?? 'مفتوحة'}',
+                        'الصلاحية: $validityText • السرعة: $speedText',
                         style: const TextStyle(color: Colors.white70, fontSize: 11),
                       ),
                       const SizedBox(height: 12),
@@ -678,7 +920,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                           style: TextStyle(
                             color: theme.primaryColor,
                             fontWeight: FontWeight.w900,
-                            letterSpacing: 2,
+                            letterSpacing: _singleCredentialMode ? 2 : 1,
                             fontSize: 14,
                           ),
                         ),
