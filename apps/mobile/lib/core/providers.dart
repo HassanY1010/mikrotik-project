@@ -47,6 +47,13 @@ class IsOnlineModeNotifier extends Notifier<bool> {
   void setMode(bool isOnline) {
     state = isOnline;
   }
+
+  Future<bool> checkHealth() async {
+    final syncManager = ref.read(syncManagerProvider);
+    final isHealthy = await syncManager.checkServerHealth();
+    state = isHealthy;
+    return isHealthy;
+  }
 }
 
 final isOnlineModeProvider = NotifierProvider<IsOnlineModeNotifier, bool>(
@@ -75,6 +82,30 @@ class OfflineCardsNotifier extends Notifier<List<OfflineCardModel>> {
 
 final offlineCardsProvider = NotifierProvider<OfflineCardsNotifier, List<OfflineCardModel>>(
   OfflineCardsNotifier.new,
+);
+
+// Server available cards count state notifier
+class ServerAvailableCardsNotifier extends Notifier<int> {
+  @override
+  int build() {
+    final storage = ref.watch(localStorageProvider);
+    return storage.getServerAvailableCards();
+  }
+
+  void refresh() {
+    final storage = ref.read(localStorageProvider);
+    state = storage.getServerAvailableCards();
+  }
+
+  void setCount(int count) {
+    final storage = ref.read(localStorageProvider);
+    storage.setServerAvailableCards(count);
+    state = count;
+  }
+}
+
+final serverAvailableCardsProvider = NotifierProvider<ServerAvailableCardsNotifier, int>(
+  ServerAvailableCardsNotifier.new,
 );
 
 // Pending mutations list state notifier

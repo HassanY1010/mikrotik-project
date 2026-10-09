@@ -74,6 +74,11 @@ class OfflineSyncManager {
         if (status == 'APPLIED') {
           applied++;
           appliedIds.add(id);
+          final idx = mutations.indexWhere((m) => m.clientMutationId == id);
+          if (idx != -1) {
+            mutations[idx].status = 'APPLIED';
+            mutations[idx].error = null;
+          }
         } else if (status == 'CONFLICT') {
           conflicts++;
           final idx = mutations.indexWhere((m) => m.clientMutationId == id);
@@ -91,9 +96,13 @@ class OfflineSyncManager {
         }
       }
 
-      // Remove applied mutations from queue
-      mutations.removeWhere((m) => appliedIds.contains(m.clientMutationId));
-      await localStorage.saveMutations(mutations);
+      // Keep recent applied mutations for audit/log display (up to 30 items)
+      final pendingOrConflict = mutations.where((m) => m.status != 'APPLIED').toList();
+      final appliedList = mutations.where((m) => m.status == 'APPLIED').toList();
+      final trimmedApplied = appliedList.length > 30
+          ? appliedList.sublist(appliedList.length - 30)
+          : appliedList;
+      await localStorage.saveMutations([...pendingOrConflict, ...trimmedApplied]);
 
       return SyncResult(
         appliedCount: applied,
@@ -123,9 +132,35 @@ class OfflineSyncManager {
             .toList();
         await localStorage.saveCachedProfiles(profilesList);
       }
+
+      if (data is Map && data['inventorySummary'] != null) {
+        final avail = data['inventorySummary']['totalAvailableCards'];
+        if (avail is num) {
+          await localStorage.setServerAvailableCards(avail.toInt());
+        }
+      }
+
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Real connectivity check probe to the server
+  Future<bool> checkServerHealth() async {
+    try {
+      final resp = await apiClient.get(
+        ApiEndpoints.syncPull,
+        queryParameters: {'since': DateTime.now().toIso8601String()},
+      );
+      return resp.statusCode == 200;
+    } catch (_) {
+      try {
+        final healthResp = await apiClient.get('/health/live');
+        return healthResp.statusCode == 200;
+      } catch (_) {
+        return false;
+      }
     }
   }
 

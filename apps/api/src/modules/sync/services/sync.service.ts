@@ -24,6 +24,7 @@ export interface SyncPullResponse {
     rateLimit: string | null;
     sessionTimeout: string | null;
     sharedUsers: number;
+    availableCards?: number;
   }>;
   batches: Array<{
     id: string;
@@ -34,6 +35,10 @@ export interface SyncPullResponse {
     price: number;
     createdAt: Date;
   }>;
+  inventorySummary?: {
+    totalAvailableCards: number;
+    totalSoldCards: number;
+  };
 }
 
 export interface ReservedCardPayload {
@@ -246,7 +251,7 @@ export class SyncService {
     };
     if (query.deviceId) batchWhere.deviceId = query.deviceId;
 
-    const [devices, profiles, batches] = await Promise.all([
+    const [devices, profiles, batches, totalAvailableCards, totalSoldCards] = await Promise.all([
       this.prisma.mikroTikDevice.findMany({
         where: deviceWhere,
         select: { id: true, name: true, isOnline: true },
@@ -260,6 +265,11 @@ export class SyncService {
           rateLimit: true,
           sessionTimeout: true,
           sharedUsers: true,
+          _count: {
+            select: {
+              cards: { where: { status: CardStatus.AVAILABLE } },
+            },
+          },
         },
       }),
       this.prisma.cardBatch.findMany({
@@ -274,12 +284,32 @@ export class SyncService {
           createdAt: true,
         },
       }),
+      this.prisma.card.count({
+        where: {
+          tenantId,
+          status: { in: [CardStatus.AVAILABLE, CardStatus.GENERATED] },
+        },
+      }),
+      this.prisma.card.count({
+        where: {
+          tenantId,
+          status: CardStatus.SOLD,
+        },
+      }),
     ]);
 
     return {
       serverTimestamp: new Date().toISOString(),
       devices,
-      profiles,
+      profiles: profiles.map((p: any) => ({
+        id: p.id,
+        deviceId: p.deviceId,
+        name: p.name,
+        rateLimit: p.rateLimit,
+        sessionTimeout: p.sessionTimeout,
+        sharedUsers: p.sharedUsers,
+        availableCards: p._count?.cards ?? 0,
+      })),
       batches: batches.map((b) => ({
         id: b.id,
         batchNumber: b.batchNumber,
@@ -289,6 +319,10 @@ export class SyncService {
         price: Number(b.price),
         createdAt: b.createdAt,
       })),
+      inventorySummary: {
+        totalAvailableCards,
+        totalSoldCards,
+      },
     };
   }
 

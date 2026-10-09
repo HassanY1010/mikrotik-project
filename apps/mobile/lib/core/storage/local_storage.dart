@@ -11,6 +11,7 @@ class LocalStorage {
   static const String _mutationsKey = 'offline_mutations';
   static const String _profilesKey = 'cached_profiles';
   static const String _salesHistoryKey = 'local_sales_history';
+  static const String _serverAvailableCardsKey = 'server_available_cards';
 
   final SharedPreferences _prefs;
 
@@ -19,6 +20,15 @@ class LocalStorage {
   static Future<LocalStorage> init() async {
     final prefs = await SharedPreferences.getInstance();
     return LocalStorage(prefs);
+  }
+
+  // --- Server Available Cards Cache ---
+  int getServerAvailableCards() {
+    return _prefs.getInt(_serverAvailableCardsKey) ?? 0;
+  }
+
+  Future<void> setServerAvailableCards(int count) async {
+    await _prefs.setInt(_serverAvailableCardsKey, count);
   }
 
   // --- Base URL ---
