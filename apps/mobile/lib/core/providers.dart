@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'models/models.dart';
 import 'network/api_client.dart';
 import 'storage/local_storage.dart';
@@ -277,51 +278,16 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
 
   Future<List<ActiveSessionModel>> _fetch(String? deviceId) async {
     final apiClient = ref.read(apiClientProvider);
-    try {
-      final url = deviceId != null
-          ? '${ApiEndpoints.hotspotSessions}?deviceId=$deviceId'
-          : ApiEndpoints.hotspotSessions;
-      final res = await apiClient.get(url);
-      final raw = res.data;
-      final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
-      if (list is List && list.isNotEmpty) {
-        return list.map((s) => ActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
-      }
-    } catch (_) {}
-
-    // Graceful fallback for offline demo
-    return [
-      ActiveSessionModel(
-        id: 'sess-1',
-        user: 'usr_84920',
-        address: '192.168.88.24',
-        macAddress: 'DC:A6:32:45:90:12',
-        uptime: '1h 14m 20s',
-        bytesIn: 450 * 1024 * 1024,
-        bytesOut: 120 * 1024 * 1024,
-        deviceName: 'راوتر البرج الرئيسي',
-      ),
-      ActiveSessionModel(
-        id: 'sess-2',
-        user: 'usr_19384',
-        address: '192.168.88.35',
-        macAddress: '48:2C:6A:11:8B:44',
-        uptime: '42m 10s',
-        bytesIn: 88 * 1024 * 1024,
-        bytesOut: 32 * 1024 * 1024,
-        deviceName: 'راوتر البرج الرئيسي',
-      ),
-      ActiveSessionModel(
-        id: 'sess-3',
-        user: 'usr_55021',
-        address: '192.168.88.77',
-        macAddress: 'BC:D0:74:9A:E2:01',
-        uptime: '3h 05m 12s',
-        bytesIn: 1200 * 1024 * 1024,
-        bytesOut: 240 * 1024 * 1024,
-        deviceName: 'راوتر البرج الرئيسي',
-      ),
-    ];
+    final url = deviceId != null
+        ? '${ApiEndpoints.hotspotSessions}?deviceId=$deviceId'
+        : ApiEndpoints.hotspotSessions;
+    final res = await apiClient.get(url);
+    final raw = res.data;
+    final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
+    if (list is List) {
+      return list.map((s) => ActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
+    }
+    return [];
   }
 
   Future<void> refresh() async {
@@ -330,21 +296,43 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
     state = await AsyncValue.guard(() => _fetch(selectedId));
   }
 
-  Future<bool> kickSession(String sessionId, {String? deviceId}) async {
+  Future<Map<String, dynamic>> kickSession(
+    String sessionId, {
+    String? deviceId,
+    String? username,
+    String? ipAddress,
+  }) async {
     final apiClient = ref.read(apiClientProvider);
     try {
       final payload = <String, dynamic>{};
-      if (deviceId != null) {
-        payload['deviceId'] = deviceId;
-      }
-      await apiClient.post(ApiEndpoints.hotspotKick(sessionId), data: payload);
+      if (deviceId != null) payload['deviceId'] = deviceId;
+      if (username != null) payload['username'] = username;
+      if (ipAddress != null) payload['ipAddress'] = ipAddress;
+      final res = await apiClient.post(ApiEndpoints.hotspotKick(sessionId), data: payload);
       await refresh();
-      return true;
-    } catch (_) {
-      state.whenData((sessions) {
-        state = AsyncValue.data(sessions.where((s) => s.id != sessionId).toList());
-      });
-      return false;
+      final resData = res.data;
+      final msg = (resData is Map && resData['message'] != null)
+          ? resData['message'].toString()
+          : 'تم فصل المستخدم بنجاح من شبكة الهوتسبوت';
+      return {'success': true, 'message': msg};
+    } catch (e) {
+      String msg = 'فشل فصل المستخدم من الراوتر';
+      if (e is DioException) {
+        final d = e.response?.data;
+        if (d is Map && d['error'] != null) {
+          final errObj = d['error'];
+          msg = (errObj is Map && errObj['message'] != null)
+              ? errObj['message'].toString()
+              : errObj.toString();
+        } else if (d is Map && d['message'] != null) {
+          msg = d['message'].toString();
+        } else if (e.message != null && e.message!.isNotEmpty) {
+          msg = e.message!;
+        }
+      } else {
+        msg = e.toString();
+      }
+      return {'success': false, 'message': msg};
     }
   }
 }

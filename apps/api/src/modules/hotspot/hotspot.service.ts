@@ -381,7 +381,7 @@ export class HotspotService {
     return client.listActiveSessions();
   }
 
-  async kickSession(tenantId: string, deviceId: string, sessionId: string) {
+  async kickSession(tenantId: string, deviceId: string, sessionId: string, username?: string, ipAddress?: string, userId?: string) {
     const device = await this.getValidDevice(tenantId, deviceId);
 
     const client = await this.mikrotikClientFactory.getClient({
@@ -398,13 +398,75 @@ export class HotspotService {
       rosVersion: device.rosVersion,
     });
 
-    await client.removeActiveSession(sessionId);
-    return { success: true, message: `Hotspot session "${sessionId}" disconnected` };
+    try {
+      await client.removeActiveSession(sessionId);
+    } catch (err) {
+      // If session not found, check if it's already terminated
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('404') || msg.toLowerCase().includes('no such') || msg.toLowerCase().includes('not found')) {
+        return {
+          success: true,
+          message: `المستخدم ${username || sessionId} غير متصل حالياً أو تم فصله بالفعل`,
+          alreadyDisconnected: true,
+        };
+      }
+      throw err;
+    }
+
+    // Record administrative action in AuditLog
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: userId ?? null,
+          action: 'KICK_HOTSPOT_SESSION',
+          entity: 'HotspotActiveSession',
+          entityId: sessionId,
+          newValues: {
+            deviceId: device.id,
+            deviceName: device.name,
+            username: username ?? sessionId,
+            ipAddress: ipAddress ?? null,
+            timestamp: new Date().toISOString(),
+          },
+        },
+      });
+    } catch (_) {}
+
+    return {
+      success: true,
+      message: `تم فصل المستخدم "${username || sessionId}" بنجاح من راوتر ${device.name}`,
+    };
   }
 
-  async listAllActiveSessions(tenantId: string): Promise<{ data: (HotspotActiveSessionItem & { deviceId: string; deviceName: string })[]; total: number }> {
+  async listAllActiveSessions(
+    tenantId?: string | null,
+    deviceId?: string,
+    search?: string,
+  ): Promise<{ data: (HotspotActiveSessionItem & { deviceId: string; deviceName: string })[]; total: number }> {
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (first) resolvedTenantId = first.id;
+    }
+
+    if (!resolvedTenantId) {
+      return { data: [], total: 0 };
+    }
+
+    const deviceWhere: Prisma.MikroTikDeviceWhereInput = {
+      tenantId: resolvedTenantId,
+      deletedAt: null,
+    };
+    if (deviceId) {
+      deviceWhere.id = deviceId;
+    }
+
     const devices = await this.prisma.mikroTikDevice.findMany({
-      where: { tenantId, deletedAt: null },
+      where: deviceWhere,
     });
 
     const results: (HotspotActiveSessionItem & { deviceId: string; deviceName: string })[] = [];
@@ -433,26 +495,77 @@ export class HotspotService {
           });
         }
       } catch (err) {
-        this.logger.debug(`Could not poll live sessions from device ${device.id}: ${err}`);
+        this.logger.debug(`Could not poll live sessions from device ${device.id} (${device.name}): ${err}`);
       }
     }
 
-    return { data: results, total: results.length };
+    // Apply filtering if search parameter provided
+    let filtered = results;
+    if (search && search.trim().length > 0) {
+      const query = search.trim().toLowerCase();
+      const cleanMacQuery = query.replace(/[:-]/g, '');
+      filtered = results.filter((s) => {
+        const userMatch = s.user.toLowerCase().includes(query);
+        const ipMatch = s.address.toLowerCase().includes(query);
+        const macRaw = s.macAddress.toLowerCase();
+        const cleanMacRaw = macRaw.replace(/[:-]/g, '');
+        const macMatch = macRaw.includes(query) || (cleanMacQuery.length > 2 && cleanMacRaw.includes(cleanMacQuery));
+        return userMatch || ipMatch || macMatch;
+      });
+    }
+
+    return { data: filtered, total: filtered.length };
   }
 
-  async kickTenantSession(tenantId: string, sessionId: string, deviceId?: string) {
-    if (deviceId) {
-      return this.kickSession(tenantId, deviceId, sessionId);
+  async kickTenantSession(
+    tenantId?: string | null,
+    sessionId?: string,
+    deviceId?: string,
+    username?: string,
+    ipAddress?: string,
+    userId?: string,
+  ) {
+    if (!sessionId) {
+      throw new NotFoundException({
+        code: 'SESSION_ID_REQUIRED',
+        message: 'معرف الجلسة مطلوب لإجراء عملية الفصل',
+      });
     }
+
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (first) resolvedTenantId = first.id;
+    }
+
+    if (!resolvedTenantId) {
+      throw new NotFoundException({
+        code: 'TENANT_NOT_FOUND',
+        message: 'المستأجر غير موجود',
+      });
+    }
+
+    if (deviceId) {
+      return this.kickSession(resolvedTenantId, deviceId, sessionId, username, ipAddress, userId);
+    }
+
     const devices = await this.prisma.mikroTikDevice.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId: resolvedTenantId, deletedAt: null },
     });
+
     for (const device of devices) {
       try {
-        await this.kickSession(tenantId, device.id, sessionId);
-        return { success: true, message: `Session ${sessionId} kicked from router ${device.name}` };
+        const res = await this.kickSession(resolvedTenantId, device.id, sessionId, username, ipAddress, userId);
+        return res;
       } catch (_) {}
     }
-    return { success: true, message: `Session removal requested for ${sessionId}` };
+
+    throw new NotFoundException({
+      code: 'SESSION_NOT_FOUND',
+      message: `لم يتم العثور على جلسة نشطة للمستخدم على أجهزة الراوتر المتاحة`,
+    });
   }
 }

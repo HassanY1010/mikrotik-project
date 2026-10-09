@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -74,23 +75,43 @@ export class HotspotController {
   }
 
   @Get('sessions')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'List live active Hotspot sessions connected to the router' })
   @ApiResponse({ status: 200, description: 'List of active sessions' })
-  async listActiveSessions(@TenantId() tenantId: string, @Param('deviceId') deviceId: string) {
-    return this.hotspotService.listActiveSessions(tenantId, deviceId);
+  async listActiveSessions(
+    @CurrentUser('tenantId') tenantId: string,
+    @Param('deviceId') deviceId: string,
+    @Query('search') search?: string,
+  ) {
+    return this.hotspotService.listAllActiveSessions(tenantId, deviceId, search);
   }
 
   @Post('sessions/:sessionId/kick')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Disconnect / kick an active Hotspot session from the router' })
   @ApiResponse({ status: 200, description: 'Session kicked' })
   async kickSession(
-    @TenantId() tenantId: string,
+    @CurrentUser('tenantId') tenantId: string | undefined,
+    @CurrentUser('id') userId: string | undefined,
     @Param('deviceId') deviceId: string,
     @Param('sessionId') sessionId: string,
+    @Body('username') username?: string,
+    @Body('ipAddress') ipAddress?: string,
   ) {
-    return this.hotspotService.kickSession(tenantId, deviceId, sessionId);
+    return this.hotspotService.kickSession(tenantId ?? '', deviceId, sessionId, username, ipAddress, userId);
   }
 }
 
@@ -149,22 +170,42 @@ export class TenantHotspotController {
   }
 
   @Get('sessions')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'List live active Hotspot sessions across tenant routers' })
   @ApiResponse({ status: 200, description: 'List of active sessions' })
-  async listAllSessions(@TenantId() tenantId: string) {
-    return this.hotspotService.listAllActiveSessions(tenantId);
+  async listAllSessions(
+    @CurrentUser('tenantId') tenantId?: string,
+    @Query('deviceId') deviceId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.hotspotService.listAllActiveSessions(tenantId, deviceId, search);
   }
 
   @Post('sessions/:sessionId/kick')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Disconnect an active Hotspot session' })
   @ApiResponse({ status: 200, description: 'Session kicked' })
   async kickSession(
-    @TenantId() tenantId: string,
+    @CurrentUser('tenantId') tenantId: string | undefined,
+    @CurrentUser('id') userId: string | undefined,
     @Param('sessionId') sessionId: string,
     @Body('deviceId') deviceId?: string,
+    @Body('username') username?: string,
+    @Body('ipAddress') ipAddress?: string,
   ) {
-    return this.hotspotService.kickTenantSession(tenantId, sessionId, deviceId);
+    return this.hotspotService.kickTenantSession(tenantId, sessionId, deviceId, username, ipAddress, userId);
   }
 }

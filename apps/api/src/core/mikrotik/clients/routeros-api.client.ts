@@ -412,7 +412,17 @@ export class RouterOsApiClient implements IMikrotikClient {
 
   async removeActiveSession(sessionOrUserId: string): Promise<void> {
     await this.connect();
-    await this.executeCommand(['/ip/hotspot/active/remove', `numbers=${sessionOrUserId}`]);
+    const activeList = await this.listActiveSessions();
+    const match = activeList.find(
+      (s) =>
+        s.id === sessionOrUserId ||
+        s.user === sessionOrUserId ||
+        s.address === sessionOrUserId ||
+        s.sessionId === sessionOrUserId ||
+        s.macAddress.toLowerCase() === sessionOrUserId.toLowerCase(),
+    );
+    const targetId = match?.id ?? sessionOrUserId;
+    await this.executeCommand(['/ip/hotspot/active/remove', `numbers=${targetId}`]);
   }
 
   async reboot(): Promise<void> {

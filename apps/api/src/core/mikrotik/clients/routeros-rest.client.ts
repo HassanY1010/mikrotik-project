@@ -260,9 +260,30 @@ export class RouterOsRestClient implements IMikrotikClient {
   }
 
   async removeActiveSession(sessionOrUserId: string): Promise<void> {
-    await this.request(`/ip/hotspot/active/${encodeURIComponent(sessionOrUserId)}`, {
-      method: 'DELETE',
-    });
+    try {
+      await this.request(`/ip/hotspot/active/${encodeURIComponent(sessionOrUserId)}`, {
+        method: 'DELETE',
+      });
+      return;
+    } catch (directErr) {
+      // If direct delete by ID failed (e.g. sessionOrUserId is username, IP, or session-id), search active list
+      const activeList = await this.listActiveSessions();
+      const match = activeList.find(
+        (s) =>
+          s.id === sessionOrUserId ||
+          s.user === sessionOrUserId ||
+          s.address === sessionOrUserId ||
+          s.sessionId === sessionOrUserId ||
+          s.macAddress.toLowerCase() === sessionOrUserId.toLowerCase(),
+      );
+      if (match && match.id && match.id !== sessionOrUserId) {
+        await this.request(`/ip/hotspot/active/${encodeURIComponent(match.id)}`, {
+          method: 'DELETE',
+        });
+        return;
+      }
+      throw directErr;
+    }
   }
 
   async reboot(): Promise<void> {
