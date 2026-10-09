@@ -79,14 +79,27 @@ export const DevicesView: React.FC = () => {
 
   const handleAddDevice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.host || !formData.password) {
-      showToast('يرجى ملء جميع الحقول المطلوبة', 'warning');
+    if (!formData.name.trim() || !formData.host.trim() || !formData.password) {
+      showToast('يرجى ملء جميع الحقول المطلوبة (الاسم، العنوان، كلمة المرور)', 'warning');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await apiClient.post('/devices', formData);
+      const portNum = Number(formData.port) || 8728;
+      const isRest = formData.connectionType === 'REST';
+      const payload = {
+        name: formData.name.trim(),
+        host: formData.host.trim(),
+        apiPort: isRest ? 8728 : portNum,
+        restPort: isRest ? portNum : 443,
+        username: formData.username.trim(),
+        password: formData.password,
+        rosVersion: formData.rosVersion,
+        useSsl: Boolean(formData.useTls),
+      };
+
+      await apiClient.post('/devices', payload);
       showToast('تمت إضافة راوتر ميكروتيك وحفظ بيانات الاعتماد المشفرة بنجاح', 'success');
       setIsAddOpen(false);
       setFormData({
@@ -125,20 +138,23 @@ export const DevicesView: React.FC = () => {
 
   const handleUpdateDevice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingDeviceId || !editFormData.name || !editFormData.host) {
+    if (!editingDeviceId || !editFormData.name.trim() || !editFormData.host.trim()) {
       showToast('يرجى ملء جميع الحقول المطلوبة', 'warning');
       return;
     }
 
     setIsSubmitting(true);
     try {
+      const isRest = editFormData.connectionType === 'REST';
+      const portNum = Number(editFormData.port) || 8728;
       const payload: Record<string, unknown> = {
-        name: editFormData.name,
-        host: editFormData.host,
-        apiPort: Number(editFormData.port) || 8728,
-        username: editFormData.username,
+        name: editFormData.name.trim(),
+        host: editFormData.host.trim(),
+        apiPort: isRest ? 8728 : portNum,
+        restPort: isRest ? portNum : 443,
+        username: editFormData.username.trim(),
         rosVersion: editFormData.rosVersion,
-        useSsl: editFormData.useTls,
+        useSsl: Boolean(editFormData.useTls),
       };
       if (editFormData.password) {
         payload.password = editFormData.password;
@@ -508,12 +524,30 @@ export const DevicesView: React.FC = () => {
                 id="dev-proto"
                 className="select"
                 value={formData.connectionType}
-                onChange={(e) => setFormData({ ...formData, connectionType: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData((prev) => ({
+                    ...prev,
+                    connectionType: val,
+                    port: val === 'REST' ? (prev.port === 8728 ? 443 : prev.port) : (prev.port === 443 ? 8728 : prev.port),
+                  }));
+                }}
               >
                 <option value="API_SOCKET">Binary API Socket (منفذ 8728)</option>
-                <option value="REST">REST API (RouterOS v7.1+)</option>
+                <option value="REST">REST API (RouterOS v7.1+ - منفذ 443)</option>
               </select>
             </div>
+          </div>
+
+          <div className="form-group" style={{ marginTop: '0.75rem', padding: '0.6rem 0.8rem', background: 'var(--bg-secondary, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-color, #e2e8f0)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.875rem' }}>
+              <input
+                type="checkbox"
+                checked={formData.useTls}
+                onChange={(e) => setFormData({ ...formData, useTls: e.target.checked })}
+              />
+              <span>تشفير الاتصال عبر SSL / TLS (لحماية بيانات الدخول)</span>
+            </label>
           </div>
 
           <div className="modal-footer" style={{ padding: '1rem 0 0 0', marginTop: '1rem' }}>
@@ -636,12 +670,30 @@ export const DevicesView: React.FC = () => {
                 id="edit-dev-proto"
                 className="select"
                 value={editFormData.connectionType}
-                onChange={(e) => setEditFormData({ ...editFormData, connectionType: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setEditFormData((prev) => ({
+                    ...prev,
+                    connectionType: val,
+                    port: val === 'REST' ? (prev.port === 8728 ? 443 : prev.port) : (prev.port === 443 ? 8728 : prev.port),
+                  }));
+                }}
               >
                 <option value="API_SOCKET">Binary API Socket (منفذ 8728)</option>
-                <option value="REST">REST API (RouterOS v7.1+)</option>
+                <option value="REST">REST API (RouterOS v7.1+ - منفذ 443)</option>
               </select>
             </div>
+          </div>
+
+          <div className="form-group" style={{ marginTop: '0.75rem', padding: '0.6rem 0.8rem', background: 'var(--bg-secondary, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-color, #e2e8f0)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.875rem' }}>
+              <input
+                type="checkbox"
+                checked={editFormData.useTls}
+                onChange={(e) => setEditFormData({ ...editFormData, useTls: e.target.checked })}
+              />
+              <span>تشفير الاتصال عبر SSL / TLS (لحماية بيانات الدخول)</span>
+            </label>
           </div>
 
           <div className="modal-footer" style={{ padding: '1rem 0 0 0', marginTop: '1rem' }}>

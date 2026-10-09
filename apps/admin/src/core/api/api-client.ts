@@ -124,10 +124,16 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      const errorMsg =
-        (typeof payload?.message === 'string' ? payload.message : null) ||
-        (typeof payload?.error === 'string' ? payload.error : null) ||
-        `طلب غير ناجح (رمز الخطأ: ${response.status})`;
+      let errorMsg: string;
+      if (Array.isArray(payload?.message)) {
+        errorMsg = payload.message.join(' | ');
+      } else if (typeof payload?.message === 'string') {
+        errorMsg = payload.message;
+      } else if (typeof payload?.error === 'string') {
+        errorMsg = payload.error;
+      } else {
+        errorMsg = `طلب غير ناجح (رمز الخطأ: ${response.status})`;
+      }
       throw new ApiError(errorMsg, response.status, payload);
     }
 

@@ -121,12 +121,17 @@ export class DevicesService {
       });
     }
 
+    const isRest = dto.connectionType === 'REST';
+    const resolvedApiPort = dto.apiPort ?? (isRest ? 8728 : (dto.port ?? 8728));
+    const resolvedRestPort = dto.restPort ?? (isRest && dto.port ? dto.port : 443);
+    const resolvedUseSsl = dto.useSsl ?? dto.useTls ?? false;
+
     // 2. Check duplicate host + port
     const existing = await this.prisma.mikroTikDevice.findFirst({
       where: {
         tenantId,
         host: dto.host,
-        apiPort: dto.apiPort ?? 8728,
+        apiPort: resolvedApiPort,
         deletedAt: null,
       },
     });
@@ -134,7 +139,7 @@ export class DevicesService {
     if (existing) {
       throw new ConflictException({
         code: 'DEVICE_EXISTS',
-        message: `الراوتر بالعنوان ${dto.host} والمنفذ ${dto.apiPort ?? 8728} مسجل مسبقاً لهذا الحساب`,
+        message: `الراوتر بالعنوان ${dto.host} والمنفذ ${resolvedApiPort} مسجل مسبقاً لهذا الحساب`,
       });
     }
 
@@ -147,9 +152,9 @@ export class DevicesService {
         tenantId,
         name: dto.name,
         host: dto.host,
-        apiPort: dto.apiPort ?? 8728,
-        restPort: dto.restPort ?? 443,
-        useSsl: dto.useSsl ?? false,
+        apiPort: resolvedApiPort,
+        restPort: resolvedRestPort,
+        useSsl: resolvedUseSsl,
         username: dto.username,
         passwordEncrypted: ciphertext,
         iv,
@@ -272,12 +277,16 @@ export class DevicesService {
       });
     }
 
+    const isRest = dto.connectionType === 'REST';
     const data: Prisma.MikroTikDeviceUpdateInput = {};
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.host !== undefined) data.host = dto.host;
     if (dto.apiPort !== undefined) data.apiPort = dto.apiPort;
+    else if (dto.port !== undefined && !isRest) data.apiPort = dto.port;
     if (dto.restPort !== undefined) data.restPort = dto.restPort;
+    else if (dto.port !== undefined && isRest) data.restPort = dto.port;
     if (dto.useSsl !== undefined) data.useSsl = dto.useSsl;
+    else if (dto.useTls !== undefined) data.useSsl = dto.useTls;
     if (dto.username !== undefined) data.username = dto.username;
     if (dto.rosVersion !== undefined) data.rosVersion = dto.rosVersion;
 

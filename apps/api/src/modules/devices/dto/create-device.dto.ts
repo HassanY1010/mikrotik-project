@@ -36,10 +36,27 @@ export class CreateDeviceDto {
   @IsOptional()
   restPort?: number;
 
+  @ApiPropertyOptional({ description: 'Router port alias (mapped to apiPort or restPort)', example: 8728 })
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  @IsOptional()
+  port?: number;
+
   @ApiPropertyOptional({ description: 'Use SSL/TLS for API connection', default: false })
   @IsBoolean()
   @IsOptional()
   useSsl?: boolean;
+
+  @ApiPropertyOptional({ description: 'Alias for useSsl', default: false })
+  @IsBoolean()
+  @IsOptional()
+  useTls?: boolean;
+
+  @ApiPropertyOptional({ description: 'Connection type (e.g. API_SOCKET, REST)', example: 'API_SOCKET' })
+  @IsString()
+  @IsOptional()
+  connectionType?: string;
 
   @ApiProperty({ description: 'Router administrative username', example: 'admin' })
   @IsString()
