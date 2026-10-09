@@ -350,50 +350,12 @@ class FinancialReportNotifier extends AsyncNotifier<FinancialReportModel> {
 
   Future<FinancialReportModel> _fetch() async {
     final apiClient = ref.read(apiClientProvider);
-    try {
-      final res = await apiClient.get(ApiEndpoints.financialReport);
-      final raw = res.data;
-      final data = (raw is Map && raw['data'] != null) ? raw['data'] as Map<String, dynamic> : raw as Map<String, dynamic>;
-      return FinancialReportModel.fromJson(data);
-    } catch (_) {
-      return FinancialReportModel(
-        todayRevenue: 28400,
-        todaySalesCount: 42,
-        weekRevenue: 185600,
-        weekSalesCount: 290,
-        monthRevenue: 742000,
-        monthSalesCount: 1180,
-        allTimeRevenue: 2840000,
-        profitMarginPercent: 18.5,
-        estimatedProfit: 137270,
-        currency: 'SDG',
-        next7DaysForecast: 198000,
-        next30DaysForecast: 795000,
-        trend: 'UP',
-        bestSellingProfiles: [
-          {'profileName': 'باقة 3 ساعات', 'count': 490, 'total': 245000},
-          {'profileName': 'باقة 1 يوم', 'count': 320, 'total': 384000},
-          {'profileName': 'باقة 1 ساعة', 'count': 280, 'total': 56000},
-        ],
-        salesByRouter: [
-          {'routerName': 'راوتر البرج الرئيسي', 'salesCount': 780, 'revenue': 492000},
-          {'routerName': 'راوتر السوق', 'salesCount': 400, 'revenue': 250000},
-        ],
-        salesByCashier: [
-          {'cashierName': 'أحمد الكاشير', 'salesCount': 620, 'revenue': 390000},
-          {'cashierName': 'محمد الموزع', 'salesCount': 560, 'revenue': 352000},
-        ],
-        dailyRevenueLast30Days: [
-          {'date': '2026-10-01', 'revenue': 22000},
-          {'date': '2026-10-02', 'revenue': 24500},
-          {'date': '2026-10-03', 'revenue': 28000},
-          {'date': '2026-10-04', 'revenue': 26400},
-          {'date': '2026-10-05', 'revenue': 31000},
-          {'date': '2026-10-06', 'revenue': 29500},
-          {'date': '2026-10-07', 'revenue': 34200},
-        ],
-      );
-    }
+    final res = await apiClient.get(ApiEndpoints.financialReport);
+    final raw = res.data;
+    final data = (raw is Map && raw['data'] != null)
+        ? raw['data'] as Map<String, dynamic>
+        : raw as Map<String, dynamic>;
+    return FinancialReportModel.fromJson(data);
   }
 
   Future<void> refresh() async {

@@ -724,14 +724,28 @@ class WalletDataModel {
 class FinancialReportModel {
   final double todayRevenue;
   final int todaySalesCount;
+  final double todayCollected;
   final double weekRevenue;
   final int weekSalesCount;
+  final double weekCollected;
   final double monthRevenue;
   final int monthSalesCount;
+  final double monthCollected;
   final double allTimeRevenue;
+  final int allTimeSalesCount;
+  final double allTimeCollected;
+  final double totalRefunds;
+  final int refundedCount;
   final double profitMarginPercent;
   final double estimatedProfit;
+  final String profitNotes;
+  final bool hasCostData;
   final String currency;
+  final bool isForecastAvailable;
+  final String forecastMessage;
+  final String forecastNote;
+  final int daysAnalyzed;
+  final double dailyAverage;
   final double next7DaysForecast;
   final double next30DaysForecast;
   final String trend;
@@ -743,14 +757,28 @@ class FinancialReportModel {
   FinancialReportModel({
     required this.todayRevenue,
     required this.todaySalesCount,
+    this.todayCollected = 0.0,
     required this.weekRevenue,
     required this.weekSalesCount,
+    this.weekCollected = 0.0,
     required this.monthRevenue,
     required this.monthSalesCount,
+    this.monthCollected = 0.0,
     required this.allTimeRevenue,
+    this.allTimeSalesCount = 0,
+    this.allTimeCollected = 0.0,
+    this.totalRefunds = 0.0,
+    this.refundedCount = 0,
     required this.profitMarginPercent,
     required this.estimatedProfit,
+    this.profitNotes = '',
+    this.hasCostData = false,
     required this.currency,
+    this.isForecastAvailable = true,
+    this.forecastMessage = '',
+    this.forecastNote = '',
+    this.daysAnalyzed = 30,
+    this.dailyAverage = 0.0,
     required this.next7DaysForecast,
     required this.next30DaysForecast,
     required this.trend,
@@ -764,17 +792,36 @@ class FinancialReportModel {
     final summary = json['summary'] as Map<String, dynamic>? ?? {};
     final forecast = json['forecast'] as Map<String, dynamic>? ?? {};
 
+    final todayRev = double.tryParse(summary['todayRevenue']?.toString() ?? '0') ?? 0.0;
+    final weekRev = double.tryParse(summary['weekRevenue']?.toString() ?? '0') ?? 0.0;
+    final monthRev = double.tryParse(summary['monthRevenue']?.toString() ?? '0') ?? 0.0;
+    final allTimeRev = double.tryParse(summary['allTimeRevenue']?.toString() ?? '0') ?? 0.0;
+
     return FinancialReportModel(
-      todayRevenue: double.tryParse(summary['todayRevenue']?.toString() ?? '0') ?? 0.0,
+      todayRevenue: todayRev,
       todaySalesCount: summary['todaySalesCount'] as int? ?? 0,
-      weekRevenue: double.tryParse(summary['weekRevenue']?.toString() ?? '0') ?? 0.0,
+      todayCollected: double.tryParse(summary['todayCollected']?.toString() ?? '') ?? todayRev,
+      weekRevenue: weekRev,
       weekSalesCount: summary['weekSalesCount'] as int? ?? 0,
-      monthRevenue: double.tryParse(summary['monthRevenue']?.toString() ?? '0') ?? 0.0,
+      weekCollected: double.tryParse(summary['weekCollected']?.toString() ?? '') ?? weekRev,
+      monthRevenue: monthRev,
       monthSalesCount: summary['monthSalesCount'] as int? ?? 0,
-      allTimeRevenue: double.tryParse(summary['allTimeRevenue']?.toString() ?? '0') ?? 0.0,
-      profitMarginPercent: double.tryParse(summary['profitMarginPercent']?.toString() ?? '10') ?? 10.0,
-      estimatedProfit: double.tryParse(summary['estimatedProfit']?.toString() ?? '0') ?? 0.0,
+      monthCollected: double.tryParse(summary['monthCollected']?.toString() ?? '') ?? monthRev,
+      allTimeRevenue: allTimeRev,
+      allTimeSalesCount: summary['allTimeSalesCount'] as int? ?? 0,
+      allTimeCollected: double.tryParse(summary['allTimeCollected']?.toString() ?? '') ?? allTimeRev,
+      totalRefunds: double.tryParse(summary['totalRefunds']?.toString() ?? '0') ?? 0.0,
+      refundedCount: summary['refundedCount'] as int? ?? 0,
+      profitMarginPercent: double.tryParse(summary['profitMarginPercent']?.toString() ?? '100') ?? 100.0,
+      estimatedProfit: double.tryParse(summary['estimatedProfit']?.toString() ?? '') ?? allTimeRev,
+      profitNotes: summary['profitNotes'] as String? ?? '',
+      hasCostData: summary['hasCostData'] as bool? ?? false,
       currency: summary['currency'] as String? ?? 'SDG',
+      isForecastAvailable: forecast['isAvailable'] as bool? ?? true,
+      forecastMessage: forecast['message'] as String? ?? '',
+      forecastNote: forecast['note'] as String? ?? '',
+      daysAnalyzed: forecast['daysAnalyzed'] as int? ?? 30,
+      dailyAverage: double.tryParse(forecast['dailyAverage']?.toString() ?? '0') ?? 0.0,
       next7DaysForecast: double.tryParse(forecast['next7Days']?.toString() ?? '0') ?? 0.0,
       next30DaysForecast: double.tryParse(forecast['next30Days']?.toString() ?? '0') ?? 0.0,
       trend: forecast['trend'] as String? ?? 'STABLE',
@@ -785,3 +832,4 @@ class FinancialReportModel {
     );
   }
 }
+
