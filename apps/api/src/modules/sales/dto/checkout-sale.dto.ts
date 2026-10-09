@@ -1,12 +1,11 @@
-import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { PaymentMethod } from '@prisma/client';
 
 export class CheckoutSaleDto {
-  @ApiProperty({ description: 'Target MikroTik router device ID (UUID)' })
+  @ApiPropertyOptional({ description: 'Target MikroTik router device ID (UUID). Auto-resolved from profile if omitted.' })
   @IsUUID()
-  @IsNotEmpty()
-  deviceId!: string;
+  @IsOptional()
+  deviceId?: string;
 
   @ApiProperty({ description: 'Hotspot profile ID to sell card from (UUID)' })
   @IsUUID()
@@ -21,13 +20,12 @@ export class CheckoutSaleDto {
   cardId?: string;
 
   @ApiPropertyOptional({
-    description: 'Payment method used',
-    enum: PaymentMethod,
-    default: PaymentMethod.CASH,
+    description: 'Payment method used (CASH, BANK, CASH_FAWRI, MOBILE_WALLET, TRANSFER, CARD)',
+    default: 'CASH',
   })
-  @IsEnum(PaymentMethod)
+  @IsString()
   @IsOptional()
-  paymentMethod?: PaymentMethod;
+  paymentMethod?: string;
 
   @ApiPropertyOptional({ description: 'Customer phone number for digital receipt' })
   @IsString()
@@ -42,7 +40,12 @@ export class CheckoutSaleDto {
   @ApiPropertyOptional({ description: 'Quantity of cards to sell', example: 1, default: 1 })
   @IsInt()
   @Min(1)
-  @Max(10)
+  @Max(50)
   @IsOptional()
   quantity?: number;
+
+  @ApiPropertyOptional({ description: 'Unique idempotency key to prevent duplicate sales on network retries' })
+  @IsString()
+  @IsOptional()
+  idempotencyKey?: string;
 }

@@ -223,6 +223,18 @@ class SaleReceiptModel {
   final DateTime soldAt;
   final String cashierName;
   final String? customerPhone;
+  final String? customerName;
+  final String tenantName;
+  final String? tenantPhone;
+  final String? deviceName;
+  final int quantity;
+  final double? unitPrice;
+  final double discount;
+  final String? timeLimit;
+  final int? dataLimitBytes;
+  final String? qrDataUrl;
+  final int printedCount;
+  final String? transactionId;
   final bool isOffline;
 
   SaleReceiptModel({
@@ -237,8 +249,78 @@ class SaleReceiptModel {
     required this.soldAt,
     required this.cashierName,
     this.customerPhone,
+    this.customerName,
+    this.tenantName = 'شبكة ميكروتيك هوتسبوت',
+    this.tenantPhone,
+    this.deviceName,
+    this.quantity = 1,
+    this.unitPrice,
+    this.discount = 0.0,
+    this.timeLimit,
+    this.dataLimitBytes,
+    this.qrDataUrl,
+    this.printedCount = 1,
+    this.transactionId,
     this.isOffline = false,
   });
+
+  factory SaleReceiptModel.fromJson(Map<String, dynamic> json) {
+    return SaleReceiptModel(
+      invoiceNumber: json['invoiceNumber'] as String? ?? 'INV-${DateTime.now().millisecondsSinceEpoch % 100000}',
+      serialNumber: json['serialNumber'] as String? ?? '',
+      username: json['username'] as String? ?? '',
+      password: json['password'] as String? ?? json['clearPassword'] as String? ?? json['pinCode'] as String?,
+      profileName: json['profileName'] as String? ?? 'باقة هوتسبوت',
+      amount: (json['amount'] is num) ? (json['amount'] as num).toDouble() : (json['price'] is num ? (json['price'] as num).toDouble() : 0.0),
+      currency: json['currency'] as String? ?? 'SDG',
+      paymentMethod: json['paymentMethod'] as String? ?? 'CASH',
+      soldAt: json['soldAt'] != null
+          ? DateTime.tryParse(json['soldAt'] as String) ?? DateTime.now()
+          : (json['createdAt'] != null ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now() : DateTime.now()),
+      cashierName: json['cashierName'] as String? ?? 'الكاشير',
+      customerPhone: json['customerPhone'] as String?,
+      customerName: json['customerName'] as String?,
+      tenantName: json['tenantName'] as String? ?? 'شبكة ميكروتيك هوتسبوت',
+      tenantPhone: json['tenantPhone'] as String?,
+      deviceName: json['deviceName'] as String?,
+      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      unitPrice: (json['unitPrice'] as num?)?.toDouble(),
+      discount: (json['discount'] as num?)?.toDouble() ?? 0.0,
+      timeLimit: json['timeLimit'] as String?,
+      dataLimitBytes: (json['dataLimitBytes'] as num?)?.toInt(),
+      qrDataUrl: json['qrDataUrl'] as String?,
+      printedCount: (json['printedCount'] as num?)?.toInt() ?? 1,
+      transactionId: json['transactionId'] as String? ?? json['id'] as String?,
+      isOffline: json['isOffline'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'invoiceNumber': invoiceNumber,
+    'serialNumber': serialNumber,
+    'username': username,
+    'password': password,
+    'profileName': profileName,
+    'amount': amount,
+    'currency': currency,
+    'paymentMethod': paymentMethod,
+    'soldAt': soldAt.toIso8601String(),
+    'cashierName': cashierName,
+    'customerPhone': customerPhone,
+    'customerName': customerName,
+    'tenantName': tenantName,
+    'tenantPhone': tenantPhone,
+    'deviceName': deviceName,
+    'quantity': quantity,
+    'unitPrice': unitPrice,
+    'discount': discount,
+    'timeLimit': timeLimit,
+    'dataLimitBytes': dataLimitBytes,
+    'qrDataUrl': qrDataUrl,
+    'printedCount': printedCount,
+    'transactionId': transactionId,
+    'isOffline': isOffline,
+  };
 
   String get loginUrl => 'http://login.hotspot/login?username=$username&password=${password ?? username}';
 }

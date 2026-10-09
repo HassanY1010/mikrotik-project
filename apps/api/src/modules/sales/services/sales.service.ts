@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
+import { CardsService } from '../../cards/services/cards.service';
 import { CheckoutSaleDto } from '../dto/checkout-sale.dto';
 import { RefundSaleDto } from '../dto/refund-sale.dto';
 import { SalesQueryDto } from '../dto/sales-query.dto';
@@ -59,14 +60,37 @@ export interface DailySalesReport {
   byProfile: Array<{ profileName: string; count: number; total: number }>;
 }
 
+export interface CheckoutResultPayload {
+  transactions: SaleTransaction[];
+  receipts: ThermalReceiptPayload[];
+  transaction: SaleTransaction;
+  receipt: ThermalReceiptPayload;
+  invoiceNumber: string;
+  card: {
+    id: string;
+    serialNumber: string;
+    username: string;
+    password: string;
+    pinCode: string;
+    price: number;
+  };
+}
+
 @Injectable()
 export class SalesService {
   private readonly logger = new Logger(SalesService.name);
+
+  // In-memory idempotency cache (TTL: 10 minutes)
+  private readonly idempotencyCache = new Map<
+    string,
+    { result: CheckoutResultPayload; timestamp: number }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryptionService: EncryptionService,
     private readonly mikrotikClientFactory: MikrotikClientFactory,
+    @Optional() private readonly cardsService?: CardsService,
   ) {}
 
   private generateInvoiceNumber(): string {
@@ -82,10 +106,19 @@ export class SalesService {
     tenantId: string,
     cashierId: string,
     dto: CheckoutSaleDto,
-  ): Promise<{ transactions: SaleTransaction[]; receipts: ThermalReceiptPayload[] }> {
+  ): Promise<CheckoutResultPayload> {
+    // 0. Idempotency check: prevent duplicate charges on network retries
+    if (dto.idempotencyKey) {
+      const cached = this.idempotencyCache.get(dto.idempotencyKey);
+      if (cached && Date.now() - cached.timestamp < 10 * 60 * 1000) {
+        this.logger.log(`Idempotent hit for checkout key: ${dto.idempotencyKey}`);
+        return cached.result;
+      }
+    }
+
     const quantity = dto.quantity ?? 1;
 
-    // Verify tenant exists and fetch currency/metadata
+    // 1. Verify tenant exists and fetch currency/metadata
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
     });
@@ -97,33 +130,60 @@ export class SalesService {
       });
     }
 
-    // Verify device and profile
+    // 2. Resolve profile and device (auto-resolves deviceId if missing or mismatched)
+    let profile = null;
+    if (dto.deviceId) {
+      profile = await this.prisma.hotspotProfile.findFirst({
+        where: { id: dto.profileId, tenantId, deviceId: dto.deviceId },
+      });
+    }
+    if (!profile) {
+      profile = await this.prisma.hotspotProfile.findFirst({
+        where: { id: dto.profileId, tenantId },
+      });
+    }
+
+    if (!profile) {
+      throw new NotFoundException({
+        code: 'PROFILE_NOT_FOUND',
+        message: 'Hotspot profile not found for this tenant',
+      });
+    }
+
+    const effectiveDeviceId = profile.deviceId;
     const device = await this.prisma.mikroTikDevice.findFirst({
-      where: { id: dto.deviceId, tenantId, deletedAt: null },
+      where: { id: effectiveDeviceId, tenantId, deletedAt: null },
     });
     if (!device) {
       throw new NotFoundException({
         code: 'DEVICE_NOT_FOUND',
-        message: 'Device not found for this tenant',
-      });
-    }
-
-    const profile = await this.prisma.hotspotProfile.findFirst({
-      where: { id: dto.profileId, tenantId, deviceId: dto.deviceId },
-    });
-    if (!profile) {
-      throw new NotFoundException({
-        code: 'PROFILE_NOT_FOUND',
-        message: 'Hotspot profile not found on this device',
+        message: 'Device not found for this profile',
       });
     }
 
     const cashier = await this.prisma.user.findFirst({
       where: { id: cashierId, tenantId },
     });
-    const cashierName = cashier ? cashier.fullName : 'Cashier';
+    const cashierName = cashier ? cashier.fullName : 'الكاشير';
 
-    // Find requested cards (either specific cardId or next available in this profile)
+    // 3. Normalize payment method
+    let paymentMethod: PaymentMethod = PaymentMethod.CASH;
+    const pmRaw = String(dto.paymentMethod || 'CASH').toUpperCase();
+    if (pmRaw === 'BANK' || pmRaw === 'TRANSFER') {
+      paymentMethod = PaymentMethod.TRANSFER;
+    } else if (
+      pmRaw === 'CASH_FAWRI' ||
+      pmRaw === 'FAWRI' ||
+      pmRaw === 'MOBILE_WALLET'
+    ) {
+      paymentMethod = PaymentMethod.MOBILE_WALLET;
+    } else if (pmRaw === 'CARD') {
+      paymentMethod = PaymentMethod.CARD;
+    } else {
+      paymentMethod = PaymentMethod.CASH;
+    }
+
+    // 4. Find requested cards (either specific cardId or next available in this profile)
     let cardsToSell: Card[] = [];
 
     if (dto.cardId) {
@@ -131,7 +191,7 @@ export class SalesService {
         where: {
           id: dto.cardId,
           tenantId,
-          deviceId: dto.deviceId,
+          deviceId: effectiveDeviceId,
           profileId: dto.profileId,
           status: CardStatus.AVAILABLE,
         },
@@ -148,13 +208,48 @@ export class SalesService {
       cardsToSell = await this.prisma.card.findMany({
         where: {
           tenantId,
-          deviceId: dto.deviceId,
+          deviceId: effectiveDeviceId,
           profileId: dto.profileId,
           status: CardStatus.AVAILABLE,
         },
         orderBy: { createdAt: 'asc' },
         take: quantity,
       });
+
+      // 5. On-Demand generation fallback: if inventory is low and cardsService is available, generate cards instantly!
+      if (cardsToSell.length < quantity && this.cardsService) {
+        const needed = quantity - cardsToSell.length;
+        const batchToCreate = Math.max(needed, 5);
+        this.logger.log(
+          `POS inventory low for profile "${profile.name}". Auto-generating ${batchToCreate} on-demand cards.`,
+        );
+
+        try {
+          await this.cardsService.createBatch(tenantId, cashierId, {
+            deviceId: effectiveDeviceId,
+            profileId: dto.profileId,
+            totalCards: batchToCreate,
+            length: 6,
+            pattern: 'NUMERIC',
+            singleCredential: true,
+            syncToRouter: device.isOnline,
+          });
+
+          // Re-query available cards after batch generation
+          cardsToSell = await this.prisma.card.findMany({
+            where: {
+              tenantId,
+              deviceId: effectiveDeviceId,
+              profileId: dto.profileId,
+              status: CardStatus.AVAILABLE,
+            },
+            orderBy: { createdAt: 'asc' },
+            take: quantity,
+          });
+        } catch (genErr) {
+          this.logger.warn(`Could not auto-generate batch for POS: ${genErr}`);
+        }
+      }
 
       if (cardsToSell.length < quantity) {
         throw new BadRequestException({
@@ -168,7 +263,7 @@ export class SalesService {
     const receipts: ThermalReceiptPayload[] = [];
     const cardIdsToUpdate = cardsToSell.map((c) => c.id);
 
-    // Atomically mark cards as SOLD and insert SaleTransactions
+    // 6. Atomically mark cards as SOLD and insert SaleTransactions
     await this.prisma.$transaction(async (tx) => {
       // Mark cards SOLD
       await tx.card.updateMany({
@@ -187,10 +282,10 @@ export class SalesService {
             tenantId,
             cardId: card.id,
             cashierId,
-            deviceId: dto.deviceId,
+            deviceId: effectiveDeviceId,
             amount: card.price,
             currency: tenant.currency ?? 'SDG',
-            paymentMethod: dto.paymentMethod ?? PaymentMethod.CASH,
+            paymentMethod,
             customerPhone: dto.customerPhone ?? null,
             customerName: dto.customerName ?? null,
             invoiceNumber,
@@ -202,7 +297,7 @@ export class SalesService {
       }
     });
 
-    // Build thermal receipts with decrypted credentials and QR codes
+    // 7. Build thermal receipts with decrypted credentials and QR codes
     for (let i = 0; i < cardsToSell.length; i++) {
       const card = cardsToSell[i];
       const tx = createdTransactions[i];
@@ -252,7 +347,31 @@ export class SalesService {
       `POS checkout completed: ${cardsToSell.length} card(s) sold by cashier ${cashierId}`,
     );
 
-    return { transactions: createdTransactions, receipts };
+    const result: CheckoutResultPayload = {
+      transactions: createdTransactions,
+      receipts,
+      transaction: createdTransactions[0],
+      receipt: receipts[0],
+      invoiceNumber: receipts[0].invoiceNumber,
+      card: {
+        id: cardsToSell[0].id,
+        serialNumber: cardsToSell[0].serialNumber,
+        username: cardsToSell[0].username,
+        password: receipts[0].password,
+        pinCode: receipts[0].pinCode,
+        price: receipts[0].price,
+      },
+    };
+
+    // Store in idempotency cache
+    if (dto.idempotencyKey) {
+      this.idempotencyCache.set(dto.idempotencyKey, {
+        result,
+        timestamp: Date.now(),
+      });
+    }
+
+    return result;
   }
 
   async getReceipt(tenantId: string, transactionId: string): Promise<ThermalReceiptPayload> {

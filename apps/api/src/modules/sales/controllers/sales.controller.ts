@@ -35,7 +35,7 @@ export class SalesController {
   constructor(private readonly salesService: SalesService) {}
 
   @Post('checkout')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'POS fast card checkout: sells next available card and generates thermal receipt',
@@ -51,7 +51,7 @@ export class SalesController {
   }
 
   @Get('transactions')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({ summary: 'List sales transactions with pagination and filters' })
   @ApiResponse({ status: 200, description: 'Paginated transactions' })
   async listTransactions(@TenantId() tenantId: string, @Query() query: SalesQueryDto) {
@@ -59,7 +59,7 @@ export class SalesController {
   }
 
   @Get('transactions/:id/receipt')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({ summary: 'Get receipt payload and track reprint for a sale transaction' })
   @ApiResponse({ status: 200, description: 'Receipt data with QR code Data URL' })
   @ApiResponse({ status: 404, description: 'Transaction not found' })
@@ -71,7 +71,7 @@ export class SalesController {
   }
 
   @Post('transactions/:id/refund')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({
     summary: 'Process refund for a sold card, disabling card and removing from router',
   })
@@ -87,7 +87,7 @@ export class SalesController {
   }
 
   @Get('shift-summary')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({ summary: 'Get financial summary for the currently active cashier shift' })
   @ApiResponse({ status: 200, description: 'Shift revenue breakdown' })
   async getShiftSummary(
@@ -98,7 +98,7 @@ export class SalesController {
   }
 
   @Get('daily-report')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Get daily aggregate sales report across all devices and cashiers' })
   @ApiQuery({ name: 'date', required: false, type: String, example: '2026-10-04' })
   @ApiResponse({ status: 200, description: 'Daily sales metrics' })

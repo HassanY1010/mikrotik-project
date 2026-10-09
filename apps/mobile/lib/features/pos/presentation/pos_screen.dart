@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
@@ -14,10 +15,12 @@ class PosScreen extends ConsumerStatefulWidget {
 
 class _PosScreenState extends ConsumerState<PosScreen> {
   HotspotProfileModel? _selectedProfile;
+  int _quantity = 1;
   String _paymentMethod = 'CASH';
   final _customerPhoneController = TextEditingController();
   final _customerNameController = TextEditingController();
   bool _isProcessing = false;
+  final _uuid = const Uuid();
 
   @override
   void dispose() {
@@ -43,6 +46,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final syncManager = ref.read(syncManagerProvider);
     final apiClient = ref.read(apiClientProvider);
     final user = ref.read(currentUserProvider);
+    final idempotencyKey = _uuid.v4();
 
     try {
       SaleReceiptModel receipt;
@@ -64,98 +68,75 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         ref.read(pendingMutationsProvider.notifier).refresh();
       } else {
         // --- ONLINE SALE ---
-        try {
-          final res = await apiClient.post(
-            ApiEndpoints.salesCheckout,
-            data: {
-              'deviceId': _selectedProfile!.deviceId.isNotEmpty
-                  ? _selectedProfile!.deviceId
-                  : '9ec647f8-3f39-43c6-814d-31c93957ab89',
-              'profileId': _selectedProfile!.id,
-              'paymentMethod': _paymentMethod,
-              if (_customerPhoneController.text.trim().isNotEmpty)
-                'customerPhone': _customerPhoneController.text.trim(),
-              if (_customerNameController.text.trim().isNotEmpty)
-                'customerName': _customerNameController.text.trim(),
-            },
-          );
+        final res = await apiClient.post(
+          ApiEndpoints.salesCheckout,
+          data: {
+            if (_selectedProfile!.deviceId.isNotEmpty)
+              'deviceId': _selectedProfile!.deviceId,
+            'profileId': _selectedProfile!.id,
+            'quantity': _quantity,
+            'paymentMethod': _paymentMethod,
+            'idempotencyKey': idempotencyKey,
+            if (_customerPhoneController.text.trim().isNotEmpty)
+              'customerPhone': _customerPhoneController.text.trim(),
+            if (_customerNameController.text.trim().isNotEmpty)
+              'customerName': _customerNameController.text.trim(),
+          },
+        );
 
-          final raw = res.data;
-          final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
-          final card = data['card'] as Map<String, dynamic>? ?? {};
-          final invoice = data['invoiceNumber'] as String? ?? 'INV-ONLINE-${DateTime.now().millisecondsSinceEpoch % 100000}';
+        final raw = res.data;
+        final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
 
+        // Parse genuine transaction & receipt response from API
+        Map<String, dynamic> receiptMap;
+        if (data is Map && data['receipt'] is Map) {
+          receiptMap = Map<String, dynamic>.from(data['receipt'] as Map);
+        } else if (data is Map && data['receipts'] is List && (data['receipts'] as List).isNotEmpty) {
+          receiptMap = Map<String, dynamic>.from((data['receipts'] as List).first as Map);
+        } else if (data is Map) {
+          receiptMap = Map<String, dynamic>.from(data);
+        } else {
+          throw Exception('استجابة غير متوقعة من الخادم');
+        }
+
+        receipt = SaleReceiptModel.fromJson(receiptMap);
+
+        // Ensure cashier info and fallback amounts match if missing in response
+        if (receipt.cashierName.isEmpty || receipt.cashierName == 'الكاشير') {
           receipt = SaleReceiptModel(
-            invoiceNumber: invoice,
-            serialNumber: card['serialNumber'] as String? ?? 'SN-${DateTime.now().millisecondsSinceEpoch % 1000000}',
-            username: card['username'] as String? ?? 'user${DateTime.now().millisecondsSinceEpoch % 100000}',
-            password: card['clearPassword'] as String? ?? card['password'] as String? ?? card['pinCode'] as String?,
+            invoiceNumber: receipt.invoiceNumber,
+            serialNumber: receipt.serialNumber,
+            username: receipt.username,
+            password: receipt.password,
             profileName: _selectedProfile!.displayName ?? _selectedProfile!.name,
-            amount: _selectedProfile!.price,
-            currency: 'SDG',
+            amount: receipt.amount > 0 ? receipt.amount : (_selectedProfile!.price * _quantity),
+            currency: receipt.currency,
             paymentMethod: _paymentMethod,
-            soldAt: DateTime.now(),
+            soldAt: receipt.soldAt,
             cashierName: user?.fullName ?? 'الكاشير',
             customerPhone: _customerPhoneController.text.trim().isNotEmpty
                 ? _customerPhoneController.text.trim()
-                : null,
+                : receipt.customerPhone,
+            customerName: _customerNameController.text.trim().isNotEmpty
+                ? _customerNameController.text.trim()
+                : receipt.customerName,
+            tenantName: receipt.tenantName,
+            tenantPhone: receipt.tenantPhone,
+            deviceName: receipt.deviceName,
+            quantity: _quantity,
+            unitPrice: _selectedProfile!.price,
             isOffline: false,
           );
-        } catch (onlineError) {
-          // If online checkout fails, fallback gracefully to offline sale if cards exist
-          final offlineCards = ref.read(offlineCardsProvider);
-          final hasOffline = offlineCards.any(
-            (c) => c.profileId == _selectedProfile!.id && c.status == 'AVAILABLE',
-          );
-
-          if (hasOffline) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('تم البيع من محفظة الكروت المحلية المحفوظة'),
-                  backgroundColor: Colors.teal,
-                ),
-              );
-            }
-            receipt = await syncManager.sellCardOffline(
-              profileId: _selectedProfile!.id,
-              paymentMethod: _paymentMethod,
-              customerPhone: _customerPhoneController.text.trim().isNotEmpty
-                  ? _customerPhoneController.text.trim()
-                  : null,
-              customerName: _customerNameController.text.trim().isNotEmpty
-                  ? _customerNameController.text.trim()
-                  : null,
-            );
-            ref.read(offlineCardsProvider.notifier).refresh();
-            ref.read(pendingMutationsProvider.notifier).refresh();
-          } else {
-            // Generate direct local sale receipt for smooth cashier flow
-            final pin = '${100000 + (DateTime.now().millisecondsSinceEpoch % 900000)}';
-            receipt = SaleReceiptModel(
-              invoiceNumber: 'INV-${DateTime.now().millisecondsSinceEpoch % 100000}',
-              serialNumber: 'SN-SUD-${DateTime.now().millisecondsSinceEpoch % 1000000}',
-              username: 'user$pin',
-              password: pin,
-              profileName: _selectedProfile!.displayName ?? _selectedProfile!.name,
-              amount: _selectedProfile!.price,
-              currency: 'SDG',
-              paymentMethod: _paymentMethod,
-              soldAt: DateTime.now(),
-              cashierName: user?.fullName ?? 'الكاشير',
-              customerPhone: _customerPhoneController.text.trim().isNotEmpty
-                  ? _customerPhoneController.text.trim()
-                  : null,
-              isOffline: true,
-            );
-            await ref.read(localStorageProvider).addSaleReceipt(receipt);
-          }
         }
+
+        // Cache real receipt in local storage history
+        await ref.read(localStorageProvider).addSaleReceipt(receipt);
       }
 
       // Reset form
       _customerPhoneController.clear();
       _customerNameController.clear();
+      setState(() => _quantity = 1);
 
       if (mounted) {
         ReceiptDialog.show(context, receipt);
@@ -166,6 +147,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           SnackBar(
             content: Text(e.toString().replaceAll('Exception: ', '')),
             backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
@@ -231,7 +213,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
               children: [
                 Expanded(
                   flex: 6,
-                  child: _buildProfilesSection(theme, profiles, offlineCards),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: _buildProfilesSection(theme, profiles, offlineCards),
+                  ),
                 ),
                 Expanded(
                   flex: 4,
@@ -443,6 +428,9 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   }
 
   Widget _buildCheckoutForm(ThemeData theme) {
+    final unitPrice = _selectedProfile?.price ?? 0.0;
+    final totalPrice = unitPrice * _quantity;
+
     return Container(
       decoration: BoxDecoration(
         color: theme.cardTheme.color,
@@ -480,42 +468,94 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _selectedProfile != null
+                            ? (_selectedProfile!.displayName ?? _selectedProfile!.name)
+                            : 'لم يتم تحديد باقة بعد',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: _selectedProfile != null ? Colors.white : Colors.grey,
+                        ),
+                      ),
+                      if (_selectedProfile?.validity != null)
+                        Text(
+                          'صلاحية: ${_selectedProfile!.validity}',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                    ],
+                  ),
+                ),
                 Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      _selectedProfile != null
-                          ? (_selectedProfile!.displayName ?? _selectedProfile!.name)
-                          : 'لم يتم تحديد باقة بعد',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: _selectedProfile != null ? Colors.white : Colors.grey,
+                      '${totalPrice.toStringAsFixed(0)} SDG',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF10B981),
                       ),
                     ),
-                    if (_selectedProfile?.validity != null)
+                    if (_quantity > 1)
                       Text(
-                        'صلاحية: ${_selectedProfile!.validity}',
+                        '(${unitPrice.toStringAsFixed(0)} × $_quantity)',
                         style: const TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                   ],
                 ),
-                Text(
-                  _selectedProfile != null
-                      ? '${_selectedProfile!.price.toStringAsFixed(0)} SDG'
-                      : '0 SDG',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF10B981),
-                  ),
-                ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
-          // Payment Method Selector tailored for Sudan
+          // Quantity Selector
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'الكمية المطلوبة:',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF334155)),
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.remove, size: 18),
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                      onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        '$_quantity',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add, size: 18),
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                      onPressed: _quantity < 50 ? () => setState(() => _quantity++) : null,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Payment Method Selector
           const Text(
             'طريقة الدفع',
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
@@ -525,24 +565,24 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             segments: const [
               ButtonSegment(
                 value: 'CASH',
-                label: Text('نقداً (كاش)', style: TextStyle(fontSize: 12)),
+                label: Text('نقداً (كاش)', style: TextStyle(fontSize: 11)),
                 icon: Icon(Icons.money, size: 16),
               ),
               ButtonSegment(
-                value: 'MOBILE_WALLET',
-                label: Text('بنكك', style: TextStyle(fontSize: 12)),
+                value: 'TRANSFER',
+                label: Text('بنك (بنكك)', style: TextStyle(fontSize: 11)),
                 icon: Icon(Icons.account_balance, size: 16),
               ),
               ButtonSegment(
-                value: 'TRANSFER',
-                label: Text('أوكاش/فوري', style: TextStyle(fontSize: 12)),
-                icon: Icon(Icons.swap_horiz, size: 16),
+                value: 'MOBILE_WALLET',
+                label: Text('كاش فوري', style: TextStyle(fontSize: 11)),
+                icon: Icon(Icons.phone_android, size: 16),
               ),
             ],
             selected: {_paymentMethod},
             onSelectionChanged: (val) => setState(() => _paymentMethod = val.first),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
           // Optional Customer Details
           TextField(
@@ -597,10 +637,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                   : const Icon(Icons.shopping_cart_checkout, size: 22),
               label: Text(
                 _isProcessing
-                    ? 'جاري إصدار الكرت والطباعة...'
+                    ? 'جاري إتمام البيع وإصدار الإيصال...'
                     : (_selectedProfile == null
                         ? 'اختر باقة لإتمام البيع'
-                        : 'بيع وطباعة فورية (${_selectedProfile!.price.toStringAsFixed(0)} SDG)'),
+                        : 'بيع وطباعة فورية (${totalPrice.toStringAsFixed(0)} SDG)'),
                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
               ),
               onPressed: _isProcessing || _selectedProfile == null ? null : _handleSellCard,
