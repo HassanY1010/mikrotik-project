@@ -88,6 +88,50 @@ export class MikrotikClientFactory {
     }
   }
 
+  /**
+   * Creates an un-pooled direct client for testing connectivity on demand.
+   */
+  createDirectClient(config: {
+    host: string;
+    apiPort?: number;
+    restPort?: number;
+    username: string;
+    password?: string;
+    useSsl?: boolean;
+    rosVersion?: RouterOsVersion;
+    timeoutMs?: number;
+  }): { client: IMikrotikClient; isRest: boolean; targetPort: number } {
+    const isRest =
+      config.rosVersion === RouterOsVersion.V7 &&
+      Boolean(config.restPort || config.apiPort === 443 || config.apiPort === 80);
+
+    const timeoutMs = config.timeoutMs ?? 7000;
+
+    if (isRest) {
+      const targetPort = config.restPort ?? (config.useSsl ? 443 : 80);
+      const client = new RouterOsRestClient({
+        host: config.host,
+        port: targetPort,
+        username: config.username,
+        password: config.password,
+        useSsl: config.useSsl,
+        timeoutMs,
+      });
+      return { client, isRest: true, targetPort };
+    } else {
+      const targetPort = config.apiPort ?? (config.useSsl ? 8729 : 8728);
+      const client = new RouterOsApiClient({
+        host: config.host,
+        port: targetPort,
+        username: config.username,
+        password: config.password,
+        useSsl: config.useSsl,
+        timeoutMs,
+      });
+      return { client, isRest: false, targetPort };
+    }
+  }
+
   private async cleanupIdleConnections(): Promise<void> {
     const now = Date.now();
     for (const [key, entry] of this.clientCache.entries()) {

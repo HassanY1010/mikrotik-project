@@ -14,6 +14,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { DevicesService, DeviceResponse } from './devices.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
+import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
@@ -45,6 +46,23 @@ export class DevicesController {
     return this.devicesService.findAll(tenantId);
   }
 
+  @Post('test-connection')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @ApiOperation({ summary: 'Test direct live connectivity to a MikroTik router before saving' })
+  @ApiResponse({ status: 200, description: 'Test result with detailed stages and latency' })
+  async testDirectConnection(
+    @TenantId() tenantId: string,
+    @Body() dto: TestDeviceConnectionDto,
+  ) {
+    return this.devicesService.testDirectConnection(tenantId, dto);
+  }
+
   @Get(':id')
   @Roles(
     RoleName.SUPER_ADMIN,
@@ -62,7 +80,13 @@ export class DevicesController {
   }
 
   @Post()
-  @Roles(RoleName.TENANT_ADMIN)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a new MikroTik router (enforces subscription maxRouters limit)' })
   @ApiResponse({ status: 201, description: 'Device created and credentials encrypted' })
@@ -76,7 +100,13 @@ export class DevicesController {
   }
 
   @Patch(':id')
-  @Roles(RoleName.TENANT_ADMIN)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Update MikroTik router settings or credentials' })
   @ApiResponse({ status: 200, description: 'Device updated' })
   @ApiResponse({ status: 404, description: 'Device not found' })
@@ -89,7 +119,13 @@ export class DevicesController {
   }
 
   @Delete(':id')
-  @Roles(RoleName.TENANT_ADMIN)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Soft delete a MikroTik router' })
   @ApiResponse({ status: 200, description: 'Device deleted' })
   @ApiResponse({ status: 404, description: 'Device not found' })
@@ -101,7 +137,13 @@ export class DevicesController {
   }
 
   @Post(':id/test-connection')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Test live connectivity to MikroTik router and sync status' })
   @ApiResponse({ status: 200, description: 'Test result with latency and router resource metrics' })
   async testConnection(

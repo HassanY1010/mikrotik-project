@@ -10,6 +10,7 @@ import { EncryptionService } from '../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
+import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
 import { DeviceStatus, RouterOsVersion, MikroTikDevice, Prisma } from '@prisma/client';
 import { RouterResource } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
 
@@ -99,7 +100,7 @@ export class DevicesService {
     if (!subscription) {
       throw new ForbiddenException({
         code: 'SUBSCRIPTION_REQUIRED',
-        message: 'Tenant does not have an active subscription or trial',
+        message: 'يلزم وجود اشتراك نشط أو فترة تجريبية لإضافة راوترات جديدة.',
       });
     }
 
@@ -111,10 +112,11 @@ export class DevicesService {
     });
 
     const maxAllowed = subscription.maxRouters ?? subscription.plan.maxRouters;
+
     if (currentDeviceCount >= maxAllowed) {
       throw new ForbiddenException({
         code: 'ROUTER_LIMIT_EXCEEDED',
-        message: `Subscription limit reached. Your current plan (${subscription.plan.name}) allows a maximum of ${maxAllowed} router(s).`,
+        message: `تم الوصول للحد الأقصى للراوترات في باقتك (${subscription.plan.name}). الحد الأقصى المسموح: ${maxAllowed} راوتر.`,
       });
     }
 
@@ -131,7 +133,7 @@ export class DevicesService {
     if (existing) {
       throw new ConflictException({
         code: 'DEVICE_EXISTS',
-        message: `A device with host ${dto.host} and API port ${dto.apiPort ?? 8728} already exists`,
+        message: `الراوتر بالعنوان ${dto.host} والمنفذ ${dto.apiPort ?? 8728} مسجل مسبقاً لهذا الحساب`,
       });
     }
 
@@ -157,8 +159,56 @@ export class DevicesService {
       },
     });
 
+    // 5. Attempt initial live handshake check
+    try {
+      if (device && typeof this.mikrotikClientFactory?.createDirectClient === 'function') {
+        const { client } = this.mikrotikClientFactory.createDirectClient({
+          host: device.host,
+          apiPort: device.apiPort,
+          restPort: device.restPort,
+          username: device.username,
+          password: dto.password,
+          useSsl: device.useSsl,
+          rosVersion: device.rosVersion,
+          timeoutMs: 6000,
+        });
+
+        if (client) {
+          await client.connect();
+          const resource = await client.getSystemResource();
+          await client.disconnect();
+
+          const updated = await this.prisma.mikroTikDevice.update({
+            where: { id: device.id },
+            data: {
+              isOnline: true,
+              status: DeviceStatus.ONLINE,
+              cpuLoad: resource.cpuLoad,
+              memoryFree: BigInt(resource.freeMemory),
+              memoryTotal: BigInt(resource.totalMemory),
+              diskFree: BigInt(resource.freeHdd),
+              diskTotal: BigInt(resource.totalHdd),
+              modelName: resource.boardName ?? null,
+              uptime: resource.uptime,
+              lastSyncAt: new Date(),
+              lastError: null,
+            },
+          });
+
+          this.logger.log(
+            `Created and verified MikroTik device "${updated.name}" (${updated.id}) - ONLINE`,
+          );
+          return this.transformDevice(updated);
+        }
+      }
+    } catch (testErr) {
+      this.logger.warn(
+        `New MikroTik device "${device?.name ?? dto.name}" saved as OFFLINE (initial probe failed: ${testErr})`,
+      );
+    }
+
     this.logger.log(
-      `Created MikroTik device "${device.name}" (${device.id}) for tenant ${tenantId}`,
+      `Created MikroTik device "${device?.name ?? dto.name}" (${device?.id}) for tenant ${tenantId}`,
     );
     return this.transformDevice(device);
   }
@@ -266,13 +316,230 @@ export class DevicesService {
     return { success: true, message: 'Device deleted successfully' };
   }
 
+  async testDirectConnection(
+    tenantId: string,
+    dto: TestDeviceConnectionDto,
+  ): Promise<{
+    success: boolean;
+    stage: 'VALIDATION' | 'NETWORK' | 'PORT' | 'TLS' | 'AUTH' | 'PROTOCOL' | 'CONNECTED';
+    code: string;
+    message: string;
+    latencyMs?: number;
+    resource?: RouterResource;
+    routerInfo?: Record<string, unknown>;
+    error?: string;
+  }> {
+    // 1. Validation Stage
+    const host = dto.host?.trim();
+    if (!host) {
+      return {
+        success: false,
+        stage: 'VALIDATION',
+        code: 'INVALID_HOST',
+        message: 'عنوان IP أو الدومين مطلوب ولا يمكن أن يكون فارغاً',
+      };
+    }
+
+    let password = dto.password;
+    let targetDevice: MikroTikDevice | null = null;
+
+    if (dto.id) {
+      targetDevice = await this.prisma.mikroTikDevice.findFirst({
+        where: { id: dto.id, tenantId, deletedAt: null },
+      });
+      if (!targetDevice) {
+        return {
+          success: false,
+          stage: 'VALIDATION',
+          code: 'DEVICE_NOT_FOUND',
+          message: `لم يتم العثور على الراوتر المحدد بالمعرف ${dto.id}`,
+        };
+      }
+      if (!password) {
+        password = this.encryptionService.decrypt(
+          targetDevice.passwordEncrypted,
+          targetDevice.iv,
+          targetDevice.authTag,
+        );
+      }
+    }
+
+    if (!dto.username?.trim()) {
+      return {
+        success: false,
+        stage: 'VALIDATION',
+        code: 'MISSING_USERNAME',
+        message: 'اسم مستخدم API مطلوب',
+      };
+    }
+
+    if (password === undefined || password === null) {
+      return {
+        success: false,
+        stage: 'VALIDATION',
+        code: 'MISSING_PASSWORD',
+        message: 'كلمة مرور الراوتر مطلوبة لاختبار الاتصال والمصادقة',
+      };
+    }
+
+    // Check private RFC1918 IP address
+    const isPrivateIp =
+      /^(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|[fF][cCdD])/.test(host);
+
+    const startTime = Date.now();
+
+    try {
+      const { client, isRest, targetPort } = this.mikrotikClientFactory.createDirectClient({
+        host,
+        apiPort: dto.apiPort,
+        restPort: dto.restPort,
+        username: dto.username.trim(),
+        password,
+        useSsl: dto.useSsl,
+        rosVersion: dto.rosVersion,
+        timeoutMs: 8000,
+      });
+
+      // Probe connection & login
+      await client.connect();
+
+      // Probe live resources for verification
+      const resource = await client.getSystemResource();
+      const latencyMs = Date.now() - startTime;
+
+      // Disconnect one-shot client
+      try {
+        await client.disconnect();
+      } catch (_) {}
+
+      // If testing an existing device, update its online state in DB
+      if (targetDevice) {
+        await this.prisma.mikroTikDevice.update({
+          where: { id: targetDevice.id },
+          data: {
+            isOnline: true,
+            status: DeviceStatus.ONLINE,
+            cpuLoad: resource.cpuLoad,
+            memoryFree: BigInt(resource.freeMemory),
+            memoryTotal: BigInt(resource.totalMemory),
+            diskFree: BigInt(resource.freeHdd),
+            diskTotal: BigInt(resource.totalHdd),
+            modelName: resource.boardName ?? null,
+            uptime: resource.uptime,
+            lastSyncAt: new Date(),
+            lastError: null,
+          },
+        });
+      }
+
+      const board = resource.boardName ?? 'MikroTik Router';
+      const rosVer = resource.version ? `v${resource.version}` : '';
+
+      return {
+        success: true,
+        stage: 'CONNECTED',
+        code: 'CONNECTED_SUCCESS',
+        latencyMs,
+        resource,
+        routerInfo: {
+          model: board,
+          version: resource.version,
+          uptime: resource.uptime,
+          cpuLoad: resource.cpuLoad,
+          freeMemory: resource.freeMemory,
+          totalMemory: resource.totalMemory,
+          protocol: isRest ? 'REST API' : 'Socket API',
+          port: targetPort,
+        },
+        message: `تم الاتصال والمصادقة بنجاح مع ${board} ${rosVer} (زمن الاستجابة: ${latencyMs}ms)`,
+      };
+    } catch (err: unknown) {
+      const latencyMs = Date.now() - startTime;
+      const rawError = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Direct connection test failed for ${host}: ${rawError}`);
+
+      let stage: 'NETWORK' | 'PORT' | 'TLS' | 'AUTH' | 'PROTOCOL' = 'NETWORK';
+      let code = 'CONNECTION_FAILED';
+      let message = rawError;
+
+      const lower = rawError.toLowerCase();
+
+      if (lower.includes('econnrefused')) {
+        stage = 'PORT';
+        code = 'PORT_CLOSED';
+        message = `المنفذ مغلق أو الخدمة غير مفعّلة في الراوتر (Connection Refused). تأكد من تفعيل خدمة API أو WWW في IP > Services.`;
+      } else if (lower.includes('timed out') || lower.includes('timeout') || lower.includes('etimedout')) {
+        stage = 'NETWORK';
+        code = 'HOST_TIMEOUT';
+        message = isPrivateIp
+          ? `انتهت مهلة الاتصال بالراوتر (${host}). العنوان محلي (LAN)؛ تأكد من تشغيل وكيل شبكي/VPN أو إمكانية الوصول من الخادم.`
+          : `انتهت مهلة محاولة الاتصال بالراوتر (${host}). تأكد من إمكانية الوصول للعنوان وجدار الحماية (Firewall).`;
+      } else if (lower.includes('ehostunreach') || lower.includes('enetunreach')) {
+        stage = 'NETWORK';
+        code = 'HOST_UNREACHABLE';
+        message = `المضيف غير قابل للوصول عبر الشبكة (Host Unreachable). تأكد من اتصال الراوتر وعنوان IP.`;
+      } else if (lower.includes('enotfound') || lower.includes('eai_again')) {
+        stage = 'NETWORK';
+        code = 'DNS_FAILED';
+        message = `تعذر حل اسم النطاق (DNS) للعنوان: ${host}`;
+      } else if (
+        lower.includes('invalid user name or password') ||
+        lower.includes('cannot log in') ||
+        lower.includes('401') ||
+        lower.includes('unauthorized') ||
+        lower.includes('login failed')
+      ) {
+        stage = 'AUTH';
+        code = 'AUTH_FAILED';
+        message = `فشلت المصادقة: اسم المستخدم أو كلمة المرور غير صحيحة، أو لا يملك المستخدم صلاحيات الاتصال في الراوتر.`;
+      } else if (lower.includes('403') || lower.includes('forbidden') || lower.includes('permission denied')) {
+        stage = 'AUTH';
+        code = 'PERMISSION_DENIED';
+        message = `تم رفض الوصول (403 Forbidden): المستخدم لا يملك الصلاحيات الكافية للوصول إلى واجهة API.`;
+      } else if (lower.includes('tls') || lower.includes('cert') || lower.includes('ssl') || lower.includes('handshake')) {
+        stage = 'TLS';
+        code = 'TLS_ERROR';
+        message = `خطأ في شهادة الأمان أو مصافحة SSL/TLS المشفرة مع الراوتر.`;
+      } else if (lower.includes('404') || lower.includes('not found')) {
+        stage = 'PROTOCOL';
+        code = 'REST_NOT_SUPPORTED';
+        message = `مسار REST API غير مدعوم على هذا الإصدار. يتطلب RouterOS v7.1 أو أحدث ومفعّل في Services.`;
+      }
+
+      if (targetDevice) {
+        await this.prisma.mikroTikDevice.update({
+          where: { id: targetDevice.id },
+          data: {
+            isOnline: false,
+            status: DeviceStatus.ERROR,
+            lastSyncAt: new Date(),
+            lastError: message,
+          },
+        });
+      }
+
+      return {
+        success: false,
+        stage,
+        code,
+        message,
+        latencyMs,
+        error: rawError,
+      };
+    }
+  }
+
   async testConnection(
     tenantId: string,
     id: string,
   ): Promise<{
     success: boolean;
+    stage?: string;
+    code?: string;
+    message?: string;
     latencyMs?: number;
     resource?: RouterResource;
+    routerInfo?: Record<string, unknown>;
     error?: string;
   }> {
     const device = await this.prisma.mikroTikDevice.findFirst({
@@ -286,72 +553,22 @@ export class DevicesService {
       });
     }
 
-    const startTime = Date.now();
+    const password = this.encryptionService.decrypt(
+      device.passwordEncrypted,
+      device.iv,
+      device.authTag,
+    );
 
-    try {
-      const client = await this.mikrotikClientFactory.getClient({
-        id: device.id,
-        name: device.name,
-        host: device.host,
-        apiPort: device.apiPort,
-        restPort: device.restPort,
-        useSsl: device.useSsl,
-        username: device.username,
-        passwordEncrypted: device.passwordEncrypted,
-        iv: device.iv,
-        authTag: device.authTag,
-        rosVersion: device.rosVersion,
-      });
-
-      const pingOk = await client.ping();
-      if (!pingOk) {
-        throw new Error('Ping probe failed to receive RouterOS response');
-      }
-
-      const resource = await client.getSystemResource();
-      const latencyMs = Date.now() - startTime;
-
-      await this.prisma.mikroTikDevice.update({
-        where: { id },
-        data: {
-          isOnline: true,
-          status: DeviceStatus.ONLINE,
-          cpuLoad: resource.cpuLoad,
-          memoryFree: BigInt(resource.freeMemory),
-          memoryTotal: BigInt(resource.totalMemory),
-          diskFree: BigInt(resource.freeHdd),
-          diskTotal: BigInt(resource.totalHdd),
-          modelName: resource.boardName ?? null,
-          uptime: resource.uptime,
-          lastSyncAt: new Date(),
-          lastError: null,
-        },
-      });
-
-      return {
-        success: true,
-        latencyMs,
-        resource,
-      };
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Connection test failed for device ${id} (${device.host}): ${errorMsg}`);
-
-      await this.prisma.mikroTikDevice.update({
-        where: { id },
-        data: {
-          isOnline: false,
-          status: DeviceStatus.ERROR,
-          lastSyncAt: new Date(),
-          lastError: errorMsg,
-        },
-      });
-
-      return {
-        success: false,
-        error: errorMsg,
-      };
-    }
+    return this.testDirectConnection(tenantId, {
+      id: device.id,
+      host: device.host,
+      apiPort: device.apiPort,
+      restPort: device.restPort,
+      useSsl: device.useSsl,
+      username: device.username,
+      password,
+      rosVersion: device.rosVersion,
+    });
   }
 
   async getSystemResource(tenantId: string, id: string): Promise<RouterResource> {

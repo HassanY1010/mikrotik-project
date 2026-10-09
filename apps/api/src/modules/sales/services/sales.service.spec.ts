@@ -31,6 +31,7 @@ describe('SalesService', () => {
           phone: '+967-1-234567',
           currency: 'SDG',
         }),
+        update: jest.fn().mockResolvedValue({}),
       },
       mikroTikDevice: {
         findFirst: jest.fn().mockResolvedValue({
@@ -62,6 +63,9 @@ describe('SalesService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         update: jest.fn(),
+      },
+      tenantWalletTransaction: {
+        create: jest.fn().mockResolvedValue({}),
       },
       $transaction: jest.fn(async (cb) => {
         return cb(prisma);

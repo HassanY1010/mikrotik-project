@@ -22,9 +22,12 @@ class ApiEndpoints {
 
   // Devices endpoint
   static const String devices = '/devices';
+  static const String deviceTestConnection = '/devices/test-connection';
+  static String deviceTestConnectionById(String id) => '/devices/$id/test-connection';
+  static String deviceItem(String id) => '/devices/$id';
   static String deviceEmergencyLock(String id) => '/devices/$id/emergency-lock';
   static String deviceAntiTethering(String id) => '/devices/$id/anti-tethering';
-  static String deviceTest(String id) => '/devices/$id/test';
+  static String deviceTest(String id) => '/devices/$id/test-connection';
 
   // Hotspot
   static String hotspotKick(String sessionId) => '/hotspot/sessions/$sessionId/kick';

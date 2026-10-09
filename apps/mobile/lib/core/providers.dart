@@ -184,7 +184,7 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
       final res = await apiClient.get(ApiEndpoints.devices);
       final raw = res.data;
       final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
-      if (list is List && list.isNotEmpty) {
+      if (list is List) {
         final devices = list.map((d) => RouterDeviceModel.fromJson(d as Map<String, dynamic>)).toList();
         if (devices.isNotEmpty && ref.read(selectedRouterIdProvider) == null) {
           ref.read(selectedRouterIdProvider.notifier).select(devices.first.id);
@@ -192,36 +192,50 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         return devices;
       }
     } catch (_) {}
-
-    // Graceful default device for display
-    final fallback = [
-      RouterDeviceModel(
-        id: 'dev-demo-1',
-        name: 'راوتر البرج الرئيسي',
-        host: '192.168.88.1',
-        modelName: 'RB4011iGS+5HacQ2HnD',
-        status: 'ONLINE',
-        isOnline: true,
-        cpuLoad: 18,
-        memoryFreeMb: 720,
-        memoryTotalMb: 1024,
-        diskFreeMb: 380,
-        diskTotalMb: 512,
-        uptime: '14d 06:32:15',
-        rosVersion: '7.14.3',
-        antiTetheringEnabled: true,
-        isLocked: false,
-      ),
-    ];
-    if (ref.read(selectedRouterIdProvider) == null) {
-      ref.read(selectedRouterIdProvider.notifier).select(fallback.first.id);
-    }
-    return fallback;
+    return [];
   }
 
   Future<void> refresh() async {
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() => _fetch());
+  }
+
+  Future<Map<String, dynamic>> testConnectionDirect(Map<String, dynamic> data) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(ApiEndpoints.deviceTestConnection, data: data);
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) {
+        return raw;
+      }
+      return {'success': true, 'message': 'تم الاتصال بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        return Map<String, dynamic>.from(e.response!.data as Map);
+      }
+      return {
+        'success': false,
+        'message': 'تعذر الاتصال بالخادم لاختبار الراوتر (${e.toString()})',
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> saveRouter(Map<String, dynamic> data, {String? id}) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = id != null
+          ? await apiClient.patch(ApiEndpoints.deviceItem(id), data: data)
+          : await apiClient.post(ApiEndpoints.devices, data: data);
+      await refresh();
+      return {'success': true, 'data': res.data};
+    } catch (e) {
+      String errorMsg = 'فشل حفظ بيانات الراوتر في السيرفر';
+      if (e is DioException && e.response?.data is Map) {
+        final map = e.response!.data as Map;
+        errorMsg = map['message']?.toString() ?? errorMsg;
+      }
+      return {'success': false, 'message': errorMsg};
+    }
   }
 
   Future<bool> toggleEmergencyLock(String deviceId, bool lock) async {
