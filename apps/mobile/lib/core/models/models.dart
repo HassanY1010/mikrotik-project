@@ -49,6 +49,7 @@ class HotspotProfileModel {
   final double price;
   final String? validity;
   final String? rateLimit;
+  final int availableCards;
 
   HotspotProfileModel({
     required this.id,
@@ -59,6 +60,7 @@ class HotspotProfileModel {
     required this.price,
     this.validity,
     this.rateLimit,
+    this.availableCards = 0,
   });
 
   factory HotspotProfileModel.fromJson(Map<String, dynamic> json) {
@@ -92,6 +94,7 @@ class HotspotProfileModel {
       price: rawPrice > 0 ? rawPrice : 200.0,
       validity: json['validity'] as String? ?? json['sessionTimeout'] as String?,
       rateLimit: json['rateLimit'] as String?,
+      availableCards: (json['availableCards'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -104,6 +107,7 @@ class HotspotProfileModel {
     'price': price,
     'validity': validity,
     'rateLimit': rateLimit,
+    'availableCards': availableCards,
   };
 }
 
@@ -140,7 +144,7 @@ class OfflineCardModel {
       id: json['id'] as String,
       serialNumber: json['serialNumber'] as String,
       username: json['username'] as String,
-      clearPassword: json['clearPassword'] as String?,
+      clearPassword: (json['clearPassword'] ?? json['password'] ?? json['pinCode']) as String?,
       profileId: json['profileId'] as String? ?? '',
       profileName: json['profileName'] as String? ?? 'Hotspot Card',
       deviceId: json['deviceId'] as String? ?? '',

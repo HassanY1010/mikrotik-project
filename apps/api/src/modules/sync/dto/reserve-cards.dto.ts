@@ -1,11 +1,11 @@
-import { IsInt, IsNotEmpty, IsUUID, Max, Min } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsInt, IsNotEmpty, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ReserveCardsDto {
-  @ApiProperty({ description: 'Target MikroTik router ID (UUID)' })
+  @ApiPropertyOptional({ description: 'Target MikroTik router ID (UUID, optional if bound to profile)' })
   @IsUUID()
-  @IsNotEmpty()
-  deviceId!: string;
+  @IsOptional()
+  deviceId?: string;
 
   @ApiProperty({ description: 'Hotspot profile ID to reserve cards from (UUID)' })
   @IsUUID()

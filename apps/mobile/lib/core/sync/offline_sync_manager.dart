@@ -135,17 +135,17 @@ class OfflineSyncManager {
     required int count,
     String? deviceId,
   }) async {
-    final effectiveDeviceId = (deviceId != null && deviceId.isNotEmpty)
-        ? deviceId
-        : '9ec647f8-3f39-43c6-814d-31c93957ab89';
+    final Map<String, dynamic> data = {
+      'profileId': profileId,
+      'quantity': count,
+    };
+    if (deviceId != null && deviceId.isNotEmpty) {
+      data['deviceId'] = deviceId;
+    }
 
     final response = await apiClient.post(
       ApiEndpoints.syncReserveCards,
-      data: {
-        'profileId': profileId,
-        'quantity': count,
-        'deviceId': effectiveDeviceId,
-      },
+      data: data,
     );
 
     final raw = response.data;

@@ -90,13 +90,27 @@ class LocalStorage {
 
   Future<void> addOfflineCards(List<OfflineCardModel> newCards) async {
     final current = getOfflineCards();
-    final Map<String, OfflineCardModel> map = {
-      for (final c in current) c.id: c,
-    };
+    final Map<String, OfflineCardModel> map = {};
+    for (final c in current) {
+      map[c.id] = c;
+      map[c.serialNumber] = c;
+    }
     for (final c in newCards) {
       map[c.id] = c;
+      map[c.serialNumber] = c;
     }
-    await saveOfflineCards(map.values.toList());
+    // Deduplicate by unique id
+    final unique = <String, OfflineCardModel>{};
+    for (final card in map.values) {
+      unique[card.id] = card;
+    }
+    await saveOfflineCards(unique.values.toList());
+  }
+
+  Future<void> removeOfflineCard(String cardId) async {
+    final cards = getOfflineCards();
+    cards.removeWhere((c) => c.id == cardId);
+    await saveOfflineCards(cards);
   }
 
   Future<void> updateCardStatus(String cardId, String status) async {

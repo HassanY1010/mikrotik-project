@@ -35,6 +35,9 @@ describe('SyncService', () => {
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      auditLog: {
+        create: jest.fn().mockResolvedValue({}),
+      },
       cardBatch: {
         findMany: jest.fn().mockResolvedValue([]),
       },
@@ -45,6 +48,7 @@ describe('SyncService', () => {
 
     encryptionService = {
       decrypt: jest.fn().mockReturnValue('1234'),
+      tryDecrypt: jest.fn().mockReturnValue('1234'),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -146,15 +150,26 @@ describe('SyncService', () => {
       );
     });
 
-    it('should throw BadRequestException if no cards are available to reserve', async () => {
+    it('should throw BadRequestException if available cards are fewer than requested quantity', async () => {
       prisma.hotspotProfile.findFirst.mockResolvedValue({ id: mockProfileId, name: '1hour' });
-      prisma.card.findMany.mockResolvedValue([]);
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-1',
+          serialNumber: 'SN-1',
+          username: 'u1',
+          passwordEncrypted: 'enc',
+          iv: 'iv',
+          authTag: 'tag',
+          pinCode: '111',
+          price: '200',
+        },
+      ]);
 
       await expect(
         service.reserveCards(mockTenantId, mockCashierId, {
           deviceId: mockDeviceId,
           profileId: mockProfileId,
-          quantity: 5,
+          quantity: 10,
         }),
       ).rejects.toThrow(BadRequestException);
     });

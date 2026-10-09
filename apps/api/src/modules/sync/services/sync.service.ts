@@ -41,9 +41,14 @@ export interface ReservedCardPayload {
   serialNumber: string;
   username: string;
   password: string;
+  clearPassword: string;
   pinCode: string;
   price: number;
+  currency: string;
+  profileId: string;
   profileName: string;
+  deviceId: string;
+  status: string;
   timeLimit: string | null;
   dataLimitBytes: number | null;
   qrPayload: string;
@@ -292,24 +297,33 @@ export class SyncService {
    */
   async reserveCards(
     tenantId: string,
-    _cashierId: string,
+    cashierId: string,
     dto: ReserveCardsDto,
   ): Promise<ReservedCardPayload[]> {
     const profile = await this.prisma.hotspotProfile.findFirst({
-      where: { id: dto.profileId, tenantId, deviceId: dto.deviceId },
+      where: {
+        id: dto.profileId,
+        tenantId,
+        ...(dto.deviceId ? { deviceId: dto.deviceId } : {}),
+      },
+      include: {
+        device: { select: { id: true, name: true } },
+      },
     });
 
     if (!profile) {
       throw new NotFoundException({
         code: 'PROFILE_NOT_FOUND',
-        message: 'Hotspot profile not found on this device',
+        message: 'باقة الهوتسبوت المحددة غير موجودة أو لا تنتمي لهذه المنشأة',
       });
     }
+
+    const effectiveDeviceId = dto.deviceId || profile.deviceId;
 
     const availableCards = await this.prisma.card.findMany({
       where: {
         tenantId,
-        deviceId: dto.deviceId,
+        deviceId: effectiveDeviceId,
         profileId: dto.profileId,
         status: CardStatus.AVAILABLE,
       },
@@ -320,27 +334,61 @@ export class SyncService {
     if (availableCards.length === 0) {
       throw new BadRequestException({
         code: 'NO_CARDS_AVAILABLE',
-        message: `No available cards in profile "${profile.name}" to reserve for offline cache`,
+        message: `لا توجد أي كروت متوفرة حالياً في باقة "${profile.name}" لحجزها لمحفظة الأوفلاين`,
       });
     }
 
+    if (availableCards.length < dto.quantity) {
+      throw new BadRequestException({
+        code: 'INSUFFICIENT_CARDS',
+        message: `الكروت المتوفرة في باقة "${profile.name}" (${availableCards.length} كرت) أقل من العدد المطلوب (${dto.quantity} كرت). يرجى توليد كروت إضافية أو حجز كمية أقل.`,
+      });
+    }
+
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: cashierId,
+          action: 'RESERVE_OFFLINE_CARDS',
+          entity: 'CARD',
+          entityId: dto.profileId,
+          newValues: {
+            quantity: dto.quantity,
+            cardIds: availableCards.map((c) => c.id),
+            profileName: profile.name,
+            deviceId: effectiveDeviceId,
+          },
+        },
+      });
+    } catch (_) {}
+
     return availableCards.map((card) => {
-      const password = this.encryptionService.decrypt(
+      let clearPassword = card.pinCode ?? card.username;
+      const decrypted = this.encryptionService.tryDecrypt(
         card.passwordEncrypted,
         card.iv,
         card.authTag,
       );
+      if (decrypted !== null) {
+        clearPassword = decrypted;
+      }
 
-      const qrPayload = `http://login.hotspot/login?username=${encodeURIComponent(card.username)}&password=${encodeURIComponent(password)}`;
+      const qrPayload = `http://login.hotspot/login?username=${encodeURIComponent(card.username)}&password=${encodeURIComponent(clearPassword)}`;
 
       return {
         id: card.id,
         serialNumber: card.serialNumber,
         username: card.username,
-        password,
-        pinCode: card.pinCode ?? password,
+        password: clearPassword,
+        clearPassword,
+        pinCode: card.pinCode ?? clearPassword,
         price: Number(card.price),
+        currency: 'SDG',
+        profileId: card.profileId,
         profileName: profile.name,
+        deviceId: card.deviceId,
+        status: card.status,
         timeLimit: card.timeLimit,
         dataLimitBytes: card.dataLimitBytes ? Number(card.dataLimitBytes) : null,
         qrPayload,
