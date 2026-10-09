@@ -26,6 +26,7 @@ describe('SyncService', () => {
         update: jest.fn().mockResolvedValue({ id: 'card-1', status: CardStatus.SOLD }),
       },
       saleTransaction: {
+        findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({ id: 'tx-sync-1' }),
       },
       mikroTikDevice: {

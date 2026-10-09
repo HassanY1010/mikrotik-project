@@ -127,7 +127,23 @@ export class SyncService {
           }
 
           if (card.status !== CardStatus.AVAILABLE) {
-            // Conflict: Card was already sold, active, or disabled on the server
+            // Check if this card was already recorded as sold by this cashier (idempotent retry)
+            const existingTx = await this.prisma.saleTransaction.findFirst({
+              where: { cardId, tenantId, cashierId },
+            });
+            if (existingTx) {
+              this.logger.log(
+                `Idempotent retry detected for mutation ${mutation.clientMutationId} on card ${card.serialNumber}`,
+              );
+              results.push({
+                clientMutationId: mutation.clientMutationId,
+                status: 'APPLIED',
+                serverEntityId: existingTx.id,
+              });
+              continue;
+            }
+
+            // Conflict: Card was already sold, active, or disabled by another cashier or process
             this.logger.warn(
               `Conflict on card ${card.serialNumber}: offline sale attempted but card is ${card.status}`,
             );

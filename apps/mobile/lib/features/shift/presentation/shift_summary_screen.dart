@@ -86,17 +86,26 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
       if (!mounted) return;
 
       String message;
-      if (pushResult.appliedCount > 0) {
-        message = 'تمت المزامنة بنجاح! تم اعتماد ${pushResult.appliedCount} عملية وتحديث تقرير الوردية.';
+      Color bgColor;
+      if (pushResult.errorMessage != null) {
+        message = 'تنبيه: تعذر إرسال بعض العمليات السحابية (${pushResult.errorMessage}). تم الاحتفاظ بها محلياً في رتل الانتظار.';
+        bgColor = Colors.amber.shade800;
+      } else if (pushResult.conflictCount > 0) {
+        message = 'تمت المزامنة: تم اعتماد ${pushResult.appliedCount} عملية، ويوجد ${pushResult.conflictCount} تعارض يحتاج مراجعة.';
+        bgColor = Colors.amber.shade800;
+      } else if (pushResult.appliedCount > 0) {
+        message = 'تمت المزامنة بنجاح! تم اعتماد ${pushResult.appliedCount} عملية في الخادم وتحديث تقرير الوردية.';
+        bgColor = const Color(0xFF0D9488);
       } else {
-        message = 'تم تحديث بيانات الوردية بنجاح من الخادم.';
+        message = 'تم التحقق من المزامنة: جميع العمليات محدثة ومتطابقة مع الخادم.';
+        bgColor = const Color(0xFF0D9488);
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor: const Color(0xFF0D9488),
-          duration: const Duration(seconds: 3),
+          backgroundColor: bgColor,
+          duration: const Duration(seconds: 4),
         ),
       );
     } catch (e) {

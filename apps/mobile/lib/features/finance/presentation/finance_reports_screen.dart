@@ -14,11 +14,26 @@ class FinanceReportsScreen extends ConsumerStatefulWidget {
 
 class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
   int? _selectedChartDayIndex;
+  bool _isSyncing = false;
 
   final NumberFormat _currencyFormat = NumberFormat('#,##0', 'en_US');
 
   String _formatAmount(double amount, String currency) {
     return '${_currencyFormat.format(amount)} $currency';
+  }
+
+  Future<void> _handleRefreshAndSync() async {
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+    try {
+      final syncManager = ref.read(syncManagerProvider);
+      await syncManager.pushPendingMutations();
+      await ref.read(financialReportProvider.notifier).refresh();
+    } catch (_) {
+      await ref.read(financialReportProvider.notifier).refresh();
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
   }
 
   @override
@@ -62,15 +77,21 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
-            onPressed: () => ref.read(financialReportProvider.notifier).refresh(),
-            tooltip: 'تحديث التقرير',
+            icon: _isSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                  )
+                : const Icon(Icons.sync, color: Color(0xFF38BDF8)),
+            onPressed: _isSyncing ? null : _handleRefreshAndSync,
+            tooltip: 'مزامنة وتحديث التقرير',
           ),
         ],
       ),
       body: reportAsync.when(
         data: (report) => RefreshIndicator(
-          onRefresh: () => ref.read(financialReportProvider.notifier).refresh(),
+          onRefresh: _handleRefreshAndSync,
           color: const Color(0xFF38BDF8),
           backgroundColor: const Color(0xFF1E293B),
           child: _buildReportContent(context, report),

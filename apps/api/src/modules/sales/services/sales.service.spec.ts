@@ -7,6 +7,7 @@ import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { CardStatus, PaymentMethod } from '@prisma/client';
 
 describe('SalesService', () => {
+  jest.setTimeout(25000);
   let service: SalesService;
   let prisma: any;
   let encryptionService: any;

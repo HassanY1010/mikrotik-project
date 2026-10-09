@@ -32,6 +32,66 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _isTogglingLock = false;
   bool _isTogglingAntiTethering = false;
   bool _isTestingConnection = false;
+  bool _isSyncing = false;
+
+  Future<void> _handleSyncAndRefresh() async {
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+
+    try {
+      final syncManager = ref.read(syncManagerProvider);
+
+      // 1. Push any pending offline sales mutations to server
+      final pushResult = await syncManager.pushPendingMutations();
+
+      // 2. Pull catalog and updates
+      await syncManager.pullCatalog();
+
+      // 3. Refresh providers
+      ref.invalidate(routersProvider);
+      ref.invalidate(activeSessionsProvider);
+      ref.invalidate(financialReportProvider);
+      ref.read(pendingMutationsProvider.notifier).refresh();
+      ref.read(offlineCardsProvider.notifier).refresh();
+
+      if (!mounted) return;
+
+      String message;
+      Color bgColor;
+      if (pushResult.errorMessage != null) {
+        message = 'تم تحديث البيانات، لكن تعذر إرسال العمليات المعلقة (${pushResult.errorMessage})؛ تم الاحتفاظ بها محلياً.';
+        bgColor = Colors.amber.shade800;
+      } else if (pushResult.conflictCount > 0) {
+        message = 'تمت المزامنة: اعتُمدت ${pushResult.appliedCount} عملية، ويوجد ${pushResult.conflictCount} تعارض.';
+        bgColor = Colors.amber.shade800;
+      } else if (pushResult.appliedCount > 0) {
+        message = 'تمت المزامنة بنجاح! تم اعتماد ${pushResult.appliedCount} عملية ورفع مبيعات اليوم.';
+        bgColor = const Color(0xFF16A34A);
+      } else {
+        message = 'تم تحديث ومزامنة بيانات لوحة التحكم بنجاح.';
+        bgColor = const Color(0xFF16A34A);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: bgColor,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تعذر إتمام المزامنة: $e. تم الاحتفاظ بالبيانات المحلية بأمان.'),
+          backgroundColor: Colors.red.shade800,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
 
   void _navigateToRadar() {
     if (widget.onNavigateTab != null) {
@@ -265,22 +325,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
-            tooltip: 'تحديث البيانات',
-            onPressed: () {
-              ref.invalidate(routersProvider);
-              ref.invalidate(activeSessionsProvider);
-              ref.invalidate(financialReportProvider);
-            },
+            icon: _isSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                  )
+                : const Icon(Icons.sync, color: Color(0xFF38BDF8)),
+            tooltip: 'مزامنة وتحديث البيانات',
+            onPressed: _isSyncing ? null : _handleSyncAndRefresh,
           ),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async {
-          ref.invalidate(routersProvider);
-          ref.invalidate(activeSessionsProvider);
-          ref.invalidate(financialReportProvider);
-        },
+        onRefresh: _handleSyncAndRefresh,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),

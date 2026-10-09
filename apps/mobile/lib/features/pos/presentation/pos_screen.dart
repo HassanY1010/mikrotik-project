@@ -20,7 +20,58 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   final _customerPhoneController = TextEditingController();
   final _customerNameController = TextEditingController();
   bool _isProcessing = false;
+  bool _isSyncing = false;
   final _uuid = const Uuid();
+
+  Future<void> _handleSync() async {
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+
+    try {
+      final syncManager = ref.read(syncManagerProvider);
+      final pushResult = await syncManager.pushPendingMutations();
+      await syncManager.pullCatalog();
+      await ref.read(profilesProvider.notifier).fetchProfiles();
+      ref.read(offlineCardsProvider.notifier).refresh();
+      ref.read(pendingMutationsProvider.notifier).refresh();
+
+      if (!mounted) return;
+
+      String message;
+      Color bgColor;
+      if (pushResult.errorMessage != null) {
+        message = 'تم تحديث الباقات، ولكن تعذر إرسال العمليات المعلقة (${pushResult.errorMessage})؛ تم الاحتفاظ بها محلياً.';
+        bgColor = Colors.amber.shade800;
+      } else if (pushResult.conflictCount > 0) {
+        message = 'تمت المزامنة: اعتُمدت ${pushResult.appliedCount} عملية، ويوجد ${pushResult.conflictCount} تعارض.';
+        bgColor = Colors.amber.shade800;
+      } else if (pushResult.appliedCount > 0) {
+        message = 'تمت المزامنة بنجاح! تم اعتماد ${pushResult.appliedCount} عملية بيع في الخادم وتحديث الباقات.';
+        bgColor = const Color(0xFF0D9488);
+      } else {
+        message = 'تم تحديث قائمة الباقات والمخزن بنجاح.';
+        bgColor = const Color(0xFF0D9488);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: bgColor,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تعذر إتمام المزامنة: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -188,17 +239,15 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             ],
           ),
           IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'تحديث الباقات',
-            onPressed: () {
-              ref.read(profilesProvider.notifier).fetchProfiles();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('تم تحديث قائمة الباقات بنجاح'),
-                  duration: Duration(seconds: 1),
-                ),
-              );
-            },
+            icon: _isSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.sync),
+            tooltip: 'مزامنة وتحديث الباقات',
+            onPressed: _isSyncing ? null : _handleSync,
           ),
         ],
       ),

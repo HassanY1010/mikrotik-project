@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { StatCard } from '../../components/common/StatCard';
 import { apiClient } from '../../core/api/api-client';
+import { useToast } from '../../core/context/ToastContext';
 import {
   CreditCard,
   DollarSign,
@@ -20,6 +21,7 @@ interface DashboardViewProps {
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardData>({
     kpis: {
@@ -34,12 +36,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     recentSales: [],
   });
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (isManual = false) => {
     setLoading(true);
     try {
       const res = await apiClient.get<DashboardData>('/analytics/dashboard');
       if (res && res.kpis) {
         setData(res);
+        if (isManual) showToast('تم تحديث ومزامنة بيانات لوحة التحكم بنجاح', 'success');
         return;
       }
     } catch {
@@ -123,9 +126,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button className="btn btn-outline" onClick={fetchDashboardData} disabled={loading}>
-            <RefreshCw size={16} className={loading ? 'spin' : ''} />
-            تحديث البيانات
+          <button className="btn btn-outline" onClick={() => fetchDashboardData(true)} disabled={loading}>
+            <RefreshCw size={16} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+            {loading ? 'جاري التحديث...' : 'تحديث البيانات'}
           </button>
           <button className="btn btn-primary" onClick={() => onNavigate('pos')}>
             <ShoppingBag size={16} />

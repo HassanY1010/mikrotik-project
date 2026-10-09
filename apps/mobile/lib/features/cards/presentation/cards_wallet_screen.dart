@@ -27,6 +27,58 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
     });
   }
 
+  bool _isSyncing = false;
+
+  Future<void> _handleSync() async {
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+
+    try {
+      final syncManager = ref.read(syncManagerProvider);
+      final pushResult = await syncManager.pushPendingMutations();
+      await syncManager.pullCatalog();
+      ref.read(offlineCardsProvider.notifier).refresh();
+      ref.read(pendingMutationsProvider.notifier).refresh();
+      await ref.read(profilesProvider.notifier).fetchProfiles();
+
+      if (!mounted) return;
+
+      String message;
+      Color bgColor;
+      if (pushResult.errorMessage != null) {
+        message = 'تم تحديث المحفظة، ولكن تعذر إرسال العمليات السحابية (${pushResult.errorMessage})؛ تم الاحتفاظ بها محلياً.';
+        bgColor = Colors.amber.shade800;
+      } else if (pushResult.conflictCount > 0) {
+        message = 'تمت المزامنة: اعتُمدت ${pushResult.appliedCount} عملية، ويوجد ${pushResult.conflictCount} تعارض.';
+        bgColor = Colors.amber.shade800;
+      } else if (pushResult.appliedCount > 0) {
+        message = 'تمت المزامنة بنجاح! تم اعتماد ${pushResult.appliedCount} عملية وتحديث كروت المحفظة.';
+        bgColor = const Color(0xFF0D9488);
+      } else {
+        message = 'تمت مزامنة وتحديث محفظة الكروت بنجاح.';
+        bgColor = const Color(0xFF0D9488);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: bgColor,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تعذر إتمام المزامنة: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -149,7 +201,8 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
   void _showExportPdfDialog(List<OfflineCardModel> exportCards) {
     if (exportCards.isEmpty) return;
     CardPdfLayout selectedLayout = CardPdfLayout.a4Grid10;
-    final networkNameController = TextEditingController(text: 'شبكة الواي فاي');
+    String selectedTheme = 'FOOTBALL';
+    final networkNameController = TextEditingController(text: 'سودافاي | SudaFi Net');
 
     showModalBottomSheet(
       context: context,
@@ -239,6 +292,58 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                 ],
               ),
               const SizedBox(height: 14),
+              const Text(
+                'تصميم وثيم الكرت المختار:',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFE2E8F0)),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  ChoiceChip(
+                    label: const Text('كرة القدم الذهبي'),
+                    selected: selectedTheme == 'FOOTBALL',
+                    selectedColor: const Color(0xFF065F46),
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedTheme = 'FOOTBALL');
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('عيد مبارك الملكي'),
+                    selected: selectedTheme == 'EID_MUBARAK',
+                    selectedColor: const Color(0xFF1E3A8A),
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedTheme = 'EID_MUBARAK');
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('الفيروزي الحديث'),
+                    selected: selectedTheme == 'TURQUOISE',
+                    selectedColor: const Color(0xFF0F766E),
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedTheme = 'TURQUOISE');
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('تذكرة كلاسيكية'),
+                    selected: selectedTheme == 'TICKET',
+                    selectedColor: const Color(0xFF4338CA),
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedTheme = 'TICKET');
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('مدمج أنيق'),
+                    selected: selectedTheme == 'COMPACT',
+                    selectedColor: const Color(0xFF334155),
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedTheme = 'COMPACT');
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
               TextField(
                 controller: networkNameController,
                 decoration: InputDecoration(
@@ -272,8 +377,9 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                       cards: exportCards,
                       networkName: networkNameController.text.trim().isNotEmpty
                           ? networkNameController.text.trim()
-                          : 'SudaFi Network',
+                          : 'سودافاي | SudaFi Net',
                       layout: selectedLayout,
+                      themePreset: selectedTheme,
                     );
                   } catch (e) {
                     if (context.mounted) {
@@ -301,13 +407,14 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                       cards: exportCards,
                       networkName: networkNameController.text.trim().isNotEmpty
                           ? networkNameController.text.trim()
-                          : 'SudaFi Network',
+                          : 'سودافاي | SudaFi Net',
                       layout: selectedLayout,
+                      themePreset: selectedTheme,
                     );
                   } catch (e) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('تعذر فتح المعاينة: $e'), backgroundColor: Colors.red),
+                        SnackBar(content: Text('تعذر فتح الطباعة: $e'), backgroundColor: Colors.red),
                       );
                     }
                   }
@@ -345,6 +452,17 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
         title: const Text('محفظة الكروت المحلية'),
         actions: [
           IconButton(
+            icon: _isSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0D9488)),
+                  )
+                : const Icon(Icons.sync, color: Color(0xFF0D9488)),
+            tooltip: 'مزامنة الكروت والعمليات',
+            onPressed: _isSyncing ? null : _handleSync,
+          ),
+          IconButton(
             icon: const Icon(Icons.picture_as_pdf, color: Color(0xFFF59E0B)),
             tooltip: 'تصدير الكروت كـ PDF لمركز الطباعة',
             onPressed: filtered.isEmpty ? null : () => _showExportPdfDialog(filtered),
@@ -358,10 +476,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async {
-          ref.read(offlineCardsProvider.notifier).refresh();
-          await ref.read(profilesProvider.notifier).fetchProfiles();
-        },
+        onRefresh: _handleSync,
         child: Column(
           children: [
             // Search & Filter Section

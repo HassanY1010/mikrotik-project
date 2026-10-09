@@ -29,7 +29,7 @@ export const SalesInvoicesView: React.FC = () => {
   const [refundReason, setRefundReason] = useState('خطأ في إدخال الباقة من الكاشير');
   const [isRefunding, setIsRefunding] = useState(false);
 
-  const fetchSales = async () => {
+  const fetchSales = async (isManual = false) => {
     setLoading(true);
     try {
       const data = await apiClient.get<SaleTransactionItem[] | { data: SaleTransactionItem[]; total: number }>(
@@ -44,6 +44,9 @@ export const SalesInvoicesView: React.FC = () => {
         ? (data as { data: SaleTransactionItem[] }).data
         : [];
       setSales(items);
+      if (isManual) {
+        showToast('تم تحديث قائمة فواتير المبيعات من الخادم بنجاح', 'success');
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحميل سجل المبيعات من الخادم';
       showToast(msg, 'error');
@@ -54,7 +57,7 @@ export const SalesInvoicesView: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchSales();
+    fetchSales(false);
   }, []);
 
   const handleRefund = async () => {
@@ -93,9 +96,9 @@ export const SalesInvoicesView: React.FC = () => {
           </p>
         </div>
 
-        <button className="btn btn-outline" onClick={fetchSales} disabled={loading}>
-          <RefreshCw size={16} />
-          تحديث الفواتير
+        <button className="btn btn-outline" onClick={() => fetchSales(true)} disabled={loading}>
+          <RefreshCw size={16} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+          {loading ? 'جاري التحديث...' : 'تحديث الفواتير'}
         </button>
       </div>
 
@@ -111,7 +114,7 @@ export const SalesInvoicesView: React.FC = () => {
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && fetchSales()}
           />
-          <button className="btn btn-primary btn-sm" onClick={fetchSales}>
+          <button className="btn btn-primary btn-sm" onClick={() => fetchSales()}>
             بحث
           </button>
         </div>

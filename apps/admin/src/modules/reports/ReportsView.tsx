@@ -10,11 +10,14 @@ export const ReportsView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
 
-  const fetchShift = async () => {
+  const fetchShift = async (isManual = false) => {
     setLoading(true);
     try {
       const data = await apiClient.get<ShiftSummaryData>('/sales/shift-summary');
       setShiftSummary(data);
+      if (isManual) {
+        showToast('تم تحديث ومزامنة تقرير الوردية من الخادم بنجاح', 'success');
+      }
     } catch {
       setShiftSummary({
         totalRevenue: 0,
@@ -22,13 +25,16 @@ export const ReportsView: React.FC = () => {
         currency: 'SDG',
         profileBreakdown: [],
       });
+      if (isManual) {
+        showToast('تعذر الاتصال بالخادم لتحديث تقرير الوردية', 'error');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchShift();
+    fetchShift(false);
   }, []);
 
   const downloadCsv = async (endpoint: string, filename: string) => {
@@ -66,9 +72,9 @@ export const ReportsView: React.FC = () => {
           </p>
         </div>
 
-        <button className="btn btn-outline" onClick={fetchShift} disabled={loading}>
-          <RefreshCw size={16} />
-          تحديث التقرير
+        <button className="btn btn-outline" onClick={() => fetchShift(true)} disabled={loading}>
+          <RefreshCw size={16} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+          {loading ? 'جاري التحديث...' : 'تحديث التقرير'}
         </button>
       </div>
 
