@@ -674,12 +674,34 @@ export class CardsService {
       page?: number;
     },
   ) {
+    // 1. Resolve tenantId if omitted or empty
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const firstTenant = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (firstTenant) resolvedTenantId = firstTenant.id;
+    }
+
     const where: Prisma.CardWhereInput = {
-      tenantId,
+      tenantId: resolvedTenantId,
     };
 
+    // 2. Status filtering with business logic mapping
     if (query.status && query.status !== 'ALL') {
-      where.status = query.status as CardStatus;
+      const s = query.status.toUpperCase();
+      if (s === 'AVAILABLE') {
+        where.status = { in: [CardStatus.AVAILABLE, CardStatus.GENERATED] };
+      } else if (s === 'SOLD') {
+        where.status = CardStatus.SOLD;
+      } else if (s === 'ACTIVE' || s === 'USED') {
+        where.status = CardStatus.ACTIVE;
+      } else if (s === 'DISABLED' || s === 'CANCELLED' || s === 'EXPIRED') {
+        where.status = { in: [CardStatus.DISABLED, CardStatus.EXPIRED] };
+      } else if (Object.values(CardStatus).includes(s as CardStatus)) {
+        where.status = s as CardStatus;
+      }
     }
 
     if (query.profileId) {
@@ -694,54 +716,134 @@ export class CardsService {
       where.batchId = query.batchId;
     }
 
-    if (query.search) {
+    // 3. Multi-field search across code, serial, pin, profile name, and batch number
+    if (query.search && query.search.trim().length > 0) {
       const q = query.search.trim();
       where.OR = [
         { serialNumber: { contains: q, mode: 'insensitive' } },
         { username: { contains: q, mode: 'insensitive' } },
+        { pinCode: { contains: q, mode: 'insensitive' } },
+        { profile: { name: { contains: q, mode: 'insensitive' } } },
+        { batch: { batchNumber: { contains: q, mode: 'insensitive' } } },
       ];
     }
 
-    const limit = query.limit ? Number(query.limit) : 100;
-    const page = query.page ? Number(query.page) : 1;
+    const limit = query.limit ? Math.max(1, Math.min(200, Number(query.limit))) : 50;
+    const page = query.page ? Math.max(1, Number(query.page)) : 1;
     const skip = (page - 1) * limit;
 
-    const cards = await this.prisma.card.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      skip,
-      include: {
-        profile: {
-          select: { id: true, name: true, rateLimit: true },
+    // 4. Parallel execution of paginated cards and accurate counts
+    const [
+      cards,
+      totalMatching,
+      totalInventory,
+      availableCount,
+      soldCount,
+      activeCount,
+      disabledCount,
+    ] = await Promise.all([
+      this.prisma.card.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+        include: {
+          profile: {
+            select: { id: true, name: true, rateLimit: true },
+          },
+          device: {
+            select: { id: true, name: true },
+          },
+          batch: {
+            select: { batchNumber: true },
+          },
+          sales: {
+            select: { invoiceNumber: true, amount: true, paymentMethod: true, createdAt: true },
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+          },
         },
-        device: {
-          select: { id: true, name: true },
+      }),
+      this.prisma.card.count({ where }),
+      this.prisma.card.count({ where: { tenantId: resolvedTenantId } }),
+      this.prisma.card.count({
+        where: {
+          tenantId: resolvedTenantId,
+          status: { in: [CardStatus.AVAILABLE, CardStatus.GENERATED] },
         },
-      },
+      }),
+      this.prisma.card.count({
+        where: { tenantId: resolvedTenantId, status: CardStatus.SOLD },
+      }),
+      this.prisma.card.count({
+        where: { tenantId: resolvedTenantId, status: CardStatus.ACTIVE },
+      }),
+      this.prisma.card.count({
+        where: {
+          tenantId: resolvedTenantId,
+          status: { in: [CardStatus.DISABLED, CardStatus.EXPIRED] },
+        },
+      }),
+    ]);
+
+    // 5. Decrypt password credentials for each card
+    const formattedCards = cards.map((c) => {
+      let clearPassword = c.pinCode ?? c.username;
+      const decrypted = this.encryptionService.tryDecrypt(
+        c.passwordEncrypted,
+        c.iv,
+        c.authTag,
+      );
+      if (decrypted !== null) {
+        clearPassword = decrypted;
+      }
+
+      return {
+        id: c.id,
+        serialNumber: c.serialNumber,
+        username: c.username,
+        pinCode: c.pinCode,
+        clearPassword,
+        price: Number(c.price),
+        status: c.status,
+        validityDays: c.validityDays,
+        timeLimit: c.timeLimit,
+        dataLimitBytes: c.dataLimitBytes ? Number(c.dataLimitBytes) : null,
+        syncStatus: c.syncStatus,
+        soldAt: c.soldAt?.toISOString() ?? null,
+        createdAt: c.createdAt.toISOString(),
+        batchNumber: c.batch?.batchNumber ?? null,
+        invoiceNumber: c.sales[0]?.invoiceNumber ?? null,
+        profile: c.profile
+          ? {
+              id: c.profile.id,
+              name: c.profile.name,
+              displayName: c.profile.name,
+              rateLimit: c.profile.rateLimit,
+            }
+          : undefined,
+        device: c.device
+          ? {
+              id: c.device.id,
+              name: c.device.name,
+            }
+          : undefined,
+      };
     });
 
-    return cards.map((c) => ({
-      id: c.id,
-      serialNumber: c.serialNumber,
-      username: c.username,
-      pinCode: c.pinCode,
-      price: Number(c.price),
-      status: c.status,
-      createdAt: c.createdAt.toISOString(),
-      profile: c.profile
-        ? {
-            id: c.profile.id,
-            name: c.profile.name,
-            displayName: c.profile.name,
-          }
-        : undefined,
-      device: c.device
-        ? {
-            id: c.device.id,
-            name: c.device.name,
-          }
-        : undefined,
-    }));
+    return {
+      data: formattedCards,
+      total: totalMatching,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(totalMatching / limit)),
+      counts: {
+        total: totalInventory,
+        available: availableCount,
+        sold: soldCount,
+        active: activeCount,
+        disabled: disabledCount,
+      },
+    };
   }
 }

@@ -31,6 +31,7 @@ class ApiEndpoints {
 
   // Cards & Batch Studio
   static const String cards = '/cards';
+  static String cardStatus(String id) => '/cards/$id/status';
   static const String cardBatches = '/cards/batches';
   static const String cardTemplates = '/card-templates';
 

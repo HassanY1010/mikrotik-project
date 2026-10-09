@@ -60,4 +60,29 @@ class ApiClient {
   }) async {
     return dio.post<T>(path, data: data, queryParameters: queryParameters);
   }
+
+  Future<Response<T>> patch<T>(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    return dio.patch<T>(path, data: data, queryParameters: queryParameters);
+  }
+
+  Future<Response<T>> put<T>(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    return dio.put<T>(path, data: data, queryParameters: queryParameters);
+  }
+
+  Future<Response<T>> delete<T>(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    return dio.delete<T>(path, data: data, queryParameters: queryParameters);
+  }
 }
+

@@ -50,7 +50,8 @@ export class CardsController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'List of cards' })
   async findAll(
-    @CurrentUser('tenantId') tenantId?: string,
+    @CurrentUser('tenantId') userTenantId?: string,
+    @TenantId() headerTenantId?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
     @Query('profileId') profileId?: string,
@@ -59,7 +60,8 @@ export class CardsController {
     @Query('limit') limit?: number,
     @Query('page') page?: number,
   ) {
-    return this.cardsService.findAllCards(tenantId ?? '', {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.findAllCards(effectiveTenantId, {
       status,
       search,
       profileId,
@@ -169,15 +171,24 @@ export class CardsController {
   }
 
   @Patch(':id/status')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'Update card status (e.g. DISABLE or RE-ENABLE) and sync to router' })
   @ApiResponse({ status: 200, description: 'Card status updated' })
   @ApiResponse({ status: 400, description: 'Invalid status transition' })
   async updateCardStatus(
-    @TenantId() tenantId: string,
+    @TenantId() headerTenantId: string,
+    @CurrentUser('tenantId') userTenantId: string,
     @Param('id') id: string,
     @Body() dto: UpdateCardStatusDto,
   ): Promise<CardItemResponse> {
-    return this.cardsService.updateCardStatus(tenantId, id, dto);
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.updateCardStatus(effectiveTenantId, id, dto);
   }
 }

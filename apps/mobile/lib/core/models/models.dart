@@ -169,6 +169,128 @@ class OfflineCardModel {
   String get loginUrl => 'http://login.hotspot/login?username=$username&password=${clearPassword ?? username}';
 }
 
+/// Real HotSpot prepaid card model from API/Database
+class CardModel {
+  final String id;
+  final String serialNumber;
+  final String username;
+  final String? clearPassword;
+  final String? pinCode;
+  final double price;
+  final String status;
+  final String? profileId;
+  final String profileName;
+  final String? deviceName;
+  final String? batchNumber;
+  final String? invoiceNumber;
+  final String? timeLimit;
+  final String? rateLimit;
+  final DateTime createdAt;
+  final DateTime? soldAt;
+
+  CardModel({
+    required this.id,
+    required this.serialNumber,
+    required this.username,
+    this.clearPassword,
+    this.pinCode,
+    required this.price,
+    required this.status,
+    this.profileId,
+    required this.profileName,
+    this.deviceName,
+    this.batchNumber,
+    this.invoiceNumber,
+    this.timeLimit,
+    this.rateLimit,
+    required this.createdAt,
+    this.soldAt,
+  });
+
+  factory CardModel.fromJson(Map<String, dynamic> json) {
+    final profile = json['profile'] as Map<String, dynamic>?;
+    final device = json['device'] as Map<String, dynamic>?;
+    return CardModel(
+      id: json['id'] as String? ?? '',
+      serialNumber: json['serialNumber'] as String? ?? '',
+      username: json['username'] as String? ?? '',
+      clearPassword: json['clearPassword'] as String? ?? json['pinCode'] as String?,
+      pinCode: json['pinCode'] as String?,
+      price: (json['price'] is num) ? (json['price'] as num).toDouble() : (double.tryParse(json['price']?.toString() ?? '0') ?? 0.0),
+      status: json['status'] as String? ?? 'AVAILABLE',
+      profileId: profile?['id'] as String? ?? json['profileId'] as String?,
+      profileName: profile?['displayName'] as String? ?? profile?['name'] as String? ?? json['profileName'] as String? ?? 'باقة هوتسبوت',
+      deviceName: device?['name'] as String? ?? json['deviceName'] as String?,
+      batchNumber: json['batchNumber'] as String?,
+      invoiceNumber: json['invoiceNumber'] as String?,
+      timeLimit: json['timeLimit'] as String?,
+      rateLimit: profile?['rateLimit'] as String?,
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now() : DateTime.now(),
+      soldAt: json['soldAt'] != null ? DateTime.tryParse(json['soldAt'] as String) : null,
+    );
+  }
+
+  String get loginUrl => 'http://login.hotspot/login?username=$username&password=${clearPassword ?? pinCode ?? username}';
+}
+
+/// Cards inventory response state with pagination and status counts
+class CardsInventoryState {
+  final List<CardModel> cards;
+  final int totalMatching;
+  final int totalInventory;
+  final int availableCount;
+  final int soldCount;
+  final int activeCount;
+  final int disabledCount;
+  final bool isLoading;
+  final String? errorMessage;
+  final int page;
+  final int totalPages;
+
+  CardsInventoryState({
+    required this.cards,
+    required this.totalMatching,
+    required this.totalInventory,
+    this.availableCount = 0,
+    this.soldCount = 0,
+    this.activeCount = 0,
+    this.disabledCount = 0,
+    this.isLoading = false,
+    this.errorMessage,
+    this.page = 1,
+    this.totalPages = 1,
+  });
+
+  CardsInventoryState copyWith({
+    List<CardModel>? cards,
+    int? totalMatching,
+    int? totalInventory,
+    int? availableCount,
+    int? soldCount,
+    int? activeCount,
+    int? disabledCount,
+    bool? isLoading,
+    String? errorMessage,
+    int? page,
+    int? totalPages,
+  }) {
+    return CardsInventoryState(
+      cards: cards ?? this.cards,
+      totalMatching: totalMatching ?? this.totalMatching,
+      totalInventory: totalInventory ?? this.totalInventory,
+      availableCount: availableCount ?? this.availableCount,
+      soldCount: soldCount ?? this.soldCount,
+      activeCount: activeCount ?? this.activeCount,
+      disabledCount: disabledCount ?? this.disabledCount,
+      isLoading: isLoading ?? this.isLoading,
+      errorMessage: errorMessage,
+      page: page ?? this.page,
+      totalPages: totalPages ?? this.totalPages,
+    );
+  }
+}
+
+
 /// Offline mutation item queued for background sync
 class OfflineMutationModel {
   final String clientMutationId;

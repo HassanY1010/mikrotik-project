@@ -487,3 +487,189 @@ final walletProvider = AsyncNotifierProvider<WalletNotifier, WalletDataModel>(
   WalletNotifier.new,
 );
 
+// Cards Inventory State Notifier & Provider
+class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
+  String _searchQuery = '';
+  String _selectedStatus = 'ALL';
+  int _currentPage = 1;
+  static const int _limit = 50;
+
+  String get currentSearch => _searchQuery;
+  String get currentStatus => _selectedStatus;
+  int get currentPage => _currentPage;
+
+  @override
+  CardsInventoryState build() {
+    Future.microtask(() => loadInventory());
+    return CardsInventoryState(
+      cards: [],
+      totalMatching: 0,
+      totalInventory: 0,
+      isLoading: true,
+    );
+  }
+
+  Future<void> loadInventory({
+    String? search,
+    String? status,
+    int? page,
+    bool isRefresh = false,
+  }) async {
+    if (search != null) _searchQuery = search;
+    if (status != null) _selectedStatus = status;
+    if (page != null) _currentPage = page;
+
+    state = state.copyWith(isLoading: true, errorMessage: null);
+
+    final apiClient = ref.read(apiClientProvider);
+    final storage = ref.read(localStorageProvider);
+
+    try {
+      final queryParams = <String, dynamic>{
+        'page': _currentPage,
+        'limit': _limit,
+      };
+      if (_searchQuery.trim().isNotEmpty) {
+        queryParams['search'] = _searchQuery.trim();
+      }
+      if (_selectedStatus != 'ALL') {
+        queryParams['status'] = _selectedStatus;
+      }
+
+      final response = await apiClient.get(
+        ApiEndpoints.cards,
+        queryParameters: queryParams,
+      );
+
+      final rawData = response.data;
+      Map<String, dynamic> dataMap = {};
+      if (rawData is Map<String, dynamic>) {
+        if (rawData['data'] is Map<String, dynamic>) {
+          dataMap = rawData['data'] as Map<String, dynamic>;
+        } else {
+          dataMap = rawData;
+        }
+      }
+
+      List<CardModel> loadedCards = [];
+      int totalMatching = 0;
+      int totalInventory = 0;
+      int availableCount = 0;
+      int soldCount = 0;
+      int activeCount = 0;
+      int disabledCount = 0;
+      int totalPages = 1;
+
+      if (dataMap.containsKey('data') && dataMap['data'] is List) {
+        final rawCards = dataMap['data'] as List;
+        loadedCards = rawCards
+            .map((c) => CardModel.fromJson(c as Map<String, dynamic>))
+            .toList();
+        totalMatching = dataMap['total'] as int? ?? loadedCards.length;
+        totalPages = dataMap['totalPages'] as int? ?? 1;
+
+        if (dataMap['counts'] is Map) {
+          final c = dataMap['counts'] as Map;
+          totalInventory = c['totalInventory'] as int? ?? totalMatching;
+          availableCount = c['available'] as int? ?? 0;
+          soldCount = c['sold'] as int? ?? 0;
+          activeCount = c['active'] as int? ?? 0;
+          disabledCount = c['disabled'] as int? ?? 0;
+        } else {
+          totalInventory = totalMatching;
+        }
+      } else if (rawData is List) {
+        loadedCards = rawData
+            .map((c) => CardModel.fromJson(c as Map<String, dynamic>))
+            .toList();
+        totalMatching = loadedCards.length;
+        totalInventory = loadedCards.length;
+      }
+
+      state = CardsInventoryState(
+        cards: loadedCards,
+        totalMatching: totalMatching,
+        totalInventory: totalInventory,
+        availableCount: availableCount,
+        soldCount: soldCount,
+        activeCount: activeCount,
+        disabledCount: disabledCount,
+        isLoading: false,
+        errorMessage: null,
+        page: _currentPage,
+        totalPages: totalPages,
+      );
+    } catch (e) {
+      // Offline fallback: try reading from offline storage if available
+      final offlineCards = storage.getOfflineCards();
+      if (offlineCards.isNotEmpty) {
+        final query = _searchQuery.trim().toLowerCase();
+        final filtered = offlineCards.where((c) {
+          if (_selectedStatus != 'ALL' && c.status != _selectedStatus) {
+            return false;
+          }
+          if (query.isNotEmpty) {
+            return c.username.toLowerCase().contains(query) ||
+                c.serialNumber.toLowerCase().contains(query) ||
+                c.profileName.toLowerCase().contains(query);
+          }
+          return true;
+        }).toList();
+
+        final converted = filtered.map((c) => CardModel(
+          id: c.id,
+          serialNumber: c.serialNumber,
+          username: c.username,
+          clearPassword: c.clearPassword,
+          pinCode: null,
+          price: c.price,
+          status: c.status,
+          profileName: c.profileName,
+          createdAt: DateTime.now(),
+        )).toList();
+
+        state = CardsInventoryState(
+          cards: converted,
+          totalMatching: converted.length,
+          totalInventory: offlineCards.length,
+          availableCount: offlineCards.where((c) => c.status == 'AVAILABLE').length,
+          soldCount: offlineCards.where((c) => c.status == 'SOLD').length,
+          activeCount: offlineCards.where((c) => c.status == 'ACTIVE' || c.status == 'USED').length,
+          disabledCount: offlineCards.where((c) => c.status == 'DISABLED' || c.status == 'CANCELLED').length,
+          isLoading: false,
+          errorMessage: null,
+          page: 1,
+          totalPages: 1,
+        );
+      } else {
+        state = state.copyWith(
+          isLoading: false,
+          errorMessage: 'تعذر الاتصال بالخادم لجلب بيانات المخزون. يرجى التحقق من الشبكة وإعادة المحاولة.',
+        );
+      }
+    }
+  }
+
+  Future<bool> updateCardStatus(String cardId, String newStatus) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.patch(
+        ApiEndpoints.cardStatus(cardId),
+        data: {'status': newStatus},
+      );
+      await loadInventory();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> refresh() async {
+    await loadInventory(isRefresh: true);
+  }
+}
+
+final cardsInventoryProvider = NotifierProvider<CardsInventoryNotifier, CardsInventoryState>(
+  CardsInventoryNotifier.new,
+);
+

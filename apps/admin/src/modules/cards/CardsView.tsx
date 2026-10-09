@@ -45,7 +45,11 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
         apiClient.get<HotspotProfileItem[]>('/hotspot/profiles'),
       ]);
 
-      if (Array.isArray(cardsRes)) setCards(cardsRes);
+      if (Array.isArray(cardsRes)) {
+        setCards(cardsRes);
+      } else if (cardsRes && typeof cardsRes === 'object' && 'data' in cardsRes && Array.isArray((cardsRes as any).data)) {
+        setCards((cardsRes as any).data);
+      }
       if (Array.isArray(profilesRes)) {
         setProfiles(profilesRes);
         if (profilesRes.length > 0 && !batchForm.profileId) {
