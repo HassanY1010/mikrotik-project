@@ -97,6 +97,18 @@ export class SalesController {
     return this.salesService.getShiftSummary(tenantId, cashierId);
   }
 
+  @Post('close-shift')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Close active cashier shift and seal financial metrics' })
+  @ApiResponse({ status: 200, description: 'Shift sealed and closed successfully' })
+  async closeShift(
+    @TenantId() tenantId: string,
+    @CurrentUser('id') cashierId: string,
+  ): Promise<ShiftSummaryReport & { isClosed: boolean; closedAt: Date }> {
+    return this.salesService.closeShift(tenantId, cashierId);
+  }
+
   @Get('daily-report')
   @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Get daily aggregate sales report across all devices and cashiers' })

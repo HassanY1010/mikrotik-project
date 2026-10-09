@@ -451,31 +451,156 @@ class SaleReceiptModel {
   String get loginUrl => 'http://login.hotspot/login?username=$username&password=${password ?? username}';
 }
 
+/// Shift transaction item for cashier report
+class ShiftTransactionItem {
+  final String id;
+  final String invoiceNumber;
+  final double amount;
+  final String currency;
+  final String paymentMethod;
+  final String? customerName;
+  final String? customerPhone;
+  final DateTime createdAt;
+  final String profileName;
+  final String username;
+  final String serialNumber;
+  final bool isRefunded;
+
+  ShiftTransactionItem({
+    required this.id,
+    required this.invoiceNumber,
+    required this.amount,
+    required this.currency,
+    required this.paymentMethod,
+    this.customerName,
+    this.customerPhone,
+    required this.createdAt,
+    required this.profileName,
+    required this.username,
+    required this.serialNumber,
+    this.isRefunded = false,
+  });
+
+  factory ShiftTransactionItem.fromJson(Map<String, dynamic> json) {
+    return ShiftTransactionItem(
+      id: json['id'] as String? ?? '',
+      invoiceNumber: json['invoiceNumber'] as String? ?? '',
+      amount: (json['amount'] != null)
+          ? double.tryParse(json['amount'].toString()) ?? 0.0
+          : 0.0,
+      currency: json['currency'] as String? ?? 'SDG',
+      paymentMethod: json['paymentMethod'] as String? ?? 'CASH',
+      customerName: json['customerName'] as String?,
+      customerPhone: json['customerPhone'] as String?,
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+      profileName: json['profileName'] as String? ?? 'عام',
+      username: json['username'] as String? ?? '',
+      serialNumber: json['serialNumber'] as String? ?? '',
+      isRefunded: json['isRefunded'] as bool? ?? false,
+    );
+  }
+}
+
 /// Daily cashier shift summary
 class ShiftSummaryModel {
   final double totalRevenue;
   final int totalSalesCount;
   final String currency;
   final List<ShiftProfileSummary> profileBreakdown;
+  final double cashInDrawer;
+  final double bankakAmount;
+  final double fawryAmount;
+  final double cardAmount;
+  final String cashierName;
+  final String? cashierId;
+  final String tenantName;
+  final DateTime? periodStart;
+  final DateTime? periodEnd;
+  final bool isClosed;
+  final DateTime? closedAt;
+  final List<ShiftTransactionItem> recentTransactions;
 
   ShiftSummaryModel({
     required this.totalRevenue,
     required this.totalSalesCount,
     required this.currency,
     required this.profileBreakdown,
+    this.cashInDrawer = 0.0,
+    this.bankakAmount = 0.0,
+    this.fawryAmount = 0.0,
+    this.cardAmount = 0.0,
+    this.cashierName = 'الكاشير',
+    this.cashierId,
+    this.tenantName = 'منظومة ميكروتك',
+    this.periodStart,
+    this.periodEnd,
+    this.isClosed = false,
+    this.closedAt,
+    this.recentTransactions = const [],
   });
 
   factory ShiftSummaryModel.fromJson(Map<String, dynamic> json) {
     final breakdownRaw = json['profileBreakdown'] as List? ?? [];
+    final pMethods = json['paymentMethodBreakdown'] as Map<String, dynamic>? ?? {};
+
+    double parsePMethod(String key) {
+      if (pMethods[key] is Map && pMethods[key]['total'] != null) {
+        return double.tryParse(pMethods[key]['total'].toString()) ?? 0.0;
+      }
+      return 0.0;
+    }
+
+    final double cashTotal = (json['cashInDrawer'] != null)
+        ? double.tryParse(json['cashInDrawer'].toString()) ?? 0.0
+        : parsePMethod('CASH');
+
+    final double bankakTotal = (json['bankakAmount'] != null)
+        ? double.tryParse(json['bankakAmount'].toString()) ?? 0.0
+        : parsePMethod('MOBILE_WALLET');
+
+    final double fawryTotal = (json['fawryAmount'] != null)
+        ? double.tryParse(json['fawryAmount'].toString()) ?? 0.0
+        : parsePMethod('TRANSFER');
+
+    final double cardTotal = (json['cardAmount'] != null)
+        ? double.tryParse(json['cardAmount'].toString()) ?? 0.0
+        : parsePMethod('CARD');
+
+    final txListRaw = json['recentTransactions'] as List? ?? [];
+    final List<ShiftTransactionItem> txList = txListRaw
+        .map((t) => ShiftTransactionItem.fromJson(t as Map<String, dynamic>))
+        .toList();
+
     return ShiftSummaryModel(
       totalRevenue: (json['totalRevenue'] != null)
           ? double.tryParse(json['totalRevenue'].toString()) ?? 0.0
           : 0.0,
-      totalSalesCount: json['totalSalesCount'] as int? ?? 0,
+      totalSalesCount: json['totalSalesCount'] as int? ??
+          (json['totalTransactions'] as int? ?? 0),
       currency: json['currency'] as String? ?? 'SDG',
       profileBreakdown: breakdownRaw
           .map((item) => ShiftProfileSummary.fromJson(item as Map<String, dynamic>))
           .toList(),
+      cashInDrawer: cashTotal,
+      bankakAmount: bankakTotal,
+      fawryAmount: fawryTotal,
+      cardAmount: cardTotal,
+      cashierName: json['cashierName'] as String? ?? 'الكاشير',
+      cashierId: json['cashierId'] as String?,
+      tenantName: json['tenantName'] as String? ?? 'منظومة ميكروتك',
+      periodStart: json['periodStart'] != null
+          ? DateTime.tryParse(json['periodStart'].toString())
+          : null,
+      periodEnd: json['periodEnd'] != null
+          ? DateTime.tryParse(json['periodEnd'].toString())
+          : null,
+      isClosed: json['isClosed'] as bool? ?? false,
+      closedAt: json['closedAt'] != null
+          ? DateTime.tryParse(json['closedAt'].toString())
+          : null,
+      recentTransactions: txList,
     );
   }
 }

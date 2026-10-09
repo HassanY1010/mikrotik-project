@@ -523,4 +523,439 @@ ${receipt.loginUrl}
 
     return bytes.toBytes();
   }
+
+  /// Generates a comprehensive Arabic PDF document for Cashier Shift Closing
+  static Future<Uint8List> generateShiftSummaryPdf({
+    required String tenantName,
+    required String cashierName,
+    required DateTime periodStart,
+    required DateTime periodEnd,
+    required double cashInDrawer,
+    required int totalSalesCount,
+    required double cashAmount,
+    required double bankakAmount,
+    required double fawryAmount,
+    required double cardAmount,
+    required double totalRevenue,
+    required String currency,
+    required List<ShiftTransactionItem> recentTransactions,
+    bool isClosed = false,
+    DateTime? closedAt,
+  }) async {
+    final pdf = pw.Document(
+      title: 'تقرير إغلاق وردية - $cashierName',
+      author: tenantName,
+    );
+
+    pw.Font? fontRegular;
+    pw.Font? fontBold;
+    try {
+      fontRegular = await PdfGoogleFonts.cairoMedium();
+      fontBold = await PdfGoogleFonts.cairoBold();
+    } catch (_) {}
+
+    final dateFormat = intl.DateFormat('yyyy-MM-dd HH:mm');
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        theme: pw.ThemeData.withFont(
+          base: fontRegular,
+          bold: fontBold,
+        ),
+        build: (pw.Context context) {
+          return pw.Directionality(
+            textDirection: pw.TextDirection.rtl,
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+              children: [
+                // Header
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(12),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.blueGrey900,
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  ),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            tenantName,
+                            style: pw.TextStyle(
+                              font: fontBold,
+                              fontSize: 16,
+                              fontWeight: pw.FontWeight.bold,
+                              color: PdfColors.white,
+                            ),
+                          ),
+                          pw.SizedBox(height: 3),
+                          pw.Text(
+                            'تقرير إغلاق وردية الكاشير المالية',
+                            style: pw.TextStyle(
+                              font: fontRegular,
+                              fontSize: 12,
+                              color: PdfColors.teal100,
+                            ),
+                          ),
+                        ],
+                      ),
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          pw.Text(
+                            isClosed ? 'الحالة: مغلقة ومعتمدة' : 'الحالة: وردية جارية',
+                            style: pw.TextStyle(
+                              font: fontBold,
+                              fontSize: 11,
+                              color: isClosed ? PdfColors.green300 : PdfColors.amber300,
+                            ),
+                          ),
+                          pw.Text(
+                            'تاريخ التقرير: ${dateFormat.format(DateTime.now())}',
+                            style: pw.TextStyle(
+                              font: fontRegular,
+                              fontSize: 9,
+                              color: PdfColors.grey300,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(height: 14),
+
+                // Cashier & Time Info Grid
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(10),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey300),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                  ),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                    children: [
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('الكاشير المسؤول:', style: pw.TextStyle(font: fontBold, fontSize: 10, color: PdfColors.grey700)),
+                          pw.Text(cashierName, style: pw.TextStyle(font: fontBold, fontSize: 11)),
+                        ],
+                      ),
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('بداية الوردية:', style: pw.TextStyle(font: fontBold, fontSize: 10, color: PdfColors.grey700)),
+                          pw.Text(dateFormat.format(periodStart), style: pw.TextStyle(font: fontRegular, fontSize: 10)),
+                        ],
+                      ),
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('وقت الإغلاق / التقرير:', style: pw.TextStyle(font: fontBold, fontSize: 10, color: PdfColors.grey700)),
+                          pw.Text(dateFormat.format(closedAt ?? periodEnd), style: pw.TextStyle(font: fontRegular, fontSize: 10)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(height: 14),
+
+                // Key Financial Metrics (Three KPI boxes)
+                pw.Row(
+                  children: [
+                    pw.Expanded(
+                      child: pw.Container(
+                        padding: const pw.EdgeInsets.all(10),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.teal50,
+                          border: pw.Border.all(color: PdfColors.teal700, width: 1),
+                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                        ),
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: [
+                            pw.Text('النقدية في الدرج (Cash)', style: pw.TextStyle(font: fontBold, fontSize: 10, color: PdfColors.teal900)),
+                            pw.SizedBox(height: 4),
+                            pw.Text(
+                              '${cashInDrawer.toStringAsFixed(0)} $currency',
+                              style: pw.TextStyle(font: fontBold, fontSize: 15, color: PdfColors.teal900),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    pw.SizedBox(width: 8),
+                    pw.Expanded(
+                      child: pw.Container(
+                        padding: const pw.EdgeInsets.all(10),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.amber50,
+                          border: pw.Border.all(color: PdfColors.amber800, width: 1),
+                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                        ),
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: [
+                            pw.Text('الكروت المباعة', style: pw.TextStyle(font: fontBold, fontSize: 10, color: PdfColors.amber900)),
+                            pw.SizedBox(height: 4),
+                            pw.Text(
+                              '$totalSalesCount كرت',
+                              style: pw.TextStyle(font: fontBold, fontSize: 15, color: PdfColors.amber900),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    pw.SizedBox(width: 8),
+                    pw.Expanded(
+                      child: pw.Container(
+                        padding: const pw.EdgeInsets.all(10),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.blue50,
+                          border: pw.Border.all(color: PdfColors.blue800, width: 1),
+                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                        ),
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: [
+                            pw.Text('إجمالي المبيعات', style: pw.TextStyle(font: fontBold, fontSize: 10, color: PdfColors.blue900)),
+                            pw.SizedBox(height: 4),
+                            pw.Text(
+                              '${totalRevenue.toStringAsFixed(0)} $currency',
+                              style: pw.TextStyle(font: fontBold, fontSize: 15, color: PdfColors.blue900),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 14),
+
+                // Payment Breakdown Table
+                pw.Text('توزيع الإيراد حسب طريقة الدفع:', style: pw.TextStyle(font: fontBold, fontSize: 11)),
+                pw.SizedBox(height: 6),
+                pw.Table(
+                  border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+                  columnWidths: {
+                    0: const pw.FlexColumnWidth(2),
+                    1: const pw.FlexColumnWidth(1.5),
+                    2: const pw.FlexColumnWidth(1.5),
+                  },
+                  children: [
+                    pw.TableRow(
+                      decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('طريقة الدفع', style: pw.TextStyle(font: fontBold, fontSize: 10)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('المبلغ المسجل', style: pw.TextStyle(font: fontBold, fontSize: 10)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('النسبة من الإجمالي', style: pw.TextStyle(font: fontBold, fontSize: 10)),
+                        ),
+                      ],
+                    ),
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('كاش (نقداً بالدرج)', style: pw.TextStyle(font: fontRegular, fontSize: 10)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('${cashAmount.toStringAsFixed(0)} $currency', style: pw.TextStyle(font: fontBold, fontSize: 10)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text(
+                            totalRevenue > 0 ? '${((cashAmount / totalRevenue) * 100).toStringAsFixed(1)}%' : '0%',
+                            style: pw.TextStyle(font: fontRegular, fontSize: 10),
+                          ),
+                        ),
+                      ],
+                    ),
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('بنكك (محفظة هاتف)', style: pw.TextStyle(font: fontRegular, fontSize: 10)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('${bankakAmount.toStringAsFixed(0)} $currency', style: pw.TextStyle(font: fontBold, fontSize: 10)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text(
+                            totalRevenue > 0 ? '${((bankakAmount / totalRevenue) * 100).toStringAsFixed(1)}%' : '0%',
+                            style: pw.TextStyle(font: fontRegular, fontSize: 10),
+                          ),
+                        ),
+                      ],
+                    ),
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('أوكاش / فوري (تحويل)', style: pw.TextStyle(font: fontRegular, fontSize: 10)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('${fawryAmount.toStringAsFixed(0)} $currency', style: pw.TextStyle(font: fontBold, fontSize: 10)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text(
+                            totalRevenue > 0 ? '${((fawryAmount / totalRevenue) * 100).toStringAsFixed(1)}%' : '0%',
+                            style: pw.TextStyle(font: fontRegular, fontSize: 10),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (cardAmount > 0)
+                      pw.TableRow(
+                        children: [
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(6),
+                            child: pw.Text('بطاقات دفع بنكية', style: pw.TextStyle(font: fontRegular, fontSize: 10)),
+                          ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(6),
+                            child: pw.Text('${cardAmount.toStringAsFixed(0)} $currency', style: pw.TextStyle(font: fontBold, fontSize: 10)),
+                          ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(6),
+                            child: pw.Text(
+                              totalRevenue > 0 ? '${((cardAmount / totalRevenue) * 100).toStringAsFixed(1)}%' : '0%',
+                              style: pw.TextStyle(font: fontRegular, fontSize: 10),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+                pw.SizedBox(height: 14),
+
+                // Recent Shift Sales Table
+                if (recentTransactions.isNotEmpty) ...[
+                  pw.Text('سجل مبيعات الوردية (أحدث العمليات):', style: pw.TextStyle(font: fontBold, fontSize: 11)),
+                  pw.SizedBox(height: 6),
+                  pw.Table(
+                    border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+                    columnWidths: {
+                      0: const pw.FlexColumnWidth(2),
+                      1: const pw.FlexColumnWidth(1.5),
+                      2: const pw.FlexColumnWidth(1.2),
+                      3: const pw.FlexColumnWidth(1.2),
+                      4: const pw.FlexColumnWidth(1.5),
+                    },
+                    children: [
+                      pw.TableRow(
+                        decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+                        children: [
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(5),
+                            child: pw.Text('رقم الفاتورة', style: pw.TextStyle(font: fontBold, fontSize: 9)),
+                          ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(5),
+                            child: pw.Text('الباقة', style: pw.TextStyle(font: fontBold, fontSize: 9)),
+                          ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(5),
+                            child: pw.Text('المبلغ', style: pw.TextStyle(font: fontBold, fontSize: 9)),
+                          ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(5),
+                            child: pw.Text('طريقة الدفع', style: pw.TextStyle(font: fontBold, fontSize: 9)),
+                          ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(5),
+                            child: pw.Text('الوقت', style: pw.TextStyle(font: fontBold, fontSize: 9)),
+                          ),
+                        ],
+                      ),
+                      ...recentTransactions.take(15).map((tx) {
+                        return pw.TableRow(
+                          children: [
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.all(5),
+                              child: pw.Text(tx.invoiceNumber, style: pw.TextStyle(font: fontRegular, fontSize: 8.5)),
+                            ),
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.all(5),
+                              child: pw.Text(tx.profileName, style: pw.TextStyle(font: fontRegular, fontSize: 8.5)),
+                            ),
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.all(5),
+                              child: pw.Text('${tx.amount.toStringAsFixed(0)} $currency', style: pw.TextStyle(font: fontBold, fontSize: 8.5)),
+                            ),
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.all(5),
+                              child: pw.Text(formatPaymentMethod(tx.paymentMethod), style: pw.TextStyle(font: fontRegular, fontSize: 8.5)),
+                            ),
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.all(5),
+                              child: pw.Text(dateFormat.format(tx.createdAt), style: pw.TextStyle(font: fontRegular, fontSize: 8)),
+                            ),
+                          ],
+                        );
+                      }),
+                    ],
+                  ),
+                ],
+
+                pw.Spacer(),
+
+                // Signature section
+                pw.Container(
+                  padding: const pw.EdgeInsets.only(top: 10),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.center,
+                        children: [
+                          pw.Text('توقيع الكاشير المسلم:', style: pw.TextStyle(font: fontBold, fontSize: 9)),
+                          pw.SizedBox(height: 25),
+                          pw.Text('................................', style: pw.TextStyle(font: fontRegular, fontSize: 9)),
+                        ],
+                      ),
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.center,
+                        children: [
+                          pw.Text('توقيع المشرف المستلم:', style: pw.TextStyle(font: fontBold, fontSize: 9)),
+                          pw.SizedBox(height: 25),
+                          pw.Text('................................', style: pw.TextStyle(font: fontRegular, fontSize: 9)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(height: 6),
+                pw.Center(
+                  child: pw.Text(
+                    'تم إنشاء وتوثيق هذا التقرير آلياً عبر نظام ميكروتك السحابي للأوفلاين والـ POS',
+                    style: pw.TextStyle(font: fontRegular, fontSize: 8, color: PdfColors.grey600),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
 }

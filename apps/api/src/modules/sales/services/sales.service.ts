@@ -31,9 +31,25 @@ export interface ThermalReceiptPayload {
   createdAt: Date;
 }
 
+export interface ShiftSummaryRecentTransaction {
+  id: string;
+  invoiceNumber: string;
+  amount: number;
+  currency: string;
+  paymentMethod: PaymentMethod;
+  customerName?: string;
+  customerPhone?: string;
+  createdAt: Date;
+  profileName: string;
+  username: string;
+  serialNumber: string;
+  isRefunded: boolean;
+}
+
 export interface ShiftSummaryReport {
   cashierId: string;
   cashierName: string;
+  tenantName?: string;
   periodStart: Date;
   periodEnd: Date;
   totalTransactions: number;
@@ -43,8 +59,15 @@ export interface ShiftSummaryReport {
   totalRefunds?: number;
   refundedCount?: number;
   currency: string;
+  cashInDrawer: number;
+  bankakAmount: number;
+  fawryAmount: number;
+  cardAmount: number;
   paymentMethodBreakdown: Record<PaymentMethod, { count: number; total: number }>;
   profileBreakdown: Array<{ profileName: string; count: number; total: number; totalAmount?: number }>;
+  recentTransactions: ShiftSummaryRecentTransaction[];
+  isClosed?: boolean;
+  closedAt?: Date;
 }
 
 export interface DailySalesReport {
@@ -632,6 +655,10 @@ export class SalesService {
       include: { role: true },
     });
 
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+    });
+
     // Today's shift (starts at 00:00:00 today)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -648,6 +675,7 @@ export class SalesService {
 
     const transactions = await this.prisma.saleTransaction.findMany({
       where,
+      orderBy: { createdAt: 'desc' },
       include: {
         card: {
           include: { profile: true },
@@ -705,9 +733,30 @@ export class SalesService {
       totalAmount: data.total,
     }));
 
+    const cashInDrawer = paymentMethodBreakdown[PaymentMethod.CASH].total;
+    const bankakAmount = paymentMethodBreakdown[PaymentMethod.MOBILE_WALLET].total;
+    const fawryAmount = paymentMethodBreakdown[PaymentMethod.TRANSFER].total;
+    const cardAmount = paymentMethodBreakdown[PaymentMethod.CARD].total;
+
+    const recentTransactions: ShiftSummaryRecentTransaction[] = transactions.slice(0, 30).map((t) => ({
+      id: t.id,
+      invoiceNumber: t.invoiceNumber,
+      amount: Number(t.amount),
+      currency: t.currency,
+      paymentMethod: t.paymentMethod,
+      customerName: t.customerName ?? undefined,
+      customerPhone: t.customerPhone ?? undefined,
+      createdAt: t.createdAt,
+      profileName: t.card?.profile?.name ?? 'عام',
+      username: t.card?.username ?? '',
+      serialNumber: t.card?.serialNumber ?? '',
+      isRefunded: t.card?.status === CardStatus.DISABLED,
+    }));
+
     return {
       cashierId: user?.id ?? cashierId,
       cashierName: user?.fullName ?? 'الوردية العامة',
+      tenantName: tenant?.name ?? 'منظومة ميكروتك',
       periodStart: today,
       periodEnd: new Date(),
       totalTransactions: transactions.length,
@@ -717,8 +766,31 @@ export class SalesService {
       totalRefunds,
       refundedCount,
       currency,
+      cashInDrawer,
+      bankakAmount,
+      fawryAmount,
+      cardAmount,
       paymentMethodBreakdown,
       profileBreakdown,
+      recentTransactions,
+      isClosed: false,
+    };
+  }
+
+  async closeShift(
+    tenantId: string,
+    cashierId: string,
+  ): Promise<ShiftSummaryReport & { isClosed: boolean; closedAt: Date }> {
+    const summary = await this.getShiftSummary(tenantId, cashierId);
+    const closedAt = new Date();
+    this.logger.log(
+      `Shift closed for cashier ${cashierId} in tenant ${tenantId} at ${closedAt.toISOString()}`,
+    );
+
+    return {
+      ...summary,
+      isClosed: true,
+      closedAt,
     };
   }
 

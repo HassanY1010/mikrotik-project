@@ -14,6 +14,7 @@ class ApiEndpoints {
   // Sales endpoints
   static const String salesCheckout = '/sales/checkout';
   static const String shiftSummary = '/sales/shift-summary';
+  static const String closeShift = '/sales/close-shift';
   static const String dailyReport = '/sales/daily-report';
 
   // Hotspot profiles endpoint
