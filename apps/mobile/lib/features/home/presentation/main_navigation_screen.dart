@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers.dart';
 import '../../dashboard/presentation/dashboard_screen.dart';
@@ -22,6 +23,7 @@ class MainNavigationScreen extends ConsumerStatefulWidget {
 
 class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   int _currentIndex = 0;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   void _navigateToTab(int index) {
     setState(() => _currentIndex = index);
@@ -34,24 +36,104 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   }
 
   void _handleLogout() async {
+    HapticFeedback.mediumImpact();
     final confirmed = await showDialog<bool>(
       context: context,
+      barrierDismissible: true,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E293B),
-        title: const Text('تسجيل الخروج', style: TextStyle(color: Colors.white)),
+        elevation: 16,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: Color(0xFF334155), width: 1.5),
+        ),
+        titlePadding: const EdgeInsets.fromLTRB(20, 22, 20, 10),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.3),
+                  width: 1,
+                ),
+              ),
+              child: const Icon(
+                Icons.logout_rounded,
+                color: Color(0xFFF87171),
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'تسجيل الخروج',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+          ],
+        ),
         content: const Text(
-          'هل أنت متأكد من رغبتك في تسجيل الخروج؟',
-          style: TextStyle(color: Color(0xFF94A3B8)),
+          'هل أنت متأكد من رغبتك في تسجيل الخروج؟ سيتم حفظ كافة العمليات المحلية غير المتزامنة بأمان على هذا الجهاز.',
+          style: TextStyle(
+            color: Color(0xFF94A3B8),
+            fontSize: 13,
+            height: 1.5,
+          ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('خروج', style: TextStyle(color: Colors.white)),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF475569)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'إلغاء',
+                    style: TextStyle(
+                      color: Color(0xFFCBD5E1),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  icon: const Icon(Icons.logout_rounded, size: 18, color: Colors.white),
+                  label: const Text(
+                    'تأكيد الخروج',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFDC2626),
+                    elevation: 2,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -72,6 +154,8 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     final List<Widget> screens = [
       DashboardScreen(
         onNavigateTab: _navigateToTab,
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+        onLogout: _handleLogout,
         onOpenPos: () => _pushScreen(const PosScreen()),
         onOpenOfflineWallet: () => _pushScreen(const CardsWalletScreen()),
         onOpenSync: () => _pushScreen(const SyncScreen()),
@@ -88,6 +172,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     ];
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: const Color(0xFF0F172A),
       drawer: Drawer(
         backgroundColor: const Color(0xFF1E293B),
@@ -211,12 +296,79 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               },
             ),
             const Divider(color: Color(0xFF334155)),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.redAccent),
-              title: const Text('تسجيل الخروج', style: TextStyle(color: Colors.redAccent)),
-              onTap: _handleLogout,
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
+                    Navigator.pop(context); // close drawer first smoothly
+                    _handleLogout();
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  splashColor: const Color(0xFFEF4444).withValues(alpha: 0.2),
+                  highlightColor: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444).withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.35),
+                        width: 1.2,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444).withValues(alpha: 0.18),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.logout_rounded,
+                            color: Color(0xFFF87171),
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Text(
+                                'تسجيل الخروج',
+                                style: TextStyle(
+                                  color: Color(0xFFF87171),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'إنهاء الجلسة بأمان',
+                                style: TextStyle(
+                                  color: Color(0xFF94A3B8),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          color: Color(0xFFF87171),
+                          size: 13,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
           ],
         ),
       ),

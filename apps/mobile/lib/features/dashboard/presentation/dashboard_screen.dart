@@ -12,6 +12,8 @@ class DashboardScreen extends ConsumerStatefulWidget {
   final VoidCallback? onOpenShift;
   final VoidCallback? onOpenRouterSetup;
   final VoidCallback? onOpenCloudWallet;
+  final VoidCallback? onOpenDrawer;
+  final VoidCallback? onLogout;
 
   const DashboardScreen({
     super.key,
@@ -22,6 +24,8 @@ class DashboardScreen extends ConsumerStatefulWidget {
     this.onOpenShift,
     this.onOpenRouterSetup,
     this.onOpenCloudWallet,
+    this.onOpenDrawer,
+    this.onLogout,
   });
 
   @override
@@ -293,6 +297,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1E293B),
         elevation: 0,
+        leading: widget.onOpenDrawer != null
+            ? IconButton(
+                icon: const Icon(Icons.menu_rounded, color: Colors.white),
+                tooltip: 'القائمة الجانبية',
+                onPressed: widget.onOpenDrawer,
+              )
+            : null,
         title: Row(
           children: [
             Container(
@@ -335,6 +346,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             tooltip: 'مزامنة وتحديث البيانات',
             onPressed: _isSyncing ? null : _handleSyncAndRefresh,
           ),
+          if (widget.onLogout != null)
+            IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.logout_rounded, color: Color(0xFFF87171), size: 18),
+              ),
+              tooltip: 'تسجيل الخروج',
+              onPressed: widget.onLogout,
+            ),
+          const SizedBox(width: 4),
         ],
       ),
       body: RefreshIndicator(
