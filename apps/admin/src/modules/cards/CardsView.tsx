@@ -341,7 +341,7 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2">
             <div className="form-group">
               <label className="form-label" htmlFor="gen-qty">
                 الكمية المطلوبة (عدد الكروت) *

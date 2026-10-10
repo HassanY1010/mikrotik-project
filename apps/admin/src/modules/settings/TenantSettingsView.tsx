@@ -209,10 +209,9 @@ export const TenantSettingsView: React.FC = () => {
       </div>
 
       <div
+        className="settings-layout-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: '1.6fr 1.4fr',
-          gap: '1.5rem',
           alignItems: 'start',
           marginBottom: '2rem',
         }}
@@ -246,7 +245,7 @@ export const TenantSettingsView: React.FC = () => {
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-grid-2" style={{ display: 'grid' }}>
               <div className="form-group">
                 <label className="form-label" htmlFor="t-slug">
                   المعرف الفريد للشبكة
@@ -282,7 +281,7 @@ export const TenantSettingsView: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-grid-2" style={{ display: 'grid' }}>
               <div className="form-group">
                 <label className="form-label" htmlFor="t-email">
                   البريد الإلكتروني للتواصل
@@ -574,7 +573,7 @@ export const TenantSettingsView: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2" style={{ display: 'grid' }}>
             <div className="form-group">
               <label className="form-label" htmlFor="u-email">
                 البريد الإلكتروني لتسجيل الدخول *
@@ -606,7 +605,7 @@ export const TenantSettingsView: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2" style={{ display: 'grid' }}>
             <div className="form-group">
               <label className="form-label" htmlFor="u-pwd">
                 كلمة المرور الابتدائية *
@@ -677,7 +676,7 @@ export const TenantSettingsView: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2" style={{ display: 'grid' }}>
             <div className="form-group">
               <label className="form-label" htmlFor="eu-phone">
                 رقم الهاتف

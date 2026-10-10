@@ -465,7 +465,7 @@ export const DevicesView: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2-uneven">
             <div className="form-group">
               <label className="form-label" htmlFor="dev-host">
                 عنوان IP أو اسم المضيف *
@@ -497,7 +497,7 @@ export const DevicesView: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2">
             <div className="form-group">
               <label className="form-label" htmlFor="dev-user">
                 اسم مستخدم الراوتر *
@@ -527,7 +527,7 @@ export const DevicesView: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2">
             <div className="form-group">
               <label className="form-label" htmlFor="dev-version">
                 إصدار نظام التشغيل
@@ -632,7 +632,7 @@ export const DevicesView: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.6fr', gap: '1rem' }}>
+          <div className="form-grid-2-uneven">
             <div className="form-group">
               <label className="form-label" htmlFor="edit-dev-host">
                 عنوان IP أو Hostname *
@@ -664,7 +664,7 @@ export const DevicesView: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2">
             <div className="form-group">
               <label className="form-label" htmlFor="edit-dev-user">
                 اسم مستخدم الراوتر *
@@ -695,7 +695,7 @@ export const DevicesView: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2">
             <div className="form-group">
               <label className="form-label" htmlFor="edit-dev-ros">
                 إصدار نظام RouterOS

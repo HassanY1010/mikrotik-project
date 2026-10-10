@@ -172,10 +172,8 @@ export const PosTerminalView: React.FC = () => {
       </div>
 
       <div
+        className="pos-layout-grid"
         style={{
-          display: 'grid',
-          gridTemplateColumns: '1.8fr 1.2fr',
-          gap: '1.5rem',
           alignItems: 'start',
         }}
       >

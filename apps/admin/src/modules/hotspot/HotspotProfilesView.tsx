@@ -360,7 +360,7 @@ export const HotspotProfilesView: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2">
             <div className="form-group">
               <label className="form-label" htmlFor="prof-price">
                 سعر البيع (SDG) *
@@ -390,7 +390,7 @@ export const HotspotProfilesView: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2">
             <div className="form-group">
               <label className="form-label" htmlFor="prof-rate">
                 محدد السرعة (تنزيل / رفع)
@@ -457,7 +457,7 @@ export const HotspotProfilesView: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2">
             <div className="form-group">
               <label className="form-label" htmlFor="edit-prof-rate">
                 السرعة المحددة (Rate Limit) *
@@ -488,7 +488,7 @@ export const HotspotProfilesView: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div className="form-grid-2">
             <div className="form-group">
               <label className="form-label" htmlFor="edit-prof-shared">
                 عدد الأجهزة المشتركة (Shared Users)

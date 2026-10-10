@@ -189,7 +189,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             <PlusCircle size={18} color="var(--primary)" />
             إجراءات تشغيلية سريعة
           </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
+          <div className="quick-actions-grid">
             <button
               className="btn btn-secondary"
               style={{ justifyContent: 'flex-start', padding: '0.85rem' }}

@@ -43,7 +43,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
           <Menu size={18} />
         </button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+        <div className="navbar-brand-group" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <div
             style={{
               width: 32,
@@ -58,9 +58,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
           >
             <Wifi size={18} />
           </div>
-          <div>
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 800 }}>منصة شبكات ميكروتك</h2>
-            <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
+          <div className="navbar-brand-text">
+            <h2 className="navbar-brand-title" style={{ fontSize: '1.05rem', fontWeight: 800 }}>منصة شبكات ميكروتك</h2>
+            <div className="navbar-brand-subtitle" style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
               إدارة كروت الهوتسبوت والفوترة
             </div>
           </div>
@@ -69,6 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
         {/* Tenant Switcher (Super Admin) */}
         {user?.role === 'SUPER_ADMIN' && tenants.length > 0 && (
           <div
+            className="navbar-tenant-switcher"
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginRight: '1.5rem' }}
           >
             <Building2 size={16} color="var(--accent)" />
@@ -89,9 +90,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div className="navbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         {/* API Health Pill */}
         <div
+          className="navbar-health-pill"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -111,13 +113,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
               height: 8,
               borderRadius: '50%',
               backgroundColor: isOnline ? 'var(--success)' : 'var(--danger)',
+              flexShrink: 0,
             }}
           />
-          {isOnline ? 'الخادم متصل' : 'الخادم غير متصل'}
+          <span className="navbar-health-text">{isOnline ? 'الخادم متصل' : 'الخادم غير متصل'}</span>
         </div>
 
         {/* User Profile Badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+        <div className="navbar-user-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <div
             style={{
               width: 34,
@@ -128,11 +131,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
               alignItems: 'center',
               justifyContent: 'center',
               border: '1px solid var(--border)',
+              flexShrink: 0,
             }}
           >
             <UserIcon size={16} color="var(--primary)" />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="navbar-user-text" style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: '0.825rem', fontWeight: 700 }}>
               {user?.fullName || 'المستخدم'}
             </span>
