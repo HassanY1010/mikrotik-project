@@ -124,16 +124,30 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      let errorMsg: string;
-      if (Array.isArray(payload?.message)) {
-        errorMsg = payload.message.join(' | ');
-      } else if (typeof payload?.message === 'string') {
-        errorMsg = payload.message;
-      } else if (typeof payload?.error === 'string') {
-        errorMsg = payload.error;
-      } else {
-        errorMsg = `طلب غير ناجح (رمز الخطأ: ${response.status})`;
+      let errorMsg: string | undefined;
+
+      // 1. Check if error is nested inside payload.error (from NestJS HttpExceptionFilter)
+      if (payload?.error && typeof payload.error === 'object') {
+        const errObj = payload.error as Record<string, unknown>;
+        if (Array.isArray(errObj.details) && errObj.details.length > 0) {
+          errorMsg = errObj.details.join(' | ');
+        } else if (typeof errObj.message === 'string' && errObj.message) {
+          errorMsg = errObj.message;
+        }
       }
+
+      // 2. Check top-level message or string error (default NestJS responses)
+      if (!errorMsg) {
+        if (Array.isArray(payload?.message)) {
+          errorMsg = payload.message.join(' | ');
+        } else if (typeof payload?.message === 'string') {
+          errorMsg = payload.message;
+        } else if (typeof payload?.error === 'string') {
+          errorMsg = payload.error;
+        }
+      }
+
+      errorMsg = errorMsg || `طلب غير ناجح (رمز الخطأ: ${response.status})`;
       throw new ApiError(errorMsg, response.status, payload);
     }
 

@@ -116,6 +116,10 @@ export const DevicesView: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل إضافة الراوتر';
       showToast(msg, 'error');
+      // If router already exists, refresh table to display it
+      if (typeof msg === 'string' && (msg.includes('مسجل مسبقاً') || msg.includes('409'))) {
+        fetchDevices();
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -262,11 +266,11 @@ export const DevicesView: React.FC = () => {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">
+          <h1 className="page-title" style={{ color: '#ffffff', fontWeight: 800 }}>
             <RouterIcon color="var(--primary)" size={24} />
-            أجهزة وموجهات ميكروتك
+            <span style={{ color: '#ffffff' }}>أجهزة وموجهات ميكروتك</span>
           </h1>
-          <p className="page-subtitle">
+          <p className="page-subtitle" style={{ color: 'var(--text-secondary, #94a3b8)' }}>
             إدارة الراوترات المركزية والتحكم في كروت الهوتسبوت والمستخدمين
           </p>
         </div>
@@ -539,14 +543,36 @@ export const DevicesView: React.FC = () => {
             </div>
           </div>
 
-          <div className="form-group" style={{ marginTop: '0.75rem', padding: '0.6rem 0.8rem', background: 'var(--bg-secondary, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-color, #e2e8f0)' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.875rem' }}>
+          <div
+            className="form-group"
+            style={{
+              marginTop: '0.75rem',
+              padding: '0.75rem 1rem',
+              backgroundColor: '#162032',
+              borderRadius: '6px',
+              border: '1px solid #293548',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.6rem',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                color: '#f8fafc',
+                userSelect: 'none',
+              }}
+            >
               <input
                 type="checkbox"
                 checked={formData.useTls}
                 onChange={(e) => setFormData({ ...formData, useTls: e.target.checked })}
+                style={{ width: '16px', height: '16px', accentColor: '#0d9488', cursor: 'pointer' }}
               />
-              <span>تشفير الاتصال عبر SSL / TLS (لحماية بيانات الدخول)</span>
+              <span style={{ fontWeight: 600, color: '#f8fafc' }}>
+                تشفير الاتصال عبر SSL / TLS (لحماية بيانات الدخول)
+              </span>
             </label>
           </div>
 
@@ -685,14 +711,36 @@ export const DevicesView: React.FC = () => {
             </div>
           </div>
 
-          <div className="form-group" style={{ marginTop: '0.75rem', padding: '0.6rem 0.8rem', background: 'var(--bg-secondary, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-color, #e2e8f0)' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.875rem' }}>
+          <div
+            className="form-group"
+            style={{
+              marginTop: '0.75rem',
+              padding: '0.75rem 1rem',
+              backgroundColor: '#162032',
+              borderRadius: '6px',
+              border: '1px solid #293548',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.6rem',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                color: '#f8fafc',
+                userSelect: 'none',
+              }}
+            >
               <input
                 type="checkbox"
                 checked={editFormData.useTls}
                 onChange={(e) => setEditFormData({ ...editFormData, useTls: e.target.checked })}
+                style={{ width: '16px', height: '16px', accentColor: '#0d9488', cursor: 'pointer' }}
               />
-              <span>تشفير الاتصال عبر SSL / TLS (لحماية بيانات الدخول)</span>
+              <span style={{ fontWeight: 600, color: '#f8fafc' }}>
+                تشفير الاتصال عبر SSL / TLS (لحماية بيانات الدخول)
+              </span>
             </label>
           </div>
 
