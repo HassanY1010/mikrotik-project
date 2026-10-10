@@ -174,34 +174,27 @@ export class AnalyticsService {
       card: { status: { not: CardStatus.DISABLED } },
     };
 
-    // Parallel aggregate queries
+    // Parallel queries: consolidated revenue SQL + card status breakdown + devices + sessions + recent sales + recent batches
     const [
-      salesToday,
-      salesThisWeek,
-      salesThisMonth,
-      salesAllTime,
+      revenueRows,
       cardsCounts,
       devicesCounts,
       activeSessionsCount,
       recentSales,
       recentBatches,
     ] = await Promise.all([
-      this.prisma.saleTransaction.aggregate({
-        where: { ...activeSaleWhere, createdAt: { gte: startOfToday } },
-        _sum: { amount: true },
-      }),
-      this.prisma.saleTransaction.aggregate({
-        where: { ...activeSaleWhere, createdAt: { gte: startOfWeek } },
-        _sum: { amount: true },
-      }),
-      this.prisma.saleTransaction.aggregate({
-        where: { ...activeSaleWhere, createdAt: { gte: startOfMonth } },
-        _sum: { amount: true },
-      }),
-      this.prisma.saleTransaction.aggregate({
-        where: activeSaleWhere,
-        _sum: { amount: true },
-      }),
+      this.prisma.$queryRaw<
+        Array<{ today: number | null; thisWeek: number | null; thisMonth: number | null; allTime: number | null }>
+      >`
+        SELECT 
+          COALESCE(SUM(st.amount), 0)::float AS "allTime",
+          COALESCE(SUM(CASE WHEN st."createdAt" >= ${startOfToday} THEN st.amount ELSE 0 END), 0)::float AS "today",
+          COALESCE(SUM(CASE WHEN st."createdAt" >= ${startOfWeek} THEN st.amount ELSE 0 END), 0)::float AS "thisWeek",
+          COALESCE(SUM(CASE WHEN st."createdAt" >= ${startOfMonth} THEN st.amount ELSE 0 END), 0)::float AS "thisMonth"
+        FROM sale_transactions st
+        JOIN cards c ON st."cardId" = c.id
+        WHERE st."tenantId" = ${resolvedTenantId} AND c.status != 'DISABLED'::"CardStatus";
+      `.catch(() => [{ today: 0, thisWeek: 0, thisMonth: 0, allTime: 0 }]),
       this.prisma.card.groupBy({
         by: ['status'],
         where: { tenantId: resolvedTenantId },
@@ -236,6 +229,10 @@ export class AnalyticsService {
       }),
     ]);
 
+    const rev = (Array.isArray(revenueRows) && revenueRows.length > 0)
+      ? revenueRows[0]
+      : { today: 0, thisWeek: 0, thisMonth: 0, allTime: 0 };
+
     // Cards status map
     const cardStatusMap: Record<CardStatus, number> = {
       [CardStatus.GENERATED]: 0,
@@ -263,10 +260,10 @@ export class AnalyticsService {
 
     return {
       revenue: {
-        today: Number(salesToday._sum.amount ?? 0),
-        thisWeek: Number(salesThisWeek._sum.amount ?? 0),
-        thisMonth: Number(salesThisMonth._sum.amount ?? 0),
-        allTime: Number(salesAllTime._sum.amount ?? 0),
+        today: Number(rev.today ?? 0),
+        thisWeek: Number(rev.thisWeek ?? 0),
+        thisMonth: Number(rev.thisMonth ?? 0),
+        allTime: Number(rev.allTime ?? 0),
         currency,
       },
       cardsInventory: {
@@ -306,37 +303,46 @@ export class AnalyticsService {
   }
 
   async getDashboardData(tenantId: string): Promise<UnifiedDashboardData> {
-    const overview = await this.getDashboardOverview(tenantId);
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      resolvedTenantId = first?.id || '';
+    }
 
-    // 1. Calculate top profiles by revenue across 100% of sales via SQL aggregation
-    let topProfiles: Array<{ name: string; count: number; revenue: number }> = [];
-    try {
-      const rawRows = await this.prisma.$queryRaw<
+    // Run getDashboardOverview and topProfiles raw query concurrently in Promise.all to eliminate sequential waterfall
+    const [overview, rawRows] = await Promise.all([
+      this.getDashboardOverview(resolvedTenantId),
+      this.prisma.$queryRaw<
         Array<{ name: string; count: number | bigint; revenue: number | null }>
       >`
         SELECT hp.name AS name, COUNT(st.id)::int AS count, COALESCE(SUM(st.amount), 0)::float AS revenue
         FROM sale_transactions st
         JOIN cards c ON st."cardId" = c.id
         JOIN hotspot_profiles hp ON c."profileId" = hp.id
-        WHERE st."tenantId" = ${tenantId}
+        WHERE st."tenantId" = ${resolvedTenantId}
         GROUP BY hp.name
         ORDER BY revenue DESC
         LIMIT 5;
-      `;
+      `.catch(() => []),
+    ]);
+
+    let topProfiles: Array<{ name: string; count: number; revenue: number }> = [];
+    if (Array.isArray(rawRows)) {
       topProfiles = rawRows.map((r) => ({
         name: r.name,
         count: Number(r.count),
         revenue: Number(r.revenue),
       }));
-    } catch {
-      topProfiles = [];
     }
 
     // Include existing profiles if fewer than 5 profiles have recorded sales
     if (topProfiles.length < 5) {
       const existingNames = new Set(topProfiles.map((p) => p.name));
       const profiles = await this.prisma.hotspotProfile.findMany({
-        where: { tenantId },
+        where: { tenantId: resolvedTenantId },
         select: { name: true },
         take: 5,
       });

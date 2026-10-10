@@ -105,34 +105,32 @@ export class AuthService {
       role: user.role.name,
     });
 
-    // Store hashed refresh token in database
-    await this.storeRefreshToken(user.id, tokens.refreshToken, ipAddress, userAgent);
-
-    // Update lastLoginAt
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
-
-    // Audit log
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: user.tenantId,
-        userId: user.id,
-        action: 'auth:login',
-        entity: 'User',
-        entityId: user.id,
-        newValues: {
-          status: 'تسجيل دخول ناجح',
-          email: user.email,
-          fullName: user.fullName,
-          role: user.role.name,
-          platform: userAgent?.includes('Dart') ? 'تطبيق الموبايل (كاشير)' : 'متصفح لوحة التحكم',
+    // Store refresh token, update lastLoginAt, and record audit log in parallel to eliminate 2 database round-trips
+    await Promise.all([
+      this.storeRefreshToken(user.id, tokens.refreshToken, ipAddress, userAgent),
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          tenantId: user.tenantId,
+          userId: user.id,
+          action: 'auth:login',
+          entity: 'User',
+          entityId: user.id,
+          newValues: {
+            status: 'تسجيل دخول ناجح',
+            email: user.email,
+            fullName: user.fullName,
+            role: user.role.name,
+            platform: userAgent?.includes('Dart') ? 'تطبيق الموبايل (كاشير)' : 'متصفح لوحة التحكم',
+          },
+          ipAddress,
+          userAgent,
         },
-        ipAddress,
-        userAgent,
-      },
-    });
+      }),
+    ]);
 
     return {
       ...tokens,

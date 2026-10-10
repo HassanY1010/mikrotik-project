@@ -40,10 +40,18 @@ describe('AnalyticsService', () => {
       hotspotProfile: {
         findMany: jest.fn().mockResolvedValue([]),
       },
-      $queryRaw: jest.fn().mockResolvedValue([
-        { name: '1week-unlimited', count: 10, revenue: 50000 },
-        { name: '1day-unlimited', count: 25, revenue: 25000 },
-      ]),
+      $queryRaw: jest.fn().mockImplementation((strings: any) => {
+        const text = Array.isArray(strings) ? strings.join('') : String(strings);
+        if (text.includes('today') || text.includes('allTime')) {
+          return Promise.resolve([
+            { today: 5000, thisWeek: 5000, thisMonth: 5000, allTime: 5000 },
+          ]);
+        }
+        return Promise.resolve([
+          { name: '1week-unlimited', count: 10, revenue: 50000 },
+          { name: '1day-unlimited', count: 25, revenue: 25000 },
+        ]);
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
