@@ -37,6 +37,13 @@ describe('AnalyticsService', () => {
       cardBatch: {
         findMany: jest.fn().mockResolvedValue([]),
       },
+      hotspotProfile: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      $queryRaw: jest.fn().mockResolvedValue([
+        { name: '1week-unlimited', count: 10, revenue: 50000 },
+        { name: '1day-unlimited', count: 25, revenue: 25000 },
+      ]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -61,6 +68,19 @@ describe('AnalyticsService', () => {
       expect(overview.devices.online).toBe(2);
       expect(overview.devices.offline).toBe(1);
       expect(overview.activeSessionsCount).toBe(18);
+    });
+  });
+
+  describe('getDashboardData', () => {
+    it('should aggregate KPIs and top profiles via database SQL aggregation', async () => {
+      prisma.saleTransaction.findMany.mockResolvedValue([]);
+
+      const data = await service.getDashboardData(mockTenantId);
+
+      expect(data.kpis.totalRevenue).toBe(5000);
+      expect(data.topProfiles).toHaveLength(2);
+      expect(data.topProfiles[0].name).toBe('1week-unlimited');
+      expect(data.topProfiles[0].revenue).toBe(50000);
     });
   });
 

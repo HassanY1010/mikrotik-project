@@ -308,41 +308,46 @@ export class AnalyticsService {
   async getDashboardData(tenantId: string): Promise<UnifiedDashboardData> {
     const overview = await this.getDashboardOverview(tenantId);
 
-    // 1. Calculate top profiles by revenue
-    const sales = await this.prisma.saleTransaction.findMany({
-      where: { tenantId },
-      take: 200,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        card: { select: { profile: { select: { name: true } } } },
-      },
-    });
-
-    const profileMap = new Map<string, { count: number; revenue: number }>();
-    for (const s of sales) {
-      const pName = s.card?.profile?.name ?? 'باقة هوتسبوت';
-      const cur = profileMap.get(pName) ?? { count: 0, revenue: 0 };
-      cur.count += 1;
-      cur.revenue += Number(s.amount);
-      profileMap.set(pName, cur);
+    // 1. Calculate top profiles by revenue across 100% of sales via SQL aggregation
+    let topProfiles: Array<{ name: string; count: number; revenue: number }> = [];
+    try {
+      const rawRows = await this.prisma.$queryRaw<
+        Array<{ name: string; count: number | bigint; revenue: number | null }>
+      >`
+        SELECT hp.name AS name, COUNT(st.id)::int AS count, COALESCE(SUM(st.amount), 0)::float AS revenue
+        FROM sale_transactions st
+        JOIN cards c ON st."cardId" = c.id
+        JOIN hotspot_profiles hp ON c."profileId" = hp.id
+        WHERE st."tenantId" = ${tenantId}
+        GROUP BY hp.name
+        ORDER BY revenue DESC
+        LIMIT 5;
+      `;
+      topProfiles = rawRows.map((r) => ({
+        name: r.name,
+        count: Number(r.count),
+        revenue: Number(r.revenue),
+      }));
+    } catch {
+      topProfiles = [];
     }
 
-    // Include existing profiles if some have no sales yet
-    const profiles = await this.prisma.hotspotProfile.findMany({
-      where: { tenantId },
-      select: { name: true },
-      take: 5,
-    });
-    for (const p of profiles) {
-      if (!profileMap.has(p.name)) {
-        profileMap.set(p.name, { count: 0, revenue: 0 });
+    // Include existing profiles if fewer than 5 profiles have recorded sales
+    if (topProfiles.length < 5) {
+      const existingNames = new Set(topProfiles.map((p) => p.name));
+      const profiles = await this.prisma.hotspotProfile.findMany({
+        where: { tenantId },
+        select: { name: true },
+        take: 5,
+      });
+      for (const p of profiles) {
+        if (!existingNames.has(p.name)) {
+          topProfiles.push({ name: p.name, count: 0, revenue: 0 });
+          existingNames.add(p.name);
+          if (topProfiles.length >= 5) break;
+        }
       }
     }
-
-    const topProfiles = Array.from(profileMap.entries())
-      .map(([name, data]) => ({ name, count: data.count, revenue: data.revenue }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5);
 
     // 2. Format recent sales for dashboard table
     const recentSales = overview.recentSales.map((s) => ({

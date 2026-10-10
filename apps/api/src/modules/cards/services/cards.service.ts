@@ -752,15 +752,11 @@ export class CardsService {
     const page = query.page ? Math.max(1, Number(query.page)) : 1;
     const skip = (page - 1) * limit;
 
-    // 4. Parallel execution of paginated cards and accurate counts
+    // 4. Parallel execution of paginated cards, total matching count, and inventory group breakdown
     const [
       cards,
       totalMatching,
-      totalInventory,
-      availableCount,
-      soldCount,
-      activeCount,
-      disabledCount,
+      statusBreakdown,
     ] = await Promise.all([
       this.prisma.card.findMany({
         where,
@@ -785,26 +781,28 @@ export class CardsService {
         },
       }),
       this.prisma.card.count({ where }),
-      this.prisma.card.count({ where: { tenantId: resolvedTenantId } }),
-      this.prisma.card.count({
-        where: {
-          tenantId: resolvedTenantId,
-          status: { in: [CardStatus.AVAILABLE, CardStatus.GENERATED] },
-        },
-      }),
-      this.prisma.card.count({
-        where: { tenantId: resolvedTenantId, status: CardStatus.SOLD },
-      }),
-      this.prisma.card.count({
-        where: { tenantId: resolvedTenantId, status: CardStatus.ACTIVE },
-      }),
-      this.prisma.card.count({
-        where: {
-          tenantId: resolvedTenantId,
-          status: { in: [CardStatus.DISABLED, CardStatus.EXPIRED] },
-        },
+      this.prisma.card.groupBy({
+        by: ['status'],
+        where: { tenantId: resolvedTenantId },
+        _count: { status: true },
       }),
     ]);
+
+    const statusCountsMap: Partial<Record<CardStatus, number>> = {};
+    let totalInventory = 0;
+    for (const item of statusBreakdown) {
+      statusCountsMap[item.status] = item._count.status;
+      totalInventory += item._count.status;
+    }
+
+    const availableCount =
+      (statusCountsMap[CardStatus.AVAILABLE] || 0) +
+      (statusCountsMap[CardStatus.GENERATED] || 0);
+    const soldCount = statusCountsMap[CardStatus.SOLD] || 0;
+    const activeCount = statusCountsMap[CardStatus.ACTIVE] || 0;
+    const disabledCount =
+      (statusCountsMap[CardStatus.DISABLED] || 0) +
+      (statusCountsMap[CardStatus.EXPIRED] || 0);
 
     // 5. Decrypt password credentials for each card
     const formattedCards = cards.map((c) => {
