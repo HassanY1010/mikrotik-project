@@ -311,6 +311,8 @@ export class AnalyticsService {
     // 1. Calculate top profiles by revenue
     const sales = await this.prisma.saleTransaction.findMany({
       where: { tenantId },
+      take: 200,
+      orderBy: { createdAt: 'desc' },
       include: {
         card: { select: { profile: { select: { name: true } } } },
       },
