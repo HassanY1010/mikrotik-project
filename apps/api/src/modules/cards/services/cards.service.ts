@@ -128,9 +128,15 @@ export class CardsService {
       effectiveDeviceId = firstDevice.id;
     }
 
-    const device = await this.prisma.mikroTikDevice.findFirst({
-      where: { id: effectiveDeviceId, tenantId: resolvedTenantId, deletedAt: null },
-    });
+    // 2 & 3. Verify device and profile in parallel
+    const [device, profile] = await Promise.all([
+      this.prisma.mikroTikDevice.findFirst({
+        where: { id: effectiveDeviceId, tenantId: resolvedTenantId, deletedAt: null },
+      }),
+      this.prisma.hotspotProfile.findFirst({
+        where: { id: dto.profileId, tenantId: resolvedTenantId },
+      }),
+    ]);
 
     if (!device) {
       throw new NotFoundException({
@@ -138,11 +144,6 @@ export class CardsService {
         message: `Device with ID ${effectiveDeviceId} was not found for this tenant`,
       });
     }
-
-    // 3. Verify profile belongs to tenant
-    const profile = await this.prisma.hotspotProfile.findFirst({
-      where: { id: dto.profileId, tenantId: resolvedTenantId },
-    });
 
     if (!profile) {
       throw new NotFoundException({
@@ -181,23 +182,39 @@ export class CardsService {
       },
     });
 
-    // 6. Query existing usernames for this device to guarantee uniqueness
-    const existingCards = await this.prisma.card.findMany({
-      where: { tenantId: resolvedTenantId, deviceId: effectiveDeviceId },
-      select: { username: true },
-    });
-    const existingSet = new Set(existingCards.map((c) => c.username));
-
-    // 7. Generate unique card codes via CSPRNG
-    const usernames = this.codeGenerator.generateBatchCodes(
+    // 6 & 7. Generate unique card codes via CSPRNG and check only generated codes for collisions
+    let usernames = this.codeGenerator.generateBatchCodes(
       effectiveTotalCards,
       {
         length: effectiveLength,
         pattern: dto.pattern ?? 'NUMERIC',
         prefix: dto.prefix,
       },
-      existingSet,
     );
+
+    const collisions = await this.prisma.card.findMany({
+      where: {
+        tenantId: resolvedTenantId,
+        deviceId: effectiveDeviceId,
+        username: { in: usernames },
+      },
+      select: { username: true },
+    });
+
+    if (collisions.length > 0) {
+      const collisionSet = new Set(collisions.map((c) => c.username));
+      const valid = usernames.filter((u) => !collisionSet.has(u));
+      const replacements = this.codeGenerator.generateBatchCodes(
+        collisions.length,
+        {
+          length: effectiveLength,
+          pattern: dto.pattern ?? 'NUMERIC',
+          prefix: dto.prefix,
+        },
+        new Set([...valid, ...collisionSet]),
+      );
+      usernames = [...valid, ...replacements];
+    }
 
     // 8. Prepare card records with encrypted passwords and individual UUIDs
     const cardDataToInsert: Prisma.CardCreateManyInput[] = [];
@@ -535,8 +552,8 @@ export class CardsService {
       });
     }
 
-    // If disabling or re-enabling, sync to MikroTik router
-    if (dto.status === CardStatus.DISABLED) {
+    // If disabling or re-enabling, sync to MikroTik router (if online)
+    if (dto.status === CardStatus.DISABLED && card.device?.isOnline) {
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: card.device.id,
@@ -555,7 +572,7 @@ export class CardsService {
       } catch (err) {
         this.logger.warn(`Could not disable hotspot user on router: ${err}`);
       }
-    } else if (card.status === CardStatus.DISABLED) {
+    } else if (card.status === CardStatus.DISABLED && card.device?.isOnline) {
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: card.device.id,

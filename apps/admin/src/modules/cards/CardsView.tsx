@@ -55,23 +55,30 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
     }
   };
 
-  const fetchCards = async () => {
-    setLoading(true);
+  const fetchCards = async (isInitial = true) => {
+    if (isInitial) setLoading(true);
     try {
-      const [cardsRes, profilesRes] = await Promise.all([
+      const promises: [Promise<any>, Promise<any>?] = [
         apiClient.get<CardItem[]>('/cards', {
           status: statusFilter !== 'ALL' ? statusFilter : undefined,
           search: searchQuery || undefined,
         }),
-        apiClient.get<HotspotProfileItem[]>('/hotspot/profiles'),
-      ]);
+      ];
+
+      // Only fetch profiles if not loaded yet
+      if (profiles.length === 0 || isInitial) {
+        promises.push(apiClient.get<HotspotProfileItem[]>('/hotspot/profiles'));
+      }
+
+      const [cardsRes, profilesRes] = await Promise.all(promises);
 
       if (Array.isArray(cardsRes)) {
         setCards(cardsRes);
       } else if (cardsRes && typeof cardsRes === 'object' && 'data' in cardsRes && Array.isArray((cardsRes as any).data)) {
         setCards((cardsRes as any).data);
       }
-      if (Array.isArray(profilesRes)) {
+
+      if (profilesRes && Array.isArray(profilesRes)) {
         setProfiles(profilesRes);
         if (profilesRes.length > 0 && !batchForm.profileId) {
           setBatchForm((prev) => ({ ...prev, profileId: profilesRes[0].id }));
@@ -80,15 +87,17 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحميل الكروت من الخادم';
       showToast(msg, 'error');
-      setCards([]);
-      setProfiles([]);
+      if (isInitial) {
+        setCards([]);
+        setProfiles([]);
+      }
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchCards();
+    fetchCards(false);
   }, [statusFilter]);
 
   const handleGenerateBatch = async (e: React.FormEvent) => {
@@ -118,7 +127,7 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
       await apiClient.post('/cards/batches', payload);
       showToast(`تم توليد دفعة جديدة تحوي ${batchForm.quantity} كرت بنجاح وتشفيرها`, 'success');
       setIsGenerateOpen(false);
-      fetchCards();
+      fetchCards(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل توليد دفعة الكروت';
       showToast(msg, 'error');
@@ -134,11 +143,18 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
 
     if (!window.confirm(`هل أنت متأكد من رغبتك في ${actionText} الكرت (${card.username})؟`)) return;
 
+    // Optimistic UI status toggle
+    const prevCards = cards;
+    setCards((prev) =>
+      prev.map((c) => (c.id === card.id ? { ...c, status: newStatus as any } : c))
+    );
+
     try {
       await apiClient.patch(`/cards/${card.id}/status`, { status: newStatus });
       showToast(`تم ${actionText} الكرت بنجاح`, 'success');
-      fetchCards();
     } catch (err: unknown) {
+      // Revert on network failure
+      setCards(prevCards);
       const msg = err instanceof Error ? err.message : `فشل ${actionText} الكرت`;
       showToast(msg, 'error');
     }
@@ -181,7 +197,7 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
               استوديو تصدير وطباعة الـ PDF
             </button>
           )}
-          <button className="btn btn-outline" onClick={fetchCards} disabled={loading}>
+          <button className="btn btn-outline" onClick={() => fetchCards(true)} disabled={loading}>
             <RefreshCw size={16} />
             تحديث
           </button>
@@ -211,7 +227,7 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
               placeholder="بحث بالرقم التسلسلي أو اسم المستخدم..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && fetchCards()}
+              onKeyDown={(e) => e.key === 'Enter' && fetchCards(false)}
             />
           </div>
 
