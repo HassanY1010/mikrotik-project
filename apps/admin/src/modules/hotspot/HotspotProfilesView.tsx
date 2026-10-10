@@ -35,32 +35,39 @@ export const HotspotProfilesView: React.FC = () => {
     sharedUsers: 1,
   });
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (isInitial = true) => {
+    if (isInitial) setLoading(true);
     try {
-      const [profilesRes, devicesRes] = await Promise.all([
-        apiClient.get<HotspotProfileItem[]>('/hotspot/profiles'),
-        apiClient.get<DeviceItem[]>('/devices'),
-      ]);
-      if (Array.isArray(profilesRes)) setProfiles(profilesRes);
-      if (Array.isArray(devicesRes)) {
-        setDevices(devicesRes);
-        if (devicesRes.length > 0 && !formData.deviceId) {
-          setFormData((prev) => ({ ...prev, deviceId: devicesRes[0].id }));
+      if (isInitial || devices.length === 0) {
+        const [profilesRes, devicesRes] = await Promise.all([
+          apiClient.get<HotspotProfileItem[]>('/hotspot/profiles'),
+          apiClient.get<DeviceItem[]>('/devices'),
+        ]);
+        if (Array.isArray(profilesRes)) setProfiles(profilesRes);
+        if (Array.isArray(devicesRes)) {
+          setDevices(devicesRes);
+          if (devicesRes.length > 0 && !formData.deviceId) {
+            setFormData((prev) => ({ ...prev, deviceId: devicesRes[0].id }));
+          }
         }
+      } else {
+        const profilesRes = await apiClient.get<HotspotProfileItem[]>('/hotspot/profiles');
+        if (Array.isArray(profilesRes)) setProfiles(profilesRes);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحميل بروفايلات الهوت سبوت من الخادم';
       showToast(msg, 'error');
-      setProfiles([]);
-      setDevices([]);
+      if (isInitial) {
+        setProfiles([]);
+        setDevices([]);
+      }
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(true);
   }, []);
 
   const handleCreateProfile = async (e: React.FormEvent) => {
@@ -73,7 +80,10 @@ export const HotspotProfilesView: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      await apiClient.post('/hotspot/profiles', { ...formData, deviceId: effectiveDeviceId });
+      const created = await apiClient.post<HotspotProfileItem>('/hotspot/profiles', {
+        ...formData,
+        deviceId: effectiveDeviceId,
+      });
       showToast('تم إنشاء باقة الهوتسبوت ومزامنتها بنجاح', 'success');
       setIsAddOpen(false);
       setFormData({
@@ -85,7 +95,11 @@ export const HotspotProfilesView: React.FC = () => {
         sharedUsers: 1,
         deviceId: devices[0]?.id || '',
       });
-      fetchData();
+      if (created && created.id) {
+        setProfiles((prev) => [created, ...prev]);
+      } else {
+        fetchData(false);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل إنشاء الباقة';
       showToast(msg, 'error');
@@ -113,7 +127,7 @@ export const HotspotProfilesView: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      await apiClient.patch(`/hotspot/profiles/${editingProfileId}`, {
+      const updated = await apiClient.patch<HotspotProfileItem>(`/hotspot/profiles/${editingProfileId}`, {
         name: editFormData.name,
         rateLimit: editFormData.rateLimit,
         validity: editFormData.validity,
@@ -122,7 +136,11 @@ export const HotspotProfilesView: React.FC = () => {
       showToast('تم تحديث باقة الهوتسبوت بنجاح', 'success');
       setIsEditOpen(false);
       setEditingProfileId(null);
-      fetchData();
+      if (updated && updated.id) {
+        setProfiles((prev) => prev.map((p) => (p.id === editingProfileId ? { ...p, ...updated } : p)));
+      } else {
+        fetchData(false);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحديث الباقة';
       showToast(msg, 'error');
@@ -133,11 +151,15 @@ export const HotspotProfilesView: React.FC = () => {
 
   const handleDeleteProfile = async (id: string, name: string) => {
     if (!window.confirm(`هل أنت متأكد من رغبتك في حذف الباقة "${name}"؟`)) return;
+    const prevProfiles = profiles;
+    // Optimistic UI deletion for immediate responsiveness
+    setProfiles((prev) => prev.filter((p) => p.id !== id));
     try {
       await apiClient.delete(`/hotspot/profiles/${id}`);
       showToast('تم حذف باقة الهوتسبوت بنجاح', 'success');
-      fetchData();
     } catch (err: unknown) {
+      // Rollback on network failure
+      setProfiles(prevProfiles);
       const msg = err instanceof Error ? err.message : 'فشل حذف الباقة';
       showToast(msg, 'error');
     }
@@ -157,7 +179,7 @@ export const HotspotProfilesView: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button className="btn btn-outline" onClick={fetchData} disabled={loading}>
+          <button className="btn btn-outline" onClick={() => fetchData(true)} disabled={loading}>
             <RefreshCw size={16} />
             تحديث
           </button>

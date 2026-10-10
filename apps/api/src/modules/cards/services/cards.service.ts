@@ -248,7 +248,7 @@ export class CardsService {
     const syncedUsernames: string[] = [];
     const failedUsernames: string[] = [];
 
-    if (dto.syncToRouter !== false) {
+    if (dto.syncToRouter !== false && device.isOnline) {
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: device.id,

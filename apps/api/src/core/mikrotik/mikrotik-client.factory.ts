@@ -56,7 +56,7 @@ export class MikrotikClientFactory {
       username: device.username,
       password,
       useSsl: device.useSsl,
-      timeoutMs: 10000,
+      timeoutMs: 3000,
     });
 
     try {
@@ -76,7 +76,7 @@ export class MikrotikClientFactory {
           username: device.username,
           password,
           useSsl: device.useSsl,
-          timeoutMs: 10000,
+          timeoutMs: 3000,
         });
 
         await restClient.connect();

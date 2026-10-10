@@ -126,6 +126,7 @@ describe('CardsService', () => {
         iv: 'iv',
         authTag: 'tag',
         rosVersion: RouterOsVersion.V7,
+        isOnline: true,
       });
 
       prisma.hotspotProfile.findFirst.mockResolvedValue({

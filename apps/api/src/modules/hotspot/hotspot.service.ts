@@ -175,37 +175,43 @@ export class HotspotService {
       });
     }
 
-    // Provision on MikroTik router (if reachable)
+    // Provision on MikroTik router (only if router is online to prevent freezing HTTP request)
     let routerProvisioned = false;
-    try {
-      const client = await this.mikrotikClientFactory.getClient({
-        id: device.id,
-        name: device.name,
-        host: device.host,
-        apiPort: device.apiPort,
-        restPort: device.restPort,
-        useSsl: device.useSsl,
-        username: device.username,
-        passwordEncrypted: device.passwordEncrypted,
-        iv: device.iv,
-        authTag: device.authTag,
-        rosVersion: device.rosVersion,
-      });
+    if (device.isOnline) {
+      try {
+        const client = await this.mikrotikClientFactory.getClient({
+          id: device.id,
+          name: device.name,
+          host: device.host,
+          apiPort: device.apiPort,
+          restPort: device.restPort,
+          useSsl: device.useSsl,
+          username: device.username,
+          passwordEncrypted: device.passwordEncrypted,
+          iv: device.iv,
+          authTag: device.authTag,
+          rosVersion: device.rosVersion,
+        });
 
-      await client.createHotspotProfile({
-        name: dto.name,
-        rateLimit: dto.rateLimit,
-        sessionTimeout: dto.validity || dto.sessionTimeout,
-        idleTimeout: dto.idleTimeout,
-        keepaliveTimeout: dto.keepaliveTimeout,
-        sharedUsers: dto.sharedUsers ?? 1,
-        addressPool: dto.addressPool,
-      });
-      routerProvisioned = true;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(
-        `Could not provision profile "${dto.name}" on physical router (${device.host}): ${msg}. Profile will still be saved in database.`,
+        await client.createHotspotProfile({
+          name: dto.name,
+          rateLimit: dto.rateLimit,
+          sessionTimeout: dto.validity || dto.sessionTimeout,
+          idleTimeout: dto.idleTimeout,
+          keepaliveTimeout: dto.keepaliveTimeout,
+          sharedUsers: dto.sharedUsers ?? 1,
+          addressPool: dto.addressPool,
+        });
+        routerProvisioned = true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Could not provision profile "${dto.name}" on physical router (${device.host}): ${msg}. Profile will still be saved in database.`,
+        );
+      }
+    } else {
+      this.logger.log(
+        `Router "${device.name}" (${device.host}) is currently offline. Profile "${dto.name}" saved in database; sync will occur once router connects.`,
       );
     }
 
@@ -259,27 +265,29 @@ export class HotspotService {
       });
     }
 
-    // Remove from MikroTik
-    try {
-      const client = await this.mikrotikClientFactory.getClient({
-        id: device.id,
-        name: device.name,
-        host: device.host,
-        apiPort: device.apiPort,
-        restPort: device.restPort,
-        useSsl: device.useSsl,
-        username: device.username,
-        passwordEncrypted: device.passwordEncrypted,
-        iv: device.iv,
-        authTag: device.authTag,
-        rosVersion: device.rosVersion,
-      });
+    // Remove from MikroTik (only if router is online)
+    if (device.isOnline) {
+      try {
+        const client = await this.mikrotikClientFactory.getClient({
+          id: device.id,
+          name: device.name,
+          host: device.host,
+          apiPort: device.apiPort,
+          restPort: device.restPort,
+          useSsl: device.useSsl,
+          username: device.username,
+          passwordEncrypted: device.passwordEncrypted,
+          iv: device.iv,
+          authTag: device.authTag,
+          rosVersion: device.rosVersion,
+        });
 
-      await client.deleteHotspotProfile(profile.name);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Could not delete profile on physical router: ${msg}`);
-      // If deleted on router already or router unreachable, still allow removing from DB
+        await client.deleteHotspotProfile(profile.name);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Could not delete profile on physical router: ${msg}`);
+        // If deleted on router already or router unreachable, still allow removing from DB
+      }
     }
 
     await this.prisma.hotspotProfile.delete({
@@ -315,7 +323,7 @@ export class HotspotService {
       });
     }
 
-    if (profile.device) {
+    if (profile.device && profile.device.isOnline) {
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: profile.device.id,

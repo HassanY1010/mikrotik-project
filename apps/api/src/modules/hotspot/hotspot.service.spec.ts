@@ -26,6 +26,7 @@ describe('HotspotService', () => {
     iv: 'iv_val',
     authTag: 'tag_val',
     rosVersion: RouterOsVersion.V7,
+    isOnline: true,
   };
 
   beforeEach(async () => {
