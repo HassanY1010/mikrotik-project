@@ -751,6 +751,14 @@ h6 {
     max-height: 94vh;
   }
 
+  /* Collapse grid columns cleanly on mobile screens */
+  .grid-cols-2,
+  .grid-cols-3,
+  .grid-cols-4 {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+
   /* Optimize touch target sizes (minimum 44px for accessibility) */
   .btn,
   .input,
