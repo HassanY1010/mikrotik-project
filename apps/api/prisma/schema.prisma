@@ -491,6 +491,10 @@ model Card {
   @@index([status])
   @@index([syncStatus])
   @@index([soldAt])
+  @@index([tenantId, status])
+  @@index([tenantId, batchId, status])
+  @@index([tenantId, deviceId, status])
+  @@index([tenantId, createdAt])
   @@map("cards")
 }
 
@@ -524,6 +528,9 @@ model SaleTransaction {
   @@index([deviceId])
   @@index([cardId])
   @@index([createdAt])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, cashierId, createdAt])
+  @@index([tenantId, deviceId, createdAt])
   @@map("sale_transactions")
 }
 

@@ -1,0 +1,3 @@
+# Private SaaS Administrative Dashboard
+User-agent: *
+Disallow: /

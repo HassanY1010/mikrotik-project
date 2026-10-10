@@ -48,6 +48,7 @@ describe('CardsService', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
         count: jest.fn(),
+        groupBy: jest.fn().mockResolvedValue([]),
       },
     };
 

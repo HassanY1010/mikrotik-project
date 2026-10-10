@@ -28,9 +28,17 @@ interface SidebarProps {
   currentTab: NavigationTab;
   onSelectTab: (tab: NavigationTab) => void;
   collapsed: boolean;
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  currentTab,
+  onSelectTab,
+  collapsed,
+  mobileOpen,
+  onCloseMobile,
+}) => {
   const navItems = [
     { id: 'dashboard' as NavigationTab, label: 'لوحة التحكم والتحليلات', icon: LayoutDashboard },
     { id: 'devices' as NavigationTab, label: 'أجهزة وموجهات ميكروتك', icon: Router },
@@ -45,7 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   ];
 
   return (
-    <aside className={`sidebar ${collapsed ? 'sidebar-collapsed' : ''}`}>
+    <aside className={`sidebar ${collapsed ? 'sidebar-collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
       <div
         style={{
           padding: '1.25rem 1rem',
@@ -89,7 +97,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
             return (
               <li key={item.id}>
                 <button
-                  onClick={() => onSelectTab(item.id)}
+                  onClick={() => {
+                    onSelectTab(item.id);
+                    if (onCloseMobile) onCloseMobile();
+                  }}
                   title={collapsed ? item.label : undefined}
                   style={{
                     width: '100%',

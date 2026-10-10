@@ -371,18 +371,33 @@ export class CardsService {
       include: {
         device: { select: { name: true } },
         profile: { select: { name: true } },
-        cards: {
-          select: { status: true },
-        },
       },
     });
 
+    if (batches.length === 0) return [];
+
+    const batchIds = batches.map((b) => b.id);
+    const statusCounts = await this.prisma.card.groupBy({
+      by: ['batchId', 'status'],
+      where: { tenantId, batchId: { in: batchIds } },
+      _count: { id: true },
+    });
+
+    const countsMap = new Map<string, Record<string, number>>();
+    for (const sc of statusCounts) {
+      if (!countsMap.has(sc.batchId)) {
+        countsMap.set(sc.batchId, {});
+      }
+      countsMap.get(sc.batchId)![sc.status] = sc._count.id;
+    }
+
     return batches.map((b) => {
-      const availableCards = b.cards.filter((c) => c.status === CardStatus.AVAILABLE).length;
-      const soldCards = b.cards.filter((c) => c.status === CardStatus.SOLD).length;
-      const activeCards = b.cards.filter((c) => c.status === CardStatus.ACTIVE).length;
-      const disabledCards = b.cards.filter((c) => c.status === CardStatus.DISABLED).length;
-      const expiredCards = b.cards.filter((c) => c.status === CardStatus.EXPIRED).length;
+      const counts = countsMap.get(b.id) || {};
+      const availableCards = counts[CardStatus.AVAILABLE] || 0;
+      const soldCards = counts[CardStatus.SOLD] || 0;
+      const activeCards = counts[CardStatus.ACTIVE] || 0;
+      const disabledCards = counts[CardStatus.DISABLED] || 0;
+      const expiredCards = counts[CardStatus.EXPIRED] || 0;
 
       return {
         id: b.id,
@@ -406,14 +421,20 @@ export class CardsService {
   }
 
   async getBatchById(tenantId: string, batchId: string): Promise<CardBatchSummary> {
-    const batch = await this.prisma.cardBatch.findFirst({
-      where: { id: batchId, tenantId },
-      include: {
-        device: { select: { name: true } },
-        profile: { select: { name: true } },
-        cards: { select: { status: true } },
-      },
-    });
+    const [batch, statusCounts] = await Promise.all([
+      this.prisma.cardBatch.findFirst({
+        where: { id: batchId, tenantId },
+        include: {
+          device: { select: { name: true } },
+          profile: { select: { name: true } },
+        },
+      }),
+      this.prisma.card.groupBy({
+        by: ['status'],
+        where: { tenantId, batchId },
+        _count: { id: true },
+      }),
+    ]);
 
     if (!batch) {
       throw new NotFoundException({
@@ -422,11 +443,10 @@ export class CardsService {
       });
     }
 
-    const availableCards = batch.cards.filter((c) => c.status === CardStatus.AVAILABLE).length;
-    const soldCards = batch.cards.filter((c) => c.status === CardStatus.SOLD).length;
-    const activeCards = batch.cards.filter((c) => c.status === CardStatus.ACTIVE).length;
-    const disabledCards = batch.cards.filter((c) => c.status === CardStatus.DISABLED).length;
-    const expiredCards = batch.cards.filter((c) => c.status === CardStatus.EXPIRED).length;
+    const counts: Record<string, number> = {};
+    for (const sc of statusCounts) {
+      counts[sc.status] = sc._count.id;
+    }
 
     return {
       id: batch.id,
@@ -437,11 +457,11 @@ export class CardsService {
       profileName: batch.profile.name,
       batchNumber: batch.batchNumber,
       totalCards: batch.totalCards,
-      availableCards,
-      soldCards,
-      activeCards,
-      disabledCards,
-      expiredCards,
+      availableCards: counts[CardStatus.AVAILABLE] || 0,
+      soldCards: counts[CardStatus.SOLD] || 0,
+      activeCards: counts[CardStatus.ACTIVE] || 0,
+      disabledCards: counts[CardStatus.DISABLED] || 0,
+      expiredCards: counts[CardStatus.EXPIRED] || 0,
       price: Number(batch.price),
       status: batch.status,
       createdAt: batch.createdAt,

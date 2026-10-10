@@ -3,6 +3,7 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
@@ -42,6 +43,9 @@ async function bootstrap(): Promise<void> {
       crossOriginEmbedderPolicy: false,
     }),
   );
+
+  // ---- Compression ----
+  app.use(compression());
 
   // ---- Cookie parser ----
   const cookieSecret = configService.getOrThrow<string>('COOKIE_SECRET');
