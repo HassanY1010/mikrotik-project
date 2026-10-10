@@ -117,6 +117,7 @@ export const PosTerminalView: React.FC = () => {
 
     setIsProcessing(true);
     try {
+      const idempotencyKey = `pos-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       const res = await apiClient.post<{
         invoiceNumber?: string;
         card?: {
@@ -129,6 +130,7 @@ export const PosTerminalView: React.FC = () => {
         paymentMethod,
         customerPhone: customerPhone.trim() || undefined,
         customerName: customerName.trim() || undefined,
+        idempotencyKey,
       });
 
       showToast('تمت عملية البيع بنجاح وتوليد الإيصال', 'success');

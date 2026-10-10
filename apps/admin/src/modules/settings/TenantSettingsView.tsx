@@ -56,15 +56,21 @@ export const TenantSettingsView: React.FC = () => {
     status: 'ACTIVE',
   });
 
-  const fetchUsers = useCallback(async () => {
-    setLoadingUsers(true);
+  const fetchUsers = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setLoadingUsers(true);
+    }
     try {
       const data = await apiClient.get<UserItem[]>('/users');
       setUsers(Array.isArray(data) ? data : []);
     } catch {
-      setUsers([]);
+      if (isInitial) {
+        setUsers([]);
+      }
     } finally {
-      setLoadingUsers(false);
+      if (isInitial) {
+        setLoadingUsers(false);
+      }
     }
   }, []);
 
@@ -78,7 +84,7 @@ export const TenantSettingsView: React.FC = () => {
         showToast('تعذر جلب بيانات المستأجر من الخادم', 'error');
       });
 
-    fetchUsers();
+    fetchUsers(true);
   }, [showToast, fetchUsers]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -114,7 +120,7 @@ export const TenantSettingsView: React.FC = () => {
         roleName: 'CASHIER',
         phone: '',
       });
-      fetchUsers();
+      fetchUsers(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل إضافة المستخدم';
       showToast(msg, 'error');
@@ -136,13 +142,32 @@ export const TenantSettingsView: React.FC = () => {
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
-    setSavingUser(true);
+    const targetId = editingUser.id;
+    const previousUsers = [...users];
+
+    // Optimistic UI: update immediately in 0ms
+    setUsers((prev) =>
+      prev.map((x) =>
+        x.id === targetId
+          ? {
+              ...x,
+              fullName: editUserForm.fullName,
+              phone: editUserForm.phone,
+              status: editUserForm.status,
+              role: x.role ? { ...x.role, name: editUserForm.roleName } : undefined,
+            }
+          : x,
+      ),
+    );
+    setEditingUser(null);
+    showToast('تم تحديث بيانات المستخدم بنجاح', 'success');
+
     try {
-      await apiClient.patch(`/users/${editingUser.id}`, editUserForm);
-      showToast('تم تحديث بيانات المستخدم بنجاح', 'success');
-      setEditingUser(null);
-      fetchUsers();
+      await apiClient.patch(`/users/${targetId}`, editUserForm);
+      fetchUsers(false);
     } catch (err: unknown) {
+      // Revert on error
+      setUsers(previousUsers);
       const msg = err instanceof Error ? err.message : 'فشل تحديث بيانات المستخدم';
       showToast(msg, 'error');
     } finally {
@@ -152,11 +177,18 @@ export const TenantSettingsView: React.FC = () => {
 
   const handleDeleteUser = async (u: UserItem) => {
     if (!window.confirm(`هل أنت متأكد من حذف المستخدم "${u.fullName}"؟`)) return;
+    const userToDelete = u;
+
+    // Optimistic UI: remove immediately in 0ms
+    setUsers((prev) => prev.filter((x) => x.id !== userToDelete.id));
+    showToast('تم حذف المستخدم بنجاح', 'success');
+
     try {
-      await apiClient.delete(`/users/${u.id}`);
-      showToast('تم حذف المستخدم بنجاح', 'success');
-      fetchUsers();
+      await apiClient.delete(`/users/${userToDelete.id}`);
+      fetchUsers(false);
     } catch (err: unknown) {
+      // Revert on error
+      setUsers((prev) => [...prev, userToDelete]);
       const msg = err instanceof Error ? err.message : 'فشل حذف المستخدم';
       showToast(msg, 'error');
     }
@@ -413,7 +445,7 @@ export const TenantSettingsView: React.FC = () => {
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button
               className="btn btn-outline btn-sm"
-              onClick={fetchUsers}
+              onClick={() => fetchUsers(false)}
               disabled={loadingUsers}
             >
               <RefreshCw size={14} className={loadingUsers ? 'spin' : ''} />

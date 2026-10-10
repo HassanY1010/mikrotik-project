@@ -141,10 +141,19 @@ export class SalesService {
 
     const quantity = dto.quantity ?? 1;
 
-    // 1. Verify tenant exists and fetch currency/metadata
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-    });
+    // 1. Parallelize initial validation queries
+    const [tenant, initialProfile] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+      }),
+      dto.deviceId
+        ? this.prisma.hotspotProfile.findFirst({
+            where: { id: dto.profileId, tenantId, deviceId: dto.deviceId },
+          })
+        : this.prisma.hotspotProfile.findFirst({
+            where: { id: dto.profileId, tenantId },
+          }),
+    ]);
 
     if (!tenant) {
       throw new NotFoundException({
@@ -153,14 +162,8 @@ export class SalesService {
       });
     }
 
-    // 2. Resolve profile and device (auto-resolves deviceId if missing or mismatched)
-    let profile = null;
-    if (dto.deviceId) {
-      profile = await this.prisma.hotspotProfile.findFirst({
-        where: { id: dto.profileId, tenantId, deviceId: dto.deviceId },
-      });
-    }
-    if (!profile) {
+    let profile = initialProfile;
+    if (!profile && dto.deviceId) {
       profile = await this.prisma.hotspotProfile.findFirst({
         where: { id: dto.profileId, tenantId },
       });
@@ -173,10 +176,16 @@ export class SalesService {
       });
     }
 
-    const effectiveDeviceId = profile.deviceId;
-    const device = await this.prisma.mikroTikDevice.findFirst({
-      where: { id: effectiveDeviceId, tenantId, deletedAt: null },
-    });
+    const effectiveDeviceId = profile.deviceId ?? dto.deviceId;
+    const [device, cashier] = await Promise.all([
+      this.prisma.mikroTikDevice.findFirst({
+        where: { id: effectiveDeviceId, tenantId, deletedAt: null },
+      }),
+      this.prisma.user.findFirst({
+        where: { id: cashierId, tenantId },
+      }),
+    ]);
+
     if (!device) {
       throw new NotFoundException({
         code: 'DEVICE_NOT_FOUND',
@@ -184,9 +193,6 @@ export class SalesService {
       });
     }
 
-    const cashier = await this.prisma.user.findFirst({
-      where: { id: cashierId, tenantId },
-    });
     const cashierName = cashier ? cashier.fullName : 'الكاشير';
 
     // 3. Normalize payment method
@@ -524,25 +530,29 @@ export class SalesService {
       data: { status: CardStatus.DISABLED },
     });
 
-    // Command router to disable HotSpot user
-    try {
-      const client = await this.mikrotikClientFactory.getClient({
-        id: tx.device.id,
-        name: tx.device.name,
-        host: tx.device.host,
-        apiPort: tx.device.apiPort,
-        restPort: tx.device.restPort,
-        useSsl: tx.device.useSsl,
-        username: tx.device.username,
-        passwordEncrypted: tx.device.passwordEncrypted,
-        iv: tx.device.iv,
-        authTag: tx.device.authTag,
-        rosVersion: tx.device.rosVersion,
-      });
+    // Command router to disable HotSpot user (only if device is currently online)
+    if (tx.device?.isOnline !== false) {
+      try {
+        const client = await this.mikrotikClientFactory.getClient({
+          id: tx.device.id,
+          name: tx.device.name,
+          host: tx.device.host,
+          apiPort: tx.device.apiPort,
+          restPort: tx.device.restPort,
+          useSsl: tx.device.useSsl,
+          username: tx.device.username,
+          passwordEncrypted: tx.device.passwordEncrypted,
+          iv: tx.device.iv,
+          authTag: tx.device.authTag,
+          rosVersion: tx.device.rosVersion,
+        });
 
-      await client.disableHotspotUser(tx.card.username);
-    } catch (err) {
-      this.logger.warn(`Could not disable hotspot user on router during refund: ${err}`);
+        await client.disableHotspotUser(tx.card.username);
+      } catch (err) {
+        this.logger.warn(`Could not disable hotspot user on router during refund: ${err}`);
+      }
+    } else {
+      this.logger.log(`Skipping router sync on refund: device ${tx.device?.name} is offline`);
     }
 
     // Deduct loyalty points previously awarded for this refunded sale
@@ -650,14 +660,15 @@ export class SalesService {
   }
 
   async getShiftSummary(tenantId: string, cashierId: string): Promise<ShiftSummaryReport> {
-    const user = await this.prisma.user.findFirst({
-      where: { id: cashierId },
-      include: { role: true },
-    });
-
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-    });
+    const [user, tenant] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { id: cashierId },
+        include: { role: true },
+      }),
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+      }),
+    ]);
 
     // Today's shift (starts at 00:00:00 today)
     const today = new Date();

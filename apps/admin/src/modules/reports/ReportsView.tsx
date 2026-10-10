@@ -12,8 +12,10 @@ export const ReportsView: React.FC = () => {
   const [downloading, setDownloading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
 
-  const fetchShift = async (isManual = false) => {
-    setLoading(true);
+  const fetchShift = async (isManual = false, isInitial = false) => {
+    if (isInitial) {
+      setLoading(true);
+    }
     try {
       const data = await apiClient.get<ShiftSummaryData>('/sales/shift-summary');
       setShiftSummary(data);
@@ -21,22 +23,26 @@ export const ReportsView: React.FC = () => {
         showToast('تم تحديث ومزامنة تقرير الوردية من الخادم بنجاح', 'success');
       }
     } catch {
-      setShiftSummary({
-        totalRevenue: 0,
-        totalSalesCount: 0,
-        currency: 'SDG',
-        profileBreakdown: [],
-      });
+      if (isInitial) {
+        setShiftSummary({
+          totalRevenue: 0,
+          totalSalesCount: 0,
+          currency: 'SDG',
+          profileBreakdown: [],
+        });
+      }
       if (isManual) {
         showToast('تعذر الاتصال بالخادم لتحديث تقرير الوردية', 'error');
       }
     } finally {
-      setLoading(false);
+      if (isInitial) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchShift(false);
+    fetchShift(false, true);
   }, []);
 
   const downloadCsv = async (endpoint: string, filename: string) => {

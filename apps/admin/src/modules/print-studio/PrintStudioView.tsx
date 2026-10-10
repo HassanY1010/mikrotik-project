@@ -22,20 +22,42 @@ export const PrintStudioView: React.FC = () => {
   const [batches, setBatches] = useState<BatchOption[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
+  const [fetchingCards, setFetchingCards] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<{ current: number; total: number } | null>(null);
 
-  const fetchData = async (batchId: string = selectedBatchId) => {
-    setLoading(true);
+  // Fetch only cards when batch filter changes (fast targeted query)
+  const fetchCardsForBatch = async (batchId: string) => {
+    setFetchingCards(true);
     try {
-      const cardsQuery: Record<string, string | number> = {
-        limit: 200,
-      };
+      const cardsQuery: Record<string, string | number> = { limit: 200 };
       if (batchId !== 'ALL') {
         cardsQuery.batchId = batchId;
       } else {
         cardsQuery.status = 'AVAILABLE';
       }
+      const val = await apiClient.get<CardItem[] | { data: CardItem[]; total: number }>('/cards', cardsQuery);
+      const cardList = Array.isArray(val)
+        ? val
+        : val && typeof val === 'object' && 'data' in val && Array.isArray((val as { data: CardItem[] }).data)
+        ? (val as { data: CardItem[] }).data
+        : [];
+      setCards(cardList);
+    } catch {
+      // Retain existing cards on error
+    } finally {
+      setFetchingCards(false);
+    }
+  };
+
+  // Initial full load on mount
+  const fetchInitialData = async () => {
+    setLoading(true);
+    try {
+      const cardsQuery: Record<string, string | number> = {
+        limit: 200,
+        status: 'AVAILABLE',
+      };
 
       const [cardsRes, tenantRes, batchesRes] = await Promise.allSettled([
         apiClient.get<CardItem[] | { data: CardItem[]; total: number }>('/cards', cardsQuery),
@@ -72,12 +94,12 @@ export const PrintStudioView: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchData('ALL');
+    fetchInitialData();
   }, []);
 
   const handleBatchChange = (batchId: string) => {
     setSelectedBatchId(batchId);
-    fetchData(batchId);
+    fetchCardsForBatch(batchId);
   };
 
   const handlePrint = () => {
@@ -128,7 +150,7 @@ export const PrintStudioView: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-outline" onClick={() => fetchData()} disabled={loading}>
+          <button className="btn btn-outline" onClick={() => fetchInitialData()} disabled={loading}>
             <RefreshCw size={16} className={loading ? 'spin' : ''} />
             تحديث
           </button>
@@ -304,6 +326,8 @@ export const PrintStudioView: React.FC = () => {
           borderRadius: 'var(--radius-lg)',
           border: '1px solid var(--border)',
           overflowX: 'auto',
+          opacity: fetchingCards ? 0.6 : 1,
+          transition: 'opacity 0.2s ease',
         }}
       >
         {loading ? (

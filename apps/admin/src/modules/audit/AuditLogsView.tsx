@@ -30,13 +30,18 @@ export const AuditLogsView: React.FC = () => {
   const { showToast } = useToast();
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [actionFilter, setActionFilter] = useState('ALL');
   const [selectedLog, setSelectedLog] = useState<AuditLogItem | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
+  const fetchLogs = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setLoading(true);
+    } else {
+      setIsUpdating(true);
+    }
     try {
       const data = await apiClient.get<AuditLogItem[] | { data: AuditLogItem[]; total: number }>(
         '/audit-logs',
@@ -53,9 +58,14 @@ export const AuditLogsView: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحميل سجل التدقيق من الخادم';
       showToast(msg, 'error');
-      setLogs([]);
+      if (isInitial) {
+        setLogs([]);
+      }
     } finally {
-      setLoading(false);
+      if (isInitial) {
+        setLoading(false);
+      }
+      setIsUpdating(false);
     }
   }, [actionFilter, showToast]);
 
@@ -84,7 +94,7 @@ export const AuditLogsView: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchLogs();
+    fetchLogs(true);
   }, [fetchLogs]);
 
   const getActionDisplay = (action: string) => {
@@ -270,8 +280,8 @@ export const AuditLogsView: React.FC = () => {
             <Download size={16} />
             {exporting ? 'جاري التصدير...' : 'تصدير السجل (CSV)'}
           </button>
-          <button className="btn btn-primary" onClick={fetchLogs} disabled={loading}>
-            <RefreshCw size={16} className={loading ? 'spin' : ''} />
+          <button className="btn btn-primary" onClick={() => fetchLogs(false)} disabled={loading || isUpdating}>
+            <RefreshCw size={16} className={loading || isUpdating ? 'spin' : ''} />
             تحديث السجل
           </button>
         </div>
@@ -311,8 +321,8 @@ export const AuditLogsView: React.FC = () => {
               <th style={{ textAlign: 'left' }}>التفاصيل</th>
             </tr>
           </thead>
-          <tbody>
-            {loading ? (
+          <tbody style={{ opacity: isUpdating ? 0.6 : 1, transition: 'opacity 0.2s ease' }}>
+            {loading && logs.length === 0 ? (
               <tr>
                 <td colSpan={6} style={{ textAlign: 'center', padding: '2.5rem' }}>
                   جاري فحص وتحديث سجل العمليات...

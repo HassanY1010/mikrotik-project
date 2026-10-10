@@ -29,8 +29,10 @@ export const SalesInvoicesView: React.FC = () => {
   const [refundReason, setRefundReason] = useState('خطأ في إدخال الباقة من الكاشير');
   const [isRefunding, setIsRefunding] = useState(false);
 
-  const fetchSales = async (isManual = false) => {
-    setLoading(true);
+  const fetchSales = async (isManual = false, isInitial = false) => {
+    if (isInitial) {
+      setLoading(true);
+    }
     try {
       const data = await apiClient.get<SaleTransactionItem[] | { data: SaleTransactionItem[]; total: number }>(
         '/sales/transactions',
@@ -50,32 +52,50 @@ export const SalesInvoicesView: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحميل سجل المبيعات من الخادم';
       showToast(msg, 'error');
-      setSales([]);
+      if (isInitial) {
+        setSales([]);
+      }
     } finally {
-      setLoading(false);
+      if (isInitial) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchSales(false);
+    fetchSales(false, true);
   }, []);
 
   const handleRefund = async () => {
     if (!selectedTx) return;
+    const targetTx = selectedTx;
     setIsRefunding(true);
 
+    // 1. Optimistic UI: instant update on screen (0ms perceived latency)
+    setSales((prev) =>
+      prev.map((s) =>
+        s.id === targetTx.id
+          ? { ...s, card: s.card ? { ...s.card, status: 'DISABLED' } : s.card }
+          : s,
+      ),
+    );
+    setSelectedTx(null);
+    showToast(
+      `تم استرجاع الفاتورة ${targetTx.invoiceNumber} وتعطيل الكرت بنجاح`,
+      'success',
+    );
+
     try {
-      await apiClient.post(`/sales/transactions/${selectedTx.id}/refund`, {
+      await apiClient.post(`/sales/transactions/${targetTx.id}/refund`, {
         reason: refundReason,
       });
-
-      showToast(
-        `تم استرجاع الفاتورة ${selectedTx.invoiceNumber} وتعطيل الكرت على راوتر ميكروتيك بنجاح`,
-        'success',
-      );
-      setSelectedTx(null);
-      fetchSales();
+      // Silent sync with backend
+      fetchSales(false, false);
     } catch (err: unknown) {
+      // Revert optimistic update on failure
+      setSales((prev) =>
+        prev.map((s) => (s.id === targetTx.id ? targetTx : s)),
+      );
       const msg = err instanceof Error ? err.message : 'فشل استرجاع الفاتورة';
       showToast(msg, 'error');
     } finally {
