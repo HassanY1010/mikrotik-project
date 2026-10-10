@@ -5,6 +5,7 @@ import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/services/card_pdf_generator_service.dart';
+import 'card_templates_screen.dart';
 
 class CardStudioScreen extends ConsumerStatefulWidget {
   final VoidCallback? onBatchCreated;
@@ -21,6 +22,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
 
   String? _selectedProfileId;
   String _selectedThemePreset = 'FOOTBALL';
+  CardTemplateModel? _selectedCustomTemplate;
   bool _singleCredentialMode = true; // User = Pass (PIN)
   bool _isGenerating = false;
 
@@ -42,6 +44,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
 
   void _loadData() {
     ref.read(profilesProvider.notifier).fetchProfiles();
+    ref.read(cardTemplatesProvider.notifier).refresh();
     ref.invalidate(routersProvider);
   }
 
@@ -119,6 +122,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
         'singleCredential': _singleCredentialMode,
         'singleUserPin': _singleCredentialMode,
       };
+      if (_selectedCustomTemplate != null) {
+        payload['templateId'] = _selectedCustomTemplate!.id;
+      }
       if (selectedRouterId != null) {
         payload['deviceId'] = selectedRouterId;
       }
@@ -393,6 +399,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                         layout: selectedLayout,
                         batchNumber: batchId,
                         themePreset: _selectedThemePreset,
+                        customPrimaryColor: _selectedCustomTemplate?.primaryColor,
+                        customAccentColor: _selectedCustomTemplate?.accentColor,
                       );
                     } catch (err) {
                       if (context.mounted) {
@@ -425,6 +433,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                         layout: selectedLayout,
                         batchNumber: batchId,
                         themePreset: _selectedThemePreset,
+                        customPrimaryColor: _selectedCustomTemplate?.primaryColor,
+                        customAccentColor: _selectedCustomTemplate?.accentColor,
                       );
                     } catch (err) {
                       if (context.mounted) {
@@ -741,19 +751,127 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
 
             const SizedBox(height: 18),
 
-            // Themes Selection
-            const Text(
-              'اختر تصميم وثيم الكرت',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+            // Themes & Templates Selection Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'اختر تصميم وثيم الكرت',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const CardTemplatesScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.palette_outlined, size: 16, color: Color(0xFF38BDF8)),
+                  label: const Text(
+                    'إدارة واستيراد القوالب',
+                    style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
+
+            // 1. Custom Templates from backend (if any)
+            () {
+              final templatesAsync = ref.watch(cardTemplatesProvider);
+              final customTemplates = templatesAsync.value ?? [];
+              if (customTemplates.isEmpty) return const SizedBox.shrink();
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      'القوالب المخصصة من النظام:',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                    ),
+                  ),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: customTemplates.map((tpl) {
+                        final isSelected = _selectedCustomTemplate?.id == tpl.id;
+                        Color pColor;
+                        try {
+                          final clean = tpl.primaryColor.replaceAll('#', '');
+                          pColor = Color(int.parse(clean.length == 6 ? 'FF$clean' : clean, radix: 16));
+                        } catch (_) {
+                          pColor = const Color(0xFF2563EB);
+                        }
+
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedCustomTemplate = tpl;
+                              _selectedThemePreset = tpl.themePreset;
+                            });
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(left: 10, bottom: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isSelected ? const Color(0xFF1E3A8A).withValues(alpha: 0.3) : const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                CircleAvatar(radius: 6, backgroundColor: pColor),
+                                const SizedBox(width: 8),
+                                Text(
+                                  tpl.name,
+                                  style: TextStyle(
+                                    color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                if (tpl.isDefault) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF38BDF8).withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text('افتراضي', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 9)),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'الثيمات القياسية:',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                  ),
+                  const SizedBox(height: 6),
+                ],
+              );
+            }(),
+
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: _themes.entries.map((entry) {
-                  final isSelected = _selectedThemePreset == entry.key;
+                  final isSelected = _selectedCustomTemplate == null && _selectedThemePreset == entry.key;
                   return GestureDetector(
-                    onTap: () => setState(() => _selectedThemePreset = entry.key),
+                    onTap: () => setState(() {
+                      _selectedCustomTemplate = null;
+                      _selectedThemePreset = entry.key;
+                    }),
                     child: Container(
                       margin: const EdgeInsets.only(left: 10),
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

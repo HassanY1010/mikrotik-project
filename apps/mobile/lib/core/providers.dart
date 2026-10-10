@@ -33,6 +33,54 @@ class CurrentUserNotifier extends Notifier<AuthUser?> {
   void setUser(AuthUser? user) {
     state = user;
   }
+
+  Future<void> fetchMe() async {
+    final apiClient = ref.read(apiClientProvider);
+    final storage = ref.read(localStorageProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.authMe);
+      final raw = res.data;
+      final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+      if (data is Map<String, dynamic>) {
+        final updatedUser = AuthUser.fromJson(data);
+        await storage.setUser(updatedUser);
+        state = updatedUser;
+      }
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.changePassword,
+        data: {
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        },
+      );
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) {
+        return raw;
+      }
+      return {'success': true, 'message': 'تم تغيير كلمة المرور بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'كلمة المرور الحالية غير صحيحة',
+        };
+      }
+      return {
+        'success': false,
+        'message': 'تعذر الاتصال بالخادم لتغيير كلمة المرور',
+      };
+    }
+  }
 }
 
 final currentUserProvider = NotifierProvider<CurrentUserNotifier, AuthUser?>(
@@ -184,6 +232,132 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
   void refreshFromStorage() {
     final storage = ref.read(localStorageProvider);
     state = storage.getCachedProfiles();
+  }
+
+  Future<Map<String, dynamic>> createProfile({
+    required String name,
+    required String deviceId,
+    String? displayName,
+    String? rateLimit,
+    String? sessionTimeout,
+    String? validity,
+    double? price,
+    int? sharedUsers,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.hotspotProfiles,
+        data: {
+          'name': name.trim(),
+          'deviceId': deviceId,
+          if (displayName != null && displayName.isNotEmpty) 'displayName': displayName.trim(),
+          if (rateLimit != null && rateLimit.isNotEmpty) 'rateLimit': rateLimit.trim(),
+          if (sessionTimeout != null && sessionTimeout.isNotEmpty) 'sessionTimeout': sessionTimeout.trim(),
+          if (validity != null && validity.isNotEmpty) 'validity': validity.trim(),
+          if (price != null) 'price': price,
+          if (sharedUsers != null) 'sharedUsers': sharedUsers,
+        },
+      );
+      await fetchProfiles();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) {
+        return {'success': true, ...raw};
+      }
+      return {'success': true, 'message': 'تم إنشاء البروفايل ومزامنته مع الراوتر بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل إنشاء البروفايل على الراوتر',
+        };
+      }
+      return {
+        'success': false,
+        'message': 'تعذر الاتصال بالخادم لإنشاء البروفايل (${e.toString()})',
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> updateProfile({
+    required String id,
+    required String name,
+    String? displayName,
+    String? rateLimit,
+    String? sessionTimeout,
+    String? validity,
+    double? price,
+    int? sharedUsers,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.patch(
+        ApiEndpoints.hotspotProfileItem(id),
+        data: {
+          'name': name.trim(),
+          if (displayName != null) 'displayName': displayName.trim(),
+          if (rateLimit != null) 'rateLimit': rateLimit.trim(),
+          if (sessionTimeout != null) 'sessionTimeout': sessionTimeout.trim(),
+          if (validity != null) 'validity': validity.trim(),
+          if (price != null) 'price': price,
+          if (sharedUsers != null) 'sharedUsers': sharedUsers,
+        },
+      );
+      await fetchProfiles();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم تعديل البروفايل بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل تعديل البروفايل',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteProfile(String id) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.delete(ApiEndpoints.hotspotProfileItem(id));
+      await fetchProfiles();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم حذف البروفايل بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل حذف البروفايل',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم لحذف البروفايل'};
+    }
+  }
+
+  Future<Map<String, dynamic>> syncProfilesWithRouter(String deviceId) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post('/devices/$deviceId/hotspot/profiles/sync');
+      await fetchProfiles();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تمت مزامنة البروفايلات مع الراوتر بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل مزامنة البروفايلات',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم لمزامنة الراوتر'};
+    }
   }
 }
 
@@ -477,11 +651,85 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
     } catch (_) {}
 
     return [
-      CardTemplateModel(id: 'tpl-1', name: 'ثيم كرة القدم الذهبي', themePreset: 'FOOTBALL', primaryColor: '#059669', accentColor: '#F59E0B', isDefault: true),
-      CardTemplateModel(id: 'tpl-2', name: 'عيد مبارك الملكي', themePreset: 'EID_MUBARAK', primaryColor: '#1E3A8A', accentColor: '#D97706'),
-      CardTemplateModel(id: 'tpl-3', name: 'الفيروزي الحديث', themePreset: 'TURQUOISE', primaryColor: '#0D9488', accentColor: '#06B6D4'),
-      CardTemplateModel(id: 'tpl-4', name: 'تذكرة مفرغة (Ticket)', themePreset: 'TICKET', primaryColor: '#4F46E5', accentColor: '#EC4899'),
-      CardTemplateModel(id: 'tpl-5', name: 'مدمج أنيق (Compact)', themePreset: 'COMPACT', primaryColor: '#334155', accentColor: '#64748B'),
+      CardTemplateModel(
+        id: 'tpl-1',
+        name: 'ثيم كرة القدم الذهبي',
+        themePreset: 'FOOTBALL',
+        primaryColor: '#065F46',
+        accentColor: '#F59E0B',
+        isDefault: true,
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': true,
+          'networkName': 'سودافاي هوتسبوت',
+          'headerTitle': 'كأس الذهب - فائق السرعة',
+          'instructions': 'امسح الرمز أو أدخل اسم المستخدم للدخول',
+        },
+      ),
+      CardTemplateModel(
+        id: 'tpl-2',
+        name: 'عيد مبارك الملكي',
+        themePreset: 'EID_MUBARAK',
+        primaryColor: '#1E3A8A',
+        accentColor: '#D97706',
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': true,
+          'networkName': 'شبكة العيد الملكية',
+          'headerTitle': 'كل عام وأنتم بخير',
+        },
+      ),
+      CardTemplateModel(
+        id: 'tpl-3',
+        name: 'الفيروزي الحديث',
+        themePreset: 'TURQUOISE',
+        primaryColor: '#0F766E',
+        accentColor: '#06B6D4',
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': true,
+          'networkName': 'شبكة المستقبل الرقمية',
+        },
+      ),
+      CardTemplateModel(
+        id: 'tpl-4',
+        name: 'تذكرة كلاسيكية (Ticket)',
+        themePreset: 'TICKET',
+        primaryColor: '#4338CA',
+        accentColor: '#EC4899',
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': true,
+          'networkName': 'تذكرة إنترنت هوتسبوت',
+        },
+      ),
+      CardTemplateModel(
+        id: 'tpl-5',
+        name: 'مدمج أنيق (Compact)',
+        themePreset: 'COMPACT',
+        primaryColor: '#334155',
+        accentColor: '#64748B',
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': true,
+          'networkName': 'بطاقة الاتصال المدمجة',
+        },
+      ),
     ];
   }
 
@@ -489,10 +737,161 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() => _fetch());
   }
+
+  Future<Map<String, dynamic>> createTemplate(CardTemplateModel tpl) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.cardTemplates,
+        data: tpl.toPayload(),
+      );
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم حفظ القالب بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل حفظ القالب في الخادم',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم لحفظ القالب'};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateTemplate(CardTemplateModel tpl) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.patch(
+        ApiEndpoints.cardTemplateItem(tpl.id),
+        data: tpl.toPayload(),
+      );
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم تعديل القالب بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل تعديل القالب',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteTemplate(String id) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.delete(ApiEndpoints.cardTemplateItem(id));
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم حذف القالب بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل حذف القالب',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم لحذف القالب'};
+    }
+  }
 }
 
 final cardTemplatesProvider = AsyncNotifierProvider<CardTemplatesNotifier, List<CardTemplateModel>>(
   CardTemplatesNotifier.new,
+);
+
+// Tenant Users AsyncNotifier
+class TenantUsersNotifier extends AsyncNotifier<List<UserModel>> {
+  @override
+  Future<List<UserModel>> build() async {
+    return _fetch();
+  }
+
+  Future<List<UserModel>> _fetch() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.users);
+      final raw = res.data;
+      final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
+      if (list is List) {
+        return list.map((u) => UserModel.fromJson(u as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch());
+  }
+
+  Future<Map<String, dynamic>> createUser({
+    required String fullName,
+    required String email,
+    required String password,
+    String? phone,
+    required String role,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.users,
+        data: {
+          'fullName': fullName.trim(),
+          'email': email.trim().toLowerCase(),
+          'password': password,
+          if (phone != null && phone.isNotEmpty) 'phone': phone.trim(),
+          'roleName': role,
+        },
+      );
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم إنشاء المستخدم بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل إنشاء المستخدم (قد يكون البريد مسجلاً مسبقاً)',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم لإنشاء المستخدم'};
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteUser(String id) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.delete(ApiEndpoints.userItem(id));
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم حذف المستخدم بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل حذف المستخدم',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+    }
+  }
+}
+
+final tenantUsersProvider = AsyncNotifierProvider<TenantUsersNotifier, List<UserModel>>(
+  TenantUsersNotifier.new,
 );
 
 // Cloud Wallet AsyncNotifier

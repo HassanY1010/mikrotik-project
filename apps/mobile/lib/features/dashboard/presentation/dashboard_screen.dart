@@ -14,6 +14,10 @@ class DashboardScreen extends ConsumerStatefulWidget {
   final VoidCallback? onOpenCloudWallet;
   final VoidCallback? onOpenDrawer;
   final VoidCallback? onLogout;
+  final VoidCallback? onOpenTemplates;
+  final VoidCallback? onOpenProfiles;
+  final VoidCallback? onOpenUserProfile;
+  final VoidCallback? onOpenTenantUsers;
 
   const DashboardScreen({
     super.key,
@@ -26,6 +30,10 @@ class DashboardScreen extends ConsumerStatefulWidget {
     this.onOpenCloudWallet,
     this.onOpenDrawer,
     this.onLogout,
+    this.onOpenTemplates,
+    this.onOpenProfiles,
+    this.onOpenUserProfile,
+    this.onOpenTenantUsers,
   });
 
   @override
@@ -346,6 +354,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             tooltip: 'مزامنة وتحديث البيانات',
             onPressed: _isSyncing ? null : _handleSyncAndRefresh,
           ),
+          if (widget.onOpenUserProfile != null)
+            IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.person_outline, color: Color(0xFF38BDF8), size: 18),
+              ),
+              tooltip: 'حسابي وإعدادات الأمان',
+              onPressed: widget.onOpenUserProfile,
+            ),
           if (widget.onLogout != null)
             IconButton(
               icon: Container(
@@ -1151,12 +1172,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildQuickActionsGrid() {
+    final user = ref.watch(currentUserProvider);
     final actions = [
       _ActionItem('استوديو الكروت', Icons.auto_awesome, const Color(0xFF8B5CF6), () => widget.onNavigateTab?.call(2)),
-      _ActionItem('رادار الشبكة', Icons.radar, const Color(0xFF06B6D4), _navigateToRadar),
+      _ActionItem('قوالب الطباعة', Icons.palette_outlined, const Color(0xFFA855F7), widget.onOpenTemplates),
+      _ActionItem('باقات وسرعات', Icons.speed, const Color(0xFFF59E0B), widget.onOpenProfiles),
       _ActionItem('نقطة البيع POS', Icons.point_of_sale, const Color(0xFF10B981), widget.onOpenPos),
+      _ActionItem('رادار الشبكة', Icons.radar, const Color(0xFF06B6D4), _navigateToRadar),
       _ActionItem('مخزن الكروت', Icons.inventory_2, const Color(0xFF3B82F6), () => widget.onNavigateTab?.call(1)),
       _ActionItem('التقارير المالية', Icons.bar_chart, const Color(0xFFF59E0B), () => widget.onNavigateTab?.call(4)),
+      _ActionItem('حسابي والأمان', Icons.person_pin_outlined, const Color(0xFF38BDF8), widget.onOpenUserProfile),
+      if (user?.role == 'SUPER_ADMIN' || user?.role == 'TENANT_ADMIN')
+        _ActionItem('المستخدمون', Icons.group_outlined, const Color(0xFF10B981), widget.onOpenTenantUsers),
       _ActionItem('محفظة السحاب', Icons.cloud_done, const Color(0xFFEC4899), widget.onOpenCloudWallet),
       _ActionItem('إعداد الراوتر', Icons.settings_input_antenna, const Color(0xFF6366F1), widget.onOpenRouterSetup),
       _ActionItem('محفظة الأوفلاين', Icons.wallet, const Color(0xFF14B8A6), widget.onOpenOfflineWallet),

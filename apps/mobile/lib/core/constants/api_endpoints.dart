@@ -5,6 +5,12 @@ class ApiEndpoints {
   // Auth endpoints
   static const String login = '/auth/login';
   static const String profile = '/auth/profile';
+  static const String authMe = '/auth/me';
+  static const String changePassword = '/auth/change-password';
+
+  // User management endpoints
+  static const String users = '/users';
+  static String userItem(String id) => '/users/$id';
 
   // Sync endpoints
   static const String syncPush = '/sync/push';
@@ -19,6 +25,7 @@ class ApiEndpoints {
 
   // Hotspot profiles endpoint
   static const String hotspotProfiles = '/hotspot/profiles';
+  static String hotspotProfileItem(String id) => '/hotspot/profiles/$id';
   static const String hotspotSessions = '/hotspot/sessions';
 
   // Devices endpoint
@@ -38,6 +45,7 @@ class ApiEndpoints {
   static String cardStatus(String id) => '/cards/$id/status';
   static const String cardBatches = '/cards/batches';
   static const String cardTemplates = '/card-templates';
+  static String cardTemplateItem(String id) => '/card-templates/$id';
 
   // Analytics & Reports
   static const String analyticsDashboard = '/analytics/dashboard';

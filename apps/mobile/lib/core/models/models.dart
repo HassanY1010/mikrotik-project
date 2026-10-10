@@ -8,6 +8,11 @@ class AuthUser {
   final String role;
   final String tenantId;
   final String? tenantName;
+  final String? phone;
+  final String? status;
+  final String? currency;
+  final DateTime? createdAt;
+  final String? subscriptionPlan;
 
   AuthUser({
     required this.id,
@@ -16,16 +21,26 @@ class AuthUser {
     required this.role,
     required this.tenantId,
     this.tenantName,
+    this.phone,
+    this.status,
+    this.currency,
+    this.createdAt,
+    this.subscriptionPlan,
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
     return AuthUser(
-      id: json['id'] as String,
-      email: json['email'] as String,
+      id: json['id'] as String? ?? '',
+      email: json['email'] as String? ?? '',
       fullName: json['fullName'] as String? ?? json['name'] as String? ?? '',
       role: json['role'] as String? ?? 'CASHIER',
       tenantId: json['tenantId'] as String? ?? '',
-      tenantName: json['tenantName'] as String?,
+      tenantName: json['tenantName'] as String? ?? json['tenant']?['name'] as String?,
+      phone: json['phone'] as String?,
+      status: json['status'] as String? ?? 'ACTIVE',
+      currency: json['currency'] as String? ?? json['tenant']?['currency'] as String? ?? 'SDG',
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'].toString()) : null,
+      subscriptionPlan: json['subscriptionPlan'] as String? ?? json['tenant']?['plan'] as String?,
     );
   }
 
@@ -36,7 +51,40 @@ class AuthUser {
     'role': role,
     'tenantId': tenantId,
     'tenantName': tenantName,
+    'phone': phone,
+    'status': status,
+    'currency': currency,
+    'createdAt': createdAt?.toIso8601String(),
+    'subscriptionPlan': subscriptionPlan,
   };
+
+  AuthUser copyWith({
+    String? id,
+    String? email,
+    String? fullName,
+    String? role,
+    String? tenantId,
+    String? tenantName,
+    String? phone,
+    String? status,
+    String? currency,
+    DateTime? createdAt,
+    String? subscriptionPlan,
+  }) {
+    return AuthUser(
+      id: id ?? this.id,
+      email: email ?? this.email,
+      fullName: fullName ?? this.fullName,
+      role: role ?? this.role,
+      tenantId: tenantId ?? this.tenantId,
+      tenantName: tenantName ?? this.tenantName,
+      phone: phone ?? this.phone,
+      status: status ?? this.status,
+      currency: currency ?? this.currency,
+      createdAt: createdAt ?? this.createdAt,
+      subscriptionPlan: subscriptionPlan ?? this.subscriptionPlan,
+    );
+  }
 }
 
 /// Hotspot package/profile model
@@ -797,30 +845,167 @@ class ActiveSessionModel {
 class CardTemplateModel {
   final String id;
   final String name;
+  final int widthMm;
+  final int heightMm;
+  final String orientation;
+  final String? backgroundDesign;
   final String themePreset;
   final String primaryColor;
   final String accentColor;
+  final Map<String, dynamic> layoutConfig;
   final bool isDefault;
 
   CardTemplateModel({
     required this.id,
     required this.name,
+    this.widthMm = 85,
+    this.heightMm = 54,
+    this.orientation = 'landscape',
+    this.backgroundDesign,
     this.themePreset = 'CLASSIC',
     this.primaryColor = '#1E3A8A',
     this.accentColor = '#10B981',
+    this.layoutConfig = const {},
     this.isDefault = false,
   });
 
+  bool get showQr => layoutConfig['showQr'] as bool? ?? true;
+  bool get showPin => layoutConfig['showPin'] as bool? ?? true;
+  bool get showPrice => layoutConfig['showPrice'] as bool? ?? true;
+  bool get showValidity => layoutConfig['showValidity'] as bool? ?? true;
+  bool get showSpeed => layoutConfig['showSpeed'] as bool? ?? true;
+  String get networkName => layoutConfig['networkName'] as String? ?? 'سودافاي';
+  String get supportPhone => layoutConfig['supportPhone'] as String? ?? '';
+  String get headerTitle => layoutConfig['headerTitle'] as String? ?? 'كرت إنترنت فائق السرعة';
+  String get instructions => layoutConfig['instructions'] as String? ?? 'امسح الرمز أو أدخل اسم المستخدم للدخول';
+
   factory CardTemplateModel.fromJson(Map<String, dynamic> json) {
+    Map<String, dynamic> cfg = {};
+    if (json['layoutConfig'] is Map) {
+      cfg = Map<String, dynamic>.from(json['layoutConfig'] as Map);
+    }
+
     return CardTemplateModel(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? 'قالب الكرت',
+      widthMm: (json['widthMm'] as num?)?.toInt() ?? 85,
+      heightMm: (json['heightMm'] as num?)?.toInt() ?? 54,
+      orientation: json['orientation'] as String? ?? 'landscape',
+      backgroundDesign: json['backgroundDesign'] as String?,
       themePreset: json['themePreset'] as String? ?? 'CLASSIC',
       primaryColor: json['primaryColor'] as String? ?? '#1E3A8A',
       accentColor: json['accentColor'] as String? ?? '#10B981',
+      layoutConfig: cfg,
       isDefault: json['isDefault'] as bool? ?? false,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'widthMm': widthMm,
+    'heightMm': heightMm,
+    'orientation': orientation,
+    if (backgroundDesign != null) 'backgroundDesign': backgroundDesign,
+    'themePreset': themePreset,
+    'primaryColor': primaryColor,
+    'accentColor': accentColor,
+    'layoutConfig': layoutConfig,
+    'isDefault': isDefault,
+  };
+
+  /// Clean DTO payload omitting 'id' for backend CreateTemplateDto/UpdateTemplateDto strict whitelist
+  Map<String, dynamic> toPayload() => {
+    'name': name,
+    'widthMm': widthMm,
+    'heightMm': heightMm,
+    'orientation': orientation,
+    if (backgroundDesign != null) 'backgroundDesign': backgroundDesign,
+    'themePreset': themePreset,
+    'primaryColor': primaryColor,
+    'accentColor': accentColor,
+    'layoutConfig': layoutConfig,
+    'isDefault': isDefault,
+  };
+
+  CardTemplateModel copyWith({
+    String? id,
+    String? name,
+    int? widthMm,
+    int? heightMm,
+    String? orientation,
+    String? backgroundDesign,
+    String? themePreset,
+    String? primaryColor,
+    String? accentColor,
+    Map<String, dynamic>? layoutConfig,
+    bool? isDefault,
+  }) {
+    return CardTemplateModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      widthMm: widthMm ?? this.widthMm,
+      heightMm: heightMm ?? this.heightMm,
+      orientation: orientation ?? this.orientation,
+      backgroundDesign: backgroundDesign ?? this.backgroundDesign,
+      themePreset: themePreset ?? this.themePreset,
+      primaryColor: primaryColor ?? this.primaryColor,
+      accentColor: accentColor ?? this.accentColor,
+      layoutConfig: layoutConfig ?? this.layoutConfig,
+      isDefault: isDefault ?? this.isDefault,
+    );
+  }
+}
+
+/// Tenant User representation
+class UserModel {
+  final String id;
+  final String email;
+  final String fullName;
+  final String? phone;
+  final String role;
+  final String status;
+  final DateTime? createdAt;
+  final DateTime? lastLoginAt;
+
+  UserModel({
+    required this.id,
+    required this.email,
+    required this.fullName,
+    this.phone,
+    required this.role,
+    this.status = 'ACTIVE',
+    this.createdAt,
+    this.lastLoginAt,
+  });
+
+  factory UserModel.fromJson(Map<String, dynamic> json) {
+    return UserModel(
+      id: json['id'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      fullName: json['fullName'] as String? ?? json['name'] as String? ?? '',
+      phone: json['phone'] as String?,
+      role: json['role'] as String? ?? json['roleName'] as String? ?? 'CASHIER',
+      status: json['status'] as String? ?? 'ACTIVE',
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'].toString())
+          : null,
+      lastLoginAt: json['lastLoginAt'] != null
+          ? DateTime.tryParse(json['lastLoginAt'].toString())
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'email': email,
+    'fullName': fullName,
+    'phone': phone,
+    'role': role,
+    'status': status,
+    'createdAt': createdAt?.toIso8601String(),
+    'lastLoginAt': lastLoginAt?.toIso8601String(),
+  };
 }
 
 /// Cloud wallet transaction record

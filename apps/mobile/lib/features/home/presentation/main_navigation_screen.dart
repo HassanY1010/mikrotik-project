@@ -13,6 +13,10 @@ import '../../sync/presentation/sync_screen.dart';
 import '../../shift/presentation/shift_summary_screen.dart';
 import '../../router_setup/presentation/router_setup_screen.dart';
 import '../../wallet/presentation/profile_wallet_screen.dart';
+import '../../profile/presentation/user_profile_screen.dart';
+import '../../profile/presentation/tenant_users_screen.dart';
+import '../../studio/presentation/card_templates_screen.dart';
+import '../../hotspot_profiles/presentation/hotspot_profiles_screen.dart';
 
 class MainNavigationScreen extends ConsumerStatefulWidget {
   const MainNavigationScreen({super.key});
@@ -162,6 +166,10 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         onOpenShift: () => _pushScreen(const ShiftSummaryScreen()),
         onOpenRouterSetup: () => _pushScreen(const RouterSetupScreen()),
         onOpenCloudWallet: () => _pushScreen(const ProfileWalletScreen()),
+        onOpenTemplates: () => _pushScreen(const CardTemplatesScreen()),
+        onOpenProfiles: () => _pushScreen(const HotspotProfilesScreen()),
+        onOpenUserProfile: () => _pushScreen(const UserProfileScreen()),
+        onOpenTenantUsers: () => _pushScreen(const TenantUsersScreen()),
       ),
       const CardsStoreScreen(),
       CardStudioScreen(
@@ -179,22 +187,38 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
-            UserAccountsDrawerHeader(
-              accountName: Text(
-                user?.fullName ?? 'مدير المنظومة',
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-              accountEmail: Text(
-                user?.email ?? 'admin@sudafi.net',
-                style: const TextStyle(color: Color(0xFF94A3B8)),
-              ),
-              currentAccountPicture: const CircleAvatar(
-                backgroundColor: Color(0xFF2563EB),
-                child: Icon(Icons.person, color: Colors.white, size: 36),
-              ),
-              decoration: const BoxDecoration(
-                color: Color(0xFF0F172A),
-                border: Border(bottom: BorderSide(color: Color(0xFF334155))),
+            InkWell(
+              onTap: () {
+                Navigator.pop(context);
+                _pushScreen(const UserProfileScreen());
+              },
+              child: UserAccountsDrawerHeader(
+                accountName: Text(
+                  user?.fullName ?? 'مدير المنظومة',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                accountEmail: Text(
+                  user?.email ?? 'admin@sudafi.net',
+                  style: const TextStyle(color: Color(0xFF94A3B8)),
+                ),
+                currentAccountPicture: const CircleAvatar(
+                  backgroundColor: Color(0xFF2563EB),
+                  child: Icon(Icons.person, color: Colors.white, size: 36),
+                ),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF0F172A),
+                  border: Border(bottom: BorderSide(color: Color(0xFF334155))),
+                ),
+                otherAccountsPictures: [
+                  IconButton(
+                    icon: const Icon(Icons.settings, color: Color(0xFF94A3B8), size: 20),
+                    tooltip: 'حسابي',
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _pushScreen(const UserProfileScreen());
+                    },
+                  ),
+                ],
               ),
             ),
             ListTile(
@@ -293,6 +317,40 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const RouterSetupScreen());
+              },
+            ),
+            const Divider(color: Color(0xFF334155)),
+            ListTile(
+              leading: const Icon(Icons.palette_outlined, color: Color(0xFFA855F7)),
+              title: const Text('قوالب الطباعة وتصميم الكروت', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _pushScreen(const CardTemplatesScreen());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.speed, color: Color(0xFFF59E0B)),
+              title: const Text('باقات وسرعات الهوتسبوت', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _pushScreen(const HotspotProfilesScreen());
+              },
+            ),
+            if (user?.role == 'SUPER_ADMIN' || user?.role == 'TENANT_ADMIN')
+              ListTile(
+                leading: const Icon(Icons.manage_accounts_outlined, color: Color(0xFF10B981)),
+                title: const Text('إدارة مستخدمي المنظومة', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pushScreen(const TenantUsersScreen());
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.person_pin_outlined, color: Color(0xFF38BDF8)),
+              title: const Text('حسابي وإعدادات الأمان', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _pushScreen(const UserProfileScreen());
               },
             ),
             const Divider(color: Color(0xFF334155)),

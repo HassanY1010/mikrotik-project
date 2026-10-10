@@ -69,7 +69,24 @@ class CardDesignTheme {
     badgeTextColor: PdfColors.white,
   );
 
-  static CardDesignTheme fromId(String? id) {
+  static CardDesignTheme fromId(String? id, {String? customPrimaryHex, String? customAccentHex, String? customName}) {
+    if (customPrimaryHex != null && customPrimaryHex.isNotEmpty) {
+      PdfColor parseHex(String hex, PdfColor fallback) {
+        try {
+          final clean = hex.replaceAll('#', '');
+          final val = int.tryParse(clean.length == 6 ? 'FF$clean' : clean, radix: 16);
+          return val != null ? PdfColor.fromInt(val) : fallback;
+        } catch (_) {
+          return fallback;
+        }
+      }
+      return CardDesignTheme(
+        id: id ?? 'CUSTOM',
+        name: customName ?? 'قالب مخصص',
+        primaryColor: parseHex(customPrimaryHex, const PdfColor.fromInt(0xFF1E3A8A)),
+        accentColor: parseHex(customAccentHex ?? '#38BDF8', const PdfColor.fromInt(0xFF38BDF8)),
+      );
+    }
     switch (id?.toUpperCase()) {
       case 'FOOTBALL':
         return football;
@@ -98,8 +115,14 @@ class CardPdfGeneratorService {
     CardPdfLayout layout = CardPdfLayout.a4Grid10,
     String? batchNumber,
     String? themePreset,
+    String? customPrimaryColor,
+    String? customAccentColor,
   }) async {
-    final theme = CardDesignTheme.fromId(themePreset);
+    final theme = CardDesignTheme.fromId(
+      themePreset,
+      customPrimaryHex: customPrimaryColor,
+      customAccentHex: customAccentColor,
+    );
     final fontBundle = await PdfFontService.loadArabicFonts();
 
     final pdf = pw.Document(
@@ -606,6 +629,8 @@ class CardPdfGeneratorService {
     CardPdfLayout layout = CardPdfLayout.a4Grid10,
     String? batchNumber,
     String? themePreset,
+    String? customPrimaryColor,
+    String? customAccentColor,
   }) async {
     final bytes = await generateCardsPdf(
       cards: cards,
@@ -614,6 +639,8 @@ class CardPdfGeneratorService {
       layout: layout,
       batchNumber: batchNumber,
       themePreset: themePreset,
+      customPrimaryColor: customPrimaryColor,
+      customAccentColor: customAccentColor,
     );
 
     final cleanBatch = batchNumber != null ? '_$batchNumber' : '';
@@ -633,6 +660,8 @@ class CardPdfGeneratorService {
     CardPdfLayout layout = CardPdfLayout.a4Grid10,
     String? batchNumber,
     String? themePreset,
+    String? customPrimaryColor,
+    String? customAccentColor,
   }) async {
     await Printing.layoutPdf(
       name: 'كروت هوتسبوت - $networkName',
@@ -644,6 +673,8 @@ class CardPdfGeneratorService {
           layout: layout,
           batchNumber: batchNumber,
           themePreset: themePreset,
+          customPrimaryColor: customPrimaryColor,
+          customAccentColor: customAccentColor,
         );
       },
     );
