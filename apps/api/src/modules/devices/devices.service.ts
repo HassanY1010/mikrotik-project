@@ -176,7 +176,7 @@ export class DevicesService {
           password: dto.password,
           useSsl: device.useSsl,
           rosVersion: device.rosVersion,
-          timeoutMs: 6000,
+          timeoutMs: 2500,
         });
 
         if (client) {

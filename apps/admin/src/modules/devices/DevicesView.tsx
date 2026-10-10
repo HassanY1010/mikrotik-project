@@ -57,8 +57,8 @@ export const DevicesView: React.FC = () => {
   const [diagnostics, setDiagnostics] = useState<DiagnosticsData | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
 
-  const fetchDevices = async () => {
-    setLoading(true);
+  const fetchDevices = async (isInitial = true) => {
+    if (isInitial) setLoading(true);
     try {
       const data = await apiClient.get<DeviceItem[]>('/devices');
       if (Array.isArray(data)) {
@@ -67,14 +67,14 @@ export const DevicesView: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحميل قائمة الراوترات من الخادم';
       showToast(msg, 'error');
-      setDevices([]);
+      if (isInitial) setDevices([]);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDevices();
+    fetchDevices(true);
   }, []);
 
   const handleAddDevice = async (e: React.FormEvent) => {
@@ -99,7 +99,7 @@ export const DevicesView: React.FC = () => {
         useSsl: Boolean(formData.useTls),
       };
 
-      await apiClient.post('/devices', payload);
+      const newDevice = await apiClient.post<DeviceItem>('/devices', payload);
       showToast('تمت إضافة راوتر ميكروتيك وحفظ بيانات الاعتماد المشفرة بنجاح', 'success');
       setIsAddOpen(false);
       setFormData({
@@ -112,13 +112,17 @@ export const DevicesView: React.FC = () => {
         connectionType: 'API_SOCKET',
         useTls: false,
       });
-      fetchDevices();
+      if (newDevice && newDevice.id) {
+        setDevices((prev) => [newDevice, ...prev]);
+      } else {
+        fetchDevices(false);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل إضافة الراوتر';
       showToast(msg, 'error');
       // If router already exists, refresh table to display it
       if (typeof msg === 'string' && (msg.includes('مسجل مسبقاً') || msg.includes('409'))) {
-        fetchDevices();
+        fetchDevices(false);
       }
     } finally {
       setIsSubmitting(false);
@@ -164,11 +168,15 @@ export const DevicesView: React.FC = () => {
         payload.password = editFormData.password;
       }
 
-      await apiClient.patch(`/devices/${editingDeviceId}`, payload);
+      const updated = await apiClient.patch<DeviceItem>(`/devices/${editingDeviceId}`, payload);
       showToast('تم تحديث إعدادات راوتر ميكروتيك بنجاح', 'success');
       setIsEditOpen(false);
       setEditingDeviceId(null);
-      fetchDevices();
+      if (updated && updated.id) {
+        setDevices((prev) => prev.map((d) => (d.id === editingDeviceId ? { ...d, ...updated } : d)));
+      } else {
+        fetchDevices(false);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'فشل تحديث بيانات الراوتر';
       showToast(msg, 'error');
@@ -179,11 +187,15 @@ export const DevicesView: React.FC = () => {
 
   const handleDeleteDevice = async (device: DeviceItem) => {
     if (!window.confirm(`هل أنت متأكد من رغبتك في حذف الراوتر "${device.name}"؟`)) return;
+    const prevDevices = devices;
+    // Optimistic instant UI removal
+    setDevices((prev) => prev.filter((d) => d.id !== device.id));
     try {
       await apiClient.delete(`/devices/${device.id}`);
       showToast('تم حذف الراوتر بنجاح', 'success');
-      fetchDevices();
     } catch (err: unknown) {
+      // Revert on network failure
+      setDevices(prevDevices);
       const msg = err instanceof Error ? err.message : 'فشل حذف الراوتر';
       showToast(msg, 'error');
     }
@@ -232,14 +244,20 @@ export const DevicesView: React.FC = () => {
       : 'إلغاء قفل الطوارئ واستئناف العمليات';
     if (!window.confirm(`هل أنت متأكد من ${actionText} للراوتر (${device.name})؟`)) return;
 
+    // Optimistic toggle
+    const prevDevices = devices;
+    setDevices((prev) =>
+      prev.map((d) => (d.id === device.id ? { ...d, isLocked: nextState } : d))
+    );
+
     try {
       await apiClient.post(`/devices/${device.id}/emergency-lock`, { locked: nextState });
       showToast(
         nextState ? 'تم تفعيل قفل الطوارئ للراوتر بنجاح' : 'تم إلغاء قفل الطوارئ واستئناف العمليات',
         nextState ? 'warning' : 'success',
       );
-      fetchDevices();
     } catch (err: unknown) {
+      setDevices(prevDevices);
       const msg = err instanceof Error ? err.message : 'فشل تغيير حالة قفل الطوارئ';
       showToast(msg, 'error');
     }
@@ -247,6 +265,11 @@ export const DevicesView: React.FC = () => {
 
   const handleToggleAntiTethering = async (device: DeviceItem) => {
     const nextState = !device.antiTetheringEnabled;
+    const prevDevices = devices;
+    setDevices((prev) =>
+      prev.map((d) => (d.id === device.id ? { ...d, antiTetheringEnabled: nextState } : d))
+    );
+
     try {
       await apiClient.post(`/devices/${device.id}/anti-tethering`, { enabled: nextState });
       showToast(
@@ -255,8 +278,8 @@ export const DevicesView: React.FC = () => {
           : 'تم تعطيل قاعدة منع مشاركة الإنترنت',
         'success',
       );
-      fetchDevices();
     } catch (err: unknown) {
+      setDevices(prevDevices);
       const msg = err instanceof Error ? err.message : 'فشل تغيير حالة منع مشاركة الإنترنت';
       showToast(msg, 'error');
     }
@@ -276,7 +299,7 @@ export const DevicesView: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button className="btn btn-outline" onClick={fetchDevices} disabled={loading}>
+          <button className="btn btn-outline" onClick={() => fetchDevices(true)} disabled={loading}>
             <RefreshCw size={16} />
             تحديث القائمة
           </button>
