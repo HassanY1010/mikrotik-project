@@ -98,165 +98,225 @@ export const PppoeSessionsTab: React.FC<PppoeSessionsTabProps> = ({
   const handleConfirmDisconnect = async () => {
     if (!disconnectSession) return;
     setIsDisconnecting(true);
-
     try {
-      const res = await apiClient.post<{
-        success: boolean;
-        message: string;
-        queuedCommandId?: string;
-      }>(`/pppoe/devices/${deviceId}/sessions/disconnect`, {
-        username: disconnectSession.username,
-        sessionId: disconnectSession.sessionId,
-      });
+      const res = await apiClient.post<{ success: boolean; queuedCommandId: string }>(
+        `/pppoe/devices/${deviceId}/sessions/disconnect`,
+        {
+          username: disconnectSession.username,
+          sessionId: disconnectSession.sessionId,
+        },
+      );
 
-      showToast(res.message || `تم فصل جلسة المشترك ${disconnectSession.username} بنجاح`, 'success');
-      if (res.queuedCommandId && onCommandQueued) {
-        onCommandQueued(
-          res.queuedCommandId,
-          `قطع اتصال المشترك [${disconnectSession.username}] على الراوتر`,
-        );
+      showToast(`تم إرسال أمر فصل الجلسة للمشترك "${disconnectSession.username}"`, 'success');
+
+      if (res?.queuedCommandId && onCommandQueued) {
+        onCommandQueued(res.queuedCommandId, `فصل جلسة ${disconnectSession.username}`);
       }
 
       setDisconnectSession(null);
-      await onRefresh();
+      onRefresh(false);
     } catch (err: any) {
-      showToast(err?.message || 'تعذر فصل الجلسة النشطة', 'error');
+      showToast(err?.message || 'فشل فصل الجلسة', 'error');
     } finally {
       setIsDisconnecting(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner / Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">الجلسات المتصلة الآن</p>
-            <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mt-1">
-              {sessions.length}
-            </h3>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* Top Banner / Metrics Cards */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: '1rem',
+        }}
+      >
+        <div className="stat-card">
+          <div
+            className="stat-icon"
+            style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10B981' }}
+          >
+            <Radio size={22} className={sessions.length > 0 ? 'spin' : ''} />
           </div>
-          <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-            <Radio className="w-6 h-6 animate-pulse" />
+          <div>
+            <div className="stat-value" style={{ color: '#10B981' }}>{sessions.length}</div>
+            <div className="stat-label">الجلسات المتصلة الآن</div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center justify-between">
+        <div className="stat-card">
+          <div
+            className="stat-icon"
+            style={{ backgroundColor: 'rgba(56, 189, 248, 0.15)', color: '#38BDF8' }}
+          >
+            <ArrowDownCircle size={22} />
+          </div>
           <div>
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">إجمالي التنزيل (Download)</p>
-            <h3 className="text-2xl font-bold text-sky-600 dark:text-sky-400 mt-1">
+            <div className="stat-value" style={{ color: '#38BDF8', direction: 'ltr', textAlign: 'right' }}>
               {formatBytes(totalBytesOut)}
-            </h3>
-          </div>
-          <div className="w-12 h-12 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 flex items-center justify-center">
-            <ArrowDownCircle className="w-6 h-6" />
+            </div>
+            <div className="stat-label">إجمالي التنزيل (Download)</div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">إجمالي الرفع (Upload)</p>
-            <h3 className="text-2xl font-bold text-violet-600 dark:text-violet-400 mt-1">
-              {formatBytes(totalBytesIn)}
-            </h3>
+        <div className="stat-card">
+          <div
+            className="stat-icon"
+            style={{ backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#A855F7' }}
+          >
+            <ArrowUpCircle size={22} />
           </div>
-          <div className="w-12 h-12 rounded-xl bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 flex items-center justify-center">
-            <ArrowUpCircle className="w-6 h-6" />
+          <div>
+            <div className="stat-value" style={{ color: '#A855F7', direction: 'ltr', textAlign: 'right' }}>
+              {formatBytes(totalBytesIn)}
+            </div>
+            <div className="stat-label">إجمالي الرفع (Upload)</div>
           </div>
         </div>
       </div>
 
       {/* Control Bar: Search & Action Buttons */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-5 h-5 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+      <div
+        className="card"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          padding: '1rem 1.25rem',
+        }}
+      >
+        <div style={{ position: 'relative', width: '100%', maxWidth: 360 }}>
+          <Search
+            size={16}
+            style={{
+              position: 'absolute',
+              right: '0.85rem',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'var(--text-muted)',
+              pointerEvents: 'none',
+            }}
+          />
           <input
             type="text"
             placeholder="بحث باسم المشترك، IP، أو MAC..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pr-10 pl-4 py-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+            className="form-control"
+            style={{
+              paddingRight: '2.4rem',
+              width: '100%',
+              fontSize: '0.85rem',
+            }}
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <button
             onClick={() => onRefresh(false)}
             disabled={loading}
-            className="p-2 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors disabled:opacity-50"
+            className="btn btn-secondary"
             title="تحديث القائمة محلياً"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.55rem 0.9rem' }}
           >
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw size={15} className={loading ? 'spin' : ''} />
+            <span>تحديث</span>
           </button>
 
           <button
             onClick={handleForceSync}
             disabled={loading || isSyncing}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+            className="btn btn-primary"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              backgroundColor: '#10B981',
+              borderColor: '#10B981',
+              padding: '0.55rem 1.1rem',
+              fontWeight: 600,
+            }}
           >
-            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            <RefreshCw size={15} className={isSyncing ? 'spin' : ''} />
             <span>مزامنة مباشرة مع الراوتر</span>
           </button>
         </div>
       </div>
 
       {/* Sessions Table */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-right text-sm">
-            <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700/60">
-              <tr>
-                <th className="py-4 px-6 font-semibold">المشترك</th>
-                <th className="py-4 px-6 font-semibold">عنوان IP الممنوح</th>
-                <th className="py-4 px-6 font-semibold">عنوان MAC / المتصل</th>
-                <th className="py-4 px-6 font-semibold">مدة الاتصال</th>
-                <th className="py-4 px-6 font-semibold">حركة البيانات (تنزيل / رفع)</th>
-                <th className="py-4 px-6 font-semibold">وقت البدء</th>
-                <th className="py-4 px-6 font-semibold text-center">إجراءات</th>
+      <div
+        className="card"
+        style={{
+          padding: 0,
+          overflow: 'hidden',
+          borderRadius: 'var(--radius-lg)',
+        }}
+      >
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right', fontSize: '0.875rem' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'rgba(255, 255, 255, 0.02)' }}>
+                <th style={{ padding: '0.9rem 1.25rem', fontWeight: 600, color: 'var(--text-secondary)' }}>المشترك</th>
+                <th style={{ padding: '0.9rem 1.25rem', fontWeight: 600, color: 'var(--text-secondary)' }}>عنوان IP الممنوح</th>
+                <th style={{ padding: '0.9rem 1.25rem', fontWeight: 600, color: 'var(--text-secondary)' }}>عنوان MAC / المتصل</th>
+                <th style={{ padding: '0.9rem 1.25rem', fontWeight: 600, color: 'var(--text-secondary)' }}>مدة الاتصال</th>
+                <th style={{ padding: '0.9rem 1.25rem', fontWeight: 600, color: 'var(--text-secondary)' }}>حركة البيانات (تنزيل / رفع)</th>
+                <th style={{ padding: '0.9rem 1.25rem', fontWeight: 600, color: 'var(--text-secondary)' }}>وقت البدء</th>
+                <th style={{ padding: '0.9rem 1.25rem', fontWeight: 600, color: 'var(--text-secondary)', textAlign: 'center' }}>الإجراءات</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-700/60">
+            <tbody>
               {loading && sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-500 dark:text-slate-400">
-                    <div className="flex flex-col items-center justify-center gap-3">
-                      <RefreshCw className="w-8 h-8 text-primary-500 animate-spin" />
-                      <p>جاري تحميل الجلسات النشطة من الراوتر...</p>
-                    </div>
+                  <td colSpan={7} style={{ padding: '3.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <RefreshCw size={26} className="spin" style={{ margin: '0 auto 0.75rem auto' }} />
+                    <p style={{ margin: 0, fontWeight: 600 }}>جاري استعلام الجلسات النشطة من الراوتر...</p>
                   </td>
                 </tr>
               ) : filteredSessions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-500 dark:text-slate-400">
-                    <div className="flex flex-col items-center justify-center gap-2">
-                      <HardDrive className="w-10 h-10 text-slate-400 stroke-[1.5]" />
-                      <p className="font-semibold text-slate-700 dark:text-slate-300">
-                        لا توجد جلسات PPPoE نشطة حالياً
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {searchTerm
-                          ? 'لا توجد نتائج تطابق بحثك الحالي'
-                          : 'يمكنك النقر على "مزامنة مباشرة مع الراوتر" للتحقق من الاتصالات الحية.'}
-                      </p>
-                    </div>
+                  <td colSpan={7} style={{ padding: '3.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <HardDrive size={38} style={{ margin: '0 auto 0.75rem auto', color: 'var(--border-light)' }} />
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
+                      لا توجد جلسات PPPoE نشطة حالياً
+                    </p>
+                    <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      {searchTerm
+                        ? 'لا توجد نتائج تطابق بحثك الحالي'
+                        : 'يمكنك النقر على "مزامنة مباشرة مع الراوتر" للتحقق من الاتصالات الحية.'}
+                    </p>
                   </td>
                 </tr>
               ) : (
                 filteredSessions.map((session) => (
                   <tr
                     key={session.id || session.username}
-                    className="hover:bg-slate-50/60 dark:hover:bg-slate-750/30 transition-colors"
+                    style={{
+                      borderBottom: '1px solid var(--border)',
+                      transition: 'background-color 0.15s ease',
+                    }}
                   >
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20 animate-pulse" />
+                    <td style={{ padding: '0.9rem 1.25rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            backgroundColor: '#10B981',
+                            display: 'inline-block',
+                            boxShadow: '0 0 8px #10B981',
+                          }}
+                        />
                         <div>
-                          <div className="font-medium text-slate-900 dark:text-slate-100 font-mono">
+                          <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
                             {session.username}
                           </div>
                           {session.sessionId && (
-                            <div className="text-xs text-slate-400 font-mono">
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
                               ID: {session.sessionId}
                             </div>
                           )}
@@ -264,37 +324,40 @@ export const PppoeSessionsTab: React.FC<PppoeSessionsTabProps> = ({
                       </div>
                     </td>
 
-                    <td className="py-4 px-6">
-                      <span className="font-mono text-xs bg-slate-100 dark:bg-slate-700/50 px-2.5 py-1 rounded-md text-slate-700 dark:text-slate-300">
+                    <td style={{ padding: '0.9rem 1.25rem' }}>
+                      <span
+                        className="badge badge-info"
+                        style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
+                      >
                         {session.ipAddress}
                       </span>
                     </td>
 
-                    <td className="py-4 px-6 text-slate-600 dark:text-slate-400 font-mono text-xs">
+                    <td style={{ padding: '0.9rem 1.25rem', color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
                       {session.macAddress || '—'}
                     </td>
 
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 text-xs">
-                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                    <td style={{ padding: '0.9rem 1.25rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                        <Clock size={13} style={{ color: 'var(--text-muted)' }} />
                         <span>{formatUptime(session.uptimeSeconds)}</span>
                       </div>
                     </td>
 
-                    <td className="py-4 px-6">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400">
-                          <ArrowDownCircle className="w-3 h-3" />
+                    <td style={{ padding: '0.9rem 1.25rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#38BDF8', direction: 'ltr', justifyContent: 'flex-end' }}>
+                          <ArrowDownCircle size={12} />
                           <span>{formatBytes(session.bytesOut)}</span>
                         </div>
-                        <div className="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400">
-                          <ArrowUpCircle className="w-3 h-3" />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#A855F7', direction: 'ltr', justifyContent: 'flex-end' }}>
+                          <ArrowUpCircle size={12} />
                           <span>{formatBytes(session.bytesIn)}</span>
                         </div>
                       </div>
                     </td>
 
-                    <td className="py-4 px-6 text-slate-500 dark:text-slate-400 text-xs font-mono">
+                    <td style={{ padding: '0.9rem 1.25rem', color: 'var(--text-muted)', fontSize: '0.8rem', fontFamily: 'monospace' }}>
                       {session.startedAt
                         ? new Date(session.startedAt).toLocaleTimeString('ar-EG', {
                             hour: '2-digit',
@@ -304,13 +367,22 @@ export const PppoeSessionsTab: React.FC<PppoeSessionsTabProps> = ({
                         : '—'}
                     </td>
 
-                    <td className="py-4 px-6 text-center">
+                    <td style={{ padding: '0.9rem 1.25rem', textAlign: 'center' }}>
                       <button
                         onClick={() => setDisconnectSession(session)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 rounded-lg transition-colors"
+                        className="btn btn-secondary"
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          fontSize: '0.75rem',
+                          color: 'var(--danger)',
+                          borderColor: 'rgba(239, 68, 68, 0.3)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                        }}
                         title="فصل الاتصال الفوري"
                       >
-                        <Unplug className="w-3.5 h-3.5" />
+                        <Unplug size={13} />
                         <span>فصل</span>
                       </button>
                     </td>
@@ -330,35 +402,61 @@ export const PppoeSessionsTab: React.FC<PppoeSessionsTabProps> = ({
           title="تأكيد فصل الجلسة النشطة"
           maxWidth="max-w-md"
         >
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 p-3.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-xl text-rose-800 dark:text-rose-300">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0 text-rose-600" />
-              <div className="text-xs leading-relaxed">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '0.5rem 0' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.75rem',
+                padding: '0.9rem 1rem',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--danger)',
+              }}
+            >
+              <AlertTriangle size={20} style={{ flexShrink: 0, marginTop: '0.15rem' }} />
+              <div style={{ fontSize: '0.85rem', lineHeight: 1.5 }}>
                 هل أنت متأكد من رغبتك في قطع اتصال جلسة المشترك{' '}
-                <strong className="font-mono text-rose-900 dark:text-rose-200">
+                <strong style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>
                   {disconnectSession.username}
                 </strong>
                 ؟ سيؤدي هذا لإنهاء اتصال الإنترنت المباشر على الراوتر فوراً.
               </div>
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl space-y-1 text-xs">
-              <div className="flex justify-between text-slate-600 dark:text-slate-400">
+            <div
+              style={{
+                backgroundColor: 'var(--bg-card-alt)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.85rem 1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem',
+                fontSize: '0.85rem',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                 <span>عنوان IP:</span>
-                <span className="font-mono">{disconnectSession.ipAddress}</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {disconnectSession.ipAddress}
+                </span>
               </div>
-              <div className="flex justify-between text-slate-600 dark:text-slate-400">
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                 <span>مدة الاتصال:</span>
-                <span>{formatUptime(disconnectSession.uptimeSeconds)}</span>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {formatUptime(disconnectSession.uptimeSeconds)}
+                </span>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '0.5rem' }}>
               <button
                 type="button"
                 onClick={() => setDisconnectSession(null)}
                 disabled={isDisconnecting}
-                className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                className="btn btn-secondary"
               >
                 إلغاء
               </button>
@@ -366,9 +464,16 @@ export const PppoeSessionsTab: React.FC<PppoeSessionsTabProps> = ({
                 type="button"
                 onClick={handleConfirmDisconnect}
                 disabled={isDisconnecting}
-                className="flex items-center gap-2 px-5 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white font-medium rounded-xl transition-colors shadow-sm disabled:opacity-50"
+                className="btn btn-primary"
+                style={{
+                  backgroundColor: 'var(--danger)',
+                  borderColor: 'var(--danger)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}
               >
-                {isDisconnecting && <RefreshCw className="w-4 h-4 animate-spin" />}
+                {isDisconnecting && <RefreshCw size={14} className="spin" />}
                 <span>تأكيد الفصل الآن</span>
               </button>
             </div>
