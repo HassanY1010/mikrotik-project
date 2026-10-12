@@ -62,7 +62,6 @@ export const PppoeManagementView: React.FC = () => {
       if (Array.isArray(data)) {
         setDevices(data);
         if (data.length > 0 && !selectedDeviceId) {
-          // Select first device by default
           setSelectedDeviceId(data[0].id);
         }
       }
@@ -94,16 +93,19 @@ export const PppoeManagementView: React.FC = () => {
     }
   }, [selectedDeviceId, showToast]);
 
-  // 3. Fetch Accounts for selected device
+  // 3. Fetch Accounts for selected device (limit=100)
   const fetchAccounts = useCallback(async () => {
     if (!selectedDeviceId) return;
     setLoadingAccounts(true);
     try {
       const data = await apiClient.get<{
-        items: PppoeAccountItem[];
-        pagination: any;
-      }>(`/pppoe/devices/${selectedDeviceId}/accounts?limit=200`);
-      setAccounts(Array.isArray(data?.items) ? data.items : []);
+        items?: PppoeAccountItem[];
+        data?: PppoeAccountItem[];
+        pagination?: any;
+      }>(`/pppoe/devices/${selectedDeviceId}/accounts?limit=100`);
+
+      const list = data?.items || data?.data;
+      setAccounts(Array.isArray(list) ? list : []);
     } catch (err: any) {
       showToast(err?.message || 'تعذر تحميل حسابات المشتركين', 'error');
       setAccounts([]);
@@ -179,47 +181,92 @@ export const PppoeManagementView: React.FC = () => {
   const activeSubscribersCount = accounts.filter((a) => a.status === 'ACTIVE').length;
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      {/* Page Header & Device Selector */}
+      <div
+        className="card"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1.25rem',
+          padding: '1.25rem 1.5rem',
+        }}
+      >
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-3">
-            <span className="p-2.5 bg-primary-50 dark:bg-primary-950/40 text-primary-600 dark:text-primary-400 rounded-2xl">
-              <Network className="w-6 h-6" />
-            </span>
+          <h1
+            style={{
+              fontSize: '1.4rem',
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              color: 'var(--text-primary)',
+              margin: 0,
+            }}
+          >
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--primary-light)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--primary)',
+              }}
+            >
+              <Network size={24} />
+            </div>
             <span>إدارة اشتراكات النطاق العريض (PPPoE)</span>
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            إدارة المشتركين المنزليين وباقات السرعة والجلسات المتصلة وأوامر المزامنة على راوترات
-            MikroTik
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.35rem', marginBottom: 0 }}>
+            إدارة المشتركين المنزليين وباقات السرعة والجلسات المتصلة وأوامر المزامنة على راوترات MikroTik
           </p>
         </div>
 
-        {/* Device Selector */}
-        <div className="flex items-center gap-3 bg-white dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
-          <div className="flex items-center gap-2 pr-3 text-slate-500 dark:text-slate-400 text-xs font-semibold">
-            <RouterIcon className="w-4 h-4 text-primary-500" />
+        {/* Device Selector Card */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            backgroundColor: 'var(--bg-card-alt)',
+            padding: '0.5rem 0.85rem',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>
+            <RouterIcon size={16} color="var(--primary)" />
             <span>الراوتر المستهدف:</span>
           </div>
 
           {devicesLoading ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400">
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              <RefreshCw size={14} className="spin" />
               <span>جاري التحميل...</span>
             </div>
           ) : devices.length === 0 ? (
-            <div className="text-xs text-rose-500 px-3 py-1 font-medium">
-              لا يوجد راوتر متاح
-            </div>
+            <span style={{ fontSize: '0.85rem', color: 'var(--danger)', fontWeight: 600 }}>لا يوجد راوتر متاح</span>
           ) : (
             <select
               value={selectedDeviceId}
               onChange={(e) => setSelectedDeviceId(e.target.value)}
-              className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+              className="select"
+              style={{
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                padding: '0.35rem 0.75rem',
+                width: 'auto',
+                minWidth: '220px',
+              }}
             >
               {devices.map((dev) => (
                 <option key={dev.id} value={dev.id}>
-                  {dev.name} ({dev.host || 'LAN Agent'}) {dev.status === 'ONLINE' ? '🟢' : '⚪'}
+                  {dev.name} ({dev.host || 'LAN Agent'}) {dev.status === 'ONLINE' ? '🟢 متصل' : '⚪ غير متصل'}
                 </option>
               ))}
             </select>
@@ -232,13 +279,13 @@ export const PppoeManagementView: React.FC = () => {
               fetchSessions(false);
             }}
             disabled={!selectedDeviceId || loadingProfiles || loadingAccounts || loadingSessions}
-            className="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+            className="btn btn-outline"
+            style={{ padding: '0.45rem', minWidth: 'auto', borderRadius: 'var(--radius-md)' }}
             title="تحديث جميع بيانات الراوتر"
           >
             <RefreshCw
-              className={`w-4 h-4 ${
-                loadingProfiles || loadingAccounts || loadingSessions ? 'animate-spin' : ''
-              }`}
+              size={15}
+              className={loadingProfiles || loadingAccounts || loadingSessions ? 'spin' : ''}
             />
           </button>
         </div>
@@ -246,15 +293,24 @@ export const PppoeManagementView: React.FC = () => {
 
       {/* No Device Warning */}
       {!devicesLoading && devices.length === 0 && (
-        <div className="p-6 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-2xl flex items-start gap-4">
-          <AlertCircle className="w-6 h-6 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <h3 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
+        <div
+          className="card"
+          style={{
+            backgroundColor: 'var(--warning-bg)',
+            borderColor: 'var(--warning)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            padding: '1rem 1.25rem',
+          }}
+        >
+          <AlertCircle size={24} color="var(--warning)" style={{ flexShrink: 0 }} />
+          <div>
+            <h3 style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)', margin: 0 }}>
               لم يتم العثور على أجهزة راوتر مسجلة في هذا الحساب
             </h3>
-            <p className="text-xs text-amber-800 dark:text-amber-300">
-              لاستخدام خدمات PPPoE، يجب أولاً إضافة راوتر MikroTik وربطه مع Windows LAN Agent من قسم
-              "إدارة الأجهزة".
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem', marginBottom: 0 }}>
+              لاستخدام خدمات PPPoE، يجب أولاً إضافة راوتر MikroTik وربطه مع Windows LAN Agent من قسم "أجهزة وتوجيهات ميكروتك".
             </p>
           </div>
         </div>
@@ -262,34 +318,56 @@ export const PppoeManagementView: React.FC = () => {
 
       {/* Queued Command Notification Banner */}
       {latestQueuedNotice && (
-        <div className="p-4 bg-primary-50 dark:bg-primary-950/50 border border-primary-200 dark:border-primary-800/60 rounded-2xl flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-2.5 h-2.5 rounded-full bg-primary-500 animate-ping" />
+        <div
+          className="card"
+          style={{
+            backgroundColor: 'var(--primary-light)',
+            borderColor: 'var(--primary)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            padding: '0.85rem 1.25rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                backgroundColor: 'var(--primary)',
+                boxShadow: '0 0 10px var(--primary)',
+              }}
+            />
             <div>
-              <p className="text-xs font-semibold text-primary-900 dark:text-primary-200">
+              <p style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
                 تمت جدولة أمر راوتر جديد: {latestQueuedNotice.description}
               </p>
-              <p className="text-[11px] font-mono text-primary-700 dark:text-primary-400">
+              <p style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--text-secondary)', marginTop: '0.15rem', marginBottom: 0 }}>
                 معرف الأمر: {latestQueuedNotice.commandId}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <button
               onClick={() => {
                 setActiveTab('commands');
                 setSelectedCommandId(latestQueuedNotice.commandId);
                 setLatestQueuedNotice(null);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-xl transition-colors shadow-sm"
+              className="btn btn-primary"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
             >
-              <Terminal className="w-3.5 h-3.5" />
+              <Terminal size={14} />
               <span>متابعة حالة الأمر في الراوتر</span>
             </button>
             <button
               onClick={() => setLatestQueuedNotice(null)}
-              className="text-xs text-primary-600 dark:text-primary-400 hover:underline px-2 py-1"
+              className="btn btn-outline"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
             >
               إغلاق
             </button>
@@ -298,119 +376,226 @@ export const PppoeManagementView: React.FC = () => {
       )}
 
       {/* KPI Cards Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">إجمالي المشتركين</span>
-            <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-              <Users className="w-4 h-4" />
-            </div>
+      <div className="grid-cols-4">
+        <div className="stat-card">
+          <div
+            className="stat-icon"
+            style={{ backgroundColor: 'rgba(56, 189, 248, 0.15)', color: '#38BDF8' }}
+          >
+            <Users size={22} />
           </div>
-          <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-            {accounts.length}
+          <div>
+            <div className="stat-value">{accounts.length}</div>
+            <div className="stat-label">إجمالي المشتركين</div>
           </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">مشترك مسجل في قاعدة البيانات</span>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">الحسابات النشطة</span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-              <CheckCircle2 className="w-4 h-4" />
+        <div className="stat-card">
+          <div
+            className="stat-icon"
+            style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success)' }}
+          >
+            <CheckCircle2 size={22} />
+          </div>
+          <div>
+            <div className="stat-value" style={{ color: 'var(--success)' }}>
+              {activeSubscribersCount}
             </div>
+            <div className="stat-label">الحسابات النشطة</div>
           </div>
-          <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-2">
-            {activeSubscribersCount}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">جاهز للاتصال بالإنترنت</span>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">الجلسات المتصلة الآن</span>
-            <div className="w-8 h-8 rounded-xl bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 flex items-center justify-center">
-              <Radio className="w-4 h-4" />
+        <div className="stat-card">
+          <div
+            className="stat-icon"
+            style={{ backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#A855F7' }}
+          >
+            <Radio size={22} />
+          </div>
+          <div>
+            <div className="stat-value" style={{ color: '#A855F7' }}>
+              {sessions.length}
             </div>
+            <div className="stat-label">الجلسات المتصلة الآن</div>
           </div>
-          <div className="text-2xl font-bold text-violet-600 dark:text-violet-400 mt-2">
-            {sessions.length}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">متصل فعلياً على الراوتر</span>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">باقات السرعة</span>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-              <Layers className="w-4 h-4" />
+        <div className="stat-card">
+          <div
+            className="stat-icon"
+            style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}
+          >
+            <Layers size={22} />
+          </div>
+          <div>
+            <div className="stat-value" style={{ color: 'var(--warning)' }}>
+              {profiles.length}
             </div>
+            <div className="stat-label">باقات السرعة المعرفة</div>
           </div>
-          <div className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-2">
-            {profiles.length}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">بروفايل سرعة مُعرّف</span>
         </div>
       </div>
 
-      {/* Tabs Switcher Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700/60 pb-px overflow-x-auto">
+      {/* Modern Tabs Navigation Bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          borderBottom: '1px solid var(--border)',
+          overflowX: 'auto',
+          paddingBottom: '0.25rem',
+        }}
+      >
         <button
           onClick={() => setActiveTab('accounts')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-all whitespace-nowrap ${
-            activeTab === 'accounts'
-              ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            padding: '0.75rem 1.25rem',
+            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+            backgroundColor: activeTab === 'accounts' ? 'var(--bg-card)' : 'transparent',
+            color: activeTab === 'accounts' ? 'var(--primary)' : 'var(--text-secondary)',
+            borderTop: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            borderBottom: activeTab === 'accounts' ? '3px solid var(--primary)' : '3px solid transparent',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            transition: 'var(--transition)',
+            whiteSpace: 'nowrap',
+          }}
         >
-          <Users className="w-4 h-4" />
+          <Users size={16} />
           <span>حسابات المشتركين</span>
-          <span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
+          <span
+            style={{
+              padding: '0.15rem 0.5rem',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.75rem',
+              backgroundColor: activeTab === 'accounts' ? 'var(--primary-light)' : 'var(--bg-input)',
+              color: activeTab === 'accounts' ? 'var(--primary)' : 'var(--text-muted)',
+              fontFamily: 'monospace',
+              fontWeight: 700,
+            }}
+          >
             {accounts.length}
           </span>
         </button>
 
         <button
           onClick={() => setActiveTab('profiles')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-all whitespace-nowrap ${
-            activeTab === 'profiles'
-              ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            padding: '0.75rem 1.25rem',
+            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+            backgroundColor: activeTab === 'profiles' ? 'var(--bg-card)' : 'transparent',
+            color: activeTab === 'profiles' ? 'var(--primary)' : 'var(--text-secondary)',
+            borderTop: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            borderBottom: activeTab === 'profiles' ? '3px solid var(--primary)' : '3px solid transparent',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            transition: 'var(--transition)',
+            whiteSpace: 'nowrap',
+          }}
         >
-          <Layers className="w-4 h-4" />
+          <Layers size={16} />
           <span>بروفايلات السرعة والباقات</span>
-          <span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
+          <span
+            style={{
+              padding: '0.15rem 0.5rem',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.75rem',
+              backgroundColor: activeTab === 'profiles' ? 'var(--primary-light)' : 'var(--bg-input)',
+              color: activeTab === 'profiles' ? 'var(--primary)' : 'var(--text-muted)',
+              fontFamily: 'monospace',
+              fontWeight: 700,
+            }}
+          >
             {profiles.length}
           </span>
         </button>
 
         <button
           onClick={() => setActiveTab('sessions')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-all whitespace-nowrap ${
-            activeTab === 'sessions'
-              ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            padding: '0.75rem 1.25rem',
+            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+            backgroundColor: activeTab === 'sessions' ? 'var(--bg-card)' : 'transparent',
+            color: activeTab === 'sessions' ? '#A855F7' : 'var(--text-secondary)',
+            borderTop: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            borderBottom: activeTab === 'sessions' ? '3px solid #A855F7' : '3px solid transparent',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            transition: 'var(--transition)',
+            whiteSpace: 'nowrap',
+          }}
         >
-          <Radio className="w-4 h-4" />
+          <Radio size={16} />
           <span>الجلسات النشطة المباشرة</span>
-          <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-mono">
+          <span
+            style={{
+              padding: '0.15rem 0.5rem',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.75rem',
+              backgroundColor: 'rgba(168, 85, 247, 0.15)',
+              color: '#A855F7',
+              fontFamily: 'monospace',
+              fontWeight: 700,
+            }}
+          >
             {sessions.length}
           </span>
         </button>
 
         <button
           onClick={() => setActiveTab('commands')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-all whitespace-nowrap ${
-            activeTab === 'commands'
-              ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            padding: '0.75rem 1.25rem',
+            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+            backgroundColor: activeTab === 'commands' ? 'var(--bg-card)' : 'transparent',
+            color: activeTab === 'commands' ? 'var(--primary)' : 'var(--text-secondary)',
+            borderTop: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            borderBottom: activeTab === 'commands' ? '3px solid var(--primary)' : '3px solid transparent',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            transition: 'var(--transition)',
+            whiteSpace: 'nowrap',
+          }}
         >
-          <Terminal className="w-4 h-4" />
+          <Terminal size={16} />
           <span>حالة أوامر الراوتر والوكيل</span>
           {trackedCommands.length > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-primary-100 text-primary-700 dark:bg-primary-950/60 dark:text-primary-300 font-mono">
+            <span
+              style={{
+                padding: '0.15rem 0.5rem',
+                borderRadius: 'var(--radius-full)',
+                fontSize: '0.75rem',
+                backgroundColor: 'var(--primary-light)',
+                color: 'var(--primary)',
+                fontFamily: 'monospace',
+                fontWeight: 700,
+              }}
+            >
               {trackedCommands.length}
             </span>
           )}
@@ -419,12 +604,21 @@ export const PppoeManagementView: React.FC = () => {
 
       {/* Tab Panels */}
       {!selectedDeviceId ? (
-        <div className="py-20 text-center text-slate-400 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/60">
-          <RouterIcon className="w-12 h-12 mx-auto mb-3 text-slate-300 stroke-[1.5]" />
-          <p className="font-semibold text-slate-700 dark:text-slate-300">
+        <div
+          className="card"
+          style={{
+            textAlign: 'center',
+            padding: '4rem 2rem',
+            color: 'var(--text-muted)',
+          }}
+        >
+          <RouterIcon size={48} color="var(--border-light)" style={{ margin: '0 auto 1rem auto' }} />
+          <p style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--text-primary)', margin: 0 }}>
             يرجى اختيار جهاز راوتر للمتابعة
           </p>
-          <p className="text-xs mt-1">حدد الراوتر من القائمة المنسدلة في الأعلى لعرض بيانات PPPoE</p>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.4rem', marginBottom: 0 }}>
+            حدد الراوتر من القائمة المنسدلة في الأعلى لعرض بيانات واشتراكات PPPoE
+          </p>
         </div>
       ) : (
         <div>
