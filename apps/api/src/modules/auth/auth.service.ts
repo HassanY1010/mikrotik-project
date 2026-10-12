@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as crypto from 'crypto';
-import { TenantStatus, UserStatus, SubscriptionStatus, BillingCycle } from '@prisma/client';
+import { TenantStatus, UserStatus, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { HashingService } from '../../core/security/hashing.service';
 import { RoleName } from '@mikrotik-saas/shared-types';
@@ -180,16 +180,14 @@ export class AuthService {
     // Hash password with Argon2id
     const passwordHash = await this.hashingService.hashPassword(dto.adminPassword);
 
-    // Fetch subscription plan
+    // Fetch requested plan name if provided
     const requestedPlanName = (dto.planName ?? 'BASIC').toUpperCase();
     const plan = await this.prisma.subscriptionPlan.findUnique({
       where: { name: requestedPlanName },
     });
-    if (!plan) {
-      throw new NotFoundException(`Subscription plan '${requestedPlanName}' not found`);
-    }
+    // Note: Plan is checked for validity if specified, but paid subscription is activated exclusively by Super Admin
 
-    // Fetch TENANT_ADMIN system role
+    // Fetch TENANT_ADMIN system role (guarantees user cannot self-assign SUPER_ADMIN)
     const tenantAdminRole = await this.prisma.role.findFirst({
       where: { name: RoleName.TENANT_ADMIN, tenantId: null },
     });
@@ -197,9 +195,9 @@ export class AuthService {
       throw new NotFoundException('Default TENANT_ADMIN role is not configured');
     }
 
-    // Transactional creation of Tenant, Subscription, Admin User, and Default Template
+    // Transactional creation of Tenant, Admin User, and Default Card Template
     const result = await this.prisma.$transaction(async (tx) => {
-      // 1. Create Tenant
+      // 1. Create Tenant (currency defaults to SDG)
       const tenant = await tx.tenant.create({
         data: {
           name: dto.tenantName.trim(),
@@ -211,25 +209,10 @@ export class AuthService {
         },
       });
 
-      // 2. Create Trial Subscription (30 days)
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 30);
+      // 2. Note: Per project policy, new self-registered tenants do NOT receive an active
+      // paid subscription automatically. Subscriptions are activated exclusively by Super Admin.
 
-      await tx.subscription.create({
-        data: {
-          tenantId: tenant.id,
-          planId: plan.id,
-          status: SubscriptionStatus.ACTIVE,
-          billingCycle: BillingCycle.MONTHLY,
-          startsAt: new Date(),
-          expiresAt,
-          maxRouters: plan.maxRouters,
-          price: plan.priceMonthly,
-          notes: 'فترة تجريبية مجانية لمدة 30 يومًا للمستأجر الجديد',
-        },
-      });
-
-      // 3. Create Tenant Admin User
+      // 3. Create Tenant Admin User with TENANT_ADMIN role
       const adminUser = await tx.user.create({
         data: {
           tenantId: tenant.id,
@@ -273,7 +256,7 @@ export class AuthService {
           action: 'tenant:registered',
           entity: 'Tenant',
           entityId: tenant.id,
-          newValues: { name: tenant.name, slug: tenant.slug, plan: plan.name },
+          newValues: { name: tenant.name, slug: tenant.slug, requestedPlan: plan?.name ?? requestedPlanName },
           ipAddress,
         },
       });
@@ -282,7 +265,7 @@ export class AuthService {
     });
 
     return {
-      message: 'Organization registered successfully with 30-day active trial',
+      message: 'تم تسجيل الشبكة بنجاح. الحساب جاهز للاستخدام الأساسي وبانتظار تفعيل الباقة من إدارة المنصة',
       tenant: {
         id: result.tenant.id,
         name: result.tenant.name,

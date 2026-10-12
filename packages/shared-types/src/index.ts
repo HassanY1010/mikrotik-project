@@ -354,3 +354,220 @@ export interface DashboardMetrics {
   };
   updatedAt: string;
 }
+
+// ---------- Agent Remote Connectivity types ----------
+
+export enum AgentStatus {
+  ONLINE = 'ONLINE',
+  OFFLINE = 'OFFLINE',
+  REVOKED = 'REVOKED',
+}
+
+export enum AgentCommandStatus {
+  PENDING = 'PENDING',
+  DISPATCHED = 'DISPATCHED',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  EXPIRED = 'EXPIRED',
+}
+
+export enum AgentCommandType {
+  ROUTER_HEALTH = 'system.router.health',
+  HOTSPOT_BATCH_ADD = 'hotspot.user.batch_add',
+  HOTSPOT_USER_REMOVE = 'hotspot.user.remove',
+  HOTSPOT_VERIFY_BATCH = 'hotspot.user.verify_batch',
+  HOTSPOT_SESSION_LIST = 'hotspot.session.list',
+  // PPPoE & Broadband Command Types
+  PPPOE_PROFILE_SYNC = 'pppoe.profile.sync',
+  PPPOE_SECRET_ADD = 'pppoe.secret.add',
+  PPPOE_SECRET_UPDATE = 'pppoe.secret.update',
+  PPPOE_SECRET_DISABLE = 'pppoe.secret.disable',
+  PPPOE_SECRET_ENABLE = 'pppoe.secret.enable',
+  PPPOE_SECRET_REMOVE = 'pppoe.secret.remove',
+  PPPOE_SESSION_LIST = 'pppoe.session.list',
+  PPPOE_SESSION_DISCONNECT = 'pppoe.session.disconnect',
+  // Hotspot Captive Portal Designer & Publisher
+  HOTSPOT_PORTAL_PUBLISH = 'hotspot.portal.publish',
+}
+
+// ---------- PPPoE / Broadband Domain Types ----------
+
+export enum PppoeAccountStatus {
+  ACTIVE = 'ACTIVE',
+  DISABLED = 'DISABLED',
+  EXPIRED = 'EXPIRED',
+  SUSPENDED = 'SUSPENDED',
+}
+
+export interface PppoeProfileItem {
+  id: string;
+  tenantId: string;
+  deviceId: string;
+  name: string;
+  rateLimit?: string | null;
+  localAddress?: string | null;
+  remoteAddress?: string | null;
+  dnsServers?: string | null;
+  onlyOne: boolean;
+  price: number;
+  description?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PppoeAccountItem {
+  id: string;
+  tenantId: string;
+  deviceId: string;
+  profileId: string;
+  profileName?: string;
+  username: string;
+  status: PppoeAccountStatus;
+  callerId?: string | null;
+  staticIp?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  price: number;
+  billingCycle: string;
+  expiresAt?: string | null;
+  notes?: string | null;
+  syncStatus: string;
+  syncError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PppoeActiveSessionItem {
+  id: string;
+  tenantId: string;
+  deviceId: string;
+  accountId?: string | null;
+  username: string;
+  ipAddress: string;
+  macAddress?: string | null;
+  uptimeSeconds: number;
+  bytesIn: number;
+  bytesOut: number;
+  sessionId?: string | null;
+  startedAt: string;
+}
+
+// ---------- PPPoE Agent Command Payloads ----------
+
+export interface PppoeProfileSyncPayload {
+  name: string;
+  rateLimit?: string;
+  localAddress?: string;
+  remoteAddress?: string;
+  dnsServers?: string;
+  onlyOne?: boolean;
+}
+
+export interface PppoeSecretAddPayload {
+  username: string;
+  password?: string;
+  profile: string;
+  callerId?: string;
+  remoteAddress?: string;
+  comment?: string;
+  disabled?: boolean;
+}
+
+export interface PppoeSecretUpdatePayload {
+  username: string;
+  password?: string;
+  profile?: string;
+  callerId?: string;
+  remoteAddress?: string;
+  comment?: string;
+  disabled?: boolean;
+}
+
+export interface PppoeSecretStatusPayload {
+  username: string;
+  disconnectActive?: boolean;
+}
+
+export interface PppoeSecretRemovePayload {
+  username: string;
+  disconnectActive?: boolean;
+}
+
+export interface PppoeSessionDisconnectPayload {
+  username?: string;
+  sessionId?: string;
+}
+
+export interface PppoeBatchResult {
+  total: number;
+  createdCount: number;
+  alreadyExistingCount: number;
+  failedCount: number;
+  errors?: Array<{ username: string; error: string }>;
+}
+
+// ---------- HotSpot Captive Portal Domain Types ----------
+
+export enum HotspotPortalThemePreset {
+  MODERN_DARK = 'MODERN_DARK',
+  STARLINK_CYAN = 'STARLINK_CYAN',
+  SUNSET_ORANGE = 'SUNSET_ORANGE',
+  MINIMAL_LIGHT = 'MINIMAL_LIGHT',
+}
+
+export enum HotspotPortalLoginMethod {
+  VOUCHER = 'VOUCHER',
+  USER_PASS = 'USER_PASS',
+  BOTH = 'BOTH',
+}
+
+export interface HotspotPortalConfig {
+  id: string;
+  tenantId: string;
+  name: string;
+  themePreset: HotspotPortalThemePreset;
+  networkName: string;
+  title: string;
+  subtitle: string;
+  logoUrl?: string | null;
+  primaryColor: string;
+  accentColor: string;
+  backgroundColor: string;
+  cardColor: string;
+  textColor: string;
+  loginMethod: HotspotPortalLoginMethod;
+  showRemainingTime: boolean;
+  contactPhone?: string | null;
+  termsText?: string | null;
+  footerText?: string | null;
+  customCss?: string | null;
+  isDefault: boolean;
+  publishedDeviceId?: string | null;
+  lastPublishedAt?: string | null;
+  syncStatus: string;
+  syncError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HotspotPortalFile {
+  name: string;
+  content: string;
+}
+
+export interface HotspotPortalPublishPayload {
+  templateId?: string;
+  directoryName: string; // e.g. "hotspot" or "hotspot-sudafi"
+  files: HotspotPortalFile[];
+  applyToProfile?: string; // e.g. "hsprof1" or undefined
+}
+
+export interface HotspotPortalPublishResult {
+  published: boolean;
+  directory: string;
+  filesWritten: string[];
+  profileUpdated?: string;
+  message?: string;
+}
+
+

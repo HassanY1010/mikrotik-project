@@ -36,6 +36,9 @@ async function bootstrap(): Promise<void> {
   // ---- Logger ----
   app.useLogger(app.get(Logger));
 
+  // ---- Reverse proxy trust (1 hop behind Render/Cloudflare) ----
+  (app.getHttpAdapter().getInstance() as any).set('trust proxy', 1);
+
   // ---- Security headers ----
   app.use(
     helmet({

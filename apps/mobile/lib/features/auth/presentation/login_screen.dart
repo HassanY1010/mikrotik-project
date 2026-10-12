@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -308,6 +309,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
                             : const Text('دخول إلى نقطة البيع'),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                        label: const Text('صاحب شبكة جديد؟ إنشاء حساب الآن'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF38BDF8),
+                          side: const BorderSide(color: Color(0xFF0284C7)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () async {
+                          final registeredEmail = await Navigator.push<String>(
+                            context,
+                            MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                          );
+                          if (registeredEmail != null && registeredEmail.isNotEmpty) {
+                            _emailController.text = registeredEmail;
+                          }
+                        },
                       ),
                       const SizedBox(height: 16),
                       TextButton.icon(

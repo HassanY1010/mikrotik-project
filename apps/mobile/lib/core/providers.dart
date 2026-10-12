@@ -1186,3 +1186,591 @@ final cardsInventoryProvider = NotifierProvider<CardsInventoryNotifier, CardsInv
   CardsInventoryNotifier.new,
 );
 
+/// Provider for dynamic SaaS subscription quota and limit details
+final tenantQuotaProvider = FutureProvider.autoDispose<TenantQuotaModel?>((ref) async {
+  final apiClient = ref.read(apiClientProvider);
+  try {
+    final res = await apiClient.get('/cards/quota');
+    final raw = res.data;
+    final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+    if (data is Map<String, dynamic>) {
+      return TenantQuotaModel.fromJson(data);
+    }
+  } catch (_) {
+    try {
+      final res = await apiClient.get(ApiEndpoints.currentTenant);
+      final raw = res.data;
+      final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+      if (data is Map<String, dynamic> && data['subscription'] is Map) {
+        return TenantQuotaModel.fromJson(Map<String, dynamic>.from(data['subscription'] as Map));
+      }
+    } catch (_) {}
+  }
+  return null;
+});
+
+/// ============================================================================
+/// PPPoE & BROADBAND RIVERPOD PROVIDERS
+/// ============================================================================
+
+/// PPPoE Profiles AsyncNotifier
+class PppoeProfilesNotifier extends AsyncNotifier<List<PppoeProfileModel>> {
+  @override
+  Future<List<PppoeProfileModel>> build() async {
+    final selectedId = ref.watch(selectedRouterIdProvider);
+    return _fetch(selectedId);
+  }
+
+  Future<List<PppoeProfileModel>> _fetch(String? deviceId) async {
+    if (deviceId == null || deviceId.isEmpty) return [];
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.pppoeProfiles(deviceId));
+      final raw = res.data;
+      final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
+      if (list is List) {
+        return list.map((p) => PppoeProfileModel.fromJson(p as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<void> refresh() async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch(selectedId));
+  }
+
+  Future<Map<String, dynamic>> createProfile(PppoeProfileModel profile) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.pppoeProfiles(selectedId),
+        data: profile.toCreatePayload(),
+      );
+      await refresh();
+      final resData = res.data;
+      final raw = (resData is Map && resData['data'] != null) ? resData['data'] : resData;
+      final queuedCmd = (raw is Map) ? raw['queuedCommandId']?.toString() : null;
+      if (queuedCmd != null && queuedCmd.isNotEmpty) {
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'مزامنة بروفايل PPPoE «${profile.name}» مع الراوتر',
+          type: 'pppoe.profile.sync',
+        );
+      }
+      return {
+        'success': true,
+        'message': 'تم إنشاء بروفايل «${profile.name}» وجدولة مزامنته بنجاح',
+        'queuedCommandId': queuedCmd,
+      };
+    } catch (e) {
+      String msg = 'تعذر إنشاء بروفايل PPPoE';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateProfile(String id, Map<String, dynamic> data) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.patch(
+        ApiEndpoints.pppoeProfileItem(selectedId, id),
+        data: data,
+      );
+      await refresh();
+      final resData = res.data;
+      final raw = (resData is Map && resData['data'] != null) ? resData['data'] : resData;
+      final queuedCmd = (raw is Map) ? raw['queuedCommandId']?.toString() : null;
+      if (queuedCmd != null && queuedCmd.isNotEmpty) {
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'تحديث بروفايل PPPoE على الراوتر',
+          type: 'pppoe.profile.sync',
+        );
+      }
+      return {
+        'success': true,
+        'message': 'تم تحديث إعدادات البروفايل بنجاح',
+        'queuedCommandId': queuedCmd,
+      };
+    } catch (e) {
+      String msg = 'تعذر تحديث بروفايل PPPoE';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteProfile(String id, String profileName) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.delete(ApiEndpoints.pppoeProfileItem(selectedId, id));
+      await refresh();
+      return {'success': true, 'message': 'تم حذف البروفايل «$profileName» بنجاح'};
+    } catch (e) {
+      String msg = 'تعذر حذف بروفايل PPPoE';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<Map<String, dynamic>> syncProfile(String id, String profileName) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(ApiEndpoints.pppoeProfileSync(selectedId, id));
+      final resData = res.data;
+      final raw = (resData is Map && resData['data'] != null) ? resData['data'] : resData;
+      final queuedCmd = (raw is Map) ? raw['queuedCommandId']?.toString() : null;
+      if (queuedCmd != null && queuedCmd.isNotEmpty) {
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'مزامنة بروفايل «$profileName» مع الراوتر',
+          type: 'pppoe.profile.sync',
+        );
+      }
+      return {
+        'success': true,
+        'message': 'تم إرسال أمر مزامنة البروفايل إلى الراوتر',
+        'queuedCommandId': queuedCmd,
+      };
+    } catch (e) {
+      String msg = 'فشل طلب المزامنة';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+}
+
+final pppoeProfilesProvider = AsyncNotifierProvider<PppoeProfilesNotifier, List<PppoeProfileModel>>(
+  PppoeProfilesNotifier.new,
+);
+
+/// PPPoE Accounts AsyncNotifier
+class PppoeAccountsNotifier extends AsyncNotifier<List<PppoeAccountModel>> {
+  @override
+  Future<List<PppoeAccountModel>> build() async {
+    final selectedId = ref.watch(selectedRouterIdProvider);
+    return _fetch(selectedId);
+  }
+
+  Future<List<PppoeAccountModel>> _fetch(String? deviceId) async {
+    if (deviceId == null || deviceId.isEmpty) return [];
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(
+        ApiEndpoints.pppoeAccounts(deviceId),
+        queryParameters: {'limit': 200},
+      );
+      final raw = res.data;
+      final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+      final items = (data is Map && data['items'] != null) ? data['items'] : (data is List ? data : []);
+      if (items is List) {
+        return items.map((a) => PppoeAccountModel.fromJson(a as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<void> refresh() async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch(selectedId));
+  }
+
+  Future<Map<String, dynamic>> createAccount(Map<String, dynamic> payload) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.pppoeAccounts(selectedId),
+        data: payload,
+      );
+      await refresh();
+      final resData = res.data;
+      final raw = (resData is Map && resData['data'] != null) ? resData['data'] : resData;
+      final queuedCmd = (raw is Map) ? raw['queuedCommandId']?.toString() : null;
+      final username = payload['username']?.toString() ?? '';
+      if (queuedCmd != null && queuedCmd.isNotEmpty) {
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'إضافة اشتراك PPPoE للمستخدم «$username»',
+          type: 'pppoe.secret.add',
+        );
+      }
+      return {
+        'success': true,
+        'message': 'تم إنشاء حساب المشترك «$username» بنجاح',
+        'queuedCommandId': queuedCmd,
+      };
+    } catch (e) {
+      String msg = 'تعذر إنشاء حساب المشترك';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateAccount(String id, Map<String, dynamic> payload) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.patch(
+        ApiEndpoints.pppoeAccountItem(selectedId, id),
+        data: payload,
+      );
+      await refresh();
+      final resData = res.data;
+      final raw = (resData is Map && resData['data'] != null) ? resData['data'] : resData;
+      final queuedCmd = (raw is Map) ? raw['queuedCommandId']?.toString() : null;
+      if (queuedCmd != null && queuedCmd.isNotEmpty) {
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'تحديث بيانات اشتراك PPPoE على الراوتر',
+          type: 'pppoe.secret.update',
+        );
+      }
+      return {
+        'success': true,
+        'message': 'تم تحديث بيانات المشترك بنجاح',
+        'queuedCommandId': queuedCmd,
+      };
+    } catch (e) {
+      String msg = 'تعذر تحديث بيانات المشترك';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<Map<String, dynamic>> disableAccount(String id, String username) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(ApiEndpoints.pppoeAccountDisable(selectedId, id));
+      await refresh();
+      final resData = res.data;
+      final raw = (resData is Map && resData['data'] != null) ? resData['data'] : resData;
+      final queuedCmd = (raw is Map) ? raw['queuedCommandId']?.toString() : null;
+      if (queuedCmd != null && queuedCmd.isNotEmpty) {
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'تعطيل وفصل اشتراك PPPoE للمستخدم «$username»',
+          type: 'pppoe.secret.disable',
+        );
+      }
+      return {
+        'success': true,
+        'message': 'تم تعطيل حساب المشترك «$username» وفصل اتصاله',
+        'queuedCommandId': queuedCmd,
+      };
+    } catch (e) {
+      String msg = 'تعذر تعطيل حساب المشترك';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<Map<String, dynamic>> enableAccount(String id, String username) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(ApiEndpoints.pppoeAccountEnable(selectedId, id));
+      await refresh();
+      final resData = res.data;
+      final raw = (resData is Map && resData['data'] != null) ? resData['data'] : resData;
+      final queuedCmd = (raw is Map) ? raw['queuedCommandId']?.toString() : null;
+      if (queuedCmd != null && queuedCmd.isNotEmpty) {
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'تفعيل اشتراك PPPoE للمستخدم «$username»',
+          type: 'pppoe.secret.enable',
+        );
+      }
+      return {
+        'success': true,
+        'message': 'تم تفعيل حساب المشترك «$username» بنجاح',
+        'queuedCommandId': queuedCmd,
+      };
+    } catch (e) {
+      String msg = 'تعذر تفعيل حساب المشترك';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteAccount(String id, String username) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.delete(ApiEndpoints.pppoeAccountItem(selectedId, id));
+      await refresh();
+      final resData = res.data;
+      final raw = (resData is Map && resData['data'] != null) ? resData['data'] : resData;
+      final queuedCmd = (raw is Map) ? raw['queuedCommandId']?.toString() : null;
+      if (queuedCmd != null && queuedCmd.isNotEmpty) {
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'حذف اشتراك PPPoE للمستخدم «$username» من الراوتر',
+          type: 'pppoe.secret.remove',
+        );
+      }
+      return {
+        'success': true,
+        'message': 'تم حذف حساب المشترك «$username» بنجاح',
+        'queuedCommandId': queuedCmd,
+      };
+    } catch (e) {
+      String msg = 'تعذر حذف حساب المشترك';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+}
+
+final pppoeAccountsProvider = AsyncNotifierProvider<PppoeAccountsNotifier, List<PppoeAccountModel>>(
+  PppoeAccountsNotifier.new,
+);
+
+/// PPPoE Live Sessions AsyncNotifier
+class PppoeSessionsNotifier extends AsyncNotifier<List<PppoeActiveSessionModel>> {
+  DateTime? lastSyncTime;
+
+  @override
+  Future<List<PppoeActiveSessionModel>> build() async {
+    final selectedId = ref.watch(selectedRouterIdProvider);
+    return _fetch(selectedId, syncFromRouter: false);
+  }
+
+  Future<List<PppoeActiveSessionModel>> _fetch(String? deviceId, {bool syncFromRouter = false}) async {
+    if (deviceId == null || deviceId.isEmpty) return [];
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(
+        ApiEndpoints.pppoeSessions(deviceId, sync: syncFromRouter),
+      );
+      final raw = res.data;
+      final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+      final sessionsRaw = (data is Map && data['sessions'] != null) ? data['sessions'] : (data is List ? data : []);
+
+      if (data is Map && data['queuedCommandId'] != null) {
+        final queuedCmd = data['queuedCommandId'].toString();
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'طلب استعلام ومزامنة الجلسات الحية من الراوتر',
+          type: 'pppoe.session.list',
+        );
+      }
+
+      lastSyncTime = DateTime.now();
+
+      if (sessionsRaw is List) {
+        return sessionsRaw.map((s) => PppoeActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<Map<String, dynamic>> refresh({bool syncFromRouter = false}) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch(selectedId, syncFromRouter: syncFromRouter));
+    return {
+      'success': true,
+      'message': syncFromRouter ? 'تم طلب مزامنة الجلسات النشطة من الراوتر' : 'تم تحديث قائمة الجلسات',
+    };
+  }
+
+  Future<Map<String, dynamic>> disconnectSession({String? username, String? sessionId}) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) {
+      return {'success': false, 'message': 'يرجى اختيار جهاز راوتر أولاً'};
+    }
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final payload = <String, dynamic>{};
+      if (username != null && username.isNotEmpty) payload['username'] = username;
+      if (sessionId != null && sessionId.isNotEmpty) payload['sessionId'] = sessionId;
+
+      final res = await apiClient.post(
+        ApiEndpoints.pppoeSessionDisconnect(selectedId),
+        data: payload,
+      );
+      await refresh();
+      final resData = res.data;
+      final raw = (resData is Map && resData['data'] != null) ? resData['data'] : resData;
+      final queuedCmd = (raw is Map) ? raw['queuedCommandId']?.toString() : null;
+      if (queuedCmd != null && queuedCmd.isNotEmpty) {
+        ref.read(pppoeCommandsProvider.notifier).trackCommand(
+          queuedCmd,
+          'قطع اتصال المشترك «${username ?? sessionId}» على الراوتر',
+          type: 'pppoe.session.disconnect',
+        );
+      }
+      return {
+        'success': true,
+        'message': 'تم إرسال أمر فصل الجلسة بنجاح',
+        'queuedCommandId': queuedCmd,
+      };
+    } catch (e) {
+      String msg = 'تعذر فصل الجلسة النشطة';
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        msg = err['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+}
+
+final pppoeSessionsProvider = AsyncNotifierProvider<PppoeSessionsNotifier, List<PppoeActiveSessionModel>>(
+  PppoeSessionsNotifier.new,
+);
+
+/// Tracked Command Summary Item
+class TrackedPppoeCommandItem {
+  final String commandId;
+  final String description;
+  final String type;
+  final DateTime queuedAt;
+  PppoeCommandStatusModel? statusModel;
+
+  TrackedPppoeCommandItem({
+    required this.commandId,
+    required this.description,
+    this.type = '',
+    required this.queuedAt,
+    this.statusModel,
+  });
+}
+
+/// Commands Tracker State Notifier
+class PppoeCommandsNotifier extends Notifier<List<TrackedPppoeCommandItem>> {
+  @override
+  List<TrackedPppoeCommandItem> build() => [];
+
+  void trackCommand(String commandId, String description, {String type = ''}) {
+    if (state.any((c) => c.commandId == commandId)) return;
+    final item = TrackedPppoeCommandItem(
+      commandId: commandId,
+      description: description,
+      type: type,
+      queuedAt: DateTime.now(),
+    );
+    state = [item, ...state];
+    // Immediate initial status fetch
+    fetchStatus(commandId);
+  }
+
+  Future<PppoeCommandStatusModel?> fetchStatus(String commandId) async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    if (selectedId == null) return null;
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(
+        ApiEndpoints.pppoeCommandStatus(selectedId, commandId),
+      );
+      final raw = res.data;
+      final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+      if (data is Map<String, dynamic>) {
+        final model = PppoeCommandStatusModel.fromJson(data);
+        state = state.map((item) {
+          if (item.commandId == commandId) {
+            return TrackedPppoeCommandItem(
+              commandId: item.commandId,
+              description: item.description,
+              type: item.type.isNotEmpty ? item.type : model.type,
+              queuedAt: item.queuedAt,
+              statusModel: model,
+            );
+          }
+          return item;
+        }).toList();
+        return model;
+      }
+    } catch (_) {}
+    return null;
+  }
+}
+
+final pppoeCommandsProvider = NotifierProvider<PppoeCommandsNotifier, List<TrackedPppoeCommandItem>>(
+  PppoeCommandsNotifier.new,
+);
+
+/// ============================================================================
+/// HOTSPOT CAPTIVE PORTAL DESIGNER PROVIDERS
+/// ============================================================================
+
+final portalTemplatesProvider = FutureProvider.autoDispose<List<HotspotPortalConfigModel>>((ref) async {
+  final apiClient = ref.watch(apiClientProvider);
+  try {
+    final res = await apiClient.get(ApiEndpoints.portalTemplates);
+    final raw = res.data;
+    final list = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+    if (list is List) {
+      return list
+          .whereType<Map>()
+          .map((item) => HotspotPortalConfigModel.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+    }
+    return [];
+  } catch (_) {
+    return [];
+  }
+});
+

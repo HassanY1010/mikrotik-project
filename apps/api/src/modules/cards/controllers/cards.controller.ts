@@ -31,6 +31,25 @@ import { RoleName } from '@mikrotik-saas/shared-types';
 export class CardsController {
   constructor(private readonly cardsService: CardsService) {}
 
+  @Get('quota')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
+  @ApiOperation({ summary: 'Get current card generation quota and usage for tenant' })
+  @ApiResponse({ status: 200, description: 'Quota details' })
+  async getQuota(
+    @CurrentUser('tenantId') userTenantId?: string,
+    @TenantId() headerTenantId?: string,
+  ) {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.getTenantQuota(effectiveTenantId);
+  }
+
   @Get()
   @Roles(
     RoleName.SUPER_ADMIN,

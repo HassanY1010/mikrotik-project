@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { SubscriptionStatus, BillingCycle } from '@prisma/client';
+import { SubscriptionStatus, BillingCycle, TenantStatus, Prisma } from '@prisma/client';
 import type { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import type { ApproveSubscriptionDto } from './dto/approve-subscription.dto';
 import type { UpdateCurrentTenantDto } from './dto/update-current-tenant.dto';
@@ -8,6 +8,195 @@ import type { UpdateCurrentTenantDto } from './dto/update-current-tenant.dto';
 @Injectable()
 export class TenantsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async getPlatformOverview(): Promise<Record<string, unknown>> {
+    const startOfMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+    const now = new Date();
+
+    const [
+      totalTenants,
+      activeTenants,
+      suspendedTenants,
+      activeSubscriptions,
+      expiredSubscriptions,
+      totalCardsThisMonth,
+      totalRouters,
+      onlineRouters,
+      plansBreakdown,
+      recentTenants,
+    ] = await Promise.all([
+      this.prisma.tenant.count({ where: { deletedAt: null } }),
+      this.prisma.tenant.count({ where: { deletedAt: null, status: TenantStatus.ACTIVE } }),
+      this.prisma.tenant.count({ where: { deletedAt: null, status: TenantStatus.SUSPENDED } }),
+      this.prisma.subscription.count({ where: { status: SubscriptionStatus.ACTIVE, expiresAt: { gt: now } } }),
+      this.prisma.subscription.count({ where: { OR: [{ status: SubscriptionStatus.EXPIRED }, { expiresAt: { lte: now } }] } }),
+      this.prisma.card.count({ where: { createdAt: { gte: startOfMonth } } }),
+      this.prisma.mikroTikDevice.count({ where: { deletedAt: null } }),
+      this.prisma.mikroTikDevice.count({ where: { deletedAt: null, isOnline: true } }),
+      this.prisma.subscriptionPlan.findMany({
+        select: {
+          id: true,
+          name: true,
+          nameAr: true,
+          _count: {
+            select: {
+              subscriptions: { where: { status: SubscriptionStatus.ACTIVE, expiresAt: { gt: now } } },
+            },
+          },
+        },
+      }),
+      this.prisma.tenant.findMany({
+        where: { deletedAt: null },
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          subscriptions: {
+            where: { status: SubscriptionStatus.ACTIVE },
+            include: { plan: true },
+            orderBy: { expiresAt: 'desc' },
+            take: 1,
+          },
+          _count: {
+            select: { devices: { where: { deletedAt: null } } },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      tenants: {
+        total: totalTenants,
+        active: activeTenants,
+        suspended: suspendedTenants,
+      },
+      subscriptions: {
+        active: activeSubscriptions,
+        expired: expiredSubscriptions,
+      },
+      cards: {
+        consumedThisMonth: totalCardsThisMonth,
+      },
+      devices: {
+        total: totalRouters,
+        online: onlineRouters,
+        offline: Math.max(0, totalRouters - onlineRouters),
+      },
+      totalTenants,
+      activeTenants,
+      suspendedTenants,
+      activeSubscriptions,
+      expiredSubscriptions,
+      totalCardsThisMonth,
+      totalRouters,
+      onlineRouters,
+      plansBreakdown: plansBreakdown.map((p) => ({
+        planId: p.id,
+        planName: p.name,
+        planNameAr: p.nameAr,
+        subscriberCount: p._count?.subscriptions ?? 0,
+      })),
+      plansDistribution: plansBreakdown.map((p) => ({
+        planId: p.id,
+        planName: p.name,
+        planNameAr: p.nameAr,
+        subscriberCount: p._count?.subscriptions ?? 0,
+      })),
+      recentTenants: recentTenants.map((t) => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        contactEmail: t.contactEmail,
+        status: t.status,
+        createdAt: t.createdAt,
+        activePlan: t.subscriptions[0]?.plan.nameAr ?? t.subscriptions[0]?.plan.name ?? 'بدون اشتراك',
+        routersCount: t._count?.devices ?? 0,
+      })),
+    };
+  }
+
+  async findPaginated(query: {
+    search?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: Record<string, unknown>[]; meta: { total: number; page: number; limit: number; totalPages: number } }> {
+    const page = Math.max(1, query.page || 1);
+    const limit = Math.max(1, Math.min(100, query.limit || 20));
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.TenantWhereInput = { deletedAt: null };
+
+    if (query.status && Object.values(TenantStatus).includes(query.status as TenantStatus)) {
+      where.status = query.status as TenantStatus;
+    }
+
+    if (query.search && query.search.trim().length > 0) {
+      const q = query.search.trim();
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { slug: { contains: q, mode: 'insensitive' } },
+        { contactEmail: { contains: q, mode: 'insensitive' } },
+        { phone: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const [tenants, total] = await Promise.all([
+      this.prisma.tenant.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          subscriptions: {
+            where: { status: SubscriptionStatus.ACTIVE },
+            include: { plan: true },
+            orderBy: { expiresAt: 'desc' },
+            take: 1,
+          },
+          _count: {
+            select: {
+              devices: { where: { deletedAt: null } },
+              cards: true,
+              users: { where: { deletedAt: null } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.tenant.count({ where }),
+    ]);
+
+    const data = tenants.map((t) => ({
+      id: t.id,
+      name: t.name,
+      slug: t.slug,
+      status: t.status,
+      currency: t.currency,
+      contactEmail: t.contactEmail,
+      phone: t.phone,
+      createdAt: t.createdAt,
+      activeSubscription: t.subscriptions[0]
+        ? {
+            id: t.subscriptions[0].id,
+            planName: t.subscriptions[0].plan.name,
+            planNameAr: t.subscriptions[0].plan.nameAr,
+            maxRouters: t.subscriptions[0].maxRouters,
+            expiresAt: t.subscriptions[0].expiresAt,
+            billingCycle: t.subscriptions[0].billingCycle,
+          }
+        : null,
+      counts: t._count,
+    }));
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
 
   async findAll(): Promise<Record<string, unknown>[]> {
     const tenants = await this.prisma.tenant.findMany({
@@ -123,7 +312,7 @@ export class TenantsService {
         entity: 'Tenant',
         entityId: id,
         oldValues: { status: tenant.status },
-        newValues: { status: dto.status },
+        newValues: { status: dto.status, reason: dto.reason || null },
       },
     });
 
@@ -156,6 +345,17 @@ export class TenantsService {
 
     const price = dto.billingCycle === BillingCycle.YEARLY ? plan.priceYearly : plan.priceMonthly;
 
+    // Supersede any existing ACTIVE subscriptions to prevent conflicting states
+    await this.prisma.subscription.updateMany({
+      where: {
+        tenantId,
+        status: SubscriptionStatus.ACTIVE,
+      },
+      data: {
+        status: SubscriptionStatus.CANCELLED,
+      },
+    });
+
     // Create new approved subscription
     const subscription = await this.prisma.subscription.create({
       data: {
@@ -173,11 +373,13 @@ export class TenantsService {
       include: { plan: true },
     });
 
-    // Ensure tenant is active
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: { status: 'ACTIVE' },
-    });
+    // Ensure tenant is active unless explicitly suspended
+    if (tenant.status !== TenantStatus.SUSPENDED) {
+      await this.prisma.tenant.update({
+        where: { id: tenantId },
+        data: { status: TenantStatus.ACTIVE },
+      });
+    }
 
     await this.prisma.auditLog.create({
       data: {
@@ -230,6 +432,100 @@ export class TenantsService {
 
     const sub = tenant.subscriptions[0];
 
+    let subscriptionData: Record<string, unknown>;
+
+    if (sub) {
+      const planFeatures = (sub.plan.features as Record<string, any>) || {};
+      const isExplicitUnlimited = planFeatures.isUnlimited === true;
+      const rawLimit = planFeatures.cardGenerationLimit ?? planFeatures.cardLimit ?? planFeatures.maxCards;
+      const isUnlimited = isExplicitUnlimited || rawLimit === undefined || rawLimit === null;
+      const parsed = Number(rawLimit);
+      const cardLimit = isUnlimited ? null : (isNaN(parsed) || parsed <= 0 ? 0 : Math.floor(parsed));
+
+      // Calculate monthly cycle anchored to startsAt
+      const start = new Date(sub.startsAt);
+      const expiry = new Date(sub.expiresAt);
+      const anchorDay = start.getUTCDate();
+      const now = new Date();
+
+      let cycleStartYear = now.getUTCFullYear();
+      let cycleStartMonth = now.getUTCMonth();
+      const maxDaysInTargetMonth = new Date(Date.UTC(cycleStartYear, cycleStartMonth + 1, 0)).getUTCDate();
+      let candidateStart = new Date(Date.UTC(cycleStartYear, cycleStartMonth, Math.min(anchorDay, maxDaysInTargetMonth), 0, 0, 0, 0));
+
+      if (candidateStart.getTime() > now.getTime()) {
+        cycleStartMonth -= 1;
+        if (cycleStartMonth < 0) {
+          cycleStartMonth = 11;
+          cycleStartYear -= 1;
+        }
+        const daysInPrev = new Date(Date.UTC(cycleStartYear, cycleStartMonth + 1, 0)).getUTCDate();
+        candidateStart = new Date(Date.UTC(cycleStartYear, cycleStartMonth, Math.min(anchorDay, daysInPrev), 0, 0, 0, 0));
+      }
+      if (candidateStart.getTime() < start.getTime()) candidateStart = new Date(start);
+
+      let cycleEndYear = candidateStart.getUTCFullYear();
+      let cycleEndMonth = candidateStart.getUTCMonth() + 1;
+      if (cycleEndMonth > 11) {
+        cycleEndMonth = 0;
+        cycleEndYear += 1;
+      }
+      const daysInEnd = new Date(Date.UTC(cycleEndYear, cycleEndMonth + 1, 0)).getUTCDate();
+      let candidateEnd = new Date(Date.UTC(cycleEndYear, cycleEndMonth, Math.min(anchorDay, daysInEnd), 0, 0, 0, 0));
+      if (candidateEnd.getTime() > expiry.getTime()) candidateEnd = new Date(expiry);
+
+      const usedCards = await this.prisma.card.count({
+        where: {
+          tenantId: tenant.id,
+          createdAt: {
+            gte: candidateStart,
+            lt: candidateEnd,
+          },
+          NOT: {
+            AND: [
+              { batch: { status: 'FAILED' } },
+              { syncStatus: 'FAILED' },
+            ],
+          },
+          batch: {
+            status: { not: 'CANCELLED' },
+          },
+        },
+      });
+
+      const remainingCards = isUnlimited ? null : Math.max(0, (cardLimit ?? 0) - usedCards);
+
+      subscriptionData = {
+        plan: sub.plan.name,
+        planNameAr: sub.plan.nameAr,
+        maxRouters: sub.maxRouters,
+        maxCardsPerMonth: cardLimit,
+        usedCards,
+        remainingCards,
+        isUnlimited,
+        cycleStart: candidateStart.toISOString(),
+        cycleEnd: candidateEnd.toISOString(),
+        status: sub.status,
+        startsAt: sub.startsAt.toISOString(),
+        expiresAt: sub.expiresAt.toISOString(),
+      };
+    } else {
+      subscriptionData = {
+        plan: 'NONE',
+        planNameAr: 'لا يوجد اشتراك',
+        maxRouters: 0,
+        maxCardsPerMonth: 0,
+        usedCards: 0,
+        remainingCards: 0,
+        isUnlimited: false,
+        cycleStart: null,
+        cycleEnd: null,
+        status: 'NONE',
+        startsAt: null,
+        expiresAt: null,
+      };
+    }
+
     return {
       id: tenant.id,
       name: tenant.name,
@@ -244,23 +540,7 @@ export class TenantsService {
       walletBalance: Number(tenant.walletBalance ?? 0),
       loyaltyPoints: tenant.loyaltyPoints ?? 0,
       allowAdminCards: tenant.allowAdminCards ?? false,
-      subscription: sub
-        ? {
-            plan: sub.plan.name,
-            planNameAr: sub.plan.nameAr,
-            maxRouters: sub.maxRouters,
-            maxCardsPerMonth: 100000,
-            status: sub.status,
-            expiresAt: sub.expiresAt.toISOString(),
-          }
-        : {
-            plan: 'FREE',
-            planNameAr: 'الخطة المجانية',
-            maxRouters: 1,
-            maxCardsPerMonth: 5000,
-            status: 'ACTIVE',
-            expiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
-          },
+      subscription: subscriptionData,
     };
   }
 
@@ -548,5 +828,194 @@ export class TenantsService {
     }
 
     return this.getCurrentTenant(resolvedId);
+  }
+
+  async listSubscriptions(params: {
+    tenantId?: string;
+    status?: SubscriptionStatus;
+    planId?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = Math.max(1, params.page || 1);
+    const limit = Math.min(100, Math.max(1, params.limit || 20));
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.SubscriptionWhereInput = {};
+    if (params.tenantId) where.tenantId = params.tenantId;
+    if (params.status) where.status = params.status;
+    if (params.planId) where.planId = params.planId;
+
+    const [subs, total] = await Promise.all([
+      this.prisma.subscription.findMany({
+        where,
+        include: {
+          tenant: { select: { id: true, name: true, slug: true, status: true } },
+          plan: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.subscription.count({ where }),
+    ]);
+
+    return {
+      data: subs.map((s) => ({
+        id: s.id,
+        tenantId: s.tenantId,
+        tenantName: s.tenant.name,
+        tenantSlug: s.tenant.slug,
+        tenantStatus: s.tenant.status,
+        planId: s.planId,
+        planName: s.plan.name,
+        planNameAr: s.plan.nameAr,
+        status: s.status,
+        billingCycle: s.billingCycle,
+        startsAt: s.startsAt.toISOString(),
+        expiresAt: s.expiresAt.toISOString(),
+        maxRouters: s.maxRouters,
+        price: Number(s.price),
+        approvedBy: s.approvedBy,
+        notes: s.notes,
+        createdAt: s.createdAt.toISOString(),
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  async renewSubscription(
+    subscriptionId: string,
+    durationMonths: number,
+    superAdminId: string,
+    notes?: string,
+  ) {
+    const sub = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      include: { plan: true, tenant: true },
+    });
+    if (!sub) throw new NotFoundException('Subscription not found');
+
+    const months = Math.max(1, durationMonths || 1);
+    const baseDate = sub.expiresAt > new Date() ? new Date(sub.expiresAt) : new Date();
+    const newExpiresAt = new Date(baseDate);
+    newExpiresAt.setMonth(newExpiresAt.getMonth() + months);
+
+    const updated = await this.prisma.subscription.update({
+      where: { id: subscriptionId },
+      data: {
+        expiresAt: newExpiresAt,
+        status: SubscriptionStatus.ACTIVE,
+        notes: notes ? (sub.notes ? `${sub.notes} | ${notes}` : notes) : sub.notes,
+      },
+      include: { plan: true },
+    });
+
+    // Ensure tenant organization is active unless explicitly suspended
+    if (sub.tenant?.status !== TenantStatus.SUSPENDED) {
+      await this.prisma.tenant.update({
+        where: { id: sub.tenantId },
+        data: { status: TenantStatus.ACTIVE },
+      });
+    }
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: sub.tenantId,
+        userId: superAdminId,
+        action: 'subscription:renewed',
+        entity: 'Subscription',
+        entityId: subscriptionId,
+        oldValues: { expiresAt: sub.expiresAt, status: sub.status },
+        newValues: { expiresAt: newExpiresAt, status: SubscriptionStatus.ACTIVE, addedMonths: months },
+      },
+    });
+
+    return {
+      ...updated,
+      price: Number(updated.price),
+    };
+  }
+
+  async updateSubscriptionStatus(
+    subscriptionId: string,
+    status: SubscriptionStatus,
+    superAdminId: string,
+    notes?: string,
+  ) {
+    const sub = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+    });
+    if (!sub) throw new NotFoundException('Subscription not found');
+
+    const updated = await this.prisma.subscription.update({
+      where: { id: subscriptionId },
+      data: {
+        status,
+        notes: notes ? (sub.notes ? `${sub.notes} | ${notes}` : notes) : sub.notes,
+      },
+      include: { plan: true },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: sub.tenantId,
+        userId: superAdminId,
+        action: `subscription:status_changed_${status.toLowerCase()}`,
+        entity: 'Subscription',
+        entityId: subscriptionId,
+        oldValues: { status: sub.status },
+        newValues: { status },
+      },
+    });
+
+    return {
+      ...updated,
+      price: Number(updated.price),
+    };
+  }
+
+  async getTenantAuditLogs(tenantId: string, page = 1, limit = 20) {
+    const p = Math.max(1, page);
+    const l = Math.min(100, Math.max(1, limit));
+    const skip = (p - 1) * l;
+
+    const [logs, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: { tenantId },
+        include: {
+          user: { select: { id: true, fullName: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: l,
+      }),
+      this.prisma.auditLog.count({ where: { tenantId } }),
+    ]);
+
+    return {
+      data: logs.map((log) => ({
+        id: log.id,
+        action: log.action,
+        entity: log.entity,
+        entityId: log.entityId,
+        user: log.user,
+        oldValues: log.oldValues,
+        newValues: log.newValues,
+        ipAddress: log.ipAddress,
+        createdAt: log.createdAt.toISOString(),
+      })),
+      meta: {
+        total,
+        page: p,
+        limit: l,
+        totalPages: Math.ceil(total / l) || 1,
+      },
+    };
   }
 }

@@ -17,6 +17,8 @@ import '../../profile/presentation/user_profile_screen.dart';
 import '../../profile/presentation/tenant_users_screen.dart';
 import '../../studio/presentation/card_templates_screen.dart';
 import '../../hotspot_profiles/presentation/hotspot_profiles_screen.dart';
+import '../../portal/presentation/hotspot_portal_designer_screen.dart';
+import '../../pppoe/presentation/pppoe_management_screen.dart';
 
 class MainNavigationScreen extends ConsumerStatefulWidget {
   const MainNavigationScreen({super.key});
@@ -168,6 +170,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         onOpenCloudWallet: () => _pushScreen(const ProfileWalletScreen()),
         onOpenTemplates: () => _pushScreen(const CardTemplatesScreen()),
         onOpenProfiles: () => _pushScreen(const HotspotProfilesScreen()),
+        onOpenPppoe: () => _pushScreen(const PppoeManagementScreen()),
         onOpenUserProfile: () => _pushScreen(const UserProfileScreen()),
         onOpenTenantUsers: () => _pushScreen(const TenantUsersScreen()),
       ),
@@ -334,6 +337,22 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const HotspotProfilesScreen());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.palette, color: Color(0xFF0EA5E9)),
+              title: const Text('مصمم صفحات HotSpot', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _pushScreen(const HotspotPortalDesignerScreen());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_ethernet, color: Color(0xFF06B6D4)),
+              title: const Text('اشتراكات النطاق العريض (PPPoE)', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _pushScreen(const PppoeManagementScreen());
               },
             ),
             if (user?.role == 'SUPER_ADMIN' || user?.role == 'TENANT_ADMIN')

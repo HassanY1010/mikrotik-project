@@ -7,11 +7,30 @@ import { LoginView } from './modules/auth/LoginView';
 import { DashboardView } from './modules/dashboard/DashboardView';
 
 // Code-split heavy modules to reduce initial JS bundle size and accelerate startup
+const SuperAdminOverviewView = lazy(() =>
+  import('./modules/super-admin/SuperAdminOverviewView').then((m) => ({ default: m.SuperAdminOverviewView })),
+);
+const SuperAdminTenantsView = lazy(() =>
+  import('./modules/super-admin/SuperAdminTenantsView').then((m) => ({ default: m.SuperAdminTenantsView })),
+);
+const SuperAdminPlansView = lazy(() =>
+  import('./modules/super-admin/SuperAdminPlansView').then((m) => ({ default: m.SuperAdminPlansView })),
+);
+const SuperAdminSubscriptionsView = lazy(() =>
+  import('./modules/super-admin/SuperAdminSubscriptionsView').then((m) => ({ default: m.SuperAdminSubscriptionsView })),
+);
+
 const DevicesView = lazy(() =>
   import('./modules/devices/DevicesView').then((m) => ({ default: m.DevicesView })),
 );
 const HotspotProfilesView = lazy(() =>
   import('./modules/hotspot/HotspotProfilesView').then((m) => ({ default: m.HotspotProfilesView })),
+);
+const HotspotPortalDesignerView = lazy(() =>
+  import('./modules/portal/HotspotPortalDesignerView').then((m) => ({ default: m.HotspotPortalDesignerView })),
+);
+const PppoeManagementView = lazy(() =>
+  import('./modules/pppoe/PppoeManagementView').then((m) => ({ default: m.PppoeManagementView })),
 );
 const CardsView = lazy(() =>
   import('./modules/cards/CardsView').then((m) => ({ default: m.CardsView })),
@@ -62,8 +81,10 @@ const ViewLoadingFallback: React.FC = () => (
 );
 
 const AdminLayout: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
-  const [currentTab, setCurrentTab] = useState<NavigationTab>('dashboard');
+  const { user, isAuthenticated, isLoading } = useAuth();
+  const [currentTab, setCurrentTab] = useState<NavigationTab>(() => {
+    return user?.role === 'SUPER_ADMIN' ? 'super-overview' : 'dashboard';
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
@@ -99,12 +120,24 @@ const AdminLayout: React.FC = () => {
 
   const renderActiveView = () => {
     switch (currentTab) {
+      case 'super-overview':
+        return <SuperAdminOverviewView onNavigateTab={(tab) => setCurrentTab(tab as NavigationTab)} />;
+      case 'super-tenants':
+        return <SuperAdminTenantsView />;
+      case 'super-plans':
+        return <SuperAdminPlansView />;
+      case 'super-subscriptions':
+        return <SuperAdminSubscriptionsView />;
       case 'dashboard':
         return <DashboardView onNavigate={(tab) => setCurrentTab(tab)} />;
       case 'devices':
         return <DevicesView />;
       case 'hotspot':
         return <HotspotProfilesView />;
+      case 'portal':
+        return <HotspotPortalDesignerView />;
+      case 'pppoe':
+        return <PppoeManagementView />;
       case 'cards':
         return <CardsView onNavigate={(tab) => setCurrentTab(tab as any)} />;
       case 'print':
@@ -120,7 +153,11 @@ const AdminLayout: React.FC = () => {
       case 'settings':
         return <TenantSettingsView />;
       default:
-        return <DashboardView onNavigate={(tab) => setCurrentTab(tab)} />;
+        return user?.role === 'SUPER_ADMIN' ? (
+          <SuperAdminOverviewView onNavigateTab={(tab) => setCurrentTab(tab as NavigationTab)} />
+        ) : (
+          <DashboardView onNavigate={(tab) => setCurrentTab(tab)} />
+        );
     }
   };
 

@@ -68,11 +68,30 @@ describe('DevicesService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('should throw ForbiddenException if subscription is expired', async () => {
+      prisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        maxRouters: 3,
+        plan: { name: 'PRO', maxRouters: 3 },
+        expiresAt: new Date(Date.now() - 3600000), // Expired 1 hour ago
+      });
+
+      await expect(
+        service.create(mockTenantId, {
+          name: 'Expired Router',
+          host: '192.168.88.5',
+          username: 'admin',
+          password: 'password123',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
     it('should throw ForbiddenException if subscription router limit is reached', async () => {
       prisma.subscription.findFirst.mockResolvedValue({
         id: 'sub-1',
         maxRouters: 1,
         plan: { name: 'BASIC', maxRouters: 1 },
+        expiresAt: new Date(Date.now() + 86400000),
       });
       prisma.mikroTikDevice.count.mockResolvedValue(1);
 
@@ -91,6 +110,7 @@ describe('DevicesService', () => {
         id: 'sub-1',
         maxRouters: 3,
         plan: { name: 'PRO', maxRouters: 3 },
+        expiresAt: new Date(Date.now() + 86400000),
       });
       prisma.mikroTikDevice.count.mockResolvedValue(0);
       prisma.mikroTikDevice.findFirst.mockResolvedValue({
@@ -113,6 +133,7 @@ describe('DevicesService', () => {
         id: 'sub-1',
         maxRouters: 3,
         plan: { name: 'PRO', maxRouters: 3 },
+        expiresAt: new Date(Date.now() + 86400000),
       });
       prisma.mikroTikDevice.count.mockResolvedValue(1);
       prisma.mikroTikDevice.findFirst.mockResolvedValue(null);

@@ -4,6 +4,7 @@ class ApiEndpoints {
 
   // Auth endpoints
   static const String login = '/auth/login';
+  static const String register = '/auth/register';
   static const String profile = '/auth/profile';
   static const String authMe = '/auth/me';
   static const String changePassword = '/auth/change-password';
@@ -52,9 +53,37 @@ class ApiEndpoints {
   static const String financialReport = '/analytics/financial-report';
 
   // Cloud Wallet
+  static const String currentTenant = '/tenants/current';
+  static const String cardsQuota = '/cards/quota';
   static const String wallet = '/tenants/current/wallet';
   static const String walletRecharge = '/tenants/current/wallet/recharge';
   static const String walletTransactions = '/tenants/current/wallet/transactions';
   static const String walletSettings = '/tenants/current/wallet/settings';
   static const String walletRedeemPoints = '/tenants/current/wallet/redeem-points';
+
+  // PPPoE & Broadband endpoints
+  static String pppoeProfiles(String deviceId) => '/pppoe/devices/$deviceId/profiles';
+  static String pppoeProfileItem(String deviceId, String id) => '/pppoe/devices/$deviceId/profiles/$id';
+  static String pppoeProfileSync(String deviceId, String id) => '/pppoe/devices/$deviceId/profiles/$id/sync';
+
+  static String pppoeAccounts(String deviceId) => '/pppoe/devices/$deviceId/accounts';
+  static String pppoeAccountItem(String deviceId, String id) => '/pppoe/devices/$deviceId/accounts/$id';
+  static String pppoeAccountDisable(String deviceId, String id) => '/pppoe/devices/$deviceId/accounts/$id/disable';
+  static String pppoeAccountEnable(String deviceId, String id) => '/pppoe/devices/$deviceId/accounts/$id/enable';
+
+  static String pppoeSessions(String deviceId, {bool sync = false}) =>
+      '/pppoe/devices/$deviceId/sessions${sync ? '?sync=true' : ''}';
+  static String pppoeSessionDisconnect(String deviceId) => '/pppoe/devices/$deviceId/sessions/disconnect';
+
+  static String pppoeCommandStatus(String deviceId, String commandId) =>
+      '/pppoe/devices/$deviceId/commands/$commandId';
+
+  // Hotspot Portal Designer & Publisher
+  static const String portalPresets = '/portal/presets';
+  static const String portalTemplates = '/portal/templates';
+  static String portalTemplateItem(String id) => '/portal/templates/$id';
+  static String portalPreview(String id) => '/portal/templates/$id/preview';
+  static const String portalPreviewDraft = '/portal/preview-draft';
+  static String portalPublish(String deviceId) => '/portal/devices/$deviceId/publish';
+  static String agentCommandStatus(String commandId) => '/agent/commands/$commandId';
 }

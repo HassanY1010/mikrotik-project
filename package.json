@@ -19,6 +19,10 @@
     "clean": "pnpm -r exec rm -rf dist build .tsbuildinfo node_modules",
     "dev:api": "pnpm --filter @mikrotik-saas/api dev",
     "dev:admin": "pnpm --filter @mikrotik-saas/admin dev",
+    "dev:agent": "pnpm --filter @mikrotik-saas/agent dev",
+    "build:agent": "pnpm --filter @mikrotik-saas/agent build",
+    "test:agent": "pnpm --filter @mikrotik-saas/agent test",
+    "agent": "pnpm --filter @mikrotik-saas/agent start --",
     "prepare": "is-ci || husky"
   },
   "devDependencies": {

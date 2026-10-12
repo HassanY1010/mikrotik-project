@@ -59,3 +59,9 @@ temp/
 scratch/
 docs/conversations/
 *.mp4
+
+# SudaFi Agent
+.agent.lock
+*.enc
+agent.config.json
+!agent.config.example.json

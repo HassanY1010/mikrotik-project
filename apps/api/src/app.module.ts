@@ -10,6 +10,7 @@ import { MultiTenancyModule } from './core/multi-tenancy/multi-tenancy.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
+import { PlansModule } from './modules/plans/plans.module';
 import { MikrotikModule } from './core/mikrotik/mikrotik.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { HotspotModule } from './modules/hotspot/hotspot.module';
@@ -20,6 +21,9 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { SyncModule } from './modules/sync/sync.module';
+import { AgentModule } from './modules/agent/agent.module';
+import { PppoeModule } from './modules/pppoe/pppoe.module';
+import { PortalModule } from './modules/portal/portal.module';
 import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { HttpExceptionFilter } from './core/filters/http-exception.filter';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
@@ -64,6 +68,9 @@ import { AppController } from './app.controller';
                 'req.body.currentPassword',
                 'req.body.newPassword',
                 'req.body.refreshToken',
+                'req.body.pairingCode',
+                'req.body.agentToken',
+                'req.body.token',
               ],
               censor: '[REDACTED]',
             },
@@ -105,6 +112,7 @@ import { AppController } from './app.controller';
     AuthModule,
     UsersModule,
     TenantsModule,
+    PlansModule,
     MikrotikModule,
     DevicesModule,
     HotspotModule,
@@ -115,6 +123,9 @@ import { AppController } from './app.controller';
     AnalyticsModule,
     ReportsModule,
     SyncModule,
+    AgentModule,
+    PppoeModule,
+    PortalModule,
   ],
   controllers: [AppController],
   providers: [

@@ -7,6 +7,7 @@ import { CardCodeGeneratorService } from './card-code-generator.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
 import { UpdateCardStatusDto } from '../dto/update-card-status.dto';
 import { CardStatus, CardBatchStatus, SyncStatus, Prisma } from '@prisma/client';
+import { QuotasService } from './quotas.service';
 
 export interface CardBatchSummary {
   id: string;
@@ -64,6 +65,7 @@ export class CardsService {
     private readonly encryptionService: EncryptionService,
     private readonly mikrotikClientFactory: MikrotikClientFactory,
     private readonly codeGenerator: CardCodeGeneratorService,
+    private readonly quotasService: QuotasService,
   ) {}
 
   async createBatch(tenantId?: string | null, userId?: string | null, dto?: CreateBatchDto) {
@@ -71,20 +73,15 @@ export class CardsService {
       throw new BadRequestException('Batch creation payload is required');
     }
 
-    // 1. Resolve tenantId
+    // 1. Resolve tenantId strictly without cross-tenant leak
     let resolvedTenantId = tenantId;
-    if (!resolvedTenantId) {
+    if (!resolvedTenantId && dto.profileId) {
       const p = await this.prisma.hotspotProfile.findFirst({
         where: { id: dto.profileId },
+        select: { tenantId: true },
       });
       if (p) {
         resolvedTenantId = p.tenantId;
-      } else {
-        const firstTenant = await this.prisma.tenant.findFirst({
-          where: { deletedAt: null },
-          orderBy: { createdAt: 'asc' },
-        });
-        if (firstTenant) resolvedTenantId = firstTenant.id;
       }
     }
 
@@ -128,7 +125,7 @@ export class CardsService {
       effectiveDeviceId = firstDevice.id;
     }
 
-    // 2 & 3. Verify device and profile in parallel
+    // 3. Verify device and profile in parallel
     const [device, profile] = await Promise.all([
       this.prisma.mikroTikDevice.findFirst({
         where: { id: effectiveDeviceId, tenantId: resolvedTenantId, deletedAt: null },
@@ -156,114 +153,128 @@ export class CardsService {
     const effectiveLength = dto.length || dto.codeLength || 8;
     const effectivePrice = dto.price !== undefined ? dto.price : (Number((profile as any)?.price) || 500);
 
-    // 4. Generate unique batch number
     const batchNumber = this.codeGenerator.generateBatchNumber();
     const timeLimit = dto.timeLimit ?? profile.sessionTimeout ?? null;
     const dataLimitBytes = dto.dataLimitMb ? BigInt(dto.dataLimitMb) * BigInt(1024 * 1024) : null;
 
-    // 5. Create batch record in PROCESSING state
-    const batch = await this.prisma.cardBatch.create({
-      data: {
-        tenantId: resolvedTenantId,
-        deviceId: effectiveDeviceId,
-        profileId: dto.profileId,
-        batchNumber,
-        totalCards: effectiveTotalCards,
-        prefix: dto.prefix ?? null,
-        length: effectiveLength,
-        pattern: dto.pattern ?? 'NUMERIC',
-        price: new Prisma.Decimal(effectivePrice),
-        validityDays: dto.validityDays ?? null,
-        timeLimit,
-        dataLimitBytes,
-        status: CardBatchStatus.PROCESSING,
-        themePreset: dto.themePreset ?? 'FOOTBALL',
-        createdById: effectiveUserId,
-      },
-    });
+    // 4. Atomic transaction: Lock subscription quota, create batch and cards in DB
+    const { quotaInfo, batch, cardDataToInsert, plainCredentials } = await this.prisma.$transaction(
+      async (tx) => {
+        // Enforce quota limits with concurrency-safe row lock
+        const quota = await this.quotasService.checkAndLockQuota(tx, resolvedTenantId, effectiveTotalCards);
 
-    // 6 & 7. Generate unique card codes via CSPRNG and check only generated codes for collisions
-    let usernames = this.codeGenerator.generateBatchCodes(
-      effectiveTotalCards,
-      {
-        length: effectiveLength,
-        pattern: dto.pattern ?? 'NUMERIC',
-        prefix: dto.prefix,
+        // Create batch record in PROCESSING state
+        const batchRecord = await tx.cardBatch.create({
+          data: {
+            tenantId: resolvedTenantId,
+            deviceId: effectiveDeviceId,
+            profileId: dto.profileId,
+            batchNumber,
+            totalCards: effectiveTotalCards,
+            prefix: dto.prefix ?? null,
+            length: effectiveLength,
+            pattern: dto.pattern ?? 'NUMERIC',
+            price: new Prisma.Decimal(effectivePrice),
+            validityDays: dto.validityDays ?? null,
+            timeLimit,
+            dataLimitBytes,
+            status: CardBatchStatus.PROCESSING,
+            themePreset: dto.themePreset ?? 'FOOTBALL',
+            createdById: effectiveUserId,
+          },
+        });
+
+        // Generate unique card codes via CSPRNG
+        let usernames = this.codeGenerator.generateBatchCodes(
+          effectiveTotalCards,
+          {
+            length: effectiveLength,
+            pattern: dto.pattern ?? 'NUMERIC',
+            prefix: dto.prefix,
+          },
+        );
+
+        const collisions = await tx.card.findMany({
+          where: {
+            tenantId: resolvedTenantId,
+            deviceId: effectiveDeviceId,
+            username: { in: usernames },
+          },
+          select: { username: true },
+        });
+
+        if (collisions.length > 0) {
+          const collisionSet = new Set(collisions.map((c) => c.username));
+          const valid = usernames.filter((u) => !collisionSet.has(u));
+          const replacements = this.codeGenerator.generateBatchCodes(
+            collisions.length,
+            {
+              length: effectiveLength,
+              pattern: dto.pattern ?? 'NUMERIC',
+              prefix: dto.prefix,
+            },
+            new Set([...valid, ...collisionSet]),
+          );
+          usernames = [...valid, ...replacements];
+        }
+
+        const cardsToInsert: Prisma.CardCreateManyInput[] = [];
+        const plainCreds: Array<{ username: string; password: string }> = [];
+        const isSinglePin = dto.singleUserPin === true || dto.singleCredential === true;
+
+        for (let i = 0; i < usernames.length; i++) {
+          const username = usernames[i];
+          const password = isSinglePin ? username : this.codeGenerator.generatePin(4);
+          const pinCode = password;
+
+          const { ciphertext, iv, authTag } = this.encryptionService.encrypt(password);
+          const serialNumber = this.codeGenerator.generateSerialNumber(batchNumber, i + 1);
+          const cardId = randomUUID();
+
+          cardsToInsert.push({
+            id: cardId,
+            tenantId: resolvedTenantId,
+            batchId: batchRecord.id,
+            deviceId: effectiveDeviceId,
+            profileId: dto.profileId,
+            username,
+            passwordEncrypted: ciphertext,
+            iv,
+            authTag,
+            pinCode,
+            serialNumber,
+            price: new Prisma.Decimal(effectivePrice),
+            validityDays: dto.validityDays ?? null,
+            timeLimit,
+            dataLimitBytes,
+            status: CardStatus.AVAILABLE,
+            syncStatus: SyncStatus.PENDING,
+          });
+
+          plainCreds.push({ username, password });
+        }
+
+        // Bulk insert cards in PostgreSQL
+        await tx.card.createMany({
+          data: cardsToInsert,
+        });
+
+        return {
+          quotaInfo: quota,
+          batch: batchRecord,
+          cardDataToInsert: cardsToInsert,
+          plainCredentials: plainCreds,
+        };
       },
+      { timeout: 15000 },
     );
 
-    const collisions = await this.prisma.card.findMany({
-      where: {
-        tenantId: resolvedTenantId,
-        deviceId: effectiveDeviceId,
-        username: { in: usernames },
-      },
-      select: { username: true },
-    });
-
-    if (collisions.length > 0) {
-      const collisionSet = new Set(collisions.map((c) => c.username));
-      const valid = usernames.filter((u) => !collisionSet.has(u));
-      const replacements = this.codeGenerator.generateBatchCodes(
-        collisions.length,
-        {
-          length: effectiveLength,
-          pattern: dto.pattern ?? 'NUMERIC',
-          prefix: dto.prefix,
-        },
-        new Set([...valid, ...collisionSet]),
-      );
-      usernames = [...valid, ...replacements];
-    }
-
-    // 8. Prepare card records with encrypted passwords and individual UUIDs
-    const cardDataToInsert: Prisma.CardCreateManyInput[] = [];
-    const plainCredentials: Array<{ username: string; password: string }> = [];
-
-    const isSinglePin = dto.singleUserPin === true || dto.singleCredential === true;
-
-    for (let i = 0; i < usernames.length; i++) {
-      const username = usernames[i];
-      const password = isSinglePin ? username : this.codeGenerator.generatePin(4);
-      const pinCode = password;
-
-      const { ciphertext, iv, authTag } = this.encryptionService.encrypt(password);
-      const serialNumber = this.codeGenerator.generateSerialNumber(batchNumber, i + 1);
-      const cardId = randomUUID();
-
-      cardDataToInsert.push({
-        id: cardId,
-        tenantId: resolvedTenantId,
-        batchId: batch.id,
-        deviceId: effectiveDeviceId,
-        profileId: dto.profileId,
-        username,
-        passwordEncrypted: ciphertext,
-        iv,
-        authTag,
-        pinCode,
-        serialNumber,
-        price: new Prisma.Decimal(effectivePrice),
-        validityDays: dto.validityDays ?? null,
-        timeLimit,
-        dataLimitBytes,
-        status: CardStatus.AVAILABLE,
-        syncStatus: SyncStatus.PENDING,
-      });
-
-      plainCredentials.push({ username, password });
-    }
-
-    // 9. Bulk insert cards in PostgreSQL
-    await this.prisma.card.createMany({
-      data: cardDataToInsert,
-    });
-
-    // 10. Synchronize with RouterOS if requested
+    // 5. Synchronize with RouterOS if requested and device is online
     let syncedCount = 0;
     let syncError: string | null = null;
     const syncedUsernames: string[] = [];
     const failedUsernames: string[] = [];
+    let routerSyncStatus: 'SYNCED' | 'PARTIAL' | 'FAILED' | 'PENDING_OFFLINE' = 'PENDING_OFFLINE';
 
     if (dto.syncToRouter !== false && device.isOnline) {
       try {
@@ -281,7 +292,6 @@ export class CardsService {
           rosVersion: device.rosVersion,
         });
 
-        // Add users to RouterOS Hotspot with accurate per-card tracking
         for (const cred of plainCredentials) {
           try {
             await client.createHotspotUser({
@@ -294,14 +304,20 @@ export class CardsService {
             });
             syncedCount++;
             syncedUsernames.push(cred.username);
-          } catch (itemErr) {
+          } catch (itemErr: any) {
             const errStr = itemErr instanceof Error ? itemErr.message : String(itemErr);
-            this.logger.warn(`Failed to sync card ${cred.username} to router: ${errStr}`);
-            failedUsernames.push(cred.username);
+            // Handle idempotent creation: if user exists already on router, mark as success
+            if (errStr.includes('already have') || errStr.includes('already exists')) {
+              syncedCount++;
+              syncedUsernames.push(cred.username);
+            } else {
+              this.logger.warn(`Failed to sync card ${cred.username} to router: ${errStr}`);
+              failedUsernames.push(cred.username);
+            }
           }
         }
 
-        // Mark only genuinely synced cards
+        // Mark successfully synced cards
         if (syncedUsernames.length > 0) {
           await this.prisma.card.updateMany({
             where: { batchId: batch.id, username: { in: syncedUsernames } },
@@ -309,7 +325,7 @@ export class CardsService {
           });
         }
 
-        // Mark any failed cards
+        // Mark failed cards
         if (failedUsernames.length > 0) {
           await this.prisma.card.updateMany({
             where: { batchId: batch.id, username: { in: failedUsernames } },
@@ -319,7 +335,25 @@ export class CardsService {
             },
           });
         }
-      } catch (routerErr) {
+
+        // Accurately determine batch status and routerSyncStatus
+        let finalBatchStatus: CardBatchStatus;
+        if (syncedCount === effectiveTotalCards) {
+          finalBatchStatus = CardBatchStatus.COMPLETED;
+          routerSyncStatus = 'SYNCED';
+        } else if (syncedCount > 0) {
+          finalBatchStatus = CardBatchStatus.COMPLETED;
+          routerSyncStatus = 'PARTIAL';
+        } else {
+          finalBatchStatus = CardBatchStatus.FAILED;
+          routerSyncStatus = 'FAILED';
+        }
+
+        await this.prisma.cardBatch.update({
+          where: { id: batch.id },
+          data: { status: finalBatchStatus },
+        });
+      } catch (routerErr: any) {
         syncError = routerErr instanceof Error ? routerErr.message : String(routerErr);
         this.logger.error(`Batch ${batchNumber} router synchronization failed: ${syncError}`);
 
@@ -330,49 +364,85 @@ export class CardsService {
             syncError,
           },
         });
+
+        await this.prisma.cardBatch.update({
+          where: { id: batch.id },
+          data: { status: CardBatchStatus.FAILED },
+        });
+
+        routerSyncStatus = 'FAILED';
       }
+    } else {
+      // Offline mode or sync disabled: cards stored in DB in PENDING status
+      routerSyncStatus = 'PENDING_OFFLINE';
+      await this.prisma.cardBatch.update({
+        where: { id: batch.id },
+        data: { status: CardBatchStatus.COMPLETED },
+      });
     }
 
-    // 11. Update batch status to COMPLETED
-    const updatedBatch = await this.prisma.cardBatch.update({
+    const updatedBatch = await this.prisma.cardBatch.findUnique({
       where: { id: batch.id },
-      data: { status: CardBatchStatus.COMPLETED },
       include: {
         device: { select: { name: true } },
         profile: { select: { name: true } },
       },
     });
 
+    const failedCount = routerSyncStatus === 'PENDING_OFFLINE' ? 0 : Math.max(0, effectiveTotalCards - syncedCount);
+    const finalUsedCards = quotaInfo.usedCards + (routerSyncStatus === 'FAILED' ? 0 : effectiveTotalCards);
+    const finalRemainingCards = quotaInfo.isUnlimited
+      ? null
+      : Math.max(0, (quotaInfo.cardLimit ?? 0) - finalUsedCards);
+    const isFullySynced = syncedCount === effectiveTotalCards && routerSyncStatus === 'SYNCED';
+
     return {
       batch: {
-        id: updatedBatch.id,
-        batchNumber: updatedBatch.batchNumber,
-        totalCards: updatedBatch.totalCards,
-        deviceName: updatedBatch.device.name,
-        profileName: updatedBatch.profile.name,
-        price: Number(updatedBatch.price),
-        status: updatedBatch.status,
-        syncedToRouter: syncedCount === effectiveTotalCards,
+        id: updatedBatch!.id,
+        batchNumber: updatedBatch!.batchNumber,
+        totalCards: updatedBatch!.totalCards,
+        deviceName: updatedBatch!.device.name,
+        profileName: updatedBatch!.profile.name,
+        price: Number(updatedBatch!.price),
+        status: updatedBatch!.status,
+        syncedToRouter: isFullySynced,
+        routerSyncStatus,
         syncedCount,
+        failedCount,
         syncError,
-        themePreset: updatedBatch.themePreset ?? dto.themePreset ?? 'FOOTBALL',
-        createdAt: updatedBatch.createdAt,
+        themePreset: updatedBatch!.themePreset ?? dto.themePreset ?? 'FOOTBALL',
+        createdAt: updatedBatch!.createdAt,
       },
+      quota: {
+        limit: quotaInfo.cardLimit,
+        used: finalUsedCards,
+        remaining: finalRemainingCards,
+        isUnlimited: quotaInfo.isUnlimited,
+        resetsAt: quotaInfo.cycleEnd.toISOString(),
+      },
+      syncedToRouter: isFullySynced,
+      routerSyncStatus,
+      syncedCount,
+      failedCount,
+      syncError,
       cards: cardDataToInsert.map((c, i) => {
         const isSynced = syncedUsernames.includes(c.username);
+        const isFailed = failedUsernames.includes(c.username) || routerSyncStatus === 'FAILED';
         return {
           id: c.id,
           serialNumber: c.serialNumber,
           username: c.username,
           clearPassword: plainCredentials[i]?.password,
           profileId: c.profileId,
-          profileName: updatedBatch.profile.name,
+          profileName: updatedBatch!.profile.name,
           deviceId: c.deviceId,
           price: Number(c.price),
           currency: 'SDG',
           status: c.status,
-          syncStatus: isSynced ? SyncStatus.SYNCED : (syncError ? SyncStatus.FAILED : SyncStatus.PENDING),
-          syncError: isSynced ? null : (syncError ?? 'Pending router sync'),
+          syncStatus: isSynced
+            ? SyncStatus.SYNCED
+            : (isFailed ? SyncStatus.FAILED : SyncStatus.PENDING),
+          syncError: isSynced ? null : (syncError ?? (isFailed ? 'Failed router provisioning' : 'Pending router sync')),
         };
       }),
     };
@@ -639,8 +709,24 @@ export class CardsService {
     if (batch.cards.length === 0) {
       return {
         success: true,
-        message: 'All cards in this batch are already synced to the router',
+        message: 'جميع كروت هذه الدفعة متزامنة ومفعلة بالفعل على الراوتر',
+        totalUnsynced: 0,
         syncedCount: 0,
+        failedCount: 0,
+        remainingUnsynced: 0,
+        batchStatus: batch.status,
+      };
+    }
+
+    if (!batch.device.isOnline) {
+      return {
+        success: false,
+        message: 'جهاز الراوتر غير متصل حالياً (OFFLINE). تعذر تنفيذ المزامنة المباشرة',
+        totalUnsynced: batch.cards.length,
+        syncedCount: 0,
+        failedCount: batch.cards.length,
+        remainingUnsynced: batch.cards.length,
+        batchStatus: batch.status,
       };
     }
 
@@ -659,7 +745,9 @@ export class CardsService {
     });
 
     let syncedCount = 0;
+    let failedCount = 0;
     const syncedCardIds: string[] = [];
+    const failedCardIds: string[] = [];
 
     for (const card of batch.cards) {
       try {
@@ -680,8 +768,17 @@ export class CardsService {
 
         syncedCount++;
         syncedCardIds.push(card.id);
-      } catch (err) {
-        this.logger.warn(`Could not sync card ${card.username}: ${err}`);
+      } catch (err: any) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Idempotent retry: if user already exists on router, treat as synced
+        if (msg.includes('already have') || msg.includes('already exists')) {
+          syncedCount++;
+          syncedCardIds.push(card.id);
+        } else {
+          this.logger.warn(`Could not sync card ${card.username}: ${msg}`);
+          failedCount++;
+          failedCardIds.push(card.id);
+        }
       }
     }
 
@@ -692,11 +789,63 @@ export class CardsService {
       });
     }
 
+    if (failedCardIds.length > 0) {
+      await this.prisma.card.updateMany({
+        where: { id: { in: failedCardIds } },
+        data: {
+          syncStatus: SyncStatus.FAILED,
+          syncError: 'Failed to provision on MikroTik HotSpot user list',
+        },
+      });
+    }
+
+    // Check if any cards in this batch remain unsynced
+    const remainingUnsynced = await this.prisma.card.count({
+      where: {
+        batchId,
+        syncStatus: { not: SyncStatus.SYNCED },
+      },
+    });
+
+    let batchStatus = batch.status;
+    if (remainingUnsynced === 0) {
+      batchStatus = CardBatchStatus.COMPLETED;
+      await this.prisma.cardBatch.update({
+        where: { id: batchId },
+        data: { status: CardBatchStatus.COMPLETED },
+      });
+    } else if (syncedCount > 0 && batch.status === CardBatchStatus.FAILED) {
+      batchStatus = CardBatchStatus.COMPLETED;
+      await this.prisma.cardBatch.update({
+        where: { id: batchId },
+        data: { status: CardBatchStatus.COMPLETED },
+      });
+    }
+
+    const finalRouterSyncStatus: 'SYNCED' | 'PARTIAL' | 'FAILED' =
+      remainingUnsynced === 0
+        ? 'SYNCED'
+        : syncedCount > 0
+          ? 'PARTIAL'
+          : 'FAILED';
+
     return {
-      success: true,
+      success: syncedCount > 0 || remainingUnsynced === 0,
       totalUnsynced: batch.cards.length,
       syncedCount,
+      failedCount,
+      remainingUnsynced,
+      batchStatus,
+      routerSyncStatus: finalRouterSyncStatus,
+      syncedToRouter: remainingUnsynced === 0,
     };
+  }
+
+  /**
+   * Retrieves active card quota details for a tenant.
+   */
+  async getTenantQuota(tenantId: string) {
+    return this.quotasService.getTenantQuota(tenantId);
   }
 
   async findAllCards(

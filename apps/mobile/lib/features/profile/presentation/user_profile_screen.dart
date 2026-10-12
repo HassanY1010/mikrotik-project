@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import 'tenant_users_screen.dart';
 import 'create_user_dialog.dart';
@@ -28,6 +29,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   Future<void> _handleRefresh() async {
     setState(() => _isRefreshing = true);
     await ref.read(currentUserProvider.notifier).fetchMe();
+    ref.invalidate(tenantQuotaProvider);
     setState(() => _isRefreshing = false);
   }
 
@@ -219,6 +221,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider);
+    final quotaAsync = ref.watch(tenantQuotaProvider);
     final isTenantAdmin = user != null &&
         (user.role.toUpperCase() == 'TENANT_ADMIN' ||
             user.role.toUpperCase() == 'SUPER_ADMIN' ||
@@ -298,6 +301,10 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 20),
+
+          // SaaS Subscription & Card Quota Details
+          _buildSubscriptionQuotaCard(quotaAsync),
           const SizedBox(height: 20),
 
           // Organization & User Details
@@ -490,6 +497,128 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
           style: TextStyle(color: valueColor ?? Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
         ),
       ],
+    );
+  }
+
+  Widget _buildSubscriptionQuotaCard(AsyncValue<TenantQuotaModel?> quotaAsync) {
+    return quotaAsync.when(
+      data: (quota) {
+        final planName = quota?.planNameAr ?? quota?.planName ?? 'الباقة النشطة';
+        final isUnlimited = quota?.isUnlimited == true;
+        final limit = quota?.cardLimit;
+        final used = quota?.usedCards ?? 0;
+        final remaining = quota?.remainingCards;
+        final double usagePercent = (!isUnlimited && limit != null && limit > 0)
+            ? (used / limit).clamp(0.0, 1.0)
+            : 0.0;
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+              begin: Alignment.topRight,
+              end: Alignment.bottomLeft,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.credit_card_rounded, color: Color(0xFF38BDF8), size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'تفاصيل باقة الاشتراك وحصص الكروت:',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF10B981)),
+                    ),
+                    child: Text(
+                      planName,
+                      style: const TextStyle(color: Color(0xFF34D399), fontWeight: FontWeight.bold, fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _buildInfoRow(
+                'الحد الأقصى للكروت بالدورة',
+                isUnlimited ? 'غير محدود (Unlimited)' : '$limit كرت',
+                Icons.all_inclusive_rounded,
+                valueColor: isUnlimited ? const Color(0xFF38BDF8) : Colors.white,
+              ),
+              const Divider(color: Color(0xFF334155), height: 16),
+              _buildInfoRow(
+                'الكروت المستهلكة',
+                '$used كرت',
+                Icons.check_circle_outline,
+                valueColor: const Color(0xFFFBBF24),
+              ),
+              const Divider(color: Color(0xFF334155), height: 16),
+              _buildInfoRow(
+                'الرصيد المتبقي',
+                isUnlimited ? 'مفتوح' : '${remaining ?? (limit != null ? limit - used : 0)} كرت',
+                Icons.hourglass_bottom_rounded,
+                valueColor: const Color(0xFF10B981),
+              ),
+              if (!isUnlimited && limit != null && limit > 0) ...[
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: usagePercent,
+                    minHeight: 6,
+                    backgroundColor: const Color(0xFF334155),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      usagePercent > 0.9 ? const Color(0xFFEF4444) : const Color(0xFF0284C7),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'نسبة الاستهلاك: ${(usagePercent * 100).toStringAsFixed(1)}%',
+                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                    ),
+                    if (quota?.cycleEnd != null)
+                      Text(
+                        'تجديد الحصة: ${quota!.cycleEnd!.day}/${quota.cycleEnd!.month}/${quota.cycleEnd!.year}',
+                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      ),
+                  ],
+                ),
+              ],
+              if (quota?.expiresAt != null) ...[
+                const Divider(color: Color(0xFF334155), height: 16),
+                _buildInfoRow(
+                  'تاريخ انتهاء الاشتراك',
+                  '${quota!.expiresAt!.day}/${quota.expiresAt!.month}/${quota.expiresAt!.year}',
+                  Icons.event_available_outlined,
+                  valueColor: const Color(0xFF34D399),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+      loading: () => const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+        ),
+      ),
+      error: (err, stack) => const SizedBox.shrink(),
     );
   }
 }

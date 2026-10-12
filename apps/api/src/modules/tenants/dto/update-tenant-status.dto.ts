@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { TenantStatus } from '@prisma/client';
 
 export class UpdateTenantStatusDto {
@@ -11,4 +11,12 @@ export class UpdateTenantStatusDto {
   @IsEnum(TenantStatus, { message: 'Invalid tenant status' })
   @IsNotEmpty()
   status!: TenantStatus;
+
+  @ApiPropertyOptional({
+    example: 'Non-payment of monthly service fees',
+    description: 'Administrative reason for updating status',
+  })
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }

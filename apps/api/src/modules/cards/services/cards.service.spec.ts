@@ -4,6 +4,7 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
 import { CardCodeGeneratorService } from './card-code-generator.service';
+import { QuotasService } from './quotas.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { CardStatus, CardBatchStatus, RouterOsVersion, SyncStatus } from '@prisma/client';
 
@@ -38,6 +39,7 @@ describe('CardsService', () => {
       cardBatch: {
         create: jest.fn(),
         update: jest.fn(),
+        findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
       },
@@ -72,6 +74,30 @@ describe('CardsService', () => {
       generateSerialNumber: jest.fn((batch, i) => `${batch}-000${i}`),
     };
 
+    const mockQuotaDetails = {
+      subscriptionId: 'sub-uuid-1',
+      planId: 'plan-uuid-1',
+      planName: 'PRO',
+      planNameAr: 'احترافي',
+      status: 'ACTIVE',
+      cycleStart: new Date('2026-10-01'),
+      cycleEnd: new Date('2026-11-01'),
+      expiresAt: new Date('2027-10-01'),
+      isUnlimited: false,
+      cardLimit: 50000,
+      usedCards: 100,
+      remainingCards: 49900,
+    };
+
+    const mockQuotasService = {
+      checkAndLockQuota: jest.fn().mockResolvedValue(mockQuotaDetails),
+      getTenantQuota: jest.fn().mockResolvedValue(mockQuotaDetails),
+    };
+
+    prisma.$transaction = jest.fn(async (cb) => {
+      return cb(prisma);
+    });
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CardsService,
@@ -79,6 +105,7 @@ describe('CardsService', () => {
         { provide: EncryptionService, useValue: encryptionService },
         { provide: MikrotikClientFactory, useValue: mikrotikClientFactory },
         { provide: CardCodeGeneratorService, useValue: codeGenerator },
+        { provide: QuotasService, useValue: mockQuotasService },
       ],
     }).compile();
 
@@ -145,6 +172,17 @@ describe('CardsService', () => {
       prisma.card.createMany.mockResolvedValue({ count: 2 });
 
       prisma.cardBatch.update.mockResolvedValue({
+        id: mockBatchId,
+        batchNumber: 'B-261003-ABCD',
+        totalCards: 2,
+        price: '500',
+        status: CardBatchStatus.COMPLETED,
+        createdAt: new Date(),
+        device: { name: 'Core Router' },
+        profile: { name: '1hour-unlimited' },
+      });
+
+      prisma.cardBatch.findUnique.mockResolvedValue({
         id: mockBatchId,
         batchNumber: 'B-261003-ABCD',
         totalCards: 2,

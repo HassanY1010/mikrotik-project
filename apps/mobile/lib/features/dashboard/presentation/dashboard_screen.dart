@@ -16,6 +16,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
   final VoidCallback? onLogout;
   final VoidCallback? onOpenTemplates;
   final VoidCallback? onOpenProfiles;
+  final VoidCallback? onOpenPppoe;
   final VoidCallback? onOpenUserProfile;
   final VoidCallback? onOpenTenantUsers;
 
@@ -32,6 +33,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
     this.onLogout,
     this.onOpenTemplates,
     this.onOpenProfiles,
+    this.onOpenPppoe,
     this.onOpenUserProfile,
     this.onOpenTenantUsers,
   });
@@ -1177,6 +1179,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       _ActionItem('استوديو الكروت', Icons.auto_awesome, const Color(0xFF8B5CF6), () => widget.onNavigateTab?.call(2)),
       _ActionItem('قوالب الطباعة', Icons.palette_outlined, const Color(0xFFA855F7), widget.onOpenTemplates),
       _ActionItem('باقات وسرعات', Icons.speed, const Color(0xFFF59E0B), widget.onOpenProfiles),
+      _ActionItem('اشتراكات PPPoE', Icons.settings_ethernet, const Color(0xFF06B6D4), widget.onOpenPppoe),
       _ActionItem('نقطة البيع POS', Icons.point_of_sale, const Color(0xFF10B981), widget.onOpenPos),
       _ActionItem('رادار الشبكة', Icons.radar, const Color(0xFF06B6D4), _navigateToRadar),
       _ActionItem('مخزن الكروت', Icons.inventory_2, const Color(0xFF3B82F6), () => widget.onNavigateTab?.call(1)),

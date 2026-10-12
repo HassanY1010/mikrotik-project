@@ -105,6 +105,13 @@ export class DevicesService {
       });
     }
 
+    if (new Date(subscription.expiresAt).getTime() <= Date.now()) {
+      throw new ForbiddenException({
+        code: 'SUBSCRIPTION_EXPIRED',
+        message: 'انتهت صلاحية اشتراك الشبكة. يرجى تجديد الباقة لإضافة أجهزة راوتر جديدة.',
+      });
+    }
+
     const currentDeviceCount = await this.prisma.mikroTikDevice.count({
       where: {
         tenantId,

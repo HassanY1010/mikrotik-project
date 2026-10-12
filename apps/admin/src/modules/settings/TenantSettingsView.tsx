@@ -352,10 +352,10 @@ export const TenantSettingsView: React.FC = () => {
               }}
             >
               <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                نوع الخطة:
+                نوع الخطة الحالية:
               </span>
               <span className="badge badge-success" style={{ fontSize: '0.85rem' }}>
-                {tenant.subscription?.plan || 'ENTERPRISE PRO'}
+                {tenant.subscription?.planNameAr || tenant.subscription?.plan || 'لا يوجد باقة نشطة'}
               </span>
             </div>
 
@@ -367,8 +367,8 @@ export const TenantSettingsView: React.FC = () => {
                 fontSize: '0.85rem',
               }}
             >
-              <span style={{ color: 'var(--text-secondary)' }}>الحد الأقصى للراوترات:</span>
-              <strong>{tenant.subscription?.maxRouters || 10} أجهزة</strong>
+              <span style={{ color: 'var(--text-secondary)' }}>أجهزة الراوتر المسموحة:</span>
+              <strong>{tenant.subscription?.maxRouters || 1} أجهزة</strong>
             </div>
 
             <div
@@ -379,16 +379,107 @@ export const TenantSettingsView: React.FC = () => {
                 fontSize: '0.85rem',
               }}
             >
-              <span style={{ color: 'var(--text-secondary)' }}>سقف توليد الكروت شهرياً:</span>
+              <span style={{ color: 'var(--text-secondary)' }}>سقف توليد الكروت (شهرياً):</span>
               <strong>
-                {Number(tenant.subscription?.maxCardsPerMonth || 50000).toLocaleString()} كرت
+                {tenant.subscription?.isUnlimited || !tenant.subscription?.maxCardsPerMonth
+                  ? 'غير محدود (Unlimited)'
+                  : `${Number(tenant.subscription.maxCardsPerMonth).toLocaleString()} كرت`}
               </strong>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>تاريخ انتهاء الترخيص:</span>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginBottom: '0.75rem',
+                fontSize: '0.85rem',
+              }}
+            >
+              <span style={{ color: 'var(--text-secondary)' }}>الكروت المستهلكة في الدورة:</span>
+              <strong style={{ color: 'var(--accent)' }}>
+                {Number(tenant.subscription?.usedCards || 0).toLocaleString()} كرت
+              </strong>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginBottom: '0.75rem',
+                fontSize: '0.85rem',
+              }}
+            >
+              <span style={{ color: 'var(--text-secondary)' }}>الرصيد المتبقي:</span>
               <strong style={{ color: 'var(--success)' }}>
-                {tenant.subscription?.expiresAt || '31/12/2027'}
+                {tenant.subscription?.isUnlimited || tenant.subscription?.maxCardsPerMonth === null
+                  ? 'مفتوح'
+                  : `${Number(tenant.subscription?.remainingCards ?? Math.max(0, (tenant.subscription?.maxCardsPerMonth ?? 0) - (tenant.subscription?.usedCards || 0))).toLocaleString()} كرت`}
+              </strong>
+            </div>
+
+            {/* Quota Progress Bar */}
+            {!tenant.subscription?.isUnlimited && tenant.subscription?.maxCardsPerMonth && (
+              <div style={{ marginTop: '0.5rem', marginBottom: '1rem' }}>
+                <div
+                  style={{
+                    height: '6px',
+                    width: '100%',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    borderRadius: '3px',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${Math.min(
+                        100,
+                        Math.round(((tenant.subscription.usedCards || 0) / tenant.subscription.maxCardsPerMonth) * 100),
+                      )}%`,
+                      backgroundColor:
+                        (tenant.subscription.usedCards || 0) / tenant.subscription.maxCardsPerMonth > 0.9
+                          ? 'var(--danger)'
+                          : 'var(--primary)',
+                      transition: 'width 0.3s ease',
+                    }}
+                  />
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.75rem',
+                    color: 'var(--text-muted)',
+                    marginTop: '4px',
+                  }}
+                >
+                  <span>
+                    نسبة الاستهلاك:{' '}
+                    {Math.round(((tenant.subscription.usedCards || 0) / tenant.subscription.maxCardsPerMonth) * 100)}%
+                  </span>
+                  {tenant.subscription.cycleEnd && (
+                    <span>
+                      تجديد الحصة:{' '}
+                      {new Date(tenant.subscription.cycleEnd).toLocaleDateString('ar-EG', {
+                        day: 'numeric',
+                        month: 'short',
+                      })}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>صلاحية الترخيص:</span>
+              <strong style={{ color: 'var(--success)' }}>
+                {tenant.subscription?.expiresAt
+                  ? new Date(tenant.subscription.expiresAt).toLocaleDateString('ar-EG', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })
+                  : 'غير محدد'}
               </strong>
             </div>
           </div>

@@ -54,6 +54,12 @@ export const envSchema = z.object({
     .string()
     .default('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'),
 
+  // LAN Agent Security (Dedicated Secret for HMAC pairing verification)
+  AGENT_PAIRING_SECRET: z
+    .string()
+    .min(32, 'AGENT_PAIRING_SECRET must be at least 32 characters long')
+    .default('development_agent_pairing_secret_key_minimum_32_characters_long_12345'),
+
   // Argon2
   ARGON2_MEMORY_COST: z.coerce.number().default(65536),
   ARGON2_TIME_COST: z.coerce.number().default(3),

@@ -9,6 +9,7 @@ import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
+import { TenantStatus, SubscriptionStatus } from '@prisma/client';
 
 @ApiTags('tenants')
 @ApiBearerAuth('access-token')
@@ -52,8 +53,8 @@ export class TenantsController {
   }
 
   @Post('current/wallet/recharge')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.OWNER, RoleName.TENANT_ADMIN, RoleName.ADMIN, RoleName.MANAGER)
-  @ApiOperation({ summary: 'Manual top-up or recharge of cloud wallet' })
+  @Roles(RoleName.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Administrative manual top-up or recharge of cloud wallet' })
   @ApiResponse({ status: 200, description: 'Wallet recharged successfully' })
   async rechargeWallet(
     @CurrentUser('tenantId') tenantId: string,
@@ -139,11 +140,78 @@ export class TenantsController {
     return this.tenantsService.updateCurrentTenant(tenantId, dto, userId);
   }
 
+  @Get('admin/overview')
+  @Roles(RoleName.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Platform-wide overview statistics for Super Admin' })
+  @ApiResponse({ status: 200, description: 'Real-time overview metrics' })
+  async getOverview() {
+    return this.tenantsService.getPlatformOverview();
+  }
+
+  @Get('admin/subscriptions')
+  @Roles(RoleName.SUPER_ADMIN)
+  @ApiOperation({ summary: 'List all tenant subscriptions with filters (Super Admin)' })
+  @ApiResponse({ status: 200, description: 'Paginated list of subscriptions' })
+  async listSubscriptions(
+    @Query('tenantId') tenantId?: string,
+    @Query('status') status?: SubscriptionStatus,
+    @Query('planId') planId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.tenantsService.listSubscriptions({
+      tenantId,
+      status,
+      planId,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 20,
+    });
+  }
+
+  @Post('subscriptions/:id/renew')
+  @Roles(RoleName.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Renew a subscription for a given number of months' })
+  @ApiResponse({ status: 200, description: 'Subscription renewed successfully' })
+  async renewSubscription(
+    @Param('id') id: string,
+    @Body('durationMonths') durationMonths: number,
+    @Body('notes') notes: string,
+    @CurrentUser('id') superAdminId: string,
+  ) {
+    return this.tenantsService.renewSubscription(id, Number(durationMonths || 1), superAdminId, notes);
+  }
+
+  @Patch('subscriptions/:id/status')
+  @Roles(RoleName.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Update subscription status (ACTIVE, SUSPENDED, CANCELLED)' })
+  @ApiResponse({ status: 200, description: 'Subscription status updated' })
+  async updateSubscriptionStatus(
+    @Param('id') id: string,
+    @Body('status') status: SubscriptionStatus,
+    @Body('notes') notes: string,
+    @CurrentUser('id') superAdminId: string,
+  ) {
+    return this.tenantsService.updateSubscriptionStatus(id, status, superAdminId, notes);
+  }
+
   @Get()
   @Roles(RoleName.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List all tenant organizations (Super Admin)' })
+  @ApiOperation({ summary: 'List tenant organizations with optional pagination/search (Super Admin)' })
   @ApiResponse({ status: 200, description: 'List of tenants with subscription info' })
-  async findAll(): Promise<Record<string, unknown>[]> {
+  async findAll(
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    if (search !== undefined || status !== undefined || page !== undefined || limit !== undefined) {
+      return this.tenantsService.findPaginated({
+        search,
+        status: status as TenantStatus,
+        page: page ? parseInt(page, 10) : 1,
+        limit: limit ? parseInt(limit, 10) : 20,
+      });
+    }
     return this.tenantsService.findAll();
   }
 
@@ -154,6 +222,22 @@ export class TenantsController {
   @ApiResponse({ status: 404, description: 'Tenant not found' })
   async findById(@Param('id') id: string): Promise<Record<string, unknown>> {
     return this.tenantsService.findById(id);
+  }
+
+  @Get(':id/audit-logs')
+  @Roles(RoleName.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Get audit logs for a specific tenant organization' })
+  @ApiResponse({ status: 200, description: 'Paginated audit logs' })
+  async getTenantAuditLogs(
+    @Param('id') id: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.tenantsService.getTenantAuditLogs(
+      id,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+    );
   }
 
   @Patch(':id/status')

@@ -1,0 +1,23 @@
+{
+  "name": "@mikrotik-saas/agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SudaFi Windows LAN Agent — Local MikroTik Connectivity & HTTPS Polling Service",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "test": "jest",
+    "test:cov": "jest --coverage"
+  },
+  "dependencies": {
+    "@mikrotik-saas/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.4",
+    "typescript": "^5.5.4"
+  }
+}

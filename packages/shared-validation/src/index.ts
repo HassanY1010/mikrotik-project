@@ -227,6 +227,37 @@ export const activateSubscriptionSchema = z.object({
   notes: z.string().max(500).optional(),
 });
 
+// ---------- HotSpot Portal Schemas ----------
+
+export const createHotspotPortalSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(100),
+  themePreset: z.enum(['MODERN_DARK', 'STARLINK_CYAN', 'SUNSET_ORANGE', 'MINIMAL_LIGHT']).default('MODERN_DARK'),
+  networkName: z.string().min(1).max(100).default('شبكة الإنترنت'),
+  title: z.string().max(100).default('مرحباً بكم في شبكتنا'),
+  subtitle: z.string().max(200).default('أدخل كود الكرت لتسجيل الدخول الفوري'),
+  logoUrl: z.string().url().max(500).optional().nullable(),
+  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color').default('#0EA5E9'),
+  accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color').default('#10B981'),
+  backgroundColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color').default('#0F172A'),
+  cardColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color').default('#1E293B'),
+  textColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color').default('#F8FAFC'),
+  loginMethod: z.enum(['VOUCHER', 'USER_PASS', 'BOTH']).default('VOUCHER'),
+  showRemainingTime: z.boolean().default(true),
+  contactPhone: z.string().max(50).optional().nullable(),
+  termsText: z.string().max(500).optional().nullable(),
+  footerText: z.string().max(200).optional().nullable(),
+  customCss: z.string().max(2000).optional().nullable(),
+  isDefault: z.boolean().default(false),
+});
+
+export const updateHotspotPortalSchema = createHotspotPortalSchema.partial();
+
+export const publishHotspotPortalSchema = z.object({
+  templateId: uuidSchema.optional(),
+  directoryName: z.string().regex(/^[a-zA-Z0-9_-]+$/, 'Directory name must be alphanumeric').default('hotspot'),
+  applyToProfile: z.string().max(100).optional(),
+});
+
 // ---------- Type exports (inferred from schemas) ----------
 
 export type LoginDto = z.infer<typeof loginSchema>;
@@ -247,3 +278,7 @@ export type CreateSaleDto = z.infer<typeof createSaleSchema>;
 export type CreateTemplateDto = z.infer<typeof createTemplateSchema>;
 export type PaginationDto = z.infer<typeof paginationSchema>;
 export type ActivateSubscriptionDto = z.infer<typeof activateSubscriptionSchema>;
+export type CreateHotspotPortalDto = z.infer<typeof createHotspotPortalSchema>;
+export type UpdateHotspotPortalDto = z.infer<typeof updateHotspotPortalSchema>;
+export type PublishHotspotPortalDto = z.infer<typeof publishHotspotPortalSchema>;
+

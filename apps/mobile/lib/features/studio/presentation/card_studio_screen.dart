@@ -149,8 +149,26 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                 ? batchObj['id'].toString()
                 : 'BATCH-${DateTime.now().millisecondsSinceEpoch}';
 
-        final bool syncedToRouter = responseData is Map && responseData['syncedToRouter'] == true;
-        final String? routerError = responseData is Map ? responseData['routerError']?.toString() : null;
+        final bool syncedToRouter = (responseData is Map && responseData['syncedToRouter'] == true) ||
+            (batchObj is Map && batchObj['syncedToRouter'] == true);
+        final String routerSyncStatus = (responseData is Map && responseData['routerSyncStatus'] != null)
+            ? responseData['routerSyncStatus'].toString()
+            : (batchObj is Map && batchObj['routerSyncStatus'] != null
+                ? batchObj['routerSyncStatus'].toString()
+                : (syncedToRouter ? 'SYNCED' : 'PENDING_OFFLINE'));
+        final int syncedCount = (responseData is Map && responseData['syncedCount'] != null)
+            ? int.tryParse(responseData['syncedCount'].toString()) ?? 0
+            : (batchObj is Map && batchObj['syncedCount'] != null
+                ? int.tryParse(batchObj['syncedCount'].toString()) ?? 0
+                : (syncedToRouter ? _selectedQuantity : 0));
+        final int failedCount = (responseData is Map && responseData['failedCount'] != null)
+            ? int.tryParse(responseData['failedCount'].toString()) ?? 0
+            : (batchObj is Map && batchObj['failedCount'] != null
+                ? int.tryParse(batchObj['failedCount'].toString()) ?? 0
+                : 0);
+        final String? routerError = responseData is Map
+            ? (responseData['syncError']?.toString() ?? responseData['routerError']?.toString())
+            : (batchObj is Map ? batchObj['syncError']?.toString() : null);
 
         // Parse real cards returned from database
         final List<OfflineCardModel> generatedCards = [];
@@ -168,12 +186,18 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
           ref.read(offlineCardsProvider.notifier).refresh();
         }
 
+        // Invalidate quota provider so remaining quota dynamically updates
+        ref.invalidate(tenantQuotaProvider);
+
         _showBatchSuccessAndPdfDialog(
           batchId: batchId,
           profile: selectedProfile,
           quantity: generatedCards.isNotEmpty ? generatedCards.length : _selectedQuantity,
           cards: generatedCards,
           syncedToRouter: syncedToRouter,
+          routerSyncStatus: routerSyncStatus,
+          syncedCount: syncedCount,
+          failedCount: failedCount,
           routerError: routerError,
         );
       }
@@ -236,6 +260,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     required int quantity,
     required List<OfflineCardModel> cards,
     required bool syncedToRouter,
+    String routerSyncStatus = 'SYNCED',
+    int syncedCount = 0,
+    int failedCount = 0,
     String? routerError,
   }) {
     CardPdfLayout selectedLayout = CardPdfLayout.a4Grid10;
@@ -284,34 +311,63 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                       const SizedBox(height: 8),
                       // Real MikroTik Sync Status Indicator
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                         decoration: BoxDecoration(
                           color: syncedToRouter
                               ? const Color(0xFF059669).withValues(alpha: 0.2)
-                              : const Color(0xFFD97706).withValues(alpha: 0.2),
+                              : (routerSyncStatus == 'PARTIAL'
+                                  ? const Color(0xFFD97706).withValues(alpha: 0.2)
+                                  : (routerSyncStatus == 'FAILED'
+                                      ? const Color(0xFFEF4444).withValues(alpha: 0.2)
+                                      : const Color(0xFF0284C7).withValues(alpha: 0.2))),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: syncedToRouter ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                            color: syncedToRouter
+                                ? const Color(0xFF10B981)
+                                : (routerSyncStatus == 'PARTIAL'
+                                    ? const Color(0xFFF59E0B)
+                                    : (routerSyncStatus == 'FAILED'
+                                        ? const Color(0xFFEF4444)
+                                        : const Color(0xFF0284C7))),
                             width: 1,
                           ),
                         ),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Icon(
-                              syncedToRouter ? Icons.router : Icons.cloud_done,
-                              size: 16,
-                              color: syncedToRouter ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
+                              syncedToRouter
+                                  ? Icons.router
+                                  : (routerSyncStatus == 'FAILED'
+                                      ? Icons.sync_problem_rounded
+                                      : (routerSyncStatus == 'PARTIAL'
+                                          ? Icons.published_with_changes
+                                          : Icons.cloud_done)),
+                              size: 18,
+                              color: syncedToRouter
+                                  ? const Color(0xFF34D399)
+                                  : (routerSyncStatus == 'FAILED'
+                                      ? const Color(0xFFF87171)
+                                      : const Color(0xFFFBBF24)),
                             ),
-                            const SizedBox(width: 6),
+                            const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 syncedToRouter
-                                    ? 'تم تفعيل الكروت ومزامنتها على راوتر MikroTik بنجاح'
-                                    : 'تم حفظ الكروت بالسحابة (الراوتر غير متصل حالياً). الكروت جاهزة للطباعة.',
+                                    ? 'تم تفعيل جميع الكروت ومزامنتها على راوتر MikroTik بنجاح ($syncedCount كرت).'
+                                    : (routerSyncStatus == 'PARTIAL'
+                                        ? 'مزامنة جزئية: تم تفعيل $syncedCount كرت على الراوتر، وفشل $failedCount كرت. الكروت محفوظة بالسحابة وقابلة لإعادة المزامنة.'
+                                        : (routerSyncStatus == 'FAILED'
+                                            ? 'فشلت المزامنة المباشرة مع الراوتر ($routerError). الكروت محفوظة بالسحابة ويمكنك إعادة مزامنتها لاحقاً.'
+                                            : 'الراوتر غير متصل حالياً (OFFLINE). تم حفظ الكروت بالسحابة وهي جاهزة للطباعة والمزامنة فور الاتصال.')),
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
-                                  color: syncedToRouter ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
+                                  color: syncedToRouter
+                                      ? const Color(0xFF34D399)
+                                      : (routerSyncStatus == 'FAILED'
+                                          ? const Color(0xFFF87171)
+                                          : const Color(0xFFFBBF24)),
                                 ),
                               ),
                             ),
@@ -530,6 +586,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Dynamic SaaS Quota Banner
+            _buildQuotaBanner(),
+            const SizedBox(height: 16),
+
             // Live Interactive Card Preview
             const Text(
               'المعاينة الحية للكرت (Live Preview)',
@@ -1084,6 +1144,67 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildQuotaBanner() {
+    final quotaAsync = ref.watch(tenantQuotaProvider);
+    return quotaAsync.when(
+      data: (quota) {
+        if (quota == null) return const SizedBox.shrink();
+        final planName = quota.planNameAr ?? quota.planName ?? 'الباقة النشطة';
+        final isUnlimited = quota.isUnlimited;
+        final limit = quota.cardLimit;
+        final used = quota.usedCards;
+        final remaining = quota.remainingCards ?? (limit != null ? limit - used : 0);
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: (!isUnlimited && limit != null && remaining < 100)
+                  ? const Color(0xFFEF4444)
+                  : const Color(0xFF0284C7).withValues(alpha: 0.3),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.credit_card_outlined, color: Color(0xFF38BDF8), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isUnlimited
+                      ? 'الباقة: $planName • حصة الكروت: غير محدودة'
+                      : 'الباقة: $planName • الرصيد المتبقي: $remaining من أصل $limit كرت',
+                  style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (!isUnlimited && limit != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: remaining > 0
+                        ? const Color(0xFF10B981).withValues(alpha: 0.2)
+                        : const Color(0xFFEF4444).withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    remaining > 0 ? 'متاح للتوليد' : 'الحصة مستنفدة',
+                    style: TextStyle(
+                      color: remaining > 0 ? const Color(0xFF34D399) : const Color(0xFFF87171),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (err, stack) => const SizedBox.shrink(),
     );
   }
 }

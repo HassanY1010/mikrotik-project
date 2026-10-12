@@ -55,6 +55,12 @@ enum DeviceStatus {
   CONNECTING
 }
 
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+  REVOKED
+}
+
 enum CardStatus {
   GENERATED
   AVAILABLE
@@ -89,6 +95,13 @@ enum SyncStatus {
   PENDING
   SYNCED
   FAILED
+}
+
+enum PppoeAccountStatus {
+  ACTIVE
+  DISABLED
+  EXPIRED
+  SUSPENDED
 }
 
 // =============================================================================
@@ -127,6 +140,12 @@ model Tenant {
   auditLogs        AuditLog[]
   activeSessions   HotspotActiveSession[]
   walletTransactions TenantWalletTransaction[]
+  deviceAgents       DeviceAgent[]
+  agentPairingCodes  AgentPairingCode[]
+  agentCommands      AgentCommand[]
+  pppoeProfiles      PppoeProfile[]
+  pppoeAccounts      PppoeAccount[]
+  pppoeActiveSessions PppoeActiveSession[]
 
   @@index([status])
   @@index([createdAt])
@@ -330,6 +349,12 @@ model MikroTikDevice {
   cards          Card[]
   activeSessions HotspotActiveSession[]
   sales          SaleTransaction[]
+  agents         DeviceAgent[]
+  pairingCodes   AgentPairingCode[]
+  agentCommands  AgentCommand[]
+  pppoeProfiles  PppoeProfile[]
+  pppoeAccounts  PppoeAccount[]
+  pppoeActiveSessions PppoeActiveSession[]
 
   @@unique([tenantId, host, apiPort])
   @@index([tenantId])
@@ -575,3 +600,202 @@ model TenantWalletTransaction {
   @@index([createdAt])
   @@map("tenant_wallet_transactions")
 }
+
+// =============================================================================
+// SUDAFI LAN AGENT (REMOTE CONNECTIVITY)
+// =============================================================================
+
+model DeviceAgent {
+  id         String      @id @default(uuid())
+  tenantId   String
+  deviceId   String      // Indexed for fast lookup of router's agents
+  name       String      // Host machine name (e.g. "Cashier-POS-PC")
+  tokenHash  String      @unique // SHA-256 Hash of AgentAuthToken
+  status     AgentStatus @default(OFFLINE)
+  version    String?     // Agent version
+  ipAddress  String?     // Last seen external IP
+  lastPingAt DateTime?
+  pairedAt   DateTime    @default(now())
+  revokedAt  DateTime?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device MikroTikDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  commands AgentCommand[]
+
+  @@index([tenantId])
+  @@index([deviceId])
+  @@index([status])
+  @@map("device_agents")
+}
+
+model AgentPairingCode {
+  id          String    @id @default(uuid())
+  tenantId    String
+  deviceId    String
+  codeHash    String    @unique // HMAC-SHA256 Hash
+  salt        String
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  isConsumed  Boolean   @default(false)
+  consumedAt  DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device MikroTikDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([deviceId])
+  @@index([codeHash])
+  @@map("agent_pairing_codes")
+}
+
+model AgentPairingAttempt {
+  id            String    @id @default(uuid())
+  clientKey     String    @unique // SHA-256 of IP + User-Agent + Client Fingerprint
+  attempts      Int       @default(1)
+  lockedUntil   DateTime?
+  lastAttemptAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([clientKey])
+  @@index([lockedUntil])
+  @@map("agent_pairing_attempts")
+}
+
+enum AgentCommandStatus {
+  PENDING
+  DISPATCHED
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+model AgentCommand {
+  id           String             @id @default(uuid())
+  tenantId     String
+  deviceId     String
+  agentId      String
+  operationId  String             @unique // UUID for strict deduplication / idempotency
+  type         String             // e.g. "system.router.health", "hotspot.user.batch_add"
+  payload      Json               // Typed payload matching whitelisted DTOs
+  status       AgentCommandStatus @default(PENDING)
+  result       Json?              // Output returned by the agent
+  errorMessage String?
+  attempts     Int                @default(0)
+  maxAttempts  Int                @default(3)
+  createdAt    DateTime           @default(now())
+  dispatchedAt DateTime?
+  completedAt  DateTime?
+  expiresAt    DateTime
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device MikroTikDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  agent  DeviceAgent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([deviceId])
+  @@index([agentId])
+  @@index([status])
+  @@index([agentId, status])
+  @@map("agent_commands")
+}
+
+// =============================================================================
+// BROADBAND / PPPOE SUBSCRIBER NETWORK
+// =============================================================================
+
+model PppoeProfile {
+  id            String   @id @default(uuid())
+  tenantId      String
+  deviceId      String
+  name          String   // e.g. "4Mbps-Home", "10Mbps-Fiber"
+  rateLimit     String?  // e.g. "4M/8M" (rx/tx limit in MikroTik format)
+  localAddress  String?  // Gateway IP or pool name
+  remoteAddress String?  // Client IP pool name (e.g. "pppoe-pool")
+  dnsServers    String?  // e.g. "8.8.8.8,1.1.1.1"
+  onlyOne       Boolean  @default(true) // maps to only-one=yes
+  price         Decimal  @default(0) @db.Decimal(10, 2)
+  description   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device   MikroTikDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  accounts PppoeAccount[]
+
+  @@unique([tenantId, deviceId, name])
+  @@index([tenantId])
+  @@index([deviceId])
+  @@map("pppoe_profiles")
+}
+
+model PppoeAccount {
+  id                String             @id @default(uuid())
+  tenantId          String
+  deviceId          String
+  profileId         String
+  username          String
+  passwordEncrypted String             // AES-256-GCM encrypted
+  iv                String             // Hex IV
+  authTag           String             // Hex auth tag
+  status            PppoeAccountStatus @default(ACTIVE)
+  callerId          String?            // Optional MAC address lock
+  staticIp          String?            // Optional static remote-address
+  customerName      String?
+  customerPhone     String?
+  price             Decimal            @db.Decimal(10, 2)
+  billingCycle      BillingCycle       @default(MONTHLY)
+  expiresAt         DateTime?
+  notes             String?
+  syncStatus        SyncStatus         @default(PENDING)
+  syncError         String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device         MikroTikDevice       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  profile        PppoeProfile         @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  activeSessions PppoeActiveSession[]
+
+  @@unique([tenantId, deviceId, username])
+  @@index([tenantId])
+  @@index([deviceId])
+  @@index([profileId])
+  @@index([status])
+  @@index([syncStatus])
+  @@index([expiresAt])
+  @@index([tenantId, status])
+  @@index([tenantId, deviceId, status])
+  @@map("pppoe_accounts")
+}
+
+model PppoeActiveSession {
+  id            String   @id @default(uuid())
+  tenantId      String
+  deviceId      String
+  accountId     String?
+  username      String
+  ipAddress     String
+  macAddress    String?  // Caller ID in RouterOS
+  uptimeSeconds Int      @default(0)
+  bytesIn       BigInt   @default(0)
+  bytesOut      BigInt   @default(0)
+  sessionId     String?
+  startedAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device  MikroTikDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  account PppoeAccount?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([deviceId])
+  @@index([accountId])
+  @@index([username])
+  @@map("pppoe_active_sessions")
+}
+

@@ -231,4 +231,72 @@ void main() {
       expect(payload.containsKey('role'), isFalse, reason: 'role is not in CreateUserDto and would fail forbidNonWhitelisted validation');
     });
   });
+
+  group('Feature 5: Hotspot Portal Designer & Publisher Suite', () {
+    test('HotspotPortalConfigModel parses JSON and serializes correctly', () {
+      final json = {
+        'id': 'portal-uuid-1',
+        'tenantId': 'tenant-test',
+        'name': 'تصميم ستارلينك السريع',
+        'themePreset': 'STARLINK_CYAN',
+        'networkName': 'Starlink Cafe 5G',
+        'title': 'أهلاً بكم في شبكتنا',
+        'subtitle': 'أدخل كود الكرت للاتصال الفوري',
+        'primaryColor': '#06B6D4',
+        'accentColor': '#0891B2',
+        'backgroundColor': '#082F49',
+        'cardColor': '#0C4A6E',
+        'textColor': '#F0FDFA',
+        'loginMethod': 'VOUCHER_CODE',
+        'contactPhone': '+249912345678',
+        'termsText': 'الاستخدام خاضع لسياسة الاستخدام العادل',
+        'footerText': 'Powered by SudaFi',
+        'isDefault': true,
+      };
+
+      final model = HotspotPortalConfigModel.fromJson(json);
+
+      expect(model.id, 'portal-uuid-1');
+      expect(model.name, 'تصميم ستارلينك السريع');
+      expect(model.themePreset, 'STARLINK_CYAN');
+      expect(model.networkName, 'Starlink Cafe 5G');
+      expect(model.primaryColor, '#06B6D4');
+      expect(model.loginMethod, 'VOUCHER_CODE');
+      expect(model.isDefault, isTrue);
+
+      final exported = model.toJson();
+      expect(exported['id'], 'portal-uuid-1');
+      expect(exported['primaryColor'], '#06B6D4');
+      expect(exported['networkName'], 'Starlink Cafe 5G');
+    });
+
+    test('HotspotPortalConfigModel copyWith preserves unmodified properties', () {
+      final model = HotspotPortalConfigModel(
+        id: 'p-1',
+        tenantId: 't-1',
+        name: 'Default',
+        themePreset: 'MODERN_DARK',
+        networkName: 'WiFi',
+        title: 'Login',
+        subtitle: 'Enter card',
+        primaryColor: '#0EA5E9',
+        accentColor: '#0284C7',
+        backgroundColor: '#0F172A',
+        cardColor: '#1E293B',
+        textColor: '#FFFFFF',
+        loginMethod: 'VOUCHER_CODE',
+        isDefault: true,
+      );
+
+      final updated = model.copyWith(
+        themePreset: 'SUNSET_GOLD',
+        primaryColor: '#F59E0B',
+      );
+
+      expect(updated.themePreset, 'SUNSET_GOLD');
+      expect(updated.primaryColor, '#F59E0B');
+      expect(updated.networkName, 'WiFi');
+      expect(updated.id, 'p-1');
+    });
+  });
 }

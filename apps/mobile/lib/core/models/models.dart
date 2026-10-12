@@ -1216,3 +1216,657 @@ class FinancialReportModel {
   }
 }
 
+/// SaaS Subscription & Quotas model
+class TenantQuotaModel {
+  final String? planName;
+  final String? planNameAr;
+  final int maxRouters;
+  final int? cardLimit;
+  final int usedCards;
+  final int? remainingCards;
+  final bool isUnlimited;
+  final DateTime? cycleStart;
+  final DateTime? cycleEnd;
+  final DateTime? expiresAt;
+  final String status;
+
+  TenantQuotaModel({
+    this.planName,
+    this.planNameAr,
+    this.maxRouters = 1,
+    this.cardLimit,
+    this.usedCards = 0,
+    this.remainingCards,
+    this.isUnlimited = false,
+    this.cycleStart,
+    this.cycleEnd,
+    this.expiresAt,
+    this.status = 'ACTIVE',
+  });
+
+  factory TenantQuotaModel.fromJson(Map<String, dynamic> json) {
+    final rawLimit = json['cardLimit'] ?? json['maxCardsPerMonth'] ?? json['limit'];
+    final parsedLimit = rawLimit != null ? int.tryParse(rawLimit.toString()) : null;
+
+    final rawUsed = json['usedCards'] ?? json['used'] ?? 0;
+    final parsedUsed = int.tryParse(rawUsed.toString()) ?? 0;
+
+    final rawRem = json['remainingCards'] ?? json['remaining'];
+    final parsedRem = rawRem != null ? int.tryParse(rawRem.toString()) : null;
+
+    final unlim = json['isUnlimited'] == true || (json['isUnlimited'] == null && rawLimit == null);
+
+    return TenantQuotaModel(
+      planName: json['plan'] as String? ?? json['planName'] as String?,
+      planNameAr: json['planNameAr'] as String?,
+      maxRouters: json['maxRouters'] as int? ?? 1,
+      cardLimit: unlim ? null : parsedLimit,
+      usedCards: parsedUsed,
+      remainingCards: unlim ? null : (parsedRem ?? (parsedLimit != null ? (parsedLimit - parsedUsed).clamp(0, 999999999) : 0)),
+      isUnlimited: unlim,
+      cycleStart: json['cycleStart'] != null ? DateTime.tryParse(json['cycleStart'].toString()) : null,
+      cycleEnd: json['cycleEnd'] != null ? DateTime.tryParse(json['cycleEnd'].toString()) : (json['resetsAt'] != null ? DateTime.tryParse(json['resetsAt'].toString()) : null),
+      expiresAt: json['expiresAt'] != null ? DateTime.tryParse(json['expiresAt'].toString()) : null,
+      status: json['status'] as String? ?? 'ACTIVE',
+    );
+  }
+}
+
+/// ============================================================================
+/// PPPoE & BROADBAND MODELS
+/// ============================================================================
+
+/// PPPoE Bandwidth & Package Profile
+class PppoeProfileModel {
+  final String id;
+  final String tenantId;
+  final String deviceId;
+  final String name;
+  final String? rateLimit;
+  final String? localAddress;
+  final String? remoteAddress;
+  final String? dnsServers;
+  final bool onlyOne;
+  final double price;
+  final String? description;
+  final int accountsCount;
+  final String? queuedCommandId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  PppoeProfileModel({
+    required this.id,
+    required this.tenantId,
+    required this.deviceId,
+    required this.name,
+    this.rateLimit,
+    this.localAddress,
+    this.remoteAddress,
+    this.dnsServers,
+    this.onlyOne = true,
+    this.price = 0.0,
+    this.description,
+    this.accountsCount = 0,
+    this.queuedCommandId,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory PppoeProfileModel.fromJson(Map<String, dynamic> json) {
+    return PppoeProfileModel(
+      id: json['id'] as String? ?? '',
+      tenantId: json['tenantId'] as String? ?? '',
+      deviceId: json['deviceId'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      rateLimit: json['rateLimit'] as String?,
+      localAddress: json['localAddress'] as String?,
+      remoteAddress: json['remoteAddress'] as String?,
+      dnsServers: json['dnsServers'] as String?,
+      onlyOne: json['onlyOne'] as bool? ?? true,
+      price: double.tryParse(json['price']?.toString() ?? '0') ?? 0.0,
+      description: json['description'] as String?,
+      accountsCount: (json['accountsCount'] as num?)?.toInt() ?? 0,
+      queuedCommandId: json['queuedCommandId'] as String?,
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'].toString()) : null,
+      updatedAt: json['updatedAt'] != null ? DateTime.tryParse(json['updatedAt'].toString()) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'tenantId': tenantId,
+    'deviceId': deviceId,
+    'name': name,
+    'rateLimit': rateLimit,
+    'localAddress': localAddress,
+    'remoteAddress': remoteAddress,
+    'dnsServers': dnsServers,
+    'onlyOne': onlyOne,
+    'price': price,
+    'description': description,
+    'accountsCount': accountsCount,
+    'queuedCommandId': queuedCommandId,
+    'createdAt': createdAt?.toIso8601String(),
+    'updatedAt': updatedAt?.toIso8601String(),
+  };
+
+  Map<String, dynamic> toCreatePayload() => {
+    'name': name.trim(),
+    if (rateLimit != null && rateLimit!.trim().isNotEmpty) 'rateLimit': rateLimit!.trim(),
+    if (localAddress != null && localAddress!.trim().isNotEmpty) 'localAddress': localAddress!.trim(),
+    if (remoteAddress != null && remoteAddress!.trim().isNotEmpty) 'remoteAddress': remoteAddress!.trim(),
+    if (dnsServers != null && dnsServers!.trim().isNotEmpty) 'dnsServers': dnsServers!.trim(),
+    'onlyOne': onlyOne,
+    'price': price,
+    if (description != null && description!.trim().isNotEmpty) 'description': description!.trim(),
+  };
+
+  Map<String, dynamic> toUpdatePayload() => {
+    'name': name.trim(),
+    if (rateLimit != null && rateLimit!.trim().isNotEmpty) 'rateLimit': rateLimit!.trim(),
+    if (localAddress != null && localAddress!.trim().isNotEmpty) 'localAddress': localAddress!.trim(),
+    if (remoteAddress != null && remoteAddress!.trim().isNotEmpty) 'remoteAddress': remoteAddress!.trim(),
+    if (dnsServers != null && dnsServers!.trim().isNotEmpty) 'dnsServers': dnsServers!.trim(),
+    'onlyOne': onlyOne,
+    'price': price,
+    if (description != null && description!.trim().isNotEmpty) 'description': description!.trim(),
+  };
+
+  PppoeProfileModel copyWith({
+    String? id,
+    String? tenantId,
+    String? deviceId,
+    String? name,
+    String? rateLimit,
+    String? localAddress,
+    String? remoteAddress,
+    String? dnsServers,
+    bool? onlyOne,
+    double? price,
+    String? description,
+    int? accountsCount,
+    String? queuedCommandId,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return PppoeProfileModel(
+      id: id ?? this.id,
+      tenantId: tenantId ?? this.tenantId,
+      deviceId: deviceId ?? this.deviceId,
+      name: name ?? this.name,
+      rateLimit: rateLimit ?? this.rateLimit,
+      localAddress: localAddress ?? this.localAddress,
+      remoteAddress: remoteAddress ?? this.remoteAddress,
+      dnsServers: dnsServers ?? this.dnsServers,
+      onlyOne: onlyOne ?? this.onlyOne,
+      price: price ?? this.price,
+      description: description ?? this.description,
+      accountsCount: accountsCount ?? this.accountsCount,
+      queuedCommandId: queuedCommandId ?? this.queuedCommandId,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+/// PPPoE Subscriber Account
+class PppoeAccountModel {
+  final String id;
+  final String tenantId;
+  final String deviceId;
+  final String profileId;
+  final String? profileName;
+  final String username;
+  final String status; // ACTIVE, DISABLED, EXPIRED, SUSPENDED
+  final String? callerId;
+  final String? staticIp;
+  final String? customerName;
+  final String? customerPhone;
+  final double price;
+  final String billingCycle; // MONTHLY, YEARLY
+  final DateTime? expiresAt;
+  final String? notes;
+  final String syncStatus; // PENDING, SYNCED, FAILED
+  final String? syncError;
+  final String? queuedCommandId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  PppoeAccountModel({
+    required this.id,
+    required this.tenantId,
+    required this.deviceId,
+    required this.profileId,
+    this.profileName,
+    required this.username,
+    this.status = 'ACTIVE',
+    this.callerId,
+    this.staticIp,
+    this.customerName,
+    this.customerPhone,
+    this.price = 0.0,
+    this.billingCycle = 'MONTHLY',
+    this.expiresAt,
+    this.notes,
+    this.syncStatus = 'PENDING',
+    this.syncError,
+    this.queuedCommandId,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  bool get isActive => status == 'ACTIVE';
+  bool get isDisabled => status == 'DISABLED';
+  bool get isExpired => status == 'EXPIRED';
+  bool get isSuspended => status == 'SUSPENDED';
+
+  factory PppoeAccountModel.fromJson(Map<String, dynamic> json) {
+    return PppoeAccountModel(
+      id: json['id'] as String? ?? '',
+      tenantId: json['tenantId'] as String? ?? '',
+      deviceId: json['deviceId'] as String? ?? '',
+      profileId: json['profileId'] as String? ?? '',
+      profileName: json['profileName'] as String?,
+      username: json['username'] as String? ?? '',
+      status: json['status'] as String? ?? 'ACTIVE',
+      callerId: json['callerId'] as String?,
+      staticIp: json['staticIp'] as String?,
+      customerName: json['customerName'] as String?,
+      customerPhone: json['customerPhone'] as String?,
+      price: double.tryParse(json['price']?.toString() ?? '0') ?? 0.0,
+      billingCycle: json['billingCycle'] as String? ?? 'MONTHLY',
+      expiresAt: json['expiresAt'] != null ? DateTime.tryParse(json['expiresAt'].toString()) : null,
+      notes: json['notes'] as String?,
+      syncStatus: json['syncStatus'] as String? ?? 'PENDING',
+      syncError: json['syncError'] as String?,
+      queuedCommandId: json['queuedCommandId'] as String?,
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'].toString()) : null,
+      updatedAt: json['updatedAt'] != null ? DateTime.tryParse(json['updatedAt'].toString()) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'tenantId': tenantId,
+    'deviceId': deviceId,
+    'profileId': profileId,
+    'profileName': profileName,
+    'username': username,
+    'status': status,
+    'callerId': callerId,
+    'staticIp': staticIp,
+    'customerName': customerName,
+    'customerPhone': customerPhone,
+    'price': price,
+    'billingCycle': billingCycle,
+    'expiresAt': expiresAt?.toIso8601String(),
+    'notes': notes,
+    'syncStatus': syncStatus,
+    'syncError': syncError,
+    'queuedCommandId': queuedCommandId,
+    'createdAt': createdAt?.toIso8601String(),
+    'updatedAt': updatedAt?.toIso8601String(),
+  };
+
+  PppoeAccountModel copyWith({
+    String? id,
+    String? tenantId,
+    String? deviceId,
+    String? profileId,
+    String? profileName,
+    String? username,
+    String? status,
+    String? callerId,
+    String? staticIp,
+    String? customerName,
+    String? customerPhone,
+    double? price,
+    String? billingCycle,
+    DateTime? expiresAt,
+    String? notes,
+    String? syncStatus,
+    String? syncError,
+    String? queuedCommandId,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return PppoeAccountModel(
+      id: id ?? this.id,
+      tenantId: tenantId ?? this.tenantId,
+      deviceId: deviceId ?? this.deviceId,
+      profileId: profileId ?? this.profileId,
+      profileName: profileName ?? this.profileName,
+      username: username ?? this.username,
+      status: status ?? this.status,
+      callerId: callerId ?? this.callerId,
+      staticIp: staticIp ?? this.staticIp,
+      customerName: customerName ?? this.customerName,
+      customerPhone: customerPhone ?? this.customerPhone,
+      price: price ?? this.price,
+      billingCycle: billingCycle ?? this.billingCycle,
+      expiresAt: expiresAt ?? this.expiresAt,
+      notes: notes ?? this.notes,
+      syncStatus: syncStatus ?? this.syncStatus,
+      syncError: syncError ?? this.syncError,
+      queuedCommandId: queuedCommandId ?? this.queuedCommandId,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+/// PPPoE Live Active Session
+class PppoeActiveSessionModel {
+  final String id;
+  final String tenantId;
+  final String deviceId;
+  final String? accountId;
+  final String username;
+  final String ipAddress;
+  final String? macAddress;
+  final int uptimeSeconds;
+  final int bytesIn;
+  final int bytesOut;
+  final String? sessionId;
+  final DateTime? startedAt;
+
+  PppoeActiveSessionModel({
+    required this.id,
+    required this.tenantId,
+    required this.deviceId,
+    this.accountId,
+    required this.username,
+    required this.ipAddress,
+    this.macAddress,
+    this.uptimeSeconds = 0,
+    this.bytesIn = 0,
+    this.bytesOut = 0,
+    this.sessionId,
+    this.startedAt,
+  });
+
+  String get formattedUptime {
+    if (uptimeSeconds <= 0) return '0 ثانية';
+    final d = uptimeSeconds ~/ 86400;
+    final h = (uptimeSeconds % 86400) ~/ 3600;
+    final m = (uptimeSeconds % 3600) ~/ 60;
+    final s = uptimeSeconds % 60;
+    final parts = <String>[];
+    if (d > 0) parts.add('$d يوم');
+    if (h > 0) parts.add('$h س');
+    if (m > 0) parts.add('$m د');
+    if (parts.isEmpty || (d == 0 && h == 0)) parts.add('$s ث');
+    return parts.join(' ');
+  }
+
+  static String formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    double val = bytes.toDouble();
+    int idx = 0;
+    while (val >= 1024 && idx < units.length - 1) {
+      val /= 1024;
+      idx++;
+    }
+    return '${val.toStringAsFixed(2)} ${units[idx]}';
+  }
+
+  String get formattedBytesIn => formatBytes(bytesIn);
+  String get formattedBytesOut => formatBytes(bytesOut);
+
+  factory PppoeActiveSessionModel.fromJson(Map<String, dynamic> json) {
+    return PppoeActiveSessionModel(
+      id: json['id'] as String? ?? '',
+      tenantId: json['tenantId'] as String? ?? '',
+      deviceId: json['deviceId'] as String? ?? '',
+      accountId: json['accountId'] as String?,
+      username: json['username'] as String? ?? '',
+      ipAddress: json['ipAddress'] as String? ?? '',
+      macAddress: json['macAddress'] as String?,
+      uptimeSeconds: (json['uptimeSeconds'] as num?)?.toInt() ?? 0,
+      bytesIn: (json['bytesIn'] as num?)?.toInt() ?? 0,
+      bytesOut: (json['bytesOut'] as num?)?.toInt() ?? 0,
+      sessionId: json['sessionId'] as String?,
+      startedAt: json['startedAt'] != null ? DateTime.tryParse(json['startedAt'].toString()) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'tenantId': tenantId,
+    'deviceId': deviceId,
+    'accountId': accountId,
+    'username': username,
+    'ipAddress': ipAddress,
+    'macAddress': macAddress,
+    'uptimeSeconds': uptimeSeconds,
+    'bytesIn': bytesIn,
+    'bytesOut': bytesOut,
+    'sessionId': sessionId,
+    'startedAt': startedAt?.toIso8601String(),
+  };
+}
+
+/// Agent Command Execution Status
+class PppoeCommandStatusModel {
+  final String id;
+  final String operationId;
+  final String deviceId;
+  final String agentId;
+  final String type;
+  final String status; // PENDING, DISPATCHED, COMPLETED, FAILED, EXPIRED
+  final Map<String, dynamic> payload;
+  final Map<String, dynamic>? result;
+  final String? errorMessage;
+  final DateTime? createdAt;
+  final DateTime? dispatchedAt;
+  final DateTime? completedAt;
+  final DateTime? expiresAt;
+
+  PppoeCommandStatusModel({
+    required this.id,
+    required this.operationId,
+    required this.deviceId,
+    required this.agentId,
+    required this.type,
+    required this.status,
+    this.payload = const {},
+    this.result,
+    this.errorMessage,
+    this.createdAt,
+    this.dispatchedAt,
+    this.completedAt,
+    this.expiresAt,
+  });
+
+  bool get isCompleted => status == 'COMPLETED';
+  bool get isFailed => status == 'FAILED';
+  bool get isDispatched => status == 'DISPATCHED';
+  bool get isPending => status == 'PENDING';
+  bool get isExpired => status == 'EXPIRED';
+
+  factory PppoeCommandStatusModel.fromJson(Map<String, dynamic> json) {
+    return PppoeCommandStatusModel(
+      id: json['id'] as String? ?? '',
+      operationId: json['operationId'] as String? ?? '',
+      deviceId: json['deviceId'] as String? ?? '',
+      agentId: json['agentId'] as String? ?? '',
+      type: json['type'] as String? ?? '',
+      status: json['status'] as String? ?? 'PENDING',
+      payload: json['payload'] is Map ? Map<String, dynamic>.from(json['payload'] as Map) : {},
+      result: json['result'] is Map ? Map<String, dynamic>.from(json['result'] as Map) : null,
+      errorMessage: json['errorMessage'] as String?,
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'].toString()) : null,
+      dispatchedAt: json['dispatchedAt'] != null ? DateTime.tryParse(json['dispatchedAt'].toString()) : null,
+      completedAt: json['completedAt'] != null ? DateTime.tryParse(json['completedAt'].toString()) : null,
+      expiresAt: json['expiresAt'] != null ? DateTime.tryParse(json['expiresAt'].toString()) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'operationId': operationId,
+    'deviceId': deviceId,
+    'agentId': agentId,
+    'type': type,
+    'status': status,
+    'payload': payload,
+    'result': result,
+    'errorMessage': errorMessage,
+    'createdAt': createdAt?.toIso8601String(),
+    'dispatchedAt': dispatchedAt?.toIso8601String(),
+    'completedAt': completedAt?.toIso8601String(),
+    'expiresAt': expiresAt?.toIso8601String(),
+  };
+}
+
+/// ============================================================================
+/// HOTSPOT CAPTIVE PORTAL DESIGNER MODELS
+/// ============================================================================
+
+class HotspotPortalConfigModel {
+  final String id;
+  final String tenantId;
+  final String name;
+  final String themePreset;
+  final String networkName;
+  final String title;
+  final String subtitle;
+  final String? logoUrl;
+  final String primaryColor;
+  final String accentColor;
+  final String backgroundColor;
+  final String cardColor;
+  final String textColor;
+  final String loginMethod;
+  final String? contactPhone;
+  final String? termsText;
+  final String? footerText;
+  final String? customCss;
+  final bool isDefault;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  HotspotPortalConfigModel({
+    required this.id,
+    required this.tenantId,
+    required this.name,
+    required this.themePreset,
+    required this.networkName,
+    required this.title,
+    required this.subtitle,
+    this.logoUrl,
+    required this.primaryColor,
+    required this.accentColor,
+    required this.backgroundColor,
+    required this.cardColor,
+    required this.textColor,
+    required this.loginMethod,
+    this.contactPhone,
+    this.termsText,
+    this.footerText,
+    this.customCss,
+    required this.isDefault,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory HotspotPortalConfigModel.fromJson(Map<String, dynamic> json) {
+    return HotspotPortalConfigModel(
+      id: json['id'] as String? ?? '',
+      tenantId: json['tenantId'] as String? ?? '',
+      name: json['name'] as String? ?? 'افتراضي',
+      themePreset: json['themePreset'] as String? ?? 'MODERN_DARK',
+      networkName: json['networkName'] as String? ?? 'شبكة الواي فاي',
+      title: json['title'] as String? ?? 'تسجيل الدخول إلى الشبكة',
+      subtitle: json['subtitle'] as String? ?? 'أدخل كود الكرت للاتصال بالإنترنت',
+      logoUrl: json['logoUrl'] as String?,
+      primaryColor: json['primaryColor'] as String? ?? '#0EA5E9',
+      accentColor: json['accentColor'] as String? ?? '#0284C7',
+      backgroundColor: json['backgroundColor'] as String? ?? '#0F172A',
+      cardColor: json['cardColor'] as String? ?? '#1E293B',
+      textColor: json['textColor'] as String? ?? '#F8FAFC',
+      loginMethod: json['loginMethod'] as String? ?? 'VOUCHER_CODE',
+      contactPhone: json['contactPhone'] as String?,
+      termsText: json['termsText'] as String?,
+      footerText: json['footerText'] as String?,
+      customCss: json['customCss'] as String?,
+      isDefault: json['isDefault'] as bool? ?? false,
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'].toString()) : null,
+      updatedAt: json['updatedAt'] != null ? DateTime.tryParse(json['updatedAt'].toString()) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'tenantId': tenantId,
+    'name': name,
+    'themePreset': themePreset,
+    'networkName': networkName,
+    'title': title,
+    'subtitle': subtitle,
+    'logoUrl': logoUrl,
+    'primaryColor': primaryColor,
+    'accentColor': accentColor,
+    'backgroundColor': backgroundColor,
+    'cardColor': cardColor,
+    'textColor': textColor,
+    'loginMethod': loginMethod,
+    'contactPhone': contactPhone,
+    'termsText': termsText,
+    'footerText': footerText,
+    'customCss': customCss,
+    'isDefault': isDefault,
+    'createdAt': createdAt?.toIso8601String(),
+    'updatedAt': updatedAt?.toIso8601String(),
+  };
+
+  HotspotPortalConfigModel copyWith({
+    String? id,
+    String? tenantId,
+    String? name,
+    String? themePreset,
+    String? networkName,
+    String? title,
+    String? subtitle,
+    String? logoUrl,
+    String? primaryColor,
+    String? accentColor,
+    String? backgroundColor,
+    String? cardColor,
+    String? textColor,
+    String? loginMethod,
+    String? contactPhone,
+    String? termsText,
+    String? footerText,
+    String? customCss,
+    bool? isDefault,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return HotspotPortalConfigModel(
+      id: id ?? this.id,
+      tenantId: tenantId ?? this.tenantId,
+      name: name ?? this.name,
+      themePreset: themePreset ?? this.themePreset,
+      networkName: networkName ?? this.networkName,
+      title: title ?? this.title,
+      subtitle: subtitle ?? this.subtitle,
+      logoUrl: logoUrl ?? this.logoUrl,
+      primaryColor: primaryColor ?? this.primaryColor,
+      accentColor: accentColor ?? this.accentColor,
+      backgroundColor: backgroundColor ?? this.backgroundColor,
+      cardColor: cardColor ?? this.cardColor,
+      textColor: textColor ?? this.textColor,
+      loginMethod: loginMethod ?? this.loginMethod,
+      contactPhone: contactPhone ?? this.contactPhone,
+      termsText: termsText ?? this.termsText,
+      footerText: footerText ?? this.footerText,
+      customCss: customCss ?? this.customCss,
+      isDefault: isDefault ?? this.isDefault,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+

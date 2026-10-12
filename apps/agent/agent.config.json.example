@@ -1,0 +1,17 @@
+{
+  "serverUrl": "https://mikrotik-api.onrender.com/api/v1",
+  "agentName": "Cashier-POS-PC",
+  "heartbeatIntervalMs": 25000,
+  "httpTimeoutMs": 60000,
+  "maxRetries": 5,
+  "mockRouter": false,
+  "router": {
+    "host": "192.168.88.1",
+    "port": 8728,
+    "username": "admin",
+    "password": "CHANGE_TO_ROUTER_PASSWORD",
+    "useSsl": false,
+    "timeoutMs": 10000,
+    "rosVersion": "v7"
+  }
+}

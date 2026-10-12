@@ -144,19 +144,40 @@ describe('AuthService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should throw ConflictException if slug is already taken', async () => {
+    it('should successfully register tenant with TENANT_ADMIN role and without active paid subscription', async () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
-      (prisma.tenant.findUnique as jest.Mock).mockResolvedValue({ id: 'existing-tenant-id' });
+      (prisma.tenant.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.subscriptionPlan.findUnique as jest.Mock).mockResolvedValue({ id: 'plan-basic', name: 'BASIC' });
+      (prisma.role.findFirst as jest.Mock).mockResolvedValue({ id: 'role-tenant-admin', name: 'TENANT_ADMIN' });
 
-      await expect(
-        authService.registerTenant({
-          tenantName: 'New Org',
-          slug: 'existing-slug',
-          adminFullName: 'Admin',
-          adminEmail: 'new@email.com',
-          adminPassword: 'Password@123',
-        }),
-      ).rejects.toThrow(ConflictException);
+      const createdTenant = { id: 'tenant-new-1', name: 'Al-Baraka WiFi', slug: 'al-baraka' };
+      const createdUser = { id: 'user-new-1', email: 'owner@albaraka.sd', fullName: 'Omer Ahmed' };
+
+      (prisma.$transaction as jest.Mock).mockImplementation(async (callback) => {
+        const tx = {
+          tenant: { create: jest.fn().mockResolvedValue(createdTenant) },
+          user: { create: jest.fn().mockResolvedValue(createdUser) },
+          cardTemplate: { create: jest.fn().mockResolvedValue({ id: 'tpl-1' }) },
+          auditLog: { create: jest.fn().mockResolvedValue({ id: 'log-1' }) },
+          subscription: { create: jest.fn() }, // Should NOT be called
+        };
+        const res = await callback(tx);
+        expect(tx.subscription.create).not.toHaveBeenCalled();
+        return res;
+      });
+
+      const result = await authService.registerTenant({
+        tenantName: 'Al-Baraka WiFi',
+        slug: 'al-baraka',
+        adminFullName: 'Omer Ahmed',
+        adminEmail: 'owner@albaraka.sd',
+        adminPassword: 'Password@123',
+        currency: 'SDG',
+      });
+
+      expect(result.tenant.id).toEqual('tenant-new-1');
+      expect(result.user.email).toEqual('owner@albaraka.sd');
+      expect(result.message).toContain('تم تسجيل الشبكة بنجاح');
     });
   });
 });
