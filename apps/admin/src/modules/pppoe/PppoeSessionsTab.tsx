@@ -86,7 +86,6 @@ export const PppoeSessionsTab: React.FC<PppoeSessionsTabProps> = ({
     setIsSyncing(true);
     try {
       await onRefresh(true);
-      showToast('تم إرسال طلب استعلام الجلسات النشطة إلى الراوتر بنجاح', 'success');
     } catch (err: any) {
       showToast(err?.message || 'تعذر استعلام الجلسات من الراوتر', 'error');
     } finally {

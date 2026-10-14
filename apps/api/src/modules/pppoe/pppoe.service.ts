@@ -111,6 +111,22 @@ export class PppoeService {
   }
 
   /**
+   * Resiliently finds the active Windows LAN Agent for a router.
+   * Never throws if device_agents table has not been migrated yet.
+   */
+  private async getActiveDeviceAgent(deviceId: string): Promise<any | null> {
+    try {
+      return await this.prisma.deviceAgent.findFirst({
+        where: { deviceId, status: { not: AgentStatus.REVOKED } },
+        orderBy: { pairedAt: 'desc' },
+      });
+    } catch (err: any) {
+      this.logger.debug(`deviceAgent check skipped or table missing for router [${deviceId}]: ${err?.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Strictly asserts device existence and tenant authorization.
    * Prevents any horizontal privilege escalation across tenants or devices.
    */
@@ -302,9 +318,7 @@ export class PppoeService {
 
     // 3. Queue router sync command if agent is paired
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.prisma.deviceAgent.findFirst({
-      where: { deviceId: device.id, status: { not: AgentStatus.REVOKED } },
-    });
+    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
     if (activeAgent) {
       try {
@@ -414,9 +428,7 @@ export class PppoeService {
 
     // Queue sync command to agent
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.prisma.deviceAgent.findFirst({
-      where: { deviceId: device.id, status: { not: AgentStatus.REVOKED } },
-    });
+    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
     if (activeAgent) {
       try {
@@ -835,9 +847,7 @@ export class PppoeService {
 
     // 6. Queue command to agent with decrypted password for router provision
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.prisma.deviceAgent.findFirst({
-      where: { deviceId: device.id, status: { not: AgentStatus.REVOKED } },
-    });
+    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
     if (activeAgent) {
       try {
@@ -987,9 +997,7 @@ export class PppoeService {
 
     // Queue update command to agent
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.prisma.deviceAgent.findFirst({
-      where: { deviceId: device.id, status: { not: AgentStatus.REVOKED } },
-    });
+    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
     if (activeAgent) {
       try {
@@ -1071,9 +1079,7 @@ export class PppoeService {
     });
 
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.prisma.deviceAgent.findFirst({
-      where: { deviceId: device.id, status: { not: AgentStatus.REVOKED } },
-    });
+    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
     if (activeAgent) {
       try {
@@ -1144,9 +1150,7 @@ export class PppoeService {
     });
 
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.prisma.deviceAgent.findFirst({
-      where: { deviceId: device.id, status: { not: AgentStatus.REVOKED } },
-    });
+    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
     if (activeAgent) {
       try {
@@ -1206,9 +1210,7 @@ export class PppoeService {
     }
 
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.prisma.deviceAgent.findFirst({
-      where: { deviceId: device.id, status: { not: AgentStatus.REVOKED } },
-    });
+    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
     if (activeAgent) {
       try {
@@ -1275,11 +1277,9 @@ export class PppoeService {
 
     let queuedCommandId: string | null = null;
     if (syncFromRouter) {
-      const activeAgent = await this.prisma.deviceAgent.findFirst({
-        where: { deviceId: device.id, status: { not: AgentStatus.REVOKED } },
-      });
-      if (activeAgent) {
-        try {
+      try {
+        const activeAgent = await this.getActiveDeviceAgent(device.id);
+        if (activeAgent) {
           const cmd = await this.agentService.queueCommand(
             device.tenantId,
             device.id,
@@ -1291,9 +1291,11 @@ export class PppoeService {
             userId,
           );
           queuedCommandId = cmd.id;
-        } catch (err) {
-          this.logger.warn(`Could not queue session list command: ${err}`);
+        } else {
+          this.logger.warn(`No active agent found for router [${deviceId}] to sync sessions`);
         }
+      } catch (err: any) {
+        this.logger.warn(`Could not queue session list command: ${err?.message}`);
       }
     }
 
@@ -1316,24 +1318,21 @@ export class PppoeService {
           ipAddress: s.ipAddress,
           macAddress: s.macAddress,
           uptimeSeconds: s.uptimeSeconds,
-          bytesIn: Number(s.bytesIn),
-          bytesOut: Number(s.bytesOut),
+          bytesIn: Number(s.bytesIn || 0),
+          bytesOut: Number(s.bytesOut || 0),
           sessionId: s.sessionId,
           startedAt: s.startedAt,
         })),
         queuedCommandId,
       };
     } catch (err: any) {
-      if (this.isTableMissingError(err)) {
-        this.logger.warn(`pppoeActiveSession table missing; returning resilient in-memory sessions for device ${deviceId}`);
-        const key = `${device.tenantId}:${device.id}`;
-        const sessions = this.memorySessions.get(key) || [];
-        return {
-          sessions,
-          queuedCommandId,
-        };
-      }
-      throw err;
+      this.logger.warn(`pppoeActiveSession table missing or query error; returning resilient in-memory sessions for device ${deviceId}: ${err?.message}`);
+      const key = `${device.tenantId}:${device.id}`;
+      const sessions = this.memorySessions.get(key) || [];
+      return {
+        sessions,
+        queuedCommandId,
+      };
     }
   }
 
@@ -1366,13 +1365,18 @@ export class PppoeService {
         },
       });
 
-      const sessionOnDevice = await this.prisma.pppoeActiveSession.findFirst({
-        where: {
-          deviceId: device.id,
-          tenantId: device.tenantId,
-          username: dto.username.trim(),
-        },
-      });
+      let sessionOnDevice: any = null;
+      try {
+        sessionOnDevice = await this.prisma.pppoeActiveSession.findFirst({
+          where: {
+            deviceId: device.id,
+            tenantId: device.tenantId,
+            username: dto.username.trim(),
+          },
+        });
+      } catch (err: any) {
+        this.logger.debug(`pppoeActiveSession lookup skipped in disconnect: ${err?.message}`);
+      }
 
       if (!accountOnDevice && !sessionOnDevice) {
         throw new NotFoundException(
@@ -1397,30 +1401,34 @@ export class PppoeService {
 
     // Also remove from active sessions cache in DB if exists
     if (dto.username) {
-      await this.prisma.pppoeActiveSession.deleteMany({
-        where: {
-          deviceId: device.id,
-          tenantId: device.tenantId,
-          username: dto.username.trim(),
-        },
-      });
+      await this.prisma.pppoeActiveSession
+        .deleteMany({
+          where: {
+            deviceId: device.id,
+            tenantId: device.tenantId,
+            username: dto.username.trim(),
+          },
+        })
+        .catch(() => {});
     }
 
     // Audit log
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: device.tenantId,
-        userId: userId ?? null,
-        action: 'PPPOE_SESSION_DISCONNECTED',
-        entity: 'pppoe_active_sessions',
-        entityId: dto.username || dto.sessionId || 'session',
-        newValues: {
-          deviceId: device.id,
-          username: dto.username,
-          sessionId: dto.sessionId,
+    await this.prisma.auditLog
+      .create({
+        data: {
+          tenantId: device.tenantId,
+          userId: userId ?? null,
+          action: 'PPPOE_SESSION_DISCONNECTED',
+          entity: 'pppoe_active_sessions',
+          entityId: dto.username || dto.sessionId || 'session',
+          newValues: {
+            deviceId: device.id,
+            username: dto.username,
+            sessionId: dto.sessionId,
+          },
         },
-      },
-    });
+      })
+      .catch(() => {});
 
     return {
       success: true,

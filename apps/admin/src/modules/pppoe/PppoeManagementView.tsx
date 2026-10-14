@@ -135,6 +135,8 @@ export const PppoeManagementView: React.FC = () => {
             data.queuedCommandId,
             'طلب استعلام ومزامنة الجلسات الحية من الراوتر',
           );
+        } else if (syncFromRouter) {
+          showToast('تنبيه: لا يوجد وكيل SudaFi Agent نشط مرتبط بهذا الراوتر لإرسال أمر الاستعلام المباشر', 'warning');
         }
       } catch (err: any) {
         showToast(err?.message || 'تعذر استعلام الجلسات النشطة', 'error');

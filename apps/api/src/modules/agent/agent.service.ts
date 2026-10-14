@@ -715,13 +715,18 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     }
 
     // 4. Locate active agent for this router
-    const activeAgent = await this.prisma.deviceAgent.findFirst({
-      where: {
-        deviceId,
-        status: { not: AgentStatus.REVOKED },
-      },
-      orderBy: { pairedAt: 'desc' },
-    });
+    let activeAgent: any = null;
+    try {
+      activeAgent = await this.prisma.deviceAgent.findFirst({
+        where: {
+          deviceId,
+          status: { not: AgentStatus.REVOKED },
+        },
+        orderBy: { pairedAt: 'desc' },
+      });
+    } catch (err: any) {
+      this.logger.warn(`Could not query deviceAgent table in queueCommand: ${err?.message}`);
+    }
 
     if (!activeAgent) {
       throw new BadRequestException(`Cannot queue command: No active agent is paired with router [${deviceId}]`);
@@ -760,6 +765,9 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
           return this.mapToCommandDto(concurrentCommand);
         }
         throw new ConflictException('Operation ID is already in use for a different router device');
+      }
+      if (err?.code === 'P2021' || err?.message?.includes('does not exist')) {
+        throw new BadRequestException('Agent command service is currently synchronizing database schema. Please try again shortly.');
       }
       throw err;
     }
