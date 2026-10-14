@@ -9,7 +9,7 @@ import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
-import { TenantStatus, SubscriptionStatus } from '@prisma/client';
+import { TenantStatus, BillingCycle } from '@prisma/client';
 
 @ApiTags('tenants')
 @ApiBearerAuth('access-token')
@@ -154,8 +154,10 @@ export class TenantsController {
   @ApiResponse({ status: 200, description: 'Paginated list of subscriptions' })
   async listSubscriptions(
     @Query('tenantId') tenantId?: string,
-    @Query('status') status?: SubscriptionStatus,
+    @Query('status') status?: string,
     @Query('planId') planId?: string,
+    @Query('billingCycle') billingCycle?: string,
+    @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -163,6 +165,8 @@ export class TenantsController {
       tenantId,
       status,
       planId,
+      billingCycle,
+      search,
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 20,
     });
@@ -176,9 +180,18 @@ export class TenantsController {
     @Param('id') id: string,
     @Body('durationMonths') durationMonths: number,
     @Body('notes') notes: string,
+    @Body('planId') planId: string,
+    @Body('billingCycle') billingCycle: BillingCycle,
     @CurrentUser('id') superAdminId: string,
   ) {
-    return this.tenantsService.renewSubscription(id, Number(durationMonths || 1), superAdminId, notes);
+    return this.tenantsService.renewSubscription(
+      id,
+      Number(durationMonths || 1),
+      superAdminId,
+      notes,
+      planId,
+      billingCycle,
+    );
   }
 
   @Patch('subscriptions/:id/status')
@@ -187,7 +200,7 @@ export class TenantsController {
   @ApiResponse({ status: 200, description: 'Subscription status updated' })
   async updateSubscriptionStatus(
     @Param('id') id: string,
-    @Body('status') status: SubscriptionStatus,
+    @Body('status') status: string,
     @Body('notes') notes: string,
     @CurrentUser('id') superAdminId: string,
   ) {

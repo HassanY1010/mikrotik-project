@@ -1047,25 +1047,94 @@ export class TenantsService {
 
   async listSubscriptions(params: {
     tenantId?: string;
-    status?: SubscriptionStatus;
+    status?: string;
     planId?: string;
+    search?: string;
+    billingCycle?: string;
     page?: number;
     limit?: number;
   }) {
     const page = Math.max(1, params.page || 1);
     const limit = Math.min(100, Math.max(1, params.limit || 20));
     const skip = (page - 1) * limit;
+    const now = new Date();
+    const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     const where: Prisma.SubscriptionWhereInput = {};
     if (params.tenantId) where.tenantId = params.tenantId;
-    if (params.status) where.status = params.status;
     if (params.planId) where.planId = params.planId;
+    if (params.billingCycle && (params.billingCycle === 'MONTHLY' || params.billingCycle === 'YEARLY')) {
+      where.billingCycle = params.billingCycle as BillingCycle;
+    }
 
-    const [subs, total] = await Promise.all([
+    if (params.status) {
+      if (params.status === 'ACTIVE') {
+        where.status = SubscriptionStatus.ACTIVE;
+        where.expiresAt = { gt: now };
+      } else if (params.status === 'EXPIRED') {
+        where.OR = [
+          { status: SubscriptionStatus.EXPIRED },
+          { expiresAt: { lte: now } },
+        ];
+      } else if (params.status === 'CANCELLED') {
+        where.status = SubscriptionStatus.CANCELLED;
+      } else if (params.status === 'TRIAL') {
+        where.status = SubscriptionStatus.TRIAL;
+      } else if (params.status === 'EXPIRING_SOON') {
+        where.status = SubscriptionStatus.ACTIVE;
+        where.expiresAt = { gt: now, lte: in7Days };
+      } else if (params.status === 'SUSPENDED') {
+        where.tenant = { status: TenantStatus.SUSPENDED };
+      }
+    }
+
+    if (params.search && params.search.trim()) {
+      const q = params.search.trim();
+      const searchConditions: Prisma.SubscriptionWhereInput[] = [
+        { tenant: { name: { contains: q, mode: 'insensitive' } } },
+        { tenant: { slug: { contains: q, mode: 'insensitive' } } },
+        { tenant: { contactEmail: { contains: q, mode: 'insensitive' } } },
+        { tenant: { phone: { contains: q, mode: 'insensitive' } } },
+        { tenant: { users: { some: { fullName: { contains: q, mode: 'insensitive' } } } } },
+        { tenant: { users: { some: { email: { contains: q, mode: 'insensitive' } } } } },
+      ];
+
+      if (where.OR) {
+        where.AND = [
+          { OR: where.OR },
+          { OR: searchConditions },
+        ];
+        delete where.OR;
+      } else {
+        where.OR = searchConditions;
+      }
+    }
+
+    const [subs, total, stats] = await Promise.all([
       this.prisma.subscription.findMany({
         where,
         include: {
-          tenant: { select: { id: true, name: true, slug: true, status: true } },
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              status: true,
+              contactEmail: true,
+              phone: true,
+              currency: true,
+              users: {
+                where: { role: { name: 'TENANT_ADMIN' } },
+                take: 1,
+                select: { id: true, fullName: true, email: true, phone: true },
+              },
+              _count: {
+                select: {
+                  devices: { where: { deletedAt: null } },
+                },
+              },
+            },
+          },
           plan: true,
         },
         orderBy: { createdAt: 'desc' },
@@ -1073,28 +1142,64 @@ export class TenantsService {
         take: limit,
       }),
       this.prisma.subscription.count({ where }),
+      // Global platform subscription statistics
+      Promise.all([
+        this.prisma.subscription.count(),
+        this.prisma.subscription.count({ where: { status: SubscriptionStatus.ACTIVE, expiresAt: { gt: now } } }),
+        this.prisma.subscription.count({ where: { OR: [{ status: SubscriptionStatus.EXPIRED }, { expiresAt: { lte: now } }] } }),
+        this.prisma.subscription.count({ where: { status: SubscriptionStatus.CANCELLED } }),
+        this.prisma.subscription.count({ where: { status: SubscriptionStatus.TRIAL } }),
+        this.prisma.subscription.count({ where: { status: SubscriptionStatus.ACTIVE, expiresAt: { gt: now, lte: in7Days } } }),
+      ]).then(([totalAll, active, expired, cancelled, trial, expiringSoon]) => ({
+        total: totalAll,
+        active,
+        expired,
+        cancelled,
+        trial,
+        expiringSoon,
+      })),
     ]);
 
     return {
-      data: subs.map((s) => ({
-        id: s.id,
-        tenantId: s.tenantId,
-        tenantName: s.tenant.name,
-        tenantSlug: s.tenant.slug,
-        tenantStatus: s.tenant.status,
-        planId: s.planId,
-        planName: s.plan.name,
-        planNameAr: s.plan.nameAr,
-        status: s.status,
-        billingCycle: s.billingCycle,
-        startsAt: s.startsAt.toISOString(),
-        expiresAt: s.expiresAt.toISOString(),
-        maxRouters: s.maxRouters,
-        price: Number(s.price),
-        approvedBy: s.approvedBy,
-        notes: s.notes,
-        createdAt: s.createdAt.toISOString(),
-      })),
+      data: subs.map((s) => {
+        const adminUser = s.tenant.users?.[0];
+        const isExpired = new Date(s.expiresAt).getTime() <= now.getTime();
+        const effectiveStatus =
+          s.tenant.status === TenantStatus.SUSPENDED
+            ? 'SUSPENDED'
+            : s.status === SubscriptionStatus.ACTIVE
+            ? isExpired
+              ? 'EXPIRED'
+              : 'ACTIVE'
+            : s.status;
+
+        return {
+          id: s.id,
+          tenantId: s.tenantId,
+          tenantName: s.tenant.name,
+          tenantSlug: s.tenant.slug,
+          tenantStatus: s.tenant.status,
+          ownerName: adminUser?.fullName || '—',
+          ownerEmail: adminUser?.email || s.tenant.contactEmail || '—',
+          ownerPhone: adminUser?.phone || s.tenant.phone || null,
+          deviceCount: s.tenant._count?.devices || 0,
+          planId: s.planId,
+          planName: s.plan.name,
+          planNameAr: s.plan.nameAr,
+          planFeatures: s.plan.features,
+          status: effectiveStatus,
+          rawStatus: s.status,
+          billingCycle: s.billingCycle,
+          startsAt: s.startsAt.toISOString(),
+          expiresAt: s.expiresAt.toISOString(),
+          maxRouters: s.maxRouters,
+          price: Number(s.price),
+          approvedBy: s.approvedBy,
+          notes: s.notes,
+          createdAt: s.createdAt.toISOString(),
+        };
+      }),
+      stats,
       meta: {
         total,
         page,
@@ -1109,6 +1214,8 @@ export class TenantsService {
     durationMonths: number,
     superAdminId: string,
     notes?: string,
+    planId?: string,
+    billingCycle?: BillingCycle,
   ) {
     const sub = await this.prisma.subscription.findUnique({
       where: { id: subscriptionId },
@@ -1117,13 +1224,29 @@ export class TenantsService {
     if (!sub) throw new NotFoundException('Subscription not found');
 
     const months = Math.max(1, durationMonths || 1);
-    const baseDate = sub.expiresAt > new Date() ? new Date(sub.expiresAt) : new Date();
+    const now = new Date();
+    const baseDate = sub.expiresAt > now && sub.status === SubscriptionStatus.ACTIVE ? new Date(sub.expiresAt) : now;
     const newExpiresAt = new Date(baseDate);
     newExpiresAt.setMonth(newExpiresAt.getMonth() + months);
+
+    let planToUse = sub.plan;
+    if (planId && planId !== sub.planId) {
+      const targetPlan = await this.prisma.subscriptionPlan.findUnique({ where: { id: planId } });
+      if (targetPlan) {
+        planToUse = targetPlan;
+      }
+    }
+
+    const cycleToUse = billingCycle || sub.billingCycle;
+    const priceToUse = cycleToUse === BillingCycle.YEARLY ? planToUse.priceYearly : planToUse.priceMonthly;
 
     const updated = await this.prisma.subscription.update({
       where: { id: subscriptionId },
       data: {
+        planId: planToUse.id,
+        billingCycle: cycleToUse,
+        maxRouters: planToUse.maxRouters,
+        price: priceToUse,
         expiresAt: newExpiresAt,
         status: SubscriptionStatus.ACTIVE,
         notes: notes ? (sub.notes ? `${sub.notes} | ${notes}` : notes) : sub.notes,
@@ -1146,8 +1269,14 @@ export class TenantsService {
         action: 'subscription:renewed',
         entity: 'Subscription',
         entityId: subscriptionId,
-        oldValues: { expiresAt: sub.expiresAt, status: sub.status },
-        newValues: { expiresAt: newExpiresAt, status: SubscriptionStatus.ACTIVE, addedMonths: months },
+        oldValues: { expiresAt: sub.expiresAt, status: sub.status, planId: sub.planId },
+        newValues: {
+          expiresAt: newExpiresAt,
+          status: SubscriptionStatus.ACTIVE,
+          addedMonths: months,
+          plan: planToUse.name,
+          billingCycle: cycleToUse,
+        },
       },
     });
 
@@ -1159,19 +1288,85 @@ export class TenantsService {
 
   async updateSubscriptionStatus(
     subscriptionId: string,
-    status: SubscriptionStatus,
+    status: string,
     superAdminId: string,
     notes?: string,
   ) {
     const sub = await this.prisma.subscription.findUnique({
       where: { id: subscriptionId },
+      include: { tenant: true, plan: true },
     });
     if (!sub) throw new NotFoundException('Subscription not found');
+
+    if (status === 'SUSPENDED') {
+      await this.prisma.tenant.update({
+        where: { id: sub.tenantId },
+        data: { status: TenantStatus.SUSPENDED },
+      });
+
+      const updatedSub = await this.prisma.subscription.update({
+        where: { id: subscriptionId },
+        data: {
+          notes: notes ? (sub.notes ? `${sub.notes} | [معلق]: ${notes}` : `[معلق]: ${notes}`) : sub.notes,
+        },
+        include: { plan: true },
+      });
+
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId: sub.tenantId,
+          userId: superAdminId,
+          action: 'subscription:status_changed_suspended',
+          entity: 'Tenant',
+          entityId: sub.tenantId,
+          oldValues: { tenantStatus: sub.tenant?.status },
+          newValues: { tenantStatus: TenantStatus.SUSPENDED, reason: notes },
+        },
+      });
+
+      return {
+        ...updatedSub,
+        price: Number(updatedSub.price),
+      };
+    }
+
+    if (status === 'RESUME' || (status === 'ACTIVE' && sub.tenant?.status === TenantStatus.SUSPENDED)) {
+      await this.prisma.tenant.update({
+        where: { id: sub.tenantId },
+        data: { status: TenantStatus.ACTIVE },
+      });
+
+      const updatedSub = await this.prisma.subscription.update({
+        where: { id: subscriptionId },
+        data: {
+          status: SubscriptionStatus.ACTIVE,
+          notes: notes ? (sub.notes ? `${sub.notes} | [استئناف]: ${notes}` : `[استئناف]: ${notes}`) : sub.notes,
+        },
+        include: { plan: true },
+      });
+
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId: sub.tenantId,
+          userId: superAdminId,
+          action: 'subscription:status_changed_resumed',
+          entity: 'Tenant',
+          entityId: sub.tenantId,
+          oldValues: { tenantStatus: sub.tenant?.status },
+          newValues: { tenantStatus: TenantStatus.ACTIVE, reason: notes },
+        },
+      });
+
+      return {
+        ...updatedSub,
+        price: Number(updatedSub.price),
+      };
+    }
 
     const updated = await this.prisma.subscription.update({
       where: { id: subscriptionId },
       data: {
-        status,
+        status: status as SubscriptionStatus,
         notes: notes ? (sub.notes ? `${sub.notes} | ${notes}` : notes) : sub.notes,
       },
       include: { plan: true },
@@ -1185,7 +1380,7 @@ export class TenantsService {
         entity: 'Subscription',
         entityId: subscriptionId,
         oldValues: { status: sub.status },
-        newValues: { status },
+        newValues: { status, reason: notes },
       },
     });
 
