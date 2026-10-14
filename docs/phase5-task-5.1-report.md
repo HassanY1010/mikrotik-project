@@ -129,10 +129,10 @@
 - **الأمر:** `pnpm --filter @mikrotik-saas/agent test`
 - **النتيجة:**
   ```text
-  Test Suites: 8 passed, 8 total
-  Tests:       55 passed, 55 total
+  Test Suites: 9 passed, 9 total
+  Tests:       58 passed, 58 total
   Snapshots:   0 total
-  Time:        15.349 s
+  Time:        23.783 s
   Ran all test suites.
   Exit Code:   0
   ```
@@ -142,10 +142,11 @@
 - **النتيجة:**
   ```text
   PASS src/modules/portal/portal.service.spec.ts
+  PASS src/modules/pppoe/pppoe.service.spec.ts
   Test Suites: 23 passed, 23 total
-  Tests:       201 passed, 201 total
+  Tests:       208 passed, 208 total
   Snapshots:   0 total
-  Time:        44.719 s
+  Time:        104.868 s
   Ran all test suites.
   Exit Code:   0
   ```
@@ -155,8 +156,9 @@
 - **النتيجة:**
   ```text
   ✓ 2050 modules transformed.
-  dist/assets/HotspotPortalDesignerView-D--3TDy-.js     26.28 kB │ gzip:   7.24 kB
-  ✓ built in 32.57s
+  dist/assets/HotspotPortalDesignerView-DOYSr4zg.js     26.28 kB │ gzip:   7.24 kB
+  dist/assets/PppoeManagementView-DsCgeFW9.js           78.20 kB │ gzip:  15.21 kB
+  ✓ built in 1m 16s
   Exit Code:   0
   ```
 
