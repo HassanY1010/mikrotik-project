@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Search,
-  Filter,
   CheckCircle2,
   XCircle,
   Eye,
@@ -391,6 +390,9 @@ export const SuperAdminTenantsView: React.FC = () => {
           display: 'flex',
           flexDirection: 'column',
           gap: '0.85rem',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-sm)',
         }}
       >
@@ -399,12 +401,12 @@ export const SuperAdminTenantsView: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: '1rem',
+            gap: '0.85rem',
             flexWrap: 'wrap',
           }}
         >
           {/* Search Box */}
-          <div style={{ flex: 2, minWidth: '260px', position: 'relative' }}>
+          <div style={{ flex: '2 1 280px', minWidth: '240px', position: 'relative' }}>
             <Search
               size={16}
               style={{
@@ -426,11 +428,15 @@ export const SuperAdminTenantsView: React.FC = () => {
                 setPage(1);
               }}
               style={{
-                paddingRight: '2.4rem',
+                paddingRight: '2.5rem',
                 paddingLeft: search ? '2.2rem' : '0.85rem',
                 width: '100%',
-                minHeight: '40px',
+                height: '42px',
                 fontSize: '0.85rem',
+                backgroundColor: 'var(--bg-app)',
+                borderColor: 'var(--border)',
+                color: 'var(--text-primary)',
+                borderRadius: 'var(--radius-md)',
               }}
             />
             {search && (
@@ -460,8 +466,7 @@ export const SuperAdminTenantsView: React.FC = () => {
           </div>
 
           {/* Account Status Filter */}
-          <div style={{ flex: 1, minWidth: '160px', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Filter size={15} color="var(--primary)" style={{ flexShrink: 0 }} />
+          <div style={{ flex: '1 1 180px', minWidth: '160px', position: 'relative' }}>
             <select
               className="form-input"
               value={statusFilter}
@@ -469,7 +474,17 @@ export const SuperAdminTenantsView: React.FC = () => {
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-              style={{ width: '100%', minHeight: '40px', fontSize: '0.825rem' }}
+              style={{
+                width: '100%',
+                height: '42px',
+                fontSize: '0.85rem',
+                backgroundColor: 'var(--bg-app)',
+                borderColor: 'var(--border)',
+                color: 'var(--text-primary)',
+                borderRadius: 'var(--radius-md)',
+                paddingRight: '1rem',
+                paddingLeft: '1.75rem',
+              }}
             >
               <option value="">جميع حالات الحساب</option>
               <option value="ACTIVE">نشط (ACTIVE)</option>
@@ -480,8 +495,7 @@ export const SuperAdminTenantsView: React.FC = () => {
           </div>
 
           {/* Subscription Status Filter */}
-          <div style={{ flex: 1, minWidth: '160px', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Layers size={15} color="var(--accent)" style={{ flexShrink: 0 }} />
+          <div style={{ flex: '1 1 180px', minWidth: '160px', position: 'relative' }}>
             <select
               className="form-input"
               value={subscriptionFilter}
@@ -489,7 +503,17 @@ export const SuperAdminTenantsView: React.FC = () => {
                 setSubscriptionFilter(e.target.value);
                 setPage(1);
               }}
-              style={{ width: '100%', minHeight: '40px', fontSize: '0.825rem' }}
+              style={{
+                width: '100%',
+                height: '42px',
+                fontSize: '0.85rem',
+                backgroundColor: 'var(--bg-app)',
+                borderColor: 'var(--border)',
+                color: 'var(--text-primary)',
+                borderRadius: 'var(--radius-md)',
+                paddingRight: '1rem',
+                paddingLeft: '1.75rem',
+              }}
             >
               <option value="">جميع الاشتراكات</option>
               <option value="ACTIVE">اشتراك سارٍ</option>
