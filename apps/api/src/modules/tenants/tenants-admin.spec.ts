@@ -31,11 +31,13 @@ describe('TenantsService - Super Admin & Subscriptions', () => {
     },
     mikroTikDevice: {
       count: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     auditLog: {
       create: jest.fn(),
       findMany: jest.fn(),
-      count: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
+      count: jest.fn().mockResolvedValue(0),
     },
   };
 
@@ -56,7 +58,8 @@ describe('TenantsService - Super Admin & Subscriptions', () => {
       mockPrisma.tenant.count
         .mockResolvedValueOnce(10) // total
         .mockResolvedValueOnce(8)  // active
-        .mockResolvedValueOnce(2);  // suspended
+        .mockResolvedValueOnce(2)  // suspended
+        .mockResolvedValue(0);     // pending & subsequent calls
 
       mockPrisma.subscription.count
         .mockResolvedValueOnce(7)  // active

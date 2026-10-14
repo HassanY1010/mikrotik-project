@@ -5,8 +5,10 @@ interface StatCardProps {
   value: string | number;
   icon: React.ReactNode;
   iconBg?: string;
-  trend?: string;
+  trend?: React.ReactNode;
   trendPositive?: boolean;
+  onClick?: () => void;
+  clickableHint?: string;
 }
 
 export const StatCard: React.FC<StatCardProps> = ({
@@ -16,13 +18,35 @@ export const StatCard: React.FC<StatCardProps> = ({
   iconBg = 'var(--primary-light)',
   trend,
   trendPositive = true,
+  onClick,
+  clickableHint,
 }) => {
   return (
-    <div className="stat-card">
+    <div
+      className="stat-card"
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      style={{
+        cursor: onClick ? 'pointer' : 'default',
+        position: 'relative',
+        userSelect: 'none',
+      }}
+    >
       <div className="stat-icon" style={{ backgroundColor: iconBg }}>
         {icon}
       </div>
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div className="stat-value">{value}</div>
         <div className="stat-label">{label}</div>
         {trend && (
@@ -35,6 +59,22 @@ export const StatCard: React.FC<StatCardProps> = ({
             }}
           >
             {trend}
+          </div>
+        )}
+        {onClick && clickableHint && (
+          <div
+            style={{
+              fontSize: '0.675rem',
+              color: 'var(--primary)',
+              marginTop: '0.35rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+              fontWeight: 500,
+            }}
+          >
+            <span>{clickableHint}</span>
+            <span>&larr;</span>
           </div>
         )}
       </div>

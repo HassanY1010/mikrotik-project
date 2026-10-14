@@ -1002,3 +1002,24 @@ h6 {
   }
 }
 
+/* Super Admin Responsive Helpers */
+@media (max-width: 767px) {
+  .super-admin-desktop-table {
+    display: none !important;
+  }
+  .super-admin-mobile-cards {
+    display: flex !important;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .super-admin-desktop-table {
+    display: block !important;
+  }
+  .super-admin-mobile-cards {
+    display: none !important;
+  }
+}
+
