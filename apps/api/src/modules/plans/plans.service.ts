@@ -24,7 +24,10 @@ export class PlansService {
         _count: {
           select: {
             subscriptions: {
-              where: { status: 'ACTIVE' },
+              where: {
+                status: 'ACTIVE',
+                expiresAt: { gt: new Date() },
+              },
             },
           },
         },
