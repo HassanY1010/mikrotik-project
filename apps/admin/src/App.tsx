@@ -1,4 +1,4 @@
-import React, { useState, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './core/context/AuthContext';
 import { ToastProvider } from './core/context/ToastContext';
 import { SubscriptionProvider } from './core/context/SubscriptionContext';
@@ -97,6 +97,12 @@ const AdminLayout: React.FC = () => {
       setSidebarCollapsed(!sidebarCollapsed);
     }
   };
+
+  useEffect(() => {
+    if (user?.role === 'SUPER_ADMIN' && currentTab === 'dashboard') {
+      setCurrentTab('super-overview');
+    }
+  }, [user?.role, currentTab]);
 
   if (isLoading) {
     return (

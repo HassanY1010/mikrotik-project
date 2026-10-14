@@ -10,6 +10,7 @@ import {
   UseGuards,
   Ip,
   Headers,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
@@ -84,7 +85,10 @@ export class AuthController {
     @Headers('user-agent') userAgent: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<Record<string, unknown>> {
-    const token = dto.refreshToken || req.cookies?.['refresh_token'];
+    const token = dto.refreshToken?.trim() || req.cookies?.['refresh_token'];
+    if (!token) {
+      throw new UnauthorizedException('Refresh token is required');
+    }
     const result = await this.authService.refreshToken(token, ip, userAgent);
 
     // Update cookie with rotated refresh token

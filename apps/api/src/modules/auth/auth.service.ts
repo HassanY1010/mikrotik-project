@@ -281,13 +281,18 @@ export class AuthService {
 
   /**
    * Refreshes access token and rotates the refresh token.
+   * Includes a 30-second grace window to prevent race conditions from concurrent requests.
    */
   async refreshToken(
     rawRefreshToken: string,
     ipAddress?: string,
     userAgent?: string,
   ): Promise<AuthTokens> {
-    const tokenHash = this.hashToken(rawRefreshToken);
+    if (!rawRefreshToken || typeof rawRefreshToken !== 'string' || !rawRefreshToken.trim()) {
+      throw new UnauthorizedException('Refresh token is required');
+    }
+
+    const tokenHash = this.hashToken(rawRefreshToken.trim());
 
     const tokenRecord = await this.prisma.refreshToken.findUnique({
       where: { tokenHash },
@@ -306,7 +311,22 @@ export class AuthService {
     }
 
     if (tokenRecord.revokedAt !== null) {
-      // Possible reuse detection — revoke all tokens for this user for security
+      const revokedMsAgo = Date.now() - new Date(tokenRecord.revokedAt).getTime();
+      // Allow a 30-second grace window for concurrent/in-flight requests in web/mobile
+      if (revokedMsAgo < 30 * 1000) {
+        const { user } = tokenRecord;
+        if (user && user.status === UserStatus.ACTIVE && user.deletedAt === null) {
+          // Generate valid access token for the active user session without wiping out tokens
+          return this.generateTokens({
+            sub: user.id,
+            email: user.email,
+            tenantId: user.tenantId,
+            role: user.role.name,
+          });
+        }
+      }
+
+      // If used outside the grace window, this is true token reuse — revoke all user sessions
       await this.prisma.refreshToken.updateMany({
         where: { userId: tokenRecord.userId },
         data: { revokedAt: new Date() },
@@ -490,8 +510,32 @@ export class AuthService {
   // Helper methods
   // ---------------------------------------------------------------------------
 
+  private parseDurationToSeconds(duration: string, fallback = 900): number {
+    const match = /^(\d+)([smhd])$/.exec(duration.trim());
+    if (!match) return fallback;
+    const num = parseInt(match[1], 10);
+    switch (match[2]) {
+      case 's':
+        return num;
+      case 'm':
+        return num * 60;
+      case 'h':
+        return num * 3600;
+      case 'd':
+        return num * 86400;
+      default:
+        return fallback;
+    }
+  }
+
   private async generateTokens(payload: JwtPayload): Promise<AuthTokens> {
-    const accessExpiration = process.env.JWT_ACCESS_EXPIRATION || '7d';
+    const accessExpiration =
+      process.env.JWT_ACCESS_EXPIRATION ||
+      process.env.JWT_ACCESS_EXPIRES_IN ||
+      '15m';
+
+    const expiresInSeconds = this.parseDurationToSeconds(accessExpiration, 900);
+
     const accessToken = await this.jwtService.signAsync(payload, {
       expiresIn: accessExpiration,
     });
@@ -502,7 +546,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
+      expiresIn: expiresInSeconds,
     };
   }
 

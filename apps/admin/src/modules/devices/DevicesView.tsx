@@ -3,6 +3,7 @@ import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { useSubscription } from '../../core/context/SubscriptionContext';
 import { Modal } from '../../components/common/Modal';
+import { WhatsAppButton } from '../../components/common/WhatsAppButton';
 import {
   Router as RouterIcon,
   Plus,
@@ -478,16 +479,26 @@ export const DevicesView: React.FC = () => {
                 border: '1px solid rgba(239, 68, 68, 0.3)',
                 marginBottom: '1.25rem',
                 display: 'flex',
-                alignItems: 'center',
-                gap: '0.6rem',
+                flexDirection: 'column',
+                gap: '0.75rem',
               }}
             >
-              <AlertCircle size={20} color="#ef4444" style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: '0.825rem', color: '#f87171', lineHeight: 1.4 }}>
-                {isExpired
-                  ? 'انتهت صلاحية اشتراك الشبكة. لتتمكن من إضافة أجهزة راوتر جديدة، يرجى تجديد الاشتراك مع إدارة المنصة.'
-                  : 'حساب الشبكة لا يملك اشتراكاً نشطاً حالياً. إضافة وحفظ أجهزة ميكروتك تتطلب تفعيل إحدى باقات الخدمة أولاً.'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <AlertCircle size={20} color="#ef4444" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: '0.825rem', color: '#f87171', lineHeight: 1.4 }}>
+                  {isExpired
+                    ? 'انتهت صلاحية اشتراك الشبكة. لتتمكن من إضافة أجهزة راوتر جديدة، يرجى تجديد الاشتراك مع إدارة المنصة.'
+                    : 'حساب الشبكة لا يملك اشتراكاً نشطاً حالياً. إضافة وحفظ أجهزة ميكروتك تتطلب تفعيل إحدى باقات الخدمة أولاً.'}
+                </span>
+              </div>
+              <div>
+                <WhatsAppButton
+                  type="subscription"
+                  featureName="ربط أجهزة راوتر جديدة"
+                  label={isExpired ? 'تجديد الاشتراك عبر واتساب' : 'طلب تفعيل الاشتراك عبر واتساب'}
+                  size="sm"
+                />
+              </div>
             </div>
           )}
 

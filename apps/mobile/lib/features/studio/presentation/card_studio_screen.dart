@@ -6,6 +6,8 @@ import '../../../core/providers.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/services/card_pdf_generator_service.dart';
 import 'card_templates_screen.dart';
+import '../../../core/widgets/whatsapp_button.dart';
+import '../../../core/utils/whatsapp_helper.dart';
 
 class CardStudioScreen extends ConsumerStatefulWidget {
   final VoidCallback? onBatchCreated;
@@ -121,11 +123,25 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                 : 'حساب هذه الشبكة غير مرتبط بباقة نشطة حالياً. يرجى التواصل مع إدارة المنصة (Super Admin) لتفعيل باقة الاشتراك وتحديد حصص الكروت.',
             style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.4),
           ),
+          actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
-              child: const Text('حسناً، فهمت', style: TextStyle(color: Colors.white)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                WhatsAppButton(
+                  type: WhatsAppActionType.subscription,
+                  label: isExpired ? 'تجديد الاشتراك عبر واتساب' : 'طلب تفعيل الاشتراك عبر واتساب',
+                  planName: quota?.planNameAr ?? quota?.planName,
+                  featureName: 'توليد كروت الهوتسبوت',
+                  fontSize: 12,
+                  showPhonePill: true,
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+                ),
+              ],
             ),
           ],
         ),
@@ -1203,29 +1219,45 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                   : 'تنبيه: حساب الشبكة غير مشترك حالياً • يتطلب تفعيل الاشتراك لتوليد الكروت');
 
           return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: color.withValues(alpha: 0.35)),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(
-                  isWarning ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
-                  color: color,
-                  size: 20,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      color: isWarning ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A),
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                Row(
+                  children: [
+                    Icon(
+                      isWarning ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                      color: color,
+                      size: 20,
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        text,
+                        style: TextStyle(
+                          color: isWarning ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                WhatsAppButton(
+                  type: isSuspended ? WhatsAppActionType.support : WhatsAppActionType.subscription,
+                  label: isExpired
+                      ? 'تجديد الاشتراك عبر واتساب'
+                      : (isSuspended ? 'تواصل مع الدعم الفني' : 'طلب تفعيل الاشتراك لتوليد الكروت'),
+                  planName: quota?.planNameAr ?? quota?.planName,
+                  featureName: 'توليد كروت الهوتسبوت',
+                  fontSize: 11,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                 ),
               ],
             ),

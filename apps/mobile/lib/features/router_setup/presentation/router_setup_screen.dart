@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/widgets/whatsapp_button.dart';
+import '../../../core/utils/whatsapp_helper.dart';
 
 class RouterSetupScreen extends ConsumerStatefulWidget {
   final RouterDeviceModel? router;
@@ -155,11 +157,25 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 : 'حساب هذه الشبكة غير مشترك حالياً. يرجى مراجعة إدارة المنصة لتفعيل باقة اشتراك سارية تمكنك من إضافة أجهزة الراوتر.',
             style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.4),
           ),
+          actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
-              child: const Text('حسناً، فهمت', style: TextStyle(color: Colors.white)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                WhatsAppButton(
+                  type: WhatsAppActionType.subscription,
+                  label: isExpired ? 'تجديد الاشتراك عبر واتساب' : 'طلب تفعيل الاشتراك عبر واتساب',
+                  planName: quota?.planNameAr ?? quota?.planName,
+                  featureName: 'إضافة وربط موجهات ميكروتك',
+                  fontSize: 12,
+                  showPhonePill: true,
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+                ),
+              ],
             ),
           ],
         ),
@@ -322,6 +338,17 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                                 fontSize: 11,
                                 height: 1.4,
                               ),
+                            ),
+                            const SizedBox(height: 10),
+                            WhatsAppButton(
+                              type: status == 'SUSPENDED' ? WhatsAppActionType.support : WhatsAppActionType.subscription,
+                              label: isExpired
+                                  ? 'تجديد الاشتراك عبر واتساب'
+                                  : (status == 'SUSPENDED' ? 'تواصل مع الدعم الفني' : 'طلب تفعيل الاشتراك عبر واتساب'),
+                              planName: quota?.planNameAr ?? quota?.planName,
+                              featureName: 'إضافة وربط موجهات ميكروتك',
+                              fontSize: 11,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                             ),
                           ],
                         ),

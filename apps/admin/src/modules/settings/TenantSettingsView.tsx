@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { Modal } from '../../components/common/Modal';
+import { WhatsAppButton } from '../../components/common/WhatsAppButton';
 import {
   Settings,
   Building,
@@ -502,6 +503,35 @@ export const TenantSettingsView: React.FC = () => {
                     })
                   : 'غير محدد'}
               </strong>
+            </div>
+
+            {/* Direct WhatsApp Subscription & Support Actions */}
+            <div
+              style={{
+                marginTop: '1.25rem',
+                paddingTop: '1rem',
+                borderTop: '1px solid var(--border)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.65rem',
+              }}
+            >
+              <WhatsAppButton
+                type="subscription"
+                planName={tenant.subscription?.planNameAr || tenant.subscription?.plan}
+                label={
+                  tenant.subscription?.status === 'ACTIVE'
+                    ? 'تجديد أو ترقية الباقة عبر واتساب'
+                    : 'طلب تفعيل الاشتراك عبر واتساب'
+                }
+                size="md"
+              />
+              <WhatsAppButton
+                type="support"
+                label="محادثة الدعم الفني عبر واتساب"
+                variant="outline"
+                size="md"
+              />
             </div>
           </div>
 

@@ -7,6 +7,8 @@ import 'tenant_users_screen.dart';
 import 'create_user_dialog.dart';
 import '../../studio/presentation/card_templates_screen.dart';
 import '../../hotspot_profiles/presentation/hotspot_profiles_screen.dart';
+import '../../../core/widgets/whatsapp_button.dart';
+import '../../../core/utils/whatsapp_helper.dart';
 
 class UserProfileScreen extends ConsumerStatefulWidget {
   const UserProfileScreen({super.key});
@@ -427,6 +429,57 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               ],
             ),
           ),
+          // Technical Support & Help Section
+          _buildSectionHeader('المساعدة والدعم الفني:', Icons.support_agent_rounded),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF334155)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF25D366).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.headset_mic_rounded, color: Color(0xFF25D366), size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'الدعم الفني المباشر',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'فريق خدمة عملاء SudaFi متاح لمساعدتك عبر واتساب',
+                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const WhatsAppButton(
+                  type: WhatsAppActionType.support,
+                  label: 'تواصل مع الدعم الفني',
+                  showPhonePill: true,
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 24),
 
           // Security & Password Section
@@ -705,6 +758,17 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                   valueColor: isExpired ? const Color(0xFFEF4444) : const Color(0xFF34D399),
                 ),
               ],
+              const SizedBox(height: 16),
+              WhatsAppButton(
+                type: isSuspended ? WhatsAppActionType.support : WhatsAppActionType.subscription,
+                label: isNotSubscribed
+                    ? 'طلب تفعيل الاشتراك عبر واتساب'
+                    : (isExpired
+                        ? 'تجديد الاشتراك عبر واتساب'
+                        : (isSuspended ? 'تواصل مع الدعم الفني لحل التعليق' : 'ترقية أو تجديد الباقة عبر واتساب')),
+                planName: quota?.planNameAr ?? quota?.planName,
+                showPhonePill: true,
+              ),
             ],
           ),
         );

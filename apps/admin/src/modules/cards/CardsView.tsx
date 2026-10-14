@@ -3,6 +3,7 @@ import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 import { useSubscription } from '../../core/context/SubscriptionContext';
 import { Modal } from '../../components/common/Modal';
+import { WhatsAppButton } from '../../components/common/WhatsAppButton';
 import { CreditCard, Plus, RefreshCw, QrCode, Search, Filter, Ban, CheckCircle, Printer, Download, AlertCircle } from 'lucide-react';
 import { CardItem, HotspotProfileItem } from '../../core/types/view-models';
 import { PdfExportService } from '../../core/services/pdf-export-service';
@@ -351,16 +352,26 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
                 border: '1px solid rgba(239, 68, 68, 0.3)',
                 marginBottom: '1rem',
                 display: 'flex',
-                alignItems: 'center',
-                gap: '0.6rem',
+                flexDirection: 'column',
+                gap: '0.75rem',
               }}
             >
-              <AlertCircle size={20} color="#ef4444" style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: '0.825rem', color: '#f87171', lineHeight: 1.4 }}>
-                {isExpired
-                  ? 'انتهت صلاحية اشتراك الشبكة. لتتمكن من توليد دفعات كروت جديدة، يرجى تجديد الاشتراك.'
-                  : 'حساب الشبكة لا يملك اشتراكاً نشطاً حالياً. توليد دفعات الكروت وتشفيرها يتطلب تفعيل إحدى باقات المنصة.'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <AlertCircle size={20} color="#ef4444" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: '0.825rem', color: '#f87171', lineHeight: 1.4 }}>
+                  {isExpired
+                    ? 'انتهت صلاحية اشتراك الشبكة. لتتمكن من توليد دفعات كروت جديدة، يرجى تجديد الاشتراك.'
+                    : 'حساب الشبكة لا يملك اشتراكاً نشطاً حالياً. توليد دفعات الكروت وتشفيرها يتطلب تفعيل إحدى باقات المنصة.'}
+                </span>
+              </div>
+              <div>
+                <WhatsAppButton
+                  type="subscription"
+                  featureName="توليد دفعات الكروت"
+                  label={isExpired ? 'تجديد الاشتراك عبر واتساب' : 'طلب تفعيل الاشتراك عبر واتساب'}
+                  size="sm"
+                />
+              </div>
             </div>
           )}
 

@@ -41,6 +41,56 @@ class ApiClient {
     return localStorage.getItem('mikrotik_active_tenant_id');
   }
 
+  // Singleton promise to serialize concurrent token refresh operations
+  private refreshPromise: Promise<string | null> | null = null;
+
+  private handleSessionExpired(): void {
+    localStorage.removeItem('mikrotik_auth_token');
+    localStorage.removeItem('mikrotik_refresh_token');
+    localStorage.removeItem('mikrotik_auth_user');
+    window.dispatchEvent(new CustomEvent('auth:expired'));
+  }
+
+  private async performTokenRefresh(): Promise<string | null> {
+    const refreshToken = this.getRefreshToken();
+    if (!refreshToken) return null;
+
+    try {
+      const response = await fetch(`${this.baseUrl}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as {
+        data?: { accessToken?: string; refreshToken?: string };
+        accessToken?: string;
+        refreshToken?: string;
+      };
+
+      const data = payload?.data || payload;
+      if (data?.accessToken) {
+        localStorage.setItem('mikrotik_auth_token', data.accessToken);
+        if (data.refreshToken) {
+          localStorage.setItem('mikrotik_refresh_token', data.refreshToken);
+        }
+        return data.accessToken;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const token = this.getToken();
     const tenantId = this.getActiveTenantId();
@@ -59,10 +109,20 @@ class ApiClient {
       headers['x-tenant-id'] = tenantId;
     }
 
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${endpoint}`, {
+        ...options,
+        headers,
+      });
+    } catch (networkErr: any) {
+      // Do not log out user on temporary network disconnects or timeouts
+      throw new ApiError(
+        'تعذر الاتصال بالخادم، يرجى التحقق من اتصال الإنترنت والمحاولة مجدداً',
+        0,
+        { originalError: networkErr?.message },
+      );
+    }
 
     // Handle CSV or Blob exports
     const contentType = response.headers.get('content-type');
@@ -77,49 +137,37 @@ class ApiClient {
       payload = null;
     }
 
-    // 401 Unauthorized handling & automatic token refresh
-    if (response.status === 401 && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh')) {
-      const refreshToken = this.getRefreshToken();
-      if (refreshToken) {
-        try {
-          const refreshRes = await fetch(`${this.baseUrl}/auth/refresh`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-            },
-            body: JSON.stringify({ refreshToken }),
-          });
-          if (refreshRes.ok) {
-            const refreshPayload = (await refreshRes.json()) as {
-              data?: { accessToken?: string; refreshToken?: string };
-              accessToken?: string;
-              refreshToken?: string;
-            };
-            const refreshData = refreshPayload?.data || refreshPayload;
-            if (refreshData?.accessToken) {
-              localStorage.setItem('mikrotik_auth_token', refreshData.accessToken);
-              if (refreshData.refreshToken) {
-                localStorage.setItem('mikrotik_refresh_token', refreshData.refreshToken);
-              }
-              // Retry original request with the renewed token
-              const retryHeaders = {
-                ...headers,
-                Authorization: `Bearer ${refreshData.accessToken}`,
-              };
-              return this.request<T>(endpoint, { ...options, headers: retryHeaders });
-            }
-          }
-        } catch {
-          // Refresh failed
+    // 401 Unauthorized handling & automatic singleton token refresh
+    if (
+      response.status === 401 &&
+      !endpoint.includes('/auth/login') &&
+      !endpoint.includes('/auth/refresh')
+    ) {
+      const isRetry = Boolean((options as Record<string, unknown>)?._isRetry);
+
+      if (!isRetry) {
+        // Reuse ongoing refresh or trigger a new one
+        if (!this.refreshPromise) {
+          this.refreshPromise = this.performTokenRefresh();
+        }
+
+        const newAccessToken = await this.refreshPromise;
+
+        if (newAccessToken) {
+          const retryHeaders = {
+            ...headers,
+            Authorization: `Bearer ${newAccessToken}`,
+          };
+          return this.request<T>(endpoint, {
+            ...options,
+            headers: retryHeaders,
+            _isRetry: true,
+          } as RequestInit);
         }
       }
 
-      // If refresh failed or unavailable: clear stale session and notify
-      localStorage.removeItem('mikrotik_auth_token');
-      localStorage.removeItem('mikrotik_refresh_token');
-      localStorage.removeItem('mikrotik_auth_user');
-      window.dispatchEvent(new CustomEvent('auth:expired'));
+      // If already a retry or refresh token is invalid/expired:
+      this.handleSessionExpired();
       throw new ApiError('انتهت صلاحية الجلسة، يرجى إعادة تسجيل الدخول لمتابعة العمل', 401, payload);
     }
 

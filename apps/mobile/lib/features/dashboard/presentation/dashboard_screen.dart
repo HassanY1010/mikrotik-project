@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/utils/whatsapp_helper.dart';
+import '../../../core/widgets/whatsapp_button.dart';
 import '../../radar/presentation/radar_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
@@ -440,12 +442,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             children: [
                               Text(
                                 isExpired
-                                    ? 'تنبيه: انتهت صلاحية اشتراك الشبكة'
-                                    : (isSuspended
-                                        ? 'تنبيه: تم تعليق اشتراك الشبكة'
-                                        : 'حساب الشبكة قيد الإعداد (غير مشترك)'),
+                                    ? 'انتهت صلاحية باقة الاشتراك'
+                                    : (isSuspended ? 'الحساب معلق مؤقتاً' : 'تفعيل باقة الاشتراك مطلوب'),
                                 style: TextStyle(
-                                  color: isExpired || isSuspended ? const Color(0xFFFCA5A5) : Colors.white,
+                                  color: isExpired || isSuspended ? const Color(0xFFFCA5A5) : const Color(0xFF5EEAD4),
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
                                 ),
@@ -453,15 +453,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               const SizedBox(height: 4),
                               Text(
                                 isExpired
-                                    ? 'انتهت صلاحية باقتك السابقة؛ يرجى مراجعة إدارة المنصة لتجديد الاشتراك واستئناف العمليات.'
+                                    ? 'انتهت صلاحية باقتك السابقة؛ يرجى التواصل لتجديد الاشتراك واستئناف العمليات.'
                                     : (isSuspended
                                         ? 'تم تعليق هذا الحساب مؤقتاً؛ يرجى التواصل مع إدارة المنصة.'
-                                        : 'يمكنك استعراض النظام؛ ولتفعيل ربط موجهات ميكروتك وتوليد الكروت، يرجى التواصل مع إدارة المنصة لاعتماد الباقة.'),
+                                        : 'يمكنك استعراض النظام؛ ولتفعيل ربط موجهات ميكروتك وتوليد الكروت، يرجى تفعيل باقة الاشتراك.'),
                                 style: const TextStyle(
                                   color: Color(0xFF94A3B8),
                                   fontSize: 11,
                                   height: 1.35,
                                 ),
+                              ),
+                              const SizedBox(height: 10),
+                              WhatsAppButton(
+                                type: isSuspended ? WhatsAppActionType.support : WhatsAppActionType.subscription,
+                                label: isExpired
+                                    ? 'تجديد الاشتراك عبر واتساب'
+                                    : (isSuspended ? 'تواصل مع الدعم الفني' : 'طلب تفعيل الاشتراك عبر واتساب'),
+                                planName: quota?.planNameAr ?? quota?.planName,
+                                fontSize: 11,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               ),
                             ],
                           ),

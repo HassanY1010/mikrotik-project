@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../core/context/AuthContext';
 import { LogOut, User as UserIcon, Building2, Wifi, Menu } from 'lucide-react';
 import { apiClient } from '../../core/api/api-client';
+import { WhatsAppButton } from '../common/WhatsAppButton';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -118,6 +119,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
           />
           <span className="navbar-health-text">{isOnline ? 'الخادم متصل' : 'الخادم غير متصل'}</span>
         </div>
+
+        {/* Quick WhatsApp Support Button */}
+        <WhatsAppButton
+          type="support"
+          label="الدعم الفني"
+          variant="outline"
+          size="sm"
+          showNumber={false}
+        />
 
         {/* User Profile Badge */}
         <div className="navbar-user-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
