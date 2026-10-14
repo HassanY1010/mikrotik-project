@@ -17,6 +17,7 @@ describe('TenantsService - Super Admin & Subscriptions', () => {
     subscription: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),

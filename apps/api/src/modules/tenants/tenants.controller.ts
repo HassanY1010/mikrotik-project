@@ -201,13 +201,15 @@ export class TenantsController {
   async findAll(
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('subscriptionStatus') subscriptionStatus?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    if (search !== undefined || status !== undefined || page !== undefined || limit !== undefined) {
+    if (search !== undefined || status !== undefined || subscriptionStatus !== undefined || page !== undefined || limit !== undefined) {
       return this.tenantsService.findPaginated({
         search,
         status: status as TenantStatus,
+        subscriptionStatus,
         page: page ? parseInt(page, 10) : 1,
         limit: limit ? parseInt(limit, 10) : 20,
       });

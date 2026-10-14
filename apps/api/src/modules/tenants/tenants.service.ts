@@ -209,17 +209,46 @@ export class TenantsService {
   async findPaginated(query: {
     search?: string;
     status?: string;
+    subscriptionStatus?: string;
     page?: number;
     limit?: number;
   }): Promise<{ data: Record<string, unknown>[]; meta: { total: number; page: number; limit: number; totalPages: number } }> {
     const page = Math.max(1, query.page || 1);
     const limit = Math.max(1, Math.min(100, query.limit || 20));
     const skip = (page - 1) * limit;
+    const now = new Date();
 
     const where: Prisma.TenantWhereInput = { deletedAt: null };
 
     if (query.status && Object.values(TenantStatus).includes(query.status as TenantStatus)) {
       where.status = query.status as TenantStatus;
+    }
+
+    if (query.subscriptionStatus) {
+      if (query.subscriptionStatus === 'ACTIVE') {
+        where.subscriptions = {
+          some: {
+            status: SubscriptionStatus.ACTIVE,
+            expiresAt: { gt: now },
+          },
+        };
+      } else if (query.subscriptionStatus === 'EXPIRED') {
+        where.subscriptions = {
+          some: {
+            OR: [
+              { status: SubscriptionStatus.EXPIRED },
+              { expiresAt: { lte: now } },
+            ],
+          },
+        };
+      } else if (query.subscriptionStatus === 'NONE') {
+        where.subscriptions = {
+          none: {
+            status: SubscriptionStatus.ACTIVE,
+            expiresAt: { gt: now },
+          },
+        };
+      }
     }
 
     if (query.search && query.search.trim().length > 0) {
@@ -239,9 +268,8 @@ export class TenantsService {
         take: limit,
         include: {
           subscriptions: {
-            where: { status: SubscriptionStatus.ACTIVE },
             include: { plan: true },
-            orderBy: { expiresAt: 'desc' },
+            orderBy: { createdAt: 'desc' },
             take: 1,
           },
           _count: {
@@ -257,27 +285,87 @@ export class TenantsService {
       this.prisma.tenant.count({ where }),
     ]);
 
-    const data = tenants.map((t) => ({
-      id: t.id,
-      name: t.name,
-      slug: t.slug,
-      status: t.status,
-      currency: t.currency,
-      contactEmail: t.contactEmail,
-      phone: t.phone,
-      createdAt: t.createdAt,
-      activeSubscription: t.subscriptions[0]
-        ? {
-            id: t.subscriptions[0].id,
-            planName: t.subscriptions[0].plan.name,
-            planNameAr: t.subscriptions[0].plan.nameAr,
-            maxRouters: t.subscriptions[0].maxRouters,
-            expiresAt: t.subscriptions[0].expiresAt,
-            billingCycle: t.subscriptions[0].billingCycle,
-          }
-        : null,
-      counts: t._count,
-    }));
+    const tenantIds = tenants.map((t) => t.id);
+
+    // Group online devices and consumed cards across retrieved tenants safely
+    const [onlineDevicesGroup, consumedCardsGroup] = await Promise.all([
+      this.prisma.mikroTikDevice && (this.prisma.mikroTikDevice as any).groupBy
+        ? (this.prisma.mikroTikDevice as any)
+            .groupBy({
+              by: ['tenantId'],
+              where: {
+                tenantId: { in: tenantIds },
+                deletedAt: null,
+                isOnline: true,
+              },
+              _count: { id: true },
+            })
+            .catch(() => [])
+        : Promise.resolve([]),
+      this.prisma.card && (this.prisma.card as any).groupBy
+        ? (this.prisma.card as any)
+            .groupBy({
+              by: ['tenantId'],
+              where: {
+                tenantId: { in: tenantIds },
+                status: { in: [CardStatus.ACTIVE, CardStatus.EXPIRED] },
+              },
+              _count: { id: true },
+            })
+            .catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    const onlineDevicesMap = new Map<string, number>();
+    for (const g of onlineDevicesGroup as any[]) {
+      if (g.tenantId) {
+        onlineDevicesMap.set(g.tenantId, g._count?.id || 0);
+      }
+    }
+
+    const consumedCardsMap = new Map<string, number>();
+    for (const g of consumedCardsGroup as any[]) {
+      if (g.tenantId) {
+        consumedCardsMap.set(g.tenantId, g._count?.id || 0);
+      }
+    }
+
+    const data = tenants.map((t) => {
+      const sub = t.subscriptions && t.subscriptions[0];
+      const isSubActive = sub && sub.status === SubscriptionStatus.ACTIVE && new Date(sub.expiresAt) > now;
+      const isSubExpired = sub && (sub.status === SubscriptionStatus.EXPIRED || new Date(sub.expiresAt) <= now);
+      const subscriptionStatus = isSubActive ? 'ACTIVE' : isSubExpired ? 'EXPIRED' : (sub ? sub.status : 'NONE');
+
+      return {
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        status: t.status,
+        currency: t.currency,
+        contactEmail: t.contactEmail,
+        phone: t.phone,
+        createdAt: t.createdAt,
+        activeSubscription: sub
+          ? {
+              id: sub.id,
+              planName: sub.plan.name,
+              planNameAr: sub.plan.nameAr,
+              maxRouters: sub.maxRouters,
+              expiresAt: sub.expiresAt,
+              billingCycle: sub.billingCycle,
+              status: subscriptionStatus,
+              isCurrentActive: isSubActive,
+            }
+          : null,
+        counts: {
+          devices: t._count?.devices || 0,
+          onlineDevices: onlineDevicesMap.get(t.id) || 0,
+          cards: t._count?.cards || 0,
+          consumedCards: consumedCardsMap.get(t.id) || 0,
+          users: t._count?.users || 0,
+        },
+      };
+    });
 
     return {
       data,
@@ -361,6 +449,7 @@ export class TenantsService {
             status: true,
             rosVersion: true,
             isOnline: true,
+            lastSyncAt: true,
           },
         },
         _count: {
@@ -377,7 +466,27 @@ export class TenantsService {
       throw new NotFoundException('Tenant not found');
     }
 
-    return tenant;
+    const [activeCardsCount, expiredCardsCount, availableCardsCount] = await Promise.all([
+      Promise.resolve()
+        .then(() => (this.prisma.card ? this.prisma.card.count({ where: { tenantId: id, status: CardStatus.ACTIVE } }) : 0))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => (this.prisma.card ? this.prisma.card.count({ where: { tenantId: id, status: CardStatus.EXPIRED } }) : 0))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => (this.prisma.card ? this.prisma.card.count({ where: { tenantId: id, status: CardStatus.AVAILABLE } }) : 0))
+        .catch(() => 0),
+    ]);
+
+    return {
+      ...tenant,
+      cardStats: {
+        total: tenant._count?.cards ?? 0,
+        active: activeCardsCount,
+        expired: expiredCardsCount,
+        available: availableCardsCount,
+      },
+    };
   }
 
 
@@ -431,8 +540,22 @@ export class TenantsService {
     const durationMonths =
       dto.durationMonths ?? (dto.billingCycle === BillingCycle.YEARLY ? 12 : 1);
 
+    const activeSub = this.prisma.subscription?.findFirst
+      ? await this.prisma.subscription
+          .findFirst({
+            where: {
+              tenantId,
+              status: SubscriptionStatus.ACTIVE,
+              expiresAt: { gt: new Date() },
+            },
+            orderBy: { expiresAt: 'desc' },
+          })
+          .catch(() => null)
+      : null;
+
     const startsAt = new Date();
-    const expiresAt = new Date();
+    const baseDate = activeSub ? new Date(activeSub.expiresAt) : new Date();
+    const expiresAt = new Date(baseDate);
     expiresAt.setMonth(expiresAt.getMonth() + durationMonths);
 
     const price = dto.billingCycle === BillingCycle.YEARLY ? plan.priceYearly : plan.priceMonthly;
