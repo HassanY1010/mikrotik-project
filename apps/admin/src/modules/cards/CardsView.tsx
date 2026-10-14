@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
+import { useSubscription } from '../../core/context/SubscriptionContext';
 import { Modal } from '../../components/common/Modal';
-import { CreditCard, Plus, RefreshCw, QrCode, Search, Filter, Ban, CheckCircle, Printer, Download } from 'lucide-react';
+import { CreditCard, Plus, RefreshCw, QrCode, Search, Filter, Ban, CheckCircle, Printer, Download, AlertCircle } from 'lucide-react';
 import { CardItem, HotspotProfileItem } from '../../core/types/view-models';
 import { PdfExportService } from '../../core/services/pdf-export-service';
 
@@ -12,6 +13,7 @@ interface CardsViewProps {
 
 export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
   const { showToast } = useToast();
+  const { subscription, isSubscribed, isExpired } = useSubscription();
   const [cards, setCards] = useState<CardItem[]>([]);
   const [profiles, setProfiles] = useState<HotspotProfileItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -186,7 +188,25 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {isSubscribed ? (
+            <span
+              className="badge badge-success"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
+            >
+              حصة الكروت:{' '}
+              {subscription?.isUnlimited
+                ? 'مفتوحة (Unlimited)'
+                : `${Number(subscription?.remainingCards ?? 0).toLocaleString()} متبقي`}
+            </span>
+          ) : (
+            <span
+              className="badge badge-warning"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
+            >
+              توليد الكروت: يتطلب تفعيل الاشتراك
+            </span>
+          )}
           {onNavigate && (
             <button
               className="btn btn-outline"
@@ -322,6 +342,28 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
         maxWidth="520px"
       >
         <form onSubmit={handleGenerateBatch}>
+          {!isSubscribed && (
+            <div
+              style={{
+                padding: '0.85rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.6rem',
+              }}
+            >
+              <AlertCircle size={20} color="#ef4444" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: '0.825rem', color: '#f87171', lineHeight: 1.4 }}>
+                {isExpired
+                  ? 'انتهت صلاحية اشتراك الشبكة. لتتمكن من توليد دفعات كروت جديدة، يرجى تجديد الاشتراك.'
+                  : 'حساب الشبكة لا يملك اشتراكاً نشطاً حالياً. توليد دفعات الكروت وتشفيرها يتطلب تفعيل إحدى باقات المنصة.'}
+              </span>
+            </div>
+          )}
+
           <div className="form-group">
             <label className="form-label" htmlFor="gen-profile">
               اختر باقة الكروت المستهدفة *
@@ -440,7 +482,13 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
             >
               إلغاء
             </button>
-            <button type="submit" className="btn btn-primary" disabled={isGenerating}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={isGenerating || !isSubscribed}
+              style={!isSubscribed ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+              title={!isSubscribed ? 'يتطلب تفعيل الاشتراك' : undefined}
+            >
               {isGenerating ? 'جاري التوليد والتشفير...' : `توليد ${batchForm.quantity} كرت الآن`}
             </button>
           </div>

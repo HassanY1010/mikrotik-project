@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
+import { useSubscription } from '../../core/context/SubscriptionContext';
 import { Modal } from '../../components/common/Modal';
 import {
   Router as RouterIcon,
@@ -16,11 +17,13 @@ import {
   Shield,
   Lock,
   Unlock,
+  AlertCircle,
 } from 'lucide-react';
 import { DeviceItem, DiagnosticsData } from '../../core/types/view-models';
 
 export const DevicesView: React.FC = () => {
   const { showToast } = useToast();
+  const { subscription, isSubscribed, isExpired } = useSubscription();
   const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -298,7 +301,22 @@ export const DevicesView: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {isSubscribed ? (
+            <span
+              className="badge badge-info"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
+            >
+              سعة الراوترات: {devices.length} / {subscription?.maxRouters || 1} أجهزة
+            </span>
+          ) : (
+            <span
+              className="badge badge-warning"
+              style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
+            >
+              إضافة الراوترات: يتطلب تفعيل الاشتراك
+            </span>
+          )}
           <button className="btn btn-outline" onClick={() => fetchDevices(true)} disabled={loading}>
             <RefreshCw size={16} />
             تحديث القائمة
@@ -451,6 +469,28 @@ export const DevicesView: React.FC = () => {
         maxWidth="580px"
       >
         <form onSubmit={handleAddDevice}>
+          {!isSubscribed && (
+            <div
+              style={{
+                padding: '0.85rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                marginBottom: '1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.6rem',
+              }}
+            >
+              <AlertCircle size={20} color="#ef4444" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: '0.825rem', color: '#f87171', lineHeight: 1.4 }}>
+                {isExpired
+                  ? 'انتهت صلاحية اشتراك الشبكة. لتتمكن من إضافة أجهزة راوتر جديدة، يرجى تجديد الاشتراك مع إدارة المنصة.'
+                  : 'حساب الشبكة لا يملك اشتراكاً نشطاً حالياً. إضافة وحفظ أجهزة ميكروتك تتطلب تفعيل إحدى باقات الخدمة أولاً.'}
+              </span>
+            </div>
+          )}
+
           <div className="form-group">
             <label className="form-label" htmlFor="dev-name">
               اسم الراوتر التعريفي *
@@ -603,7 +643,13 @@ export const DevicesView: React.FC = () => {
             <button type="button" className="btn btn-outline" onClick={() => setIsAddOpen(false)}>
               إلغاء
             </button>
-            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={isSubmitting || !isSubscribed}
+              style={!isSubscribed ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+              title={!isSubscribed ? 'يتطلب تفعيل الاشتراك' : undefined}
+            >
               {isSubmitting ? 'جاري الحفظ والتحقق...' : 'إضافة وتأكيد الراوتر'}
             </button>
           </div>

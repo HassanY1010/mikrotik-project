@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { StatCard } from '../../components/common/StatCard';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
+import { useSubscription } from '../../core/context/SubscriptionContext';
 import {
   CreditCard,
   DollarSign,
@@ -12,6 +13,7 @@ import {
   RefreshCw,
   TrendingUp,
   Activity,
+  Sparkles,
 } from 'lucide-react';
 import { NavigationTab } from '../../components/layout/Sidebar';
 import { DashboardData } from '../../core/types/view-models';
@@ -22,6 +24,7 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const { showToast } = useToast();
+  const { isSubscribed, hasNoSubscription } = useSubscription();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardData>({
     kpis: {
@@ -136,6 +139,70 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </button>
         </div>
       </div>
+
+      {/* Subscription Status Callout for Non-Subscribed / Expired Tenants */}
+      {!isSubscribed && (
+        <div
+          style={{
+            padding: '1.25rem 1.5rem',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: hasNoSubscription ? 'rgba(13, 148, 136, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+            border: `1px solid ${hasNoSubscription ? 'rgba(13, 148, 136, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1.25rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: hasNoSubscription ? 'rgba(13, 148, 136, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: hasNoSubscription ? 'var(--primary)' : '#f59e0b',
+                flexShrink: 0,
+              }}
+            >
+              <Sparkles size={22} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {hasNoSubscription ? 'حساب الشبكة قيد التهيئة التجريبية' : 'اشتراك الشبكة بحاجة إلى تجديد'}
+                </h3>
+                <span className={`badge ${hasNoSubscription ? 'badge-warning' : 'badge-danger'}`}>
+                  {hasNoSubscription ? 'غير مشترك' : 'منتهي الصلاحية'}
+                </span>
+              </div>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px', maxWidth: '700px' }}>
+                {hasNoSubscription
+                  ? 'يمكنك استعراض النظام وتجربة مصمم صفحات الهوتسبوت؛ وعند اعتماد وتفعيل باقتك من قِبل إدارة المنصة ستفتح لك إمكانية توليد الكروت وربط راوترات ميكروتك بالكامل.'
+                  : 'انتهت صلاحية باقتك السابقة؛ يرجى مراجعة إدارة المنصة لتجديد الاشتراك واستعادة صلاحيات توليد الكروت وإضافة الأجهزة.'}
+              </p>
+            </div>
+          </div>
+          <button
+            className="btn btn-outline"
+            onClick={() => onNavigate('settings')}
+            style={{
+              borderColor: hasNoSubscription ? 'rgba(13, 148, 136, 0.5)' : 'rgba(245, 158, 11, 0.5)',
+              color: hasNoSubscription ? 'var(--primary)' : '#f59e0b',
+              padding: '0.6rem 1.1rem',
+              fontSize: '0.875rem',
+            }}
+          >
+            <CreditCard size={16} />
+            استعراض باقات وحصص الشبكة
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards Grid */}
       <div className="grid-cols-4" style={{ marginBottom: '1.5rem' }}>

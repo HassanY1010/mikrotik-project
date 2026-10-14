@@ -354,8 +354,23 @@ export const TenantSettingsView: React.FC = () => {
               <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
                 نوع الخطة الحالية:
               </span>
-              <span className="badge badge-success" style={{ fontSize: '0.85rem' }}>
-                {tenant.subscription?.planNameAr || tenant.subscription?.plan || 'لا يوجد باقة نشطة'}
+              <span
+                className={`badge ${
+                  tenant.subscription?.status === 'ACTIVE'
+                    ? 'badge-success'
+                    : tenant.subscription?.status === 'EXPIRED' || tenant.subscription?.status === 'SUSPENDED'
+                    ? 'badge-danger'
+                    : 'badge-warning'
+                }`}
+                style={{ fontSize: '0.85rem' }}
+              >
+                {tenant.subscription?.status === 'ACTIVE'
+                  ? (tenant.subscription?.planNameAr || tenant.subscription?.plan)
+                  : tenant.subscription?.status === 'EXPIRED'
+                  ? `منتهي الصلاحية (${tenant.subscription?.planNameAr || tenant.subscription?.plan})`
+                  : tenant.subscription?.status === 'SUSPENDED'
+                  ? 'معلق'
+                  : 'غير مشترك (لا توجد باقة نشطة)'}
               </span>
             </div>
 
@@ -368,7 +383,11 @@ export const TenantSettingsView: React.FC = () => {
               }}
             >
               <span style={{ color: 'var(--text-secondary)' }}>أجهزة الراوتر المسموحة:</span>
-              <strong>{tenant.subscription?.maxRouters || 1} أجهزة</strong>
+              <strong>
+                {tenant.subscription?.status === 'ACTIVE'
+                  ? `${tenant.subscription?.maxRouters || 1} أجهزة`
+                  : '0 أجهزة (يتطلب اشتراك نشط)'}
+              </strong>
             </div>
 
             <div
@@ -381,9 +400,11 @@ export const TenantSettingsView: React.FC = () => {
             >
               <span style={{ color: 'var(--text-secondary)' }}>سقف توليد الكروت (شهرياً):</span>
               <strong>
-                {tenant.subscription?.isUnlimited || !tenant.subscription?.maxCardsPerMonth
-                  ? 'غير محدود (Unlimited)'
-                  : `${Number(tenant.subscription.maxCardsPerMonth).toLocaleString()} كرت`}
+                {tenant.subscription?.status === 'ACTIVE'
+                  ? tenant.subscription?.isUnlimited || !tenant.subscription?.maxCardsPerMonth
+                    ? 'غير محدود (Unlimited)'
+                    : `${Number(tenant.subscription.maxCardsPerMonth).toLocaleString()} كرت`
+                  : '0 كرت (يتطلب اشتراك نشط)'}
               </strong>
             </div>
 

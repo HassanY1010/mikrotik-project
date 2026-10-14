@@ -452,24 +452,24 @@ async function main(): Promise<void> {
   const adminEmail = 'ahmed@gmail.com';
   const adminRawPassword = 'ahmed123';
   const adminPasswordHash = await hash(adminRawPassword, ARGON2_OPTIONS);
-  const tenantAdminRoleId = rolesMap.get(RoleName.TENANT_ADMIN)!;
+  const superAdminRoleId = rolesMap.get(RoleName.SUPER_ADMIN)!;
 
   await prisma.user.upsert({
     where: { email: adminEmail },
     update: {
       passwordHash: adminPasswordHash,
-      roleId: tenantAdminRoleId,
-      tenantId: demoTenant.id,
-      fullName: 'أحمد - مدير النظام',
+      roleId: superAdminRoleId,
+      tenantId: null,
+      fullName: 'أحمد - مدير النظام (Super Admin)',
       status: UserStatus.ACTIVE,
     },
     create: {
       email: adminEmail,
       passwordHash: adminPasswordHash,
-      fullName: 'أحمد - مدير النظام',
+      fullName: 'أحمد - مدير النظام (Super Admin)',
       phone: '+249912345678',
-      roleId: tenantAdminRoleId,
-      tenantId: demoTenant.id,
+      roleId: superAdminRoleId,
+      tenantId: null,
       status: UserStatus.ACTIVE,
     },
   });

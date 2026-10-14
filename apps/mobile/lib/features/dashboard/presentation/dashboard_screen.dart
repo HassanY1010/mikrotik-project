@@ -393,6 +393,87 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Subscription Status Banner for Non-Subscribed / Expired Accounts
+              ref.watch(tenantQuotaProvider).when(
+                data: (quota) {
+                  final status = quota?.status ?? 'NONE';
+                  if (status == 'ACTIVE') return const SizedBox.shrink();
+
+                  final isExpired = status == 'EXPIRED';
+                  final isSuspended = status == 'SUSPENDED';
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: isExpired || isSuspended
+                          ? const Color(0xFFEF4444).withValues(alpha: 0.12)
+                          : const Color(0xFF0F766E).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: isExpired || isSuspended
+                            ? const Color(0xFFEF4444).withValues(alpha: 0.4)
+                            : const Color(0xFF0D9488).withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: isExpired || isSuspended
+                                ? const Color(0xFFEF4444).withValues(alpha: 0.2)
+                                : const Color(0xFF0D9488).withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            isExpired ? Icons.timer_off_outlined : (isSuspended ? Icons.block_rounded : Icons.info_outline_rounded),
+                            color: isExpired || isSuspended ? const Color(0xFFF87171) : const Color(0xFF2DD4BF),
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isExpired
+                                    ? 'تنبيه: انتهت صلاحية اشتراك الشبكة'
+                                    : (isSuspended
+                                        ? 'تنبيه: تم تعليق اشتراك الشبكة'
+                                        : 'حساب الشبكة قيد الإعداد (غير مشترك)'),
+                                style: TextStyle(
+                                  color: isExpired || isSuspended ? const Color(0xFFFCA5A5) : Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                isExpired
+                                    ? 'انتهت صلاحية باقتك السابقة؛ يرجى مراجعة إدارة المنصة لتجديد الاشتراك واستئناف العمليات.'
+                                    : (isSuspended
+                                        ? 'تم تعليق هذا الحساب مؤقتاً؛ يرجى التواصل مع إدارة المنصة.'
+                                        : 'يمكنك استعراض النظام؛ ولتفعيل ربط موجهات ميكروتك وتوليد الكروت، يرجى التواصل مع إدارة المنصة لاعتماد الباقة.'),
+                                style: const TextStyle(
+                                  color: Color(0xFF94A3B8),
+                                  fontSize: 11,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
+              ),
+
               // Router selector & status banner
               routersAsync.when(
                 data: (routers) {

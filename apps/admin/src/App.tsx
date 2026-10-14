@@ -1,6 +1,8 @@
 import React, { useState, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './core/context/AuthContext';
 import { ToastProvider } from './core/context/ToastContext';
+import { SubscriptionProvider } from './core/context/SubscriptionContext';
+import { SubscriptionAlertBanner } from './components/common/SubscriptionAlertBanner';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar, NavigationTab } from './components/layout/Sidebar';
 import { LoginView } from './modules/auth/LoginView';
@@ -183,6 +185,7 @@ const AdminLayout: React.FC = () => {
       />
       <div className="main-content">
         <Navbar onToggleSidebar={handleToggleSidebar} />
+        <SubscriptionAlertBanner onNavigateTab={(tab) => setCurrentTab(tab)} />
         <main className="page-body">
           <Suspense fallback={<ViewLoadingFallback />}>
             {renderActiveView()}
@@ -196,9 +199,11 @@ const AdminLayout: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <AdminLayout />
-      </ToastProvider>
+      <SubscriptionProvider>
+        <ToastProvider>
+          <AdminLayout />
+        </ToastProvider>
+      </SubscriptionProvider>
     </AuthProvider>
   );
 };

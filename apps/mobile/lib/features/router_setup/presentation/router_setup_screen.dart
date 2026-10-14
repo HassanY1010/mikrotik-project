@@ -130,6 +130,43 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   void _handleSaveDevice() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final quota = ref.read(tenantQuotaProvider).asData?.value;
+    final status = quota?.status ?? 'NONE';
+    if (widget.router == null && status != 'ACTIVE') {
+      final isExpired = status == 'EXPIRED';
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.lock_outline_rounded, color: Color(0xFFF59E0B), size: 24),
+              SizedBox(width: 8),
+              Text(
+                'تفعيل الاشتراك مطلوب',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Text(
+            isExpired
+                ? 'انتهت صلاحية باقة هذه الشبكة. لا يمكن ربط أجهزة راوتر جديدة حتى تجديد الاشتراك من قبل إدارة المنصة.'
+                : 'حساب هذه الشبكة غير مشترك حالياً. يرجى مراجعة إدارة المنصة لتفعيل باقة اشتراك سارية تمكنك من إضافة أجهزة الراوتر.',
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
+              child: const Text('حسناً، فهمت', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final host = _hostController.text.trim();
     final user = _userController.text.trim();
     final pass = _passController.text.trim();
@@ -232,7 +269,69 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 ),
               ),
 
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
+
+              // Subscription Alert if Not Active
+              () {
+                final quota = ref.watch(tenantQuotaProvider).asData?.value;
+                final status = quota?.status ?? 'NONE';
+                if (widget.router != null || status == 'ACTIVE') return const SizedBox.shrink();
+
+                final isExpired = status == 'EXPIRED';
+                final isWarning = isExpired || status == 'SUSPENDED';
+                final color = isWarning ? const Color(0xFFEF4444) : const Color(0xFFF59E0B);
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: color.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        isWarning ? Icons.warning_amber_rounded : Icons.lock_outline_rounded,
+                        color: color,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isExpired
+                                  ? 'تنبيه: اشتراك الشبكة منتهي الصلاحية'
+                                  : 'تنبيه: حساب الشبكة غير مشترك حالياً',
+                              style: TextStyle(
+                                color: isWarning ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              isExpired
+                                  ? 'لا يمكن إضافة أجهزة راوتر جديدة حتى تجديد باقة الاشتراك. يمكنك فقط تجربة الاتصال والاختبار.'
+                                  : 'يتطلب حفظ وربط أجهزة جديدة تفعيل باقة اشتراك سارية للشبكة من قبل إدارة المنصة (Super Admin). يمكنك استعراض الإعدادات واختبار الاتصال.',
+                              style: const TextStyle(
+                                color: Color(0xFF94A3B8),
+                                fontSize: 11,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }(),
+
+              const SizedBox(height: 4),
 
               // Router Name
               _buildTextField(

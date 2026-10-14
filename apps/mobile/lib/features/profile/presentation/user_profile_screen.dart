@@ -503,14 +503,46 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   Widget _buildSubscriptionQuotaCard(AsyncValue<TenantQuotaModel?> quotaAsync) {
     return quotaAsync.when(
       data: (quota) {
-        final planName = quota?.planNameAr ?? quota?.planName ?? 'الباقة النشطة';
-        final isUnlimited = quota?.isUnlimited == true;
-        final limit = quota?.cardLimit;
-        final used = quota?.usedCards ?? 0;
-        final remaining = quota?.remainingCards;
+        final status = quota?.status ?? 'NONE';
+        final isNotSubscribed = status == 'NONE' || quota == null;
+        final isExpired = status == 'EXPIRED';
+        final isSuspended = status == 'SUSPENDED';
+        final isActive = status == 'ACTIVE' && quota != null;
+
+        final planName = isNotSubscribed
+            ? 'غير مشترك (لا توجد باقة)'
+            : (isExpired
+                ? 'منتهي الصلاحية'
+                : (isSuspended
+                    ? 'معلق مؤقتاً'
+                    : (quota.planNameAr ?? quota.planName ?? 'الباقة النشطة')));
+
+        final isUnlimited = quota != null && isActive && quota.isUnlimited;
+        final limit = (quota != null && !isNotSubscribed) ? quota.cardLimit : 0;
+        final used = (quota != null && !isNotSubscribed) ? quota.usedCards : 0;
+        final remaining = (quota != null && !isNotSubscribed)
+            ? (quota.remainingCards ?? (limit != null ? (limit - used).clamp(0, 999999999) : 0))
+            : 0;
+        final maxRouters = (quota != null && !isNotSubscribed) ? quota.maxRouters : 0;
+        final cycleEnd = quota?.cycleEnd;
+        final expiresAt = quota?.expiresAt;
+
         final double usagePercent = (!isUnlimited && limit != null && limit > 0)
             ? (used / limit).clamp(0.0, 1.0)
             : 0.0;
+
+        Color badgeColor;
+        Color badgeBorder;
+        if (isActive) {
+          badgeColor = const Color(0xFF10B981);
+          badgeBorder = const Color(0xFF10B981);
+        } else if (isExpired || isSuspended) {
+          badgeColor = const Color(0xFFEF4444);
+          badgeBorder = const Color(0xFFEF4444);
+        } else {
+          badgeColor = const Color(0xFFF59E0B);
+          badgeBorder = const Color(0xFFF59E0B);
+        }
 
         return Container(
           padding: const EdgeInsets.all(16),
@@ -521,56 +553,121 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               end: Alignment.bottomLeft,
             ),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+            border: Border.all(
+              color: isNotSubscribed
+                  ? const Color(0xFFF59E0B).withValues(alpha: 0.3)
+                  : (isExpired ? const Color(0xFFEF4444).withValues(alpha: 0.3) : const Color(0xFF0284C7).withValues(alpha: 0.3)),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const Icon(Icons.credit_card_rounded, color: Color(0xFF38BDF8), size: 20),
+                  Icon(
+                    Icons.card_membership_rounded,
+                    color: isNotSubscribed
+                        ? const Color(0xFFFBBF24)
+                        : (isExpired ? const Color(0xFFF87171) : const Color(0xFF38BDF8)),
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   const Text(
-                    'تفاصيل باقة الاشتراك وحصص الكروت:',
+                    'تفاصيل باقة الاشتراك والحصص:',
                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                   const Spacer(),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                      color: badgeColor.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF10B981)),
+                      border: Border.all(color: badgeBorder),
                     ),
                     child: Text(
                       planName,
-                      style: const TextStyle(color: Color(0xFF34D399), fontWeight: FontWeight.bold, fontSize: 11),
+                      style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 11),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 14),
+
+              // Non-subscribed / expired informative warning banner
+              if (isNotSubscribed || isExpired || isSuspended) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: (isExpired ? const Color(0xFFEF4444) : const Color(0xFFF59E0B)).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: (isExpired ? const Color(0xFFEF4444) : const Color(0xFFF59E0B)).withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isExpired ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                        color: isExpired ? const Color(0xFFF87171) : const Color(0xFFFBBF24),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isExpired
+                              ? 'انتهت صلاحية باقة هذه الشبكة. يرجى التواصل مع إدارة المنصة لتجديد الاشتراك.'
+                              : (isSuspended
+                                  ? 'تم تعليق هذا الحساب. يرجى التواصل مع إدارة المنصة.'
+                                  : 'هذا الحساب غير مرتبط بباقة نشطة حالياً. يرجى التواصل مع إدارة المنصة لتفعيل الاشتراك وحصص الكروت.'),
+                          style: TextStyle(
+                            color: isExpired ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A),
+                            fontSize: 11,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              _buildInfoRow(
+                'الحد الأقصى لأجهزة الراوتر',
+                isNotSubscribed ? '0 أجهزة (غير مشترك)' : '$maxRouters أجهزة',
+                Icons.router_outlined,
+                valueColor: isNotSubscribed ? const Color(0xFF94A3B8) : Colors.white,
+              ),
+              const Divider(color: Color(0xFF334155), height: 16),
               _buildInfoRow(
                 'الحد الأقصى للكروت بالدورة',
-                isUnlimited ? 'غير محدود (Unlimited)' : '$limit كرت',
+                isNotSubscribed
+                    ? '0 كرت'
+                    : (isUnlimited ? 'غير محدود (Unlimited)' : '$limit كرت'),
                 Icons.all_inclusive_rounded,
-                valueColor: isUnlimited ? const Color(0xFF38BDF8) : Colors.white,
+                valueColor: isNotSubscribed
+                    ? const Color(0xFF94A3B8)
+                    : (isUnlimited ? const Color(0xFF38BDF8) : Colors.white),
               ),
               const Divider(color: Color(0xFF334155), height: 16),
               _buildInfoRow(
                 'الكروت المستهلكة',
                 '$used كرت',
                 Icons.check_circle_outline,
-                valueColor: const Color(0xFFFBBF24),
+                valueColor: isNotSubscribed ? const Color(0xFF94A3B8) : const Color(0xFFFBBF24),
               ),
               const Divider(color: Color(0xFF334155), height: 16),
               _buildInfoRow(
-                'الرصيد المتبقي',
-                isUnlimited ? 'مفتوح' : '${remaining ?? (limit != null ? limit - used : 0)} كرت',
+                'الرصيد المتبقي للتوليد',
+                isNotSubscribed
+                    ? '0 كرت'
+                    : (isUnlimited ? 'مفتوح' : '$remaining كرت'),
                 Icons.hourglass_bottom_rounded,
-                valueColor: const Color(0xFF10B981),
+                valueColor: isNotSubscribed
+                    ? const Color(0xFFEF4444)
+                    : (isUnlimited ? const Color(0xFF38BDF8) : const Color(0xFF10B981)),
               ),
-              if (!isUnlimited && limit != null && limit > 0) ...[
+              if (isActive && !isUnlimited && limit != null && limit > 0) ...[
                 const SizedBox(height: 12),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(6),
@@ -591,21 +688,21 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                       'نسبة الاستهلاك: ${(usagePercent * 100).toStringAsFixed(1)}%',
                       style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
                     ),
-                    if (quota?.cycleEnd != null)
+                    if (cycleEnd != null)
                       Text(
-                        'تجديد الحصة: ${quota!.cycleEnd!.day}/${quota.cycleEnd!.month}/${quota.cycleEnd!.year}',
+                        'تجديد الحصة: ${cycleEnd.day}/${cycleEnd.month}/${cycleEnd.year}',
                         style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
                       ),
                   ],
                 ),
               ],
-              if (quota?.expiresAt != null) ...[
+              if (expiresAt != null) ...[
                 const Divider(color: Color(0xFF334155), height: 16),
                 _buildInfoRow(
                   'تاريخ انتهاء الاشتراك',
-                  '${quota!.expiresAt!.day}/${quota.expiresAt!.month}/${quota.expiresAt!.year}',
+                  '${expiresAt.day}/${expiresAt.month}/${expiresAt.year}',
                   Icons.event_available_outlined,
-                  valueColor: const Color(0xFF34D399),
+                  valueColor: isExpired ? const Color(0xFFEF4444) : const Color(0xFF34D399),
                 ),
               ],
             ],

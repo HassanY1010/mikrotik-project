@@ -96,6 +96,43 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
   void _handleGenerateBatch(List<HotspotProfileModel> profiles, List<RouterDeviceModel> routers) async {
     if (_isGenerating) return;
 
+    final quota = ref.read(tenantQuotaProvider).asData?.value;
+    final status = quota?.status ?? 'NONE';
+    if (status != 'ACTIVE') {
+      final isExpired = status == 'EXPIRED';
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.lock_outline_rounded, color: Color(0xFFF59E0B), size: 24),
+              SizedBox(width: 8),
+              Text(
+                'تفعيل الاشتراك مطلوب',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Text(
+            isExpired
+                ? 'انتهت صلاحية باقة هذه الشبكة. يرجى تجديد الاشتراك مع إدارة المنصة لتتمكن من استئناف توليد وطباعة الكروت.'
+                : 'حساب هذه الشبكة غير مرتبط بباقة نشطة حالياً. يرجى التواصل مع إدارة المنصة (Super Admin) لتفعيل باقة الاشتراك وتحديد حصص الكروت.',
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
+              child: const Text('حسناً، فهمت', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     if (profiles.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('الرجاء الانتظار حتى تحميل الباقات أو إنشاء باقة أولاً')),
@@ -1151,7 +1188,50 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     final quotaAsync = ref.watch(tenantQuotaProvider);
     return quotaAsync.when(
       data: (quota) {
-        if (quota == null) return const SizedBox.shrink();
+        final status = quota?.status ?? 'NONE';
+        final isNotSubscribed = status == 'NONE' || quota == null;
+        final isExpired = status == 'EXPIRED';
+        final isSuspended = status == 'SUSPENDED';
+
+        if (isNotSubscribed || isExpired || isSuspended) {
+          final isWarning = isExpired || isSuspended;
+          final color = isWarning ? const Color(0xFFEF4444) : const Color(0xFFF59E0B);
+          final text = isExpired
+              ? 'تنبيه: انتهت صلاحية باقة الشبكة • يتطلب تجديد الاشتراك لتوليد الكروت'
+              : (isSuspended
+                  ? 'تنبيه: اشتراك الشبكة معلق مؤقتاً • لا يمكن توليد الكروت'
+                  : 'تنبيه: حساب الشبكة غير مشترك حالياً • يتطلب تفعيل الاشتراك لتوليد الكروت');
+
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: color.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isWarning ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                  color: color,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      color: isWarning ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
         final planName = quota.planNameAr ?? quota.planName ?? 'الباقة النشطة';
         final isUnlimited = quota.isUnlimited;
         final limit = quota.cardLimit;
