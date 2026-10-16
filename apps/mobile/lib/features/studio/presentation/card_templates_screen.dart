@@ -1,8 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
@@ -16,131 +14,6 @@ class CardTemplatesScreen extends ConsumerStatefulWidget {
 }
 
 class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
-  bool _isImporting = false;
-
-  Future<void> _handleImportFromDevice() async {
-    setState(() => _isImporting = true);
-    try {
-      final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['json'],
-        allowMultiple: false,
-      );
-
-      if (result == null || result.files.isEmpty) {
-        setState(() => _isImporting = false);
-        return; // User cancelled
-      }
-
-      final file = result.files.first;
-
-      // File size security validation: max 500 KB to avoid memory abuse
-      if (file.size > 500 * 1024) {
-        setState(() => _isImporting = false);
-        _showErrorDialog('الملف المختار كبير جداً، الحد الأقصى المسموح به لحجم القالب هو 500 كيلوبايت.');
-        return;
-      }
-
-      String content = '';
-      if (file.bytes != null) {
-        content = utf8.decode(file.bytes!);
-      } else if (file.path != null) {
-        final f = File(file.path!);
-        content = await f.readAsString();
-      }
-
-      if (content.trim().isEmpty) {
-        setState(() => _isImporting = false);
-        _showErrorDialog('ملف القالب فارغ.');
-        return;
-      }
-
-      dynamic decoded;
-      try {
-        decoded = jsonDecode(content);
-      } catch (_) {
-        setState(() => _isImporting = false);
-        _showErrorDialog('الملف المختار لا يحتوي على تنسيق JSON صالح أو أنه تالف.');
-        return;
-      }
-
-      if (decoded is! Map<String, dynamic>) {
-        setState(() => _isImporting = false);
-        _showErrorDialog('بنية ملف القالب غير صالحة. يجب أن يحتوي الملف على كائن JSON لقالب كرت.');
-        return;
-      }
-
-      // Validate required template fields
-      final name = decoded['name']?.toString() ?? file.name.replaceAll('.json', '');
-      final themePreset = decoded['themePreset']?.toString() ?? 'CUSTOM';
-      final primaryColor = decoded['primaryColor']?.toString() ?? '#065F46';
-      final accentColor = decoded['accentColor']?.toString() ?? '#F59E0B';
-      final layoutConfig = (decoded['layoutConfig'] is Map)
-          ? Map<String, dynamic>.from(decoded['layoutConfig'] as Map)
-          : <String, dynamic>{};
-
-      final importedTemplate = CardTemplateModel(
-        id: '', // new template on import
-        name: name,
-        themePreset: themePreset,
-        primaryColor: primaryColor,
-        accentColor: accentColor,
-        widthMm: (decoded['widthMm'] as num?)?.toInt() ?? 85,
-        heightMm: (decoded['heightMm'] as num?)?.toInt() ?? 54,
-        orientation: decoded['orientation']?.toString() ?? 'landscape',
-        layoutConfig: layoutConfig,
-        isDefault: false,
-      );
-
-      setState(() => _isImporting = false);
-
-      if (!mounted) return;
-
-      // Open editor to let user review preview and confirm saving
-      final saved = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => CardTemplateEditorScreen(
-            template: importedTemplate,
-            isImported: true,
-          ),
-        ),
-      );
-
-      if (saved == true) {
-        ref.read(cardTemplatesProvider.notifier).refresh();
-      }
-    } catch (e) {
-      setState(() => _isImporting = false);
-      _showErrorDialog('حدث خطأ أثناء قراءة ملف القالب: ${e.toString()}');
-    }
-  }
-
-  void _showErrorDialog(String msg) {
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: const [
-            Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444)),
-            SizedBox(width: 8),
-            Text('تنبيه الاستيراد', style: TextStyle(color: Colors.white, fontSize: 16)),
-          ],
-        ),
-        content: Text(msg, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.5)),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF334155)),
-            child: const Text('حسناً', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _handleExportTemplate(CardTemplateModel tpl) {
     final jsonStr = const JsonEncoder.withIndent('  ').convert(tpl.toJson());
@@ -225,7 +98,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
         backgroundColor: const Color(0xFF1E293B),
         elevation: 0,
         title: const Text(
-          'إدارة وتصميم قوالب الطباعة',
+          'قوالب طباعة الكروت الجاهزة',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         actions: [
@@ -238,59 +111,35 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
       ),
       body: Column(
         children: [
-          // Top Action Buttons
+          // Top Action Button
           Container(
             padding: const EdgeInsets.all(14),
             decoration: const BoxDecoration(
               color: Color(0xFF1E293B),
               border: Border(bottom: BorderSide(color: Color(0xFF334155))),
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      final created = await Navigator.push<bool>(
-                        context,
-                        MaterialPageRoute(builder: (_) => const CardTemplateEditorScreen()),
-                      );
-                      if (created == true) {
-                        ref.read(cardTemplatesProvider.notifier).refresh();
-                      }
-                    },
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('قالب جديد'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563EB),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final created = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(builder: (_) => const CardTemplateEditorScreen()),
+                  );
+                  if (created == true) {
+                    ref.read(cardTemplatesProvider.notifier).refresh();
+                  }
+                },
+                icon: const Icon(Icons.add_circle_outline, size: 20),
+                label: const Text('تصميم قالب جديد بمقاس محدد', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2563EB),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 2,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _isImporting ? null : _handleImportFromDevice,
-                    icon: _isImporting
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
-                          )
-                        : const Icon(Icons.file_upload_outlined, size: 18, color: Color(0xFF38BDF8)),
-                    label: Text(
-                      _isImporting ? 'جاري القراءة...' : 'استيراد من الجهاز',
-                      style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF0284C7)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
 
@@ -328,7 +177,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                           const SizedBox(height: 16),
                           const Text('لا توجد قوالب طباعة مسجلة', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 8),
-                          const Text('يمكنك تصميم قالب كروت جديد أو استيراد ملف قالب جاهز (.json) من جهازك.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13), textAlign: TextAlign.center),
+                          const Text('يمكنك اختيار أحد القوالب الجاهزة أو تصميم قالب جديد بالمقاس المناسب.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13), textAlign: TextAlign.center),
                         ],
                       ),
                     ),

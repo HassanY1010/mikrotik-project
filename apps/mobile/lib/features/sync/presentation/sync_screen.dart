@@ -93,11 +93,11 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
         } else if (result.appliedCount > 0) {
           _isSuccessMessage = true;
           _lastSyncMessage =
-              'اكتملت المزامنة بنجاح! تم اعتماد ${result.appliedCount} عملية على السيرفر وتحديث بيانات المخزن.';
+              'اكتملت المزامنة بنجاح! تم اعتماد ${result.appliedCount} عملية على السيرفر وتحديث بيانات الكروت.';
         } else {
           _isSuccessMessage = true;
           _lastSyncMessage =
-              'جميع العمليات متزامنة بالفعل. تم سحب وتحديث بيانات المخزن والباقات من السيرفر.';
+              'جميع العمليات متزامنة بالفعل. تم سحب وتحديث بيانات الكروت والباقات من السيرفر.';
         }
       });
     } catch (e) {

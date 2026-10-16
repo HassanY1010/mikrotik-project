@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/security/encryption.service';
@@ -6,8 +6,27 @@ import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.fa
 import { CardCodeGeneratorService } from './card-code-generator.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
 import { UpdateCardStatusDto } from '../dto/update-card-status.dto';
+import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
 import { CardStatus, CardBatchStatus, SyncStatus, Prisma } from '@prisma/client';
 import { QuotasService } from './quotas.service';
+import { normalizeValidityDuration } from '../../../common/utils/validity-duration.util';
+
+export interface BulkDeleteResult {
+  success: boolean;
+  deletedCount: number;
+  pendingCount: number;
+  skippedCount: number;
+  failedCount: number;
+  mikrotikRemovedCount: number;
+  mikrotikPendingCount: number;
+  details: {
+    deletedIds: string[];
+    pendingIds: string[];
+    skipped: Array<{ id: string; username: string; reason: string }>;
+    failed: Array<{ id: string; reason: string }>;
+  };
+  message: string;
+}
 
 export interface CardBatchSummary {
   id: string;
@@ -59,6 +78,75 @@ export class CardsService {
     [CardStatus.EXPIRED]: [],
     [CardStatus.DISABLED]: [CardStatus.AVAILABLE, CardStatus.ACTIVE],
   };
+
+  // Concurrency guard sets
+  private readonly activeCardLocks = new Set<string>();
+  private readonly activeRetryTenantLocks = new Set<string>();
+
+  /**
+   * Strictly differentiates true RouterOS 404 / 'no such item' from network,
+   * authentication, permission, and timeout errors.
+   */
+  isHotspotUserNotFoundError(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error);
+    const lower = msg.toLowerCase();
+
+    // 1. Exclude all connectivity, network, and transport errors
+    if (
+      lower.includes('enotfound') ||
+      lower.includes('ehostunreach') ||
+      lower.includes('etimedout') ||
+      lower.includes('econnrefused') ||
+      lower.includes('econnreset') ||
+      lower.includes('timeout') ||
+      lower.includes('aborted') ||
+      lower.includes('network') ||
+      lower.includes('socket closed') ||
+      lower.includes('connection failed')
+    ) {
+      return false;
+    }
+
+    // 2. Exclude authentication and authorization / permission errors
+    if (
+      lower.includes('401') ||
+      lower.includes('403') ||
+      lower.includes('unauthorized') ||
+      lower.includes('forbidden') ||
+      lower.includes('bad login') ||
+      lower.includes('authentication failed') ||
+      lower.includes('not enough permissions') ||
+      lower.includes('permission denied')
+    ) {
+      return false;
+    }
+
+    // 3. Exclude proxy, web server, and generic routing errors
+    if (
+      lower.includes('<!doctype') ||
+      lower.includes('<html') ||
+      lower.includes('nginx') ||
+      lower.includes('apache') ||
+      lower.includes('caddy') ||
+      lower.includes('cannot get') ||
+      lower.includes('cannot post') ||
+      lower.includes('cannot delete') ||
+      lower.includes('route not found') ||
+      lower.includes('not implemented')
+    ) {
+      return false;
+    }
+
+    // 4. True HotSpot user absence indicators:
+    // - In RouterOS API: trap with 'no such item' or 'does not exist'
+    // - In RouterOS REST: 404 specifically targeting '/ip/hotspot/user' with RouterOS JSON payload or 'no such item'
+    const isNoSuchItem = lower.includes('no such item') || lower.includes('does not exist');
+    const isSpecificHotspotRest404 =
+      lower.includes('404') &&
+      (lower.includes('/ip/hotspot/user') || lower.includes('no such item') || lower.includes('detail'));
+
+    return isNoSuchItem || isSpecificHotspotRest404;
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -154,7 +242,8 @@ export class CardsService {
     const effectivePrice = dto.price !== undefined ? dto.price : (Number((profile as any)?.price) || 500);
 
     const batchNumber = this.codeGenerator.generateBatchNumber();
-    const timeLimit = dto.timeLimit ?? profile.sessionTimeout ?? null;
+    const rawTimeLimit = dto.timeLimit ?? profile.sessionTimeout ?? null;
+    const timeLimit = rawTimeLimit ? normalizeValidityDuration(rawTimeLimit) : null;
     const dataLimitBytes = dto.dataLimitMb ? BigInt(dto.dataLimitMb) * BigInt(1024 * 1024) : null;
 
     // 4. Atomic transaction: Lock subscription quota, create batch and cards in DB
@@ -1030,4 +1119,356 @@ export class CardsService {
       },
     };
   }
+
+  /**
+   * Bulk deletes cards belonging to a tenant, with MikroTik RouterOS removal,
+   * audit protection for sold cards, and partial failure reporting.
+   */
+  async bulkDeleteCards(
+    tenantId: string,
+    dto: BulkDeleteCardsDto,
+  ): Promise<BulkDeleteResult> {
+    if (!tenantId) {
+      throw new BadRequestException('معرف المستأجر مطلوب لتنفيذ عملية الحذف');
+    }
+
+    const uniqueIds = Array.from(new Set((dto.cardIds || []).filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException('يجب تحديد كرت واحد على الأقل للحذف');
+    }
+
+    // Concurrency guard: reject or isolate concurrent deletion calls on the same card IDs
+    for (const id of uniqueIds) {
+      if (this.activeCardLocks.has(id)) {
+        throw new ConflictException(`الكرت ${id} قيد عملية حذف أخرى متزامنة حالياً، يرجى الانتظار`);
+      }
+    }
+    const lockedCardIds: string[] = [];
+    for (const id of uniqueIds) {
+      this.activeCardLocks.add(id);
+      lockedCardIds.push(id);
+    }
+
+    try {
+      // 1. Fetch requested cards with tenant verification
+      const cards = await this.prisma.card.findMany({
+        where: {
+          tenantId,
+          id: { in: uniqueIds },
+        },
+        include: {
+          device: true,
+          sales: { select: { id: true, invoiceNumber: true } },
+        },
+      });
+
+      const foundIds = new Set(cards.map((c) => c.id));
+      const failed: Array<{ id: string; reason: string }> = [];
+      const skipped: Array<{ id: string; username: string; reason: string }> = [];
+
+      // Track requested IDs that do not exist or belong to another tenant
+      for (const reqId of uniqueIds) {
+        if (!foundIds.has(reqId)) {
+          failed.push({
+            id: reqId,
+            reason: 'الكرت غير موجود أو تم حذفه مسبقاً أو غير تابع لحساب هذه الشبكة',
+          });
+        }
+      }
+
+      // 2. Classify cards: protect sold or actively accounted cards
+      const eligibleCards: typeof cards = [];
+      for (const card of cards) {
+        if (card.status === CardStatus.SOLD || card.sales.length > 0) {
+          skipped.push({
+            id: card.id,
+            username: card.username,
+            reason: 'لا يمكن حذف الكرت نظراً لوجود مبيعات أو قيود مالية مسجلة له',
+          });
+        } else {
+          eligibleCards.push(card);
+        }
+      }
+
+      let mikrotikRemovedCount = 0;
+      let mikrotikPendingCount = 0;
+
+      // 3. Remove users from MikroTik routers if devices are available
+      const fullyRemovedCards: typeof eligibleCards = [];
+      const pendingRouterCards: typeof eligibleCards = [];
+
+      if (eligibleCards.length > 0) {
+        const cardsByDevice = new Map<string, { device: (typeof cards)[0]['device']; cards: typeof eligibleCards }>();
+        for (const card of eligibleCards) {
+          if (card.device) {
+            if (!cardsByDevice.has(card.deviceId)) {
+              cardsByDevice.set(card.deviceId, { device: card.device, cards: [] });
+            }
+            cardsByDevice.get(card.deviceId)!.cards.push(card);
+          } else {
+            // Cards with no physical device associated can be safely deleted directly
+            fullyRemovedCards.push(card);
+          }
+        }
+
+        for (const { device, cards: devCards } of cardsByDevice.values()) {
+          try {
+            const client = await this.mikrotikClientFactory.getClient({
+              id: device.id,
+              name: device.name,
+              host: device.host,
+              apiPort: device.apiPort,
+              restPort: device.restPort,
+              useSsl: device.useSsl,
+              username: device.username,
+              passwordEncrypted: device.passwordEncrypted,
+              iv: device.iv,
+              authTag: device.authTag,
+              rosVersion: device.rosVersion,
+            });
+
+            for (const card of devCards) {
+              try {
+                await client.deleteHotspotUser(card.username);
+                mikrotikRemovedCount++;
+                fullyRemovedCards.push(card);
+              } catch (userErr: any) {
+                const msg = userErr instanceof Error ? userErr.message : String(userErr);
+                if (this.isHotspotUserNotFoundError(userErr)) {
+                  // User already deleted or not present on router
+                  mikrotikRemovedCount++;
+                  fullyRemovedCards.push(card);
+                } else {
+                  this.logger.warn(
+                    `Could not remove user ${card.username} from router ${device.name}: ${msg}`,
+                  );
+                  mikrotikPendingCount++;
+                  pendingRouterCards.push(card);
+                }
+              }
+            }
+          } catch (connErr: any) {
+            const connMsg = connErr instanceof Error ? connErr.message : String(connErr);
+            this.logger.warn(
+              `Router ${device.name} (${device.host}) unreachable during card deletion: ${connMsg}`,
+            );
+            mikrotikPendingCount += devCards.length;
+            pendingRouterCards.push(...devCards);
+          }
+        }
+
+        // 4. Atomically process database operations:
+        // - Fully removed cards (confirmed gone from MikroTik) are hard-deleted from PostgreSQL.
+        // - Offline/failed cards are NOT deleted: their identity is preserved in DB with status=DISABLED
+        //   and syncError='PENDING_ROUTER_DELETION' so they can be audited, tracked, and retried upon reconnection.
+        const fullyRemovedIds = fullyRemovedCards.map((c) => c.id);
+        const pendingRouterIds = pendingRouterCards.map((c) => c.id);
+
+        await this.prisma.$transaction(async (tx) => {
+          if (fullyRemovedIds.length > 0) {
+            await tx.hotspotActiveSession.deleteMany({
+              where: { cardId: { in: fullyRemovedIds } },
+            });
+
+            await tx.card.deleteMany({
+              where: {
+                tenantId,
+                id: { in: fullyRemovedIds },
+              },
+            });
+          }
+
+          if (pendingRouterIds.length > 0) {
+            await tx.hotspotActiveSession.deleteMany({
+              where: { cardId: { in: pendingRouterIds } },
+            });
+
+            await tx.card.updateMany({
+              where: {
+                tenantId,
+                id: { in: pendingRouterIds },
+              },
+              data: {
+                status: CardStatus.DISABLED,
+                syncStatus: SyncStatus.FAILED,
+                syncError: 'PENDING_ROUTER_DELETION: تعذر الاتصال بالراوتر، الكرت محفوظ للمزامنة اللاحقة',
+              },
+            });
+          }
+        });
+      }
+
+      const fullyRemovedIds = fullyRemovedCards.map((c) => c.id);
+      const pendingRouterIds = pendingRouterCards.map((c) => c.id);
+
+      // Operation is ONLY considered 100% successful if there are NO pending router failures
+      // and no missing cards. If any card failed router removal, success is false.
+      const isFullSuccess =
+        mikrotikPendingCount === 0 &&
+        failed.length === 0 &&
+        (fullyRemovedIds.length > 0 || eligibleCards.length === 0);
+
+      let message = '';
+      if (fullyRemovedIds.length === 0 && pendingRouterIds.length === 0) {
+        message = 'لم يتم حذف أي كروت. الكروت المحددة إما غير موجودة أو مباعة ومرتبطة بسجلات مالية.';
+      } else {
+        const parts: string[] = [];
+        if (fullyRemovedIds.length > 0) {
+          parts.push(`تم حذف ${fullyRemovedIds.length} كرت بنجاح من قاعدة البيانات والراوتر`);
+        }
+        if (pendingRouterIds.length > 0) {
+          parts.push(
+            `تعذر الاتصال بالراوتر لحذف ${pendingRouterIds.length} كرت، تم تعطيلها وحفظ هويتها في النظام بانتظار عودة الاتصال`,
+          );
+        }
+        if (skipped.length > 0) {
+          parts.push(`وتم استثناء ${skipped.length} كرت مباع لحماية القيود المالية`);
+        }
+        message = parts.join(' | ');
+      }
+
+      return {
+        success: isFullSuccess,
+        deletedCount: fullyRemovedIds.length,
+        pendingCount: pendingRouterIds.length,
+        skippedCount: skipped.length,
+        failedCount: failed.length,
+        mikrotikRemovedCount,
+        mikrotikPendingCount,
+        details: {
+          deletedIds: fullyRemovedIds,
+          pendingIds: pendingRouterIds,
+          skipped,
+          failed,
+        },
+        message,
+      };
+    } finally {
+      // Release concurrency locks on cards
+      for (const id of lockedCardIds) {
+        this.activeCardLocks.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Deletes a single card by ID with router removal and security checks.
+   */
+  async deleteSingleCard(
+    tenantId: string,
+    cardId: string,
+  ): Promise<{ success: boolean; message: string; mikrotikRemoved: boolean; pendingRouterDeletion?: boolean }> {
+    const result = await this.bulkDeleteCards(tenantId, { cardIds: [cardId] });
+    if (result.deletedCount === 0 && result.pendingCount === 0) {
+      const skipReason = result.details.skipped[0]?.reason;
+      const failReason = result.details.failed[0]?.reason;
+      throw new BadRequestException(skipReason || failReason || 'فشل حذف الكرت');
+    }
+    return {
+      success: result.success,
+      message: result.message,
+      mikrotikRemoved: result.mikrotikRemovedCount > 0,
+      pendingRouterDeletion: result.pendingCount > 0,
+    };
+  }
+
+  /**
+   * Retries deleting pending cards from MikroTik routers once they are back online.
+   * Guarded with tenant-level lock to prevent concurrent overlapping jobs.
+   */
+  async retryPendingDeletions(tenantId: string, deviceId?: string): Promise<{
+    processedCount: number;
+    cleanedCount: number;
+    stillPendingCount: number;
+  }> {
+    if (this.activeRetryTenantLocks.has(tenantId)) {
+      throw new ConflictException('عملية إعادة محاولة مزامنة الحذف جارية بالفعل لهذه الشبكة، يرجى الانتظار');
+    }
+    this.activeRetryTenantLocks.add(tenantId);
+
+    try {
+      const where: Prisma.CardWhereInput = {
+        tenantId,
+        status: CardStatus.DISABLED,
+        syncError: { contains: 'PENDING_ROUTER_DELETION' },
+      };
+      if (deviceId) {
+        where.deviceId = deviceId;
+      }
+
+      const cards = await this.prisma.card.findMany({
+        where,
+        include: { device: true },
+      });
+
+      if (cards.length === 0) {
+        return { processedCount: 0, cleanedCount: 0, stillPendingCount: 0 };
+      }
+
+      let cleanedCount = 0;
+      let stillPendingCount = 0;
+
+      const cardsByDevice = new Map<string, { device: (typeof cards)[0]['device']; cards: typeof cards }>();
+      for (const card of cards) {
+        if (card.device) {
+          if (!cardsByDevice.has(card.deviceId)) {
+            cardsByDevice.set(card.deviceId, { device: card.device, cards: [] });
+          }
+          cardsByDevice.get(card.deviceId)!.cards.push(card);
+        }
+      }
+
+      for (const { device, cards: devCards } of cardsByDevice.values()) {
+        try {
+          const client = await this.mikrotikClientFactory.getClient({
+            id: device.id,
+            name: device.name,
+            host: device.host,
+            apiPort: device.apiPort,
+            restPort: device.restPort,
+            useSsl: device.useSsl,
+            username: device.username,
+            passwordEncrypted: device.passwordEncrypted,
+            iv: device.iv,
+            authTag: device.authTag,
+            rosVersion: device.rosVersion,
+          });
+
+          const deletedIds: string[] = [];
+          for (const c of devCards) {
+            try {
+              await client.deleteHotspotUser(c.username);
+              deletedIds.push(c.id);
+              cleanedCount++;
+            } catch (err: any) {
+              if (this.isHotspotUserNotFoundError(err)) {
+                deletedIds.push(c.id);
+                cleanedCount++;
+              } else {
+                stillPendingCount++;
+              }
+            }
+          }
+
+          if (deletedIds.length > 0) {
+            await this.prisma.$transaction(async (tx) => {
+              await tx.hotspotActiveSession.deleteMany({ where: { cardId: { in: deletedIds } } });
+              await tx.card.deleteMany({ where: { tenantId, id: { in: deletedIds } } });
+            });
+          }
+        } catch (connErr) {
+          stillPendingCount += devCards.length;
+        }
+      }
+
+      return {
+        processedCount: cards.length,
+        cleanedCount,
+        stillPendingCount,
+      };
+    } finally {
+      this.activeRetryTenantLocks.delete(tenantId);
+    }
+  }
 }
+

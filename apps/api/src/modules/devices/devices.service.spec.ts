@@ -27,6 +27,7 @@ describe('DevicesService', () => {
         findMany: jest.fn(),
         update: jest.fn(),
       },
+      $transaction: jest.fn((cb) => (typeof cb === 'function' ? cb(prisma) : Promise.all(cb))),
     };
 
     encryptionService = {
@@ -103,6 +104,106 @@ describe('DevicesService', () => {
           password: 'password123',
         }),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should successfully allow adding the 3rd router when the plan limit is 3 (current count = 2)', async () => {
+      prisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-trial',
+        status: 'TRIAL',
+        maxRouters: 3,
+        plan: { name: 'TRIAL_PRO', maxRouters: 3 },
+        expiresAt: new Date(Date.now() + 86400000 * 14),
+      });
+      prisma.mikroTikDevice.count.mockResolvedValue(2);
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(null);
+      prisma.mikroTikDevice.create.mockResolvedValue({
+        id: 'router-3',
+        tenantId: mockTenantId,
+        name: 'Third Router',
+        host: '192.168.88.3',
+        apiPort: 8728,
+        restPort: 443,
+        useSsl: false,
+        username: 'admin',
+        rosVersion: RouterOsVersion.V7,
+        isOnline: false,
+        status: 'OFFLINE',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await service.create(mockTenantId, {
+        name: 'Third Router',
+        host: '192.168.88.3',
+        username: 'admin',
+        password: 'password123',
+      });
+
+      expect(res.id).toBe('router-3');
+      expect(prisma.mikroTikDevice.create).toHaveBeenCalled();
+    });
+
+    it('should reject adding the 4th router when plan limit is 3 (current count = 3)', async () => {
+      prisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-trial',
+        status: 'TRIAL',
+        maxRouters: 3,
+        plan: { name: 'TRIAL_PRO', maxRouters: 3 },
+        expiresAt: new Date(Date.now() + 86400000 * 14),
+      });
+      prisma.mikroTikDevice.count.mockResolvedValue(3);
+
+      await expect(
+        service.create(mockTenantId, {
+          name: 'Fourth Router',
+          host: '192.168.88.4',
+          username: 'admin',
+          password: 'password123',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should reject concurrent device creations for the same tenant with ConflictException', async () => {
+      let resolveFirstTransaction: any;
+      const firstTxPromise = new Promise((resolve) => {
+        resolveFirstTransaction = resolve;
+      });
+
+      prisma.$transaction.mockImplementationOnce(() => firstTxPromise);
+
+      const firstCall = service.create(mockTenantId, {
+        name: 'Concurrent Router 1',
+        host: '192.168.88.10',
+        username: 'admin',
+        password: 'password123',
+      });
+
+      // Second call while first call is in-flight for the same tenant
+      await expect(
+        service.create(mockTenantId, {
+          name: 'Concurrent Router 2',
+          host: '192.168.88.11',
+          username: 'admin',
+          password: 'password123',
+        }),
+      ).rejects.toThrow(ConflictException);
+
+      resolveFirstTransaction({
+        id: 'device-con-1',
+        tenantId: mockTenantId,
+        name: 'Concurrent Router 1',
+        host: '192.168.88.10',
+        apiPort: 8728,
+        restPort: 443,
+        useSsl: false,
+        username: 'admin',
+        rosVersion: RouterOsVersion.V7,
+        isOnline: false,
+        status: 'OFFLINE',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await firstCall;
     });
 
     it('should throw ConflictException if device with host and port already exists', async () => {

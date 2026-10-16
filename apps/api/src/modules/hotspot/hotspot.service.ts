@@ -5,6 +5,10 @@ import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.facto
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { HotspotActiveSessionItem } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
+import {
+  formatValidityDurationArabic,
+  normalizeValidityDuration,
+} from '../../common/utils/validity-duration.util';
 
 @Injectable()
 export class HotspotService {
@@ -76,9 +80,10 @@ export class HotspotService {
 
     return profiles.map((p) => {
       const price = p.cardBatches[0]?.price ? Number(p.cardBatches[0].price) : 500;
-      const validity =
+      const rawVal =
         p.sessionTimeout ||
-        (p.cardBatches[0]?.validityDays ? `${p.cardBatches[0].validityDays}d` : '1d');
+        (p.cardBatches[0]?.validityDays ? `${p.cardBatches[0].validityDays}d` : null);
+      const validity = rawVal ? normalizeValidityDuration(rawVal) : null;
       let displayName = p.name;
       const lower = p.name.toLowerCase();
       if (lower === '1hour-unlimited') displayName = 'باقة 1 ساعة (إنترنت مفتوح)';
@@ -88,6 +93,8 @@ export class HotspotService {
       else if (lower === '1month-unlimited') displayName = 'باقة 1 شهر (إنترنت مفتوح)';
       else if (lower.includes('-unlimited')) {
         displayName = p.name.replace(/-unlimited/gi, ' (إنترنت مفتوح)');
+      } else if (p.sessionTimeout) {
+        displayName = `${p.name} (${formatValidityDurationArabic(p.sessionTimeout)})`;
       }
 
       return {
@@ -175,6 +182,9 @@ export class HotspotService {
       });
     }
 
+    const effectiveValidity = dto.validity || dto.sessionTimeout;
+    const normalizedValidity = effectiveValidity ? normalizeValidityDuration(effectiveValidity) : null;
+
     // Provision on MikroTik router (only if router is online to prevent freezing HTTP request)
     let routerProvisioned = false;
     if (device.isOnline) {
@@ -196,7 +206,7 @@ export class HotspotService {
         await client.createHotspotProfile({
           name: dto.name,
           rateLimit: dto.rateLimit,
-          sessionTimeout: dto.validity || dto.sessionTimeout,
+          sessionTimeout: normalizedValidity ?? undefined,
           idleTimeout: dto.idleTimeout,
           keepaliveTimeout: dto.keepaliveTimeout,
           sharedUsers: dto.sharedUsers ?? 1,
@@ -221,7 +231,7 @@ export class HotspotService {
         tenantId,
         deviceId,
         name: dto.name,
-        sessionTimeout: dto.validity || dto.sessionTimeout || null,
+        sessionTimeout: normalizedValidity,
         rateLimit: dto.rateLimit ?? null,
         idleTimeout: dto.idleTimeout ?? null,
         keepaliveTimeout: dto.keepaliveTimeout ?? null,
@@ -323,6 +333,9 @@ export class HotspotService {
       });
     }
 
+    const effectiveValidity = dto.validity || dto.sessionTimeout;
+    const normalizedValidity = effectiveValidity !== undefined ? normalizeValidityDuration(effectiveValidity) : undefined;
+
     if (profile.device && profile.device.isOnline) {
       try {
         const client = await this.mikrotikClientFactory.getClient({
@@ -341,7 +354,7 @@ export class HotspotService {
 
         await client.updateHotspotProfile(profile.name, {
           rateLimit: dto.rateLimit,
-          sessionTimeout: dto.validity || dto.sessionTimeout,
+          sessionTimeout: normalizedValidity,
           sharedUsers: dto.sharedUsers,
         });
       } catch (err) {
@@ -355,9 +368,7 @@ export class HotspotService {
       data: {
         ...(dto.name ? { name: dto.name } : {}),
         ...(dto.rateLimit !== undefined ? { rateLimit: dto.rateLimit } : {}),
-        ...(dto.validity || dto.sessionTimeout
-          ? { sessionTimeout: dto.validity || dto.sessionTimeout }
-          : {}),
+        ...(normalizedValidity !== undefined ? { sessionTimeout: normalizedValidity } : {}),
         ...(dto.sharedUsers !== undefined ? { sharedUsers: dto.sharedUsers } : {}),
         ...(dto.addressPool !== undefined ? { addressPool: dto.addressPool } : {}),
       },

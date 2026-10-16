@@ -410,7 +410,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 ListTile(
                   leading: const Icon(Icons.style_outlined, color: Color(0xFFA78BFA)),
                   title: const Text('قوالب وتصاميم الطباعة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text('تعديل القوالب يدويًا أو استيراد قالب من ملفات الجهاز', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  subtitle: const Text('اختيار وتخصيص القوالب الجاهزة ومقاسات الطباعة', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFF64748B)),
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const CardTemplatesScreen()));
@@ -419,8 +419,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 const Divider(color: Color(0xFF334155), height: 1),
                 ListTile(
                   leading: const Icon(Icons.speed_outlined, color: Color(0xFF38BDF8)),
-                  title: const Text('بروفايلات وسرعات الهوتسبوت', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text('إنشاء باقات جديدة ومزامنتها مع أجهزة ميكروتك', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  title: const Text('بروفايلات', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: const Text('إنشاء باقات جديدة ومزامنتها مع أجهزة MikroTik', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFF64748B)),
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const HotspotProfilesScreen()));
@@ -560,7 +560,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
         final isNotSubscribed = status == 'NONE' || quota == null;
         final isExpired = status == 'EXPIRED';
         final isSuspended = status == 'SUSPENDED';
-        final isActive = status == 'ACTIVE' && quota != null;
+        final isTrial = status == 'TRIAL';
+        final isActive = (status == 'ACTIVE' || isTrial) && quota != null;
 
         final planName = isNotSubscribed
             ? 'غير مشترك (لا توجد باقة)'
@@ -568,7 +569,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 ? 'منتهي الصلاحية'
                 : (isSuspended
                     ? 'معلق مؤقتاً'
-                    : (quota.planNameAr ?? quota.planName ?? 'الباقة النشطة')));
+                    : (isTrial
+                        ? '${quota.planNameAr ?? quota.planName ?? "باقة تجريبية"} (تجريبية)'
+                        : (quota.planNameAr ?? quota.planName ?? 'الباقة النشطة'))));
 
         final isUnlimited = quota != null && isActive && quota.isUnlimited;
         final limit = (quota != null && !isNotSubscribed) ? quota.cardLimit : 0;

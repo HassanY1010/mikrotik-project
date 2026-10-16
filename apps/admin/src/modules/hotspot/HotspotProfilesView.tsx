@@ -4,6 +4,11 @@ import { useToast } from '../../core/context/ToastContext';
 import { Modal } from '../../components/common/Modal';
 import { Zap, Plus, RefreshCw, Layers, Trash2, Edit } from 'lucide-react';
 import { HotspotProfileItem, DeviceItem } from '../../core/types/view-models';
+import {
+  VALIDITY_PRESETS,
+  formatValidityArabic,
+  isValidValidityDuration,
+} from '../../core/utils/validity';
 
 export const HotspotProfilesView: React.FC = () => {
   const { showToast } = useToast();
@@ -78,6 +83,14 @@ export const HotspotProfilesView: React.FC = () => {
       return;
     }
 
+    if (formData.validity && !isValidValidityDuration(formData.validity)) {
+      showToast(
+        'مدة الصلاحية غير صالحة. اكتب رقماً موجباً متبوعاً بـ m (دقيقة) أو h (ساعة) أو d (يوم)، مثل 1m أو 1h أو 1d',
+        'warning',
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const created = await apiClient.post<HotspotProfileItem>('/hotspot/profiles', {
@@ -125,6 +138,14 @@ export const HotspotProfilesView: React.FC = () => {
     e.preventDefault();
     if (!editingProfileId) return;
 
+    if (editFormData.validity && !isValidValidityDuration(editFormData.validity)) {
+      showToast(
+        'مدة الصلاحية غير صالحة. اكتب رقماً موجباً متبوعاً بـ m (دقيقة) أو h (ساعة) أو d (يوم)، مثل 1m أو 1h أو 1d',
+        'warning',
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const updated = await apiClient.patch<HotspotProfileItem>(`/hotspot/profiles/${editingProfileId}`, {
@@ -171,10 +192,10 @@ export const HotspotProfilesView: React.FC = () => {
         <div>
           <h1 className="page-title">
             <Zap color="var(--primary)" size={24} />
-            باقات وسرعات الهوتسبوت
+            بروفايلات Hotspot
           </h1>
           <p className="page-subtitle">
-            تحديد سرعات التنزيل والرفع، مدة الصلاحية، والتسعير لكل باقة
+            تحديد سرعات التنزيل والرفع، مدة الصلاحية، والتسعير لكل باقة ومزامنتها مع راوتر MikroTik
           </p>
         </div>
 
@@ -257,7 +278,7 @@ export const HotspotProfilesView: React.FC = () => {
               >
                 <span>مدة الصلاحية:</span>
                 <strong style={{ color: 'var(--text-primary)' }}>
-                  {profile.validity || 'دائم'}
+                  {formatValidityArabic(profile.validity)}
                 </strong>
               </div>
               <div
@@ -377,15 +398,29 @@ export const HotspotProfilesView: React.FC = () => {
 
             <div className="form-group">
               <label className="form-label" htmlFor="prof-validity">
-                مدة الصلاحية (مثال: 1d, 3h, 7d)
+                مدة الصلاحية (مثال: 1m, 1h, 1d) *
               </label>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                {VALIDITY_PRESETS.map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    className={`btn btn-sm ${formData.validity === item.value ? 'btn-primary' : 'btn-outline'}`}
+                    style={{ fontSize: '11px', padding: '3px 8px' }}
+                    onClick={() => setFormData({ ...formData, validity: item.value })}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
               <input
                 id="prof-validity"
                 className="input"
                 style={{ direction: 'ltr', textAlign: 'left' }}
                 value={formData.validity}
                 onChange={(e) => setFormData({ ...formData, validity: e.target.value })}
-                placeholder="24h"
+                placeholder="1m, 15m, 1h, 3h, 1d, 7d"
+                required
               />
             </div>
           </div>
@@ -475,15 +510,28 @@ export const HotspotProfilesView: React.FC = () => {
 
             <div className="form-group">
               <label className="form-label" htmlFor="edit-prof-val">
-                مدة الصلاحية (Session Timeout)
+                مدة الصلاحية (مثال: 1m, 1h, 1d)
               </label>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                {VALIDITY_PRESETS.map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    className={`btn btn-sm ${editFormData.validity === item.value ? 'btn-primary' : 'btn-outline'}`}
+                    style={{ fontSize: '11px', padding: '3px 8px' }}
+                    onClick={() => setEditFormData({ ...editFormData, validity: item.value })}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
               <input
                 id="edit-prof-val"
                 className="input"
                 style={{ direction: 'ltr', textAlign: 'left' }}
                 value={editFormData.validity}
                 onChange={(e) => setEditFormData({ ...editFormData, validity: e.target.value })}
-                placeholder="1h, 1d, 3d, 1w"
+                placeholder="1m, 15m, 1h, 3h, 1d, 7d"
               />
             </div>
           </div>

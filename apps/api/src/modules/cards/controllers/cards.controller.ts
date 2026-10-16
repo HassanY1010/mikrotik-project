@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   Query,
@@ -13,9 +14,15 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
-import { CardsService, CardBatchSummary, CardItemResponse } from '../services/cards.service';
+import {
+  CardsService,
+  CardBatchSummary,
+  CardItemResponse,
+  BulkDeleteResult,
+} from '../services/cards.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
 import { UpdateCardStatusDto } from '../dto/update-card-status.dto';
+import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../../core/guards/roles.guard';
@@ -210,4 +217,69 @@ export class CardsController {
     const effectiveTenantId = userTenantId || headerTenantId || '';
     return this.cardsService.updateCardStatus(effectiveTenantId, id, dto);
   }
+
+  @Post('bulk-delete')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Bulk delete cards from database and remove hotspot users from MikroTik routers',
+  })
+  @ApiResponse({ status: 200, description: 'Bulk deletion summary' })
+  async bulkDeleteCards(
+    @CurrentUser('tenantId') userTenantId: string,
+    @TenantId() headerTenantId: string,
+    @Body() dto: BulkDeleteCardsDto,
+  ): Promise<BulkDeleteResult> {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.bulkDeleteCards(effectiveTenantId, dto);
+  }
+
+  @Post('retry-pending-deletions')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Retry deleting pending cards from MikroTik routers that were offline',
+  })
+  @ApiResponse({ status: 200, description: 'Summary of retried deletions' })
+  async retryPendingDeletions(
+    @CurrentUser('tenantId') userTenantId: string,
+    @TenantId() headerTenantId: string,
+    @Query('deviceId') deviceId?: string,
+  ): Promise<{ processedCount: number; cleanedCount: number; stillPendingCount: number }> {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.retryPendingDeletions(effectiveTenantId, deviceId);
+  }
+
+  @Delete(':id')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete a single card by ID and remove user from MikroTik' })
+  @ApiResponse({ status: 200, description: 'Card deleted successfully' })
+  async deleteCard(
+    @CurrentUser('tenantId') userTenantId: string,
+    @TenantId() headerTenantId: string,
+    @Param('id') id: string,
+  ): Promise<{ success: boolean; message: string; mikrotikRemoved: boolean; pendingRouterDeletion?: boolean }> {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.deleteSingleCard(effectiveTenantId, id);
+  }
 }
+

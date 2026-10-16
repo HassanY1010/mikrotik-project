@@ -7,11 +7,13 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { VALIDITY_DURATION_REGEX } from '../../../common/utils/validity-duration.util';
 
 export class CreateBatchDto {
   @ApiPropertyOptional({ description: 'Target MikroTik Device ID (UUID)' })
@@ -78,11 +80,14 @@ export class CreateBatchDto {
   validityDays?: number;
 
   @ApiPropertyOptional({
-    description: 'RouterOS session time limit (e.g. "1h", "2h", "1d")',
+    description: 'RouterOS session time limit (e.g. "1m", "1h", "1d")',
     example: '1h',
   })
   @IsString()
   @IsOptional()
+  @Matches(VALIDITY_DURATION_REGEX, {
+    message: 'مدة الصلاحية / الجلسة يجب أن تكون رقماً صحيحاً موجباً متبوعاً بوحدة m (دقيقة) أو h (ساعة) أو d (يوم)، مثل 1m أو 1h أو 1d',
+  })
   timeLimit?: string;
 
   @ApiPropertyOptional({

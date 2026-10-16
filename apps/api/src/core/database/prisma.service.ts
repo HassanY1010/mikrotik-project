@@ -53,6 +53,25 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       `CREATE INDEX IF NOT EXISTS "tenant_wallet_transactions_tenantId_idx" ON "tenant_wallet_transactions"("tenantId");`,
       `CREATE INDEX IF NOT EXISTS "tenant_wallet_transactions_createdAt_idx" ON "tenant_wallet_transactions"("createdAt");`,
 
+      // password_reset_tokens table
+      `CREATE TABLE IF NOT EXISTS "password_reset_tokens" (
+        "id" TEXT NOT NULL,
+        "userId" TEXT NOT NULL,
+        "codeHash" TEXT NOT NULL,
+        "tokenHash" TEXT NOT NULL,
+        "expiresAt" TIMESTAMP(3) NOT NULL,
+        "usedAt" TIMESTAMP(3),
+        "attempts" INTEGER NOT NULL DEFAULT 0,
+        "ipAddress" TEXT,
+        "userAgent" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "password_reset_tokens_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "password_reset_tokens_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE
+      );`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS "password_reset_tokens_tokenHash_key" ON "password_reset_tokens"("tokenHash");`,
+      `CREATE INDEX IF NOT EXISTS "password_reset_tokens_userId_idx" ON "password_reset_tokens"("userId");`,
+      `CREATE INDEX IF NOT EXISTS "password_reset_tokens_expiresAt_idx" ON "password_reset_tokens"("expiresAt");`,
+
       // Fallback aliases if tables were created unmapped
       `ALTER TABLE IF EXISTS "MikroTikDevice" ADD COLUMN IF NOT EXISTS "diskFree" BIGINT;`,
       `ALTER TABLE IF EXISTS "MikroTikDevice" ADD COLUMN IF NOT EXISTS "diskTotal" BIGINT;`,

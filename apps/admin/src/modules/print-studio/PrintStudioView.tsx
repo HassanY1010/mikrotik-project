@@ -142,10 +142,10 @@ export const PrintStudioView: React.FC = () => {
         <div>
           <h1 className="page-title">
             <Printer color="var(--primary)" size={24} />
-            استوديو طباعة وتصدير كروت الهوتسبوت (A4 PDF)
+            طباعة الكروت (PDF)
           </h1>
           <p className="page-subtitle">
-            تجهيز وتنزيل كروت الهوتسبوت كملف PDF عالي الدقة بمقاس A4 لطباعتها في مراكز الطباعة والمكتبات
+            تجهيز وتنزيل كروت Hotspot كملف PDF عالي الدقة بمقاس A4 لطباعتها في مراكز الطباعة والمكتبات
           </p>
         </div>
 

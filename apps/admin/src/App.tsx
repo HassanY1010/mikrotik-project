@@ -6,6 +6,8 @@ import { SubscriptionAlertBanner } from './components/common/SubscriptionAlertBa
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar, NavigationTab } from './components/layout/Sidebar';
 import { LoginView } from './modules/auth/LoginView';
+import { ForgotPasswordView } from './modules/auth/ForgotPasswordView';
+import { ResetPasswordView } from './modules/auth/ResetPasswordView';
 import { DashboardView } from './modules/dashboard/DashboardView';
 
 // Code-split heavy modules to reduce initial JS bundle size and accelerate startup
@@ -90,6 +92,35 @@ const AdminLayout: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
+  const [authView, setAuthView] = useState<'login' | 'forgot-password' | 'reset-password'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('token') || params.get('view') === 'reset-password') {
+        return 'reset-password';
+      }
+      if (params.get('view') === 'forgot-password') {
+        return 'forgot-password';
+      }
+    }
+    return 'login';
+  });
+
+  const [recoveryEmail, setRecoveryEmail] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('email') || '';
+    }
+    return '';
+  });
+
+  const [recoveryToken, setRecoveryToken] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('token') || '';
+    }
+    return '';
+  });
+
   const handleToggleSidebar = () => {
     if (typeof window !== 'undefined' && window.innerWidth <= 768) {
       setMobileMenuOpen(!mobileMenuOpen);
@@ -123,7 +154,40 @@ const AdminLayout: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <LoginView />;
+    if (authView === 'forgot-password') {
+      return (
+        <ForgotPasswordView
+          initialEmail={recoveryEmail}
+          onBackToLogin={() => setAuthView('login')}
+          onProceedToReset={(email) => {
+            setRecoveryEmail(email);
+            setAuthView('reset-password');
+          }}
+        />
+      );
+    }
+
+    if (authView === 'reset-password') {
+      return (
+        <ResetPasswordView
+          initialEmail={recoveryEmail}
+          initialToken={recoveryToken}
+          onBackToLogin={() => {
+            if (typeof window !== 'undefined' && window.history.replaceState) {
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+            setRecoveryToken('');
+            setAuthView('login');
+          }}
+        />
+      );
+    }
+
+    return (
+      <LoginView
+        onForgotPassword={() => setAuthView('forgot-password')}
+      />
+    );
   }
 
   const renderActiveView = () => {

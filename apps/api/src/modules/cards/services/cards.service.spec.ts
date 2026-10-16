@@ -5,7 +5,7 @@ import { EncryptionService } from '../../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
 import { CardCodeGeneratorService } from './card-code-generator.service';
 import { QuotasService } from './quotas.service';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { CardStatus, CardBatchStatus, RouterOsVersion, SyncStatus } from '@prisma/client';
 
 describe('CardsService', () => {
@@ -27,6 +27,7 @@ describe('CardsService', () => {
       createHotspotUser: jest.fn().mockResolvedValue('*1'),
       disableHotspotUser: jest.fn().mockResolvedValue(undefined),
       enableHotspotUser: jest.fn().mockResolvedValue(undefined),
+      deleteHotspotUser: jest.fn().mockResolvedValue(undefined),
     };
 
     prisma = {
@@ -49,9 +50,14 @@ describe('CardsService', () => {
         createMany: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
         count: jest.fn(),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      hotspotActiveSession: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      $transaction: jest.fn((cb) => (typeof cb === 'function' ? cb(prisma) : Promise.all(cb))),
     };
 
     encryptionService = {
@@ -288,6 +294,467 @@ describe('CardsService', () => {
 
       expect(mockClient.disableHotspotUser).toHaveBeenCalledWith('10010001');
       expect(res.status).toBe(CardStatus.DISABLED);
+    });
+  });
+
+  describe('bulkDeleteCards and deleteSingleCard', () => {
+    const mockDevice = {
+      id: mockDeviceId,
+      name: 'Main MikroTik',
+      host: '192.168.88.1',
+      apiPort: 8728,
+      restPort: 443,
+      useSsl: false,
+      username: 'admin',
+      passwordEncrypted: 'cipher',
+      iv: 'iv',
+      authTag: 'tag',
+      rosVersion: 'V7',
+    };
+
+    it('should bulk delete unsold cards from DB and delete users from MikroTik router', async () => {
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-1',
+          username: 'user001',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+        {
+          id: 'card-2',
+          username: 'user002',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-1', 'card-2'],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.deletedCount).toBe(2);
+      expect(result.skippedCount).toBe(0);
+      expect(result.mikrotikRemovedCount).toBe(2);
+      expect(mockClient.deleteHotspotUser).toHaveBeenCalledWith('user001');
+      expect(mockClient.deleteHotspotUser).toHaveBeenCalledWith('user002');
+      expect(prisma.card.deleteMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: mockTenantId,
+          id: { in: ['card-1', 'card-2'] },
+        },
+      });
+    });
+
+    it('should skip sold cards to preserve audit and financial records', async () => {
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-sold',
+          username: 'userSold',
+          status: CardStatus.SOLD,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [{ id: 'sale-1', invoiceNumber: 'INV-101' }],
+        },
+        {
+          id: 'card-available',
+          username: 'userAvail',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-sold', 'card-available'],
+      });
+
+      expect(result.deletedCount).toBe(1);
+      expect(result.skippedCount).toBe(1);
+      expect(result.details.skipped[0].id).toBe('card-sold');
+      expect(result.details.deletedIds).toEqual(['card-available']);
+      expect(mockClient.deleteHotspotUser).toHaveBeenCalledWith('userAvail');
+      expect(mockClient.deleteHotspotUser).not.toHaveBeenCalledWith('userSold');
+    });
+
+    it('should NOT delete card from DB when router is offline, preserving record with DISABLED and PENDING_ROUTER_DELETION', async () => {
+      mikrotikClientFactory.getClient.mockRejectedValueOnce(new Error('Connection timed out'));
+
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-offline',
+          username: 'userOffline',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-offline'],
+      });
+
+      // Crucial: operation is NOT marked fully successful when router deletion fails
+      expect(result.success).toBe(false);
+      expect(result.deletedCount).toBe(0);
+      expect(result.pendingCount).toBe(1);
+      expect(result.mikrotikPendingCount).toBe(1);
+      expect(result.mikrotikRemovedCount).toBe(0);
+      // Hard delete MUST NOT be called on DB
+      expect(prisma.card.deleteMany).not.toHaveBeenCalled();
+      // Record must be preserved as DISABLED with PENDING_ROUTER_DELETION in DB
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: mockTenantId,
+          id: { in: ['card-offline'] },
+        },
+        data: expect.objectContaining({
+          status: CardStatus.DISABLED,
+          syncStatus: SyncStatus.FAILED,
+          syncError: expect.stringContaining('PENDING_ROUTER_DELETION'),
+        }),
+      });
+    });
+
+    it('should handle partial failure when one card succeeds on router and another fails', async () => {
+      mockClient.deleteHotspotUser
+        .mockResolvedValueOnce(undefined) // first succeeds
+        .mockRejectedValueOnce(new Error('Router internal error')); // second fails
+
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-ok',
+          username: 'userOk',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+        {
+          id: 'card-fail',
+          username: 'userFail',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-ok', 'card-fail'],
+      });
+
+      expect(result.success).toBe(false); // Not fully successful because of partial router failure
+      expect(result.deletedCount).toBe(1);
+      expect(result.pendingCount).toBe(1);
+      expect(result.mikrotikRemovedCount).toBe(1);
+      expect(result.mikrotikPendingCount).toBe(1);
+      expect(result.details.deletedIds).toEqual(['card-ok']);
+      expect(result.details.pendingIds).toEqual(['card-fail']);
+      // card-ok is deleted from DB
+      expect(prisma.card.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-ok'] } },
+      });
+      // card-fail is kept in DB as DISABLED
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-fail'] } },
+        data: expect.objectContaining({
+          status: CardStatus.DISABLED,
+          syncError: expect.stringContaining('PENDING_ROUTER_DELETION'),
+        }),
+      });
+    });
+
+    it('should retry pending deletions and permanently clean up cards once router is reachable', async () => {
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-pending-1',
+          username: 'userPending1',
+          status: CardStatus.DISABLED,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          syncError: 'PENDING_ROUTER_DELETION: timeout',
+        },
+      ]);
+
+      const retryRes = await service.retryPendingDeletions(mockTenantId, mockDeviceId);
+
+      expect(retryRes.processedCount).toBe(1);
+      expect(retryRes.cleanedCount).toBe(1);
+      expect(retryRes.stillPendingCount).toBe(0);
+      expect(mockClient.deleteHotspotUser).toHaveBeenCalledWith('userPending1');
+      expect(prisma.card.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-pending-1'] } },
+      });
+    });
+
+    it('should report cards not found or belonging to another tenant', async () => {
+      prisma.card.findMany.mockResolvedValue([]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['alien-card-999'],
+      });
+
+      expect(result.deletedCount).toBe(0);
+      expect(result.failedCount).toBe(1);
+      expect(result.details.failed[0].id).toBe('alien-card-999');
+    });
+
+    it('should NOT delete card from DB if router returns 403 Forbidden or permission error, categorizing as pending', async () => {
+      mockClient.deleteHotspotUser.mockRejectedValueOnce(
+        new Error('MikroTik REST error (403 Forbidden): not enough permissions'),
+      );
+
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-perm-err',
+          username: 'userPermErr',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-perm-err'],
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.deletedCount).toBe(0);
+      expect(result.pendingCount).toBe(1);
+      expect(result.mikrotikPendingCount).toBe(1);
+      // Hard delete MUST NOT be called
+      expect(prisma.card.deleteMany).not.toHaveBeenCalled();
+      // Must be preserved in DB as DISABLED
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-perm-err'] } },
+        data: expect.objectContaining({
+          status: CardStatus.DISABLED,
+          syncError: expect.stringContaining('PENDING_ROUTER_DELETION'),
+        }),
+      });
+    });
+
+    it('should safely hard-delete card from DB if router returns true 404 / no such item (user already gone from router)', async () => {
+      mockClient.deleteHotspotUser.mockRejectedValueOnce(
+        new Error('MikroTik REST error (404 Not Found): no such item'),
+      );
+
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-404',
+          username: 'user404',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-404'],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.deletedCount).toBe(1);
+      expect(result.pendingCount).toBe(0);
+      expect(result.mikrotikRemovedCount).toBe(1);
+      expect(prisma.card.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-404'] } },
+      });
+    });
+
+    it('should reject concurrent deletion attempts on the same card IDs with ConflictException', async () => {
+      let resolveFirstFind: any;
+      const firstFindPromise = new Promise((resolve) => {
+        resolveFirstFind = resolve;
+      });
+
+      prisma.card.findMany.mockImplementationOnce(() => firstFindPromise);
+
+      const firstCall = service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-concurrent-1'],
+      });
+
+      // Second call while first call is in-flight with same cardId
+      await expect(
+        service.bulkDeleteCards(mockTenantId, {
+          cardIds: ['card-concurrent-1'],
+        }),
+      ).rejects.toThrow(ConflictException);
+
+      // Clean up first call
+      resolveFirstFind([
+        {
+          id: 'card-concurrent-1',
+          username: 'userConcurrent1',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+      await firstCall;
+    });
+
+    it('should reject concurrent retryPendingDeletions for the same tenant with ConflictException', async () => {
+      let resolveFirstFind: any;
+      const firstFindPromise = new Promise((resolve) => {
+        resolveFirstFind = resolve;
+      });
+
+      prisma.card.findMany.mockImplementationOnce(() => firstFindPromise);
+
+      const firstRetry = service.retryPendingDeletions(mockTenantId);
+
+      await expect(service.retryPendingDeletions(mockTenantId)).rejects.toThrow(ConflictException);
+
+      resolveFirstFind([]);
+      await firstRetry;
+    });
+
+    it('should handle repeated idempotent deletion requests gracefully without side-effects', async () => {
+      // First call deletes card
+      prisma.card.findMany.mockResolvedValueOnce([
+        {
+          id: 'card-idemp',
+          username: 'userIdemp',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const res1 = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-idemp'],
+      });
+      expect(res1.deletedCount).toBe(1);
+
+      // Second call with same card ID after DB deletion returns failedCount: 1 with clear explanation
+      prisma.card.findMany.mockResolvedValueOnce([]);
+      const res2 = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-idemp'],
+      });
+      expect(res2.deletedCount).toBe(0);
+      expect(res2.failedCount).toBe(1);
+      expect(res2.details.failed[0].id).toBe('card-idemp');
+    });
+
+    it('should reject generic proxy/gateway 404 HTML errors from being treated as user absence', async () => {
+      mockClient.deleteHotspotUser.mockRejectedValueOnce(
+        new Error('MikroTik REST error (404 Not Found): <html><head><title>404 Not Found</title></head><body>nginx</body></html>'),
+      );
+
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-proxy-404',
+          username: 'userProxy404',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-proxy-404'],
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.deletedCount).toBe(0);
+      expect(result.pendingCount).toBe(1);
+      expect(prisma.card.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-proxy-404'] } },
+        data: expect.objectContaining({
+          status: CardStatus.DISABLED,
+          syncError: expect.stringContaining('PENDING_ROUTER_DELETION'),
+        }),
+      });
+    });
+
+    it('should recognize RouterOS Socket API trap "!trap =message=no such item" as HotSpot user absence', async () => {
+      mockClient.deleteHotspotUser.mockRejectedValueOnce(
+        new Error('MikroTik API error: !trap =category=2 =message=no such item'),
+      );
+
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-socket-trap',
+          username: 'userSocketTrap',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-socket-trap'],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.deletedCount).toBe(1);
+      expect(prisma.card.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-socket-trap'] } },
+      });
+    });
+
+    it('should recover gracefully and reconcile DB with reality if backend crashes after router deletion but before DB update', async () => {
+      // Step 1: Simulated previous run removed user from router, but backend died before PostgreSQL update.
+      // Step 2: Backend rebooted, recovery / repeat bulk delete is called on the card.
+      // Router now reports user is gone ('no such item').
+      mockClient.deleteHotspotUser.mockRejectedValueOnce(
+        new Error('MikroTik REST error (404 Not Found): {"detail":"no such item"}'),
+      );
+
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-reboot-reconcile',
+          username: 'userReconciled',
+          status: CardStatus.DISABLED,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const result = await service.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-reboot-reconcile'],
+      });
+
+      // System recognizes user was already deleted from router and completes DB cleanup
+      expect(result.success).toBe(true);
+      expect(result.deletedCount).toBe(1);
+      expect(result.pendingCount).toBe(0);
+      expect(prisma.card.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-reboot-reconcile'] } },
+      });
+    });
+
+    it('should delete a single card and return success message', async () => {
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-single',
+          username: 'singleUser',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      const res = await service.deleteSingleCard(mockTenantId, 'card-single');
+      expect(res.success).toBe(true);
+      expect(res.mikrotikRemoved).toBe(true);
     });
   });
 });

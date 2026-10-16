@@ -1,8 +1,9 @@
-import { UnauthorizedException, ConflictException } from '@nestjs/common';
+import { UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { HashingService } from '../../core/security/hashing.service';
+import { MailService } from './mail.service';
 import { UserStatus } from '@prisma/client';
 
 describe('AuthService', () => {
@@ -10,6 +11,7 @@ describe('AuthService', () => {
   let prisma: Partial<Record<keyof PrismaService, any>>;
   let jwtService: Partial<JwtService>;
   let hashingService: Partial<HashingService>;
+  let mailService: Partial<MailService>;
 
   beforeEach(() => {
     prisma = {
@@ -32,6 +34,13 @@ describe('AuthService', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
       },
+      passwordResetToken: {
+        count: jest.fn().mockResolvedValue(0),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        create: jest.fn().mockResolvedValue({ id: 'prt-1' }),
+        findFirst: jest.fn(),
+        update: jest.fn(),
+      },
       auditLog: {
         create: jest.fn(),
       },
@@ -47,10 +56,15 @@ describe('AuthService', () => {
       hashPassword: jest.fn().mockResolvedValue('mocked-argon2-hash'),
     };
 
+    mailService = {
+      sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+    };
+
     authService = new AuthService(
       prisma as unknown as PrismaService,
       jwtService as unknown as JwtService,
       hashingService as unknown as HashingService,
+      mailService as unknown as MailService,
     );
   });
 
@@ -331,6 +345,139 @@ describe('AuthService', () => {
       expect(result.tenant.id).toEqual('tenant-new-1');
       expect(result.user.email).toEqual('owner@albaraka.sd');
       expect(result.message).toContain('تم تسجيل الشبكة بنجاح');
+    });
+  });
+
+  describe('forgotPassword', () => {
+    it('should return generic success message when user exists and send email', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-123',
+        email: 'user@sudafi.sd',
+        fullName: 'Ahmed Ali',
+        status: UserStatus.ACTIVE,
+      });
+
+      const result = await authService.forgotPassword({ email: 'user@sudafi.sd' });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('إذا كان البريد الإلكتروني مسجلاً لدينا');
+      expect(prisma.passwordResetToken.create).toHaveBeenCalled();
+      expect(mailService.sendPasswordResetEmail).toHaveBeenCalled();
+    });
+
+    it('should return generic success message even if user does not exist (zero enumeration)', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const result = await authService.forgotPassword({ email: 'unknown@sudafi.sd' });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('إذا كان البريد الإلكتروني مسجلاً لدينا');
+      expect(prisma.passwordResetToken.create).not.toHaveBeenCalled();
+      expect(mailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('verifyResetCode', () => {
+    it('should verify code and return verified resetToken when code matches', async () => {
+      const code = '123456';
+      const crypto = require('crypto');
+      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-123',
+        email: 'user@sudafi.sd',
+      });
+
+      (prisma.passwordResetToken.findFirst as jest.Mock).mockResolvedValue({
+        id: 'prt-1',
+        userId: 'user-123',
+        codeHash,
+        tokenHash: 'verified-token-hash-xyz',
+        attempts: 0,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+
+      const result = await authService.verifyResetCode({
+        email: 'user@sudafi.sd',
+        code: '123456',
+      });
+
+      expect(result.valid).toBe(true);
+      expect(result.resetToken).toEqual('verified-token-hash-xyz');
+    });
+
+    it('should throw BadRequestException on invalid code and increment attempts', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-123',
+        email: 'user@sudafi.sd',
+      });
+
+      (prisma.passwordResetToken.findFirst as jest.Mock).mockResolvedValue({
+        id: 'prt-1',
+        userId: 'user-123',
+        codeHash: 'correct-code-hash',
+        attempts: 1,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+
+      (prisma.passwordResetToken.update as jest.Mock).mockResolvedValue({
+        id: 'prt-1',
+        attempts: 2,
+      });
+
+      await expect(
+        authService.verifyResetCode({
+          email: 'user@sudafi.sd',
+          code: '999999',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prisma.passwordResetToken.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ attempts: { increment: 1 } }),
+        }),
+      );
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('should reset password, invalidate token and revoke all refresh tokens in transaction', async () => {
+      const code = '654321';
+      const crypto = require('crypto');
+      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-123',
+        email: 'user@sudafi.sd',
+      });
+
+      (prisma.passwordResetToken.findFirst as jest.Mock).mockResolvedValue({
+        id: 'prt-1',
+        userId: 'user-123',
+        codeHash,
+        tokenHash: 'token-abc',
+        attempts: 0,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+
+      (prisma.$transaction as jest.Mock).mockResolvedValue([
+        { id: 'user-123' },
+        { id: 'prt-1' },
+        { count: 2 },
+        { id: 'log-1' },
+      ]);
+
+      const result = await authService.resetPassword({
+        email: 'user@sudafi.sd',
+        code: '654321',
+        newPassword: 'NewSecurePassword@2026',
+        confirmPassword: 'NewSecurePassword@2026',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('تم تغيير كلمة المرور بنجاح');
+      expect(hashingService.hashPassword).toHaveBeenCalledWith('NewSecurePassword@2026');
+      expect(prisma.$transaction).toHaveBeenCalled();
     });
   });
 });

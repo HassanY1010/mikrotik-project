@@ -1,5 +1,6 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { VALIDITY_DURATION_REGEX } from '../../../common/utils/validity-duration.util';
 
 export class CreateProfileDto {
   @ApiProperty({
@@ -15,9 +16,12 @@ export class CreateProfileDto {
   @IsOptional()
   rateLimit?: string;
 
-  @ApiPropertyOptional({ description: 'Session timeout (e.g. 1h, 1d)', example: '1h' })
+  @ApiPropertyOptional({ description: 'Session timeout (e.g. 1m, 1h, 1d)', example: '1h' })
   @IsString()
   @IsOptional()
+  @Matches(VALIDITY_DURATION_REGEX, {
+    message: 'مدة الصلاحية / الجلسة يجب أن تكون رقماً صحيحاً موجباً متبوعاً بوحدة m (دقيقة) أو h (ساعة) أو d (يوم)، مثل 1m أو 1h أو 1d',
+  })
   sessionTimeout?: string;
 
   @ApiPropertyOptional({ description: 'Idle timeout (e.g. 5m)', example: '5m' })
@@ -50,9 +54,12 @@ export class CreateProfileDto {
   @IsOptional()
   price?: number;
 
-  @ApiPropertyOptional({ description: 'Validity duration (e.g. 1d, 3h, 1w)', example: '1d' })
+  @ApiPropertyOptional({ description: 'Validity duration (e.g. 1m, 1h, 1d)', example: '1d' })
   @IsString()
   @IsOptional()
+  @Matches(VALIDITY_DURATION_REGEX, {
+    message: 'مدة الصلاحية يجب أن تكون رقماً صحيحاً موجباً متبوعاً بوحدة m (دقيقة) أو h (ساعة) أو d (يوم)، مثل 1m أو 1h أو 1d',
+  })
   validity?: string;
 
   @ApiPropertyOptional({ description: 'Commercial display name', example: 'باقة يومية' })

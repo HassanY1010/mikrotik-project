@@ -87,10 +87,10 @@ export const ReportsView: React.FC = () => {
         <div>
           <h1 className="page-title">
             <BarChart3 color="var(--primary)" size={24} />
-            التقارير المالية وتصدير البيانات
+            التقارير
           </h1>
           <p className="page-subtitle">
-            تصدير تقارير المبيعات، جرد المخزون، وملخصات الورديات المتوافقة مع اللغة العربية
+            تصدير تقارير المبيعات، كروت Hotspot، وملخصات الورديات المتوافقة مع اللغة العربية
           </p>
         </div>
 

@@ -3,7 +3,11 @@ import { useAuth } from '../../core/context/AuthContext';
 import { useToast } from '../../core/context/ToastContext';
 import { Lock, Mail, ArrowLeft } from 'lucide-react';
 
-export const LoginView: React.FC = () => {
+interface LoginViewProps {
+  onForgotPassword?: () => void;
+}
+
+export const LoginView: React.FC<LoginViewProps> = ({ onForgotPassword }) => {
   const { login } = useAuth();
   const { showToast } = useToast();
 
@@ -134,9 +138,37 @@ export const LoginView: React.FC = () => {
           </div>
 
           <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-            <label className="form-label" htmlFor="password">
-              كلمة المرور
-            </label>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '0.4rem',
+              }}
+            >
+              <label className="form-label" htmlFor="password" style={{ marginBottom: 0 }}>
+                كلمة المرور
+              </label>
+              {onForgotPassword && (
+                <button
+                  type="button"
+                  onClick={onForgotPassword}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    color: 'var(--primary)',
+                    fontSize: '0.825rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    textUnderlineOffset: '3px',
+                  }}
+                >
+                  نسيت كلمة المرور؟
+                </button>
+              )}
+            </div>
             <div style={{ position: 'relative' }}>
               <input
                 id="password"

@@ -235,7 +235,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.inventory_2_outlined, color: Color(0xFF60A5FA)),
-              title: const Text('مخزن الكروت', style: TextStyle(color: Colors.white)),
+              title: const Text('الكروت', style: TextStyle(color: Colors.white)),
               selected: _currentIndex == 1,
               onTap: () {
                 _navigateToTab(1);
@@ -244,7 +244,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.auto_awesome_outlined, color: Color(0xFFA78BFA)),
-              title: const Text('استوديو الكروت والتوليد', style: TextStyle(color: Colors.white)),
+              title: const Text('إنشاء كروت', style: TextStyle(color: Colors.white)),
               selected: _currentIndex == 2,
               onTap: () {
                 _navigateToTab(2);
@@ -262,7 +262,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.bar_chart_outlined, color: Color(0xFFFBBF24)),
-              title: const Text('التقارير المالية والأرباح', style: TextStyle(color: Colors.white)),
+              title: const Text('التقارير', style: TextStyle(color: Colors.white)),
               selected: _currentIndex == 4,
               onTap: () {
                 _navigateToTab(4);
@@ -270,29 +270,13 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               },
             ),
             const Divider(color: Color(0xFF334155)),
-            // POS & Offline tools
-            ListTile(
-              leading: const Icon(Icons.point_of_sale, color: Color(0xFF10B981)),
-              title: const Text('نقطة البيع (POS)', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(context);
-                _pushScreen(const PosScreen());
-              },
-            ),
+            // Offline tools
             ListTile(
               leading: const Icon(Icons.wallet, color: Color(0xFF14B8A6)),
               title: const Text('محفظة الكروت غير المتصلة', style: TextStyle(color: Colors.white)),
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const CardsWalletScreen());
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.cloud_done, color: Color(0xFFEC4899)),
-              title: const Text('محفظة السحاب والولاء', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(context);
-                _pushScreen(const ProfileWalletScreen());
               },
             ),
             ListTile(
@@ -304,14 +288,6 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const SyncScreen());
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.receipt_long, color: Color(0xFF0EA5E9)),
-              title: const Text('تقرير الوردية', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(context);
-                _pushScreen(const ShiftSummaryScreen());
               },
             ),
             ListTile(
@@ -333,7 +309,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.speed, color: Color(0xFFF59E0B)),
-              title: const Text('باقات وسرعات الهوتسبوت', style: TextStyle(color: Colors.white)),
+              title: const Text('بروفايلات', style: TextStyle(color: Colors.white)),
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const HotspotProfilesScreen());
@@ -355,15 +331,6 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                 _pushScreen(const PppoeManagementScreen());
               },
             ),
-            if (user?.role == 'SUPER_ADMIN' || user?.role == 'TENANT_ADMIN')
-              ListTile(
-                leading: const Icon(Icons.manage_accounts_outlined, color: Color(0xFF10B981)),
-                title: const Text('إدارة مستخدمي المنظومة', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pushScreen(const TenantUsersScreen());
-                },
-              ),
             ListTile(
               leading: const Icon(Icons.person_pin_outlined, color: Color(0xFF38BDF8)),
               title: const Text('حسابي وإعدادات الأمان', style: TextStyle(color: Colors.white)),
@@ -486,12 +453,12 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             NavigationDestination(
               icon: Icon(Icons.inventory_2_outlined),
               selectedIcon: Icon(Icons.inventory_2),
-              label: 'المخزن',
+              label: 'الكروت',
             ),
             NavigationDestination(
               icon: Icon(Icons.auto_awesome_outlined),
               selectedIcon: Icon(Icons.auto_awesome),
-              label: 'الاستوديو',
+              label: 'إنشاء كروت',
             ),
             NavigationDestination(
               icon: Icon(Icons.radar_outlined),
@@ -501,7 +468,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             NavigationDestination(
               icon: Icon(Icons.bar_chart_outlined),
               selectedIcon: Icon(Icons.bar_chart),
-              label: 'المالية',
+              label: 'تقارير',
             ),
           ],
         ),

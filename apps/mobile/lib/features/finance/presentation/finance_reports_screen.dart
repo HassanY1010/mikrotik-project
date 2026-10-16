@@ -60,7 +60,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: const [
                 Text(
-                  'التقارير المالية والأرباح',
+                  'تقارير',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -68,7 +68,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                   ),
                 ),
                 Text(
-                  'بيانات مبيعات حقيقية وتدقيق هوامش الربح',
+                  'بيانات مبيعات حقيقية وتدقيق الأرباح',
                   style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
                 ),
               ],

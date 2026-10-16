@@ -8,6 +8,9 @@ class ApiEndpoints {
   static const String profile = '/auth/profile';
   static const String authMe = '/auth/me';
   static const String changePassword = '/auth/change-password';
+  static const String forgotPassword = '/auth/forgot-password';
+  static const String verifyResetCode = '/auth/verify-reset-code';
+  static const String resetPassword = '/auth/reset-password';
 
   // User management endpoints
   static const String users = '/users';
@@ -43,6 +46,8 @@ class ApiEndpoints {
 
   // Cards & Batch Studio
   static const String cards = '/cards';
+  static String cardItem(String id) => '/cards/$id';
+  static const String cardsBulkDelete = '/cards/bulk-delete';
   static String cardStatus(String id) => '/cards/$id/status';
   static const String cardBatches = '/cards/batches';
   static const String cardTemplates = '/card-templates';

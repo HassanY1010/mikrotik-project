@@ -5,6 +5,7 @@ import { Modal } from '../../components/common/Modal';
 import { ShoppingBag, Printer, Phone, User, CheckCircle2, Download } from 'lucide-react';
 import { HotspotProfileItem } from '../../core/types/view-models';
 import { PdfExportService } from '../../core/services/pdf-export-service';
+import { formatValidityArabic } from '../../core/utils/validity';
 
 interface ReceiptData {
   invoiceNumber: string;
@@ -152,7 +153,7 @@ export const PosTerminalView: React.FC = () => {
       const msg =
         err instanceof Error
           ? err.message
-          : 'فشل إتمام البيع: تأكد من توفر كروت جاهزة في المخزون لهذه الباقة';
+          : 'فشل إتمام البيع: تأكد من توفر كروت جاهزة لهذه الباقة';
       showToast(msg, 'error');
     } finally {
       setIsProcessing(false);
@@ -165,9 +166,9 @@ export const PosTerminalView: React.FC = () => {
         <div>
           <h1 className="page-title">
             <ShoppingBag color="var(--primary)" size={24} />
-            نقطة البيع السريعة للكاشير
+            نقطة البيع (POS)
           </h1>
-          <p className="page-subtitle">بيع كروت الهوتسبوت بضغطة زر واحدة وطباعة الفاتورة الفورية</p>
+          <p className="page-subtitle">بيع كروت Hotspot بضغطة زر واحدة وطباعة الفاتورة الفورية</p>
         </div>
       </div>
 
@@ -223,7 +224,7 @@ export const PosTerminalView: React.FC = () => {
                       {Number(p.price).toLocaleString()} SDG
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      الصلاحية: {p.validity || '24 ساعة'}
+                      الصلاحية: {formatValidityArabic(p.validity)}
                     </div>
                   </div>
 

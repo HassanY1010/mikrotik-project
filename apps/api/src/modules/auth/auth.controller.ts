@@ -19,6 +19,9 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterTenantDto } from './dto/register-tenant.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Public } from '../../core/decorators/public.decorator';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
@@ -152,5 +155,45 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ): Promise<{ success: boolean; message: string }> {
     return this.authService.changePassword(userId, dto);
+  }
+
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request password recovery instructions and 6-digit code' })
+  @ApiResponse({ status: 200, description: 'Generic recovery message dispatched' })
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ): Promise<{ success: boolean; message: string }> {
+    return this.authService.forgotPassword(dto, ip, userAgent);
+  }
+
+  @Public()
+  @Post('verify-reset-code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify 6-digit recovery OTP code' })
+  @ApiResponse({ status: 200, description: 'Code verified successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired verification code' })
+  async verifyResetCode(
+    @Body() dto: VerifyResetCodeDto,
+    @Ip() ip: string,
+  ): Promise<{ valid: boolean; resetToken: string; message: string }> {
+    return this.authService.verifyResetCode(dto, ip);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Set new password using code or reset token' })
+  @ApiResponse({ status: 200, description: 'Password reset successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid code, token, or password format' })
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ): Promise<{ success: boolean; message: string }> {
+    return this.authService.resetPassword(dto, ip, userAgent);
   }
 }

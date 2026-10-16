@@ -48,6 +48,7 @@ export interface DeviceResponse {
 @Injectable()
 export class DevicesService {
   private readonly logger = new Logger(DevicesService.name);
+  private readonly activeDeviceCreationLocks = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -88,89 +89,101 @@ export class DevicesService {
   }
 
   async create(tenantId: string, dto: CreateDeviceDto): Promise<DeviceResponse> {
-    // 1. Verify active subscription and router limit
-    const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        tenantId,
-        status: { in: ['ACTIVE', 'TRIAL'] },
-      },
-      include: { plan: true },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (!subscription) {
-      throw new ForbiddenException({
-        code: 'SUBSCRIPTION_REQUIRED',
-        message: 'يلزم وجود اشتراك نشط أو فترة تجريبية لإضافة راوترات جديدة.',
-      });
-    }
-
-    if (new Date(subscription.expiresAt).getTime() <= Date.now()) {
-      throw new ForbiddenException({
-        code: 'SUBSCRIPTION_EXPIRED',
-        message: 'انتهت صلاحية اشتراك الشبكة. يرجى تجديد الباقة لإضافة أجهزة راوتر جديدة.',
-      });
-    }
-
-    const currentDeviceCount = await this.prisma.mikroTikDevice.count({
-      where: {
-        tenantId,
-        deletedAt: null,
-      },
-    });
-
-    const maxAllowed = subscription.maxRouters ?? subscription.plan.maxRouters;
-
-    if (currentDeviceCount >= maxAllowed) {
-      throw new ForbiddenException({
-        code: 'ROUTER_LIMIT_EXCEEDED',
-        message: `تم الوصول للحد الأقصى للراوترات في باقتك (${subscription.plan.name}). الحد الأقصى المسموح: ${maxAllowed} راوتر.`,
-      });
-    }
-
-    const isRest = dto.connectionType === 'REST';
-    const resolvedApiPort = dto.apiPort ?? (isRest ? 8728 : (dto.port ?? 8728));
-    const resolvedRestPort = dto.restPort ?? (isRest && dto.port ? dto.port : 443);
-    const resolvedUseSsl = dto.useSsl ?? dto.useTls ?? false;
-
-    // 2. Check duplicate host + port
-    const existing = await this.prisma.mikroTikDevice.findFirst({
-      where: {
-        tenantId,
-        host: dto.host,
-        apiPort: resolvedApiPort,
-        deletedAt: null,
-      },
-    });
-
-    if (existing) {
+    if (this.activeDeviceCreationLocks.has(tenantId)) {
       throw new ConflictException({
-        code: 'DEVICE_EXISTS',
-        message: `الراوتر بالعنوان ${dto.host} والمنفذ ${resolvedApiPort} مسجل مسبقاً لهذا الحساب`,
+        code: 'CONCURRENT_DEVICE_CREATION',
+        message: 'توجد عملية إضافة راوتر جارية حالياً لهذه الشبكة، يرجى الانتظار حتى اكتمالها',
       });
     }
 
-    // 3. Encrypt password at rest
-    const { ciphertext, iv, authTag } = this.encryptionService.encrypt(dto.password);
+    this.activeDeviceCreationLocks.add(tenantId);
 
-    // 4. Create in DB
-    const device = await this.prisma.mikroTikDevice.create({
-      data: {
-        tenantId,
-        name: dto.name,
-        host: dto.host,
-        apiPort: resolvedApiPort,
-        restPort: resolvedRestPort,
-        useSsl: resolvedUseSsl,
-        username: dto.username,
-        passwordEncrypted: ciphertext,
-        iv,
-        authTag,
-        rosVersion: dto.rosVersion ?? RouterOsVersion.V7,
-        status: DeviceStatus.OFFLINE,
-        isOnline: false,
-      },
-    });
+    try {
+      const isRest = dto.connectionType === 'REST';
+      const resolvedApiPort = dto.apiPort ?? (isRest ? 8728 : (dto.port ?? 8728));
+      const resolvedRestPort = dto.restPort ?? (isRest && dto.port ? dto.port : 443);
+      const resolvedUseSsl = dto.useSsl ?? dto.useTls ?? false;
+
+      // Encrypt password at rest before transaction
+      const { ciphertext, iv, authTag } = this.encryptionService.encrypt(dto.password);
+
+      // Atomically verify subscription, quota limit, duplicate host, and create device inside transaction
+      const device = await this.prisma.$transaction(async (tx) => {
+        // 1. Verify active subscription and router limit
+        const subscription = await tx.subscription.findFirst({
+          where: {
+            tenantId,
+            status: { in: ['ACTIVE', 'TRIAL'] },
+          },
+          include: { plan: true },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        if (!subscription) {
+          throw new ForbiddenException({
+            code: 'SUBSCRIPTION_REQUIRED',
+            message: 'يلزم وجود اشتراك نشط أو فترة تجريبية لإضافة راوترات جديدة.',
+          });
+        }
+
+        if (new Date(subscription.expiresAt).getTime() <= Date.now()) {
+          throw new ForbiddenException({
+            code: 'SUBSCRIPTION_EXPIRED',
+            message: 'انتهت صلاحية اشتراك الشبكة. يرجى تجديد الباقة لإضافة أجهزة راوتر جديدة.',
+          });
+        }
+
+        const currentDeviceCount = await tx.mikroTikDevice.count({
+          where: {
+            tenantId,
+            deletedAt: null,
+          },
+        });
+
+        const maxAllowed = subscription.maxRouters ?? subscription.plan.maxRouters;
+
+        if (currentDeviceCount >= maxAllowed) {
+          throw new ForbiddenException({
+            code: 'ROUTER_LIMIT_EXCEEDED',
+            message: `تم الوصول للحد الأقصى للراوترات في باقتك (${subscription.plan.name}). الحد الأقصى المسموح: ${maxAllowed} راوتر.`,
+          });
+        }
+
+        // 2. Check duplicate host + port
+        const existing = await tx.mikroTikDevice.findFirst({
+          where: {
+            tenantId,
+            host: dto.host,
+            apiPort: resolvedApiPort,
+            deletedAt: null,
+          },
+        });
+
+        if (existing) {
+          throw new ConflictException({
+            code: 'DEVICE_EXISTS',
+            message: `الراوتر بالعنوان ${dto.host} والمنفذ ${resolvedApiPort} مسجل مسبقاً لهذا الحساب`,
+          });
+        }
+
+        return tx.mikroTikDevice.create({
+          data: {
+            tenantId,
+            name: dto.name,
+            host: dto.host,
+            apiPort: resolvedApiPort,
+            restPort: resolvedRestPort,
+            useSsl: resolvedUseSsl,
+            username: dto.username,
+            passwordEncrypted: ciphertext,
+            iv,
+            authTag,
+            rosVersion: dto.rosVersion ?? RouterOsVersion.V7,
+            status: DeviceStatus.OFFLINE,
+            isOnline: false,
+          },
+        });
+      });
 
     // 5. Attempt initial live handshake check
     try {
@@ -224,7 +237,10 @@ export class DevicesService {
       `Created MikroTik device "${device?.name ?? dto.name}" (${device?.id}) for tenant ${tenantId}`,
     );
     return this.transformDevice(device);
+  } finally {
+    this.activeDeviceCreationLocks.delete(tenantId);
   }
+}
 
   async findAll(tenantId?: string | null): Promise<DeviceResponse[]> {
     let resolvedTenantId = tenantId;

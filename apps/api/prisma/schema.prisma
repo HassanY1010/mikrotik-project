@@ -216,6 +216,7 @@ model User {
   role   Role    @relation(fields: [roleId], references: [id])
 
   refreshTokens      RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
   auditLogs          AuditLog[]
   cardBatchesCreated CardBatch[]       @relation("CreatedBy")
   cardsSold          Card[]            @relation("SoldBy")
@@ -284,6 +285,25 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  codeHash  String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int       @default(0)
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model AuditLog {

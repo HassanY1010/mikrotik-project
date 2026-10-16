@@ -39,8 +39,12 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   void initState() {
     super.initState();
     final r = widget.router;
-    _nameController = TextEditingController(text: r?.name ?? 'راوتر البرج الرئيسي');
-    _hostController = TextEditingController(text: r?.host ?? '192.168.88.1');
+    final existingRouters = ref.read(routersProvider).asData?.value ?? [];
+    final nextIndex = existingRouters.length + 1;
+    _nameController = TextEditingController(
+      text: r?.name ?? (existingRouters.isEmpty ? 'راوتر البرج الرئيسي' : 'راوتر فرعي $nextIndex'),
+    );
+    _hostController = TextEditingController(text: r?.host ?? '');
     _apiPortController = TextEditingController(text: (r?.apiPort ?? 8728).toString());
     _restPortController = TextEditingController(text: (r?.restPort ?? 443).toString());
     _userController = TextEditingController(text: r?.username ?? 'admin');
@@ -132,9 +136,17 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   void _handleSaveDevice() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final quota = ref.read(tenantQuotaProvider).asData?.value;
-    final status = quota?.status ?? 'NONE';
-    if (widget.router == null && status != 'ACTIVE') {
+    var quota = ref.read(tenantQuotaProvider).asData?.value;
+    if (quota == null) {
+      try {
+        quota = await ref.read(tenantQuotaProvider.notifier).fetchFresh();
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final currentUser = ref.read(currentUserProvider);
+    final status = quota?.status ?? currentUser?.subscriptionStatus ?? 'NONE';
+    final isSubActive = status == 'ACTIVE' || status == 'TRIAL';
+    if (widget.router == null && !isSubActive && currentUser?.subscriptionPlan == null) {
       final isExpired = status == 'EXPIRED';
       showDialog(
         context: context,
@@ -174,6 +186,53 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final existingRouters = ref.read(routersProvider).asData?.value ?? [];
+    final maxAllowed = quota?.maxRouters ?? 1;
+    if (widget.router == null && existingRouters.length >= maxAllowed) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.inventory_2_outlined, color: Color(0xFFF59E0B), size: 24),
+              SizedBox(width: 8),
+              Text(
+                'الوصول للحد الأقصى للأجهزة',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Text(
+            'لقد وصلت إلى الحد الأقصى للأجهزة المسموح بها في باقتك ($maxAllowed راوتر).\nيرجى ترقية الباقة لإضافة أجهزة جديدة أو حذف جهاز غير مستخدم.',
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.5),
+          ),
+          actions: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                WhatsAppButton(
+                  type: WhatsAppActionType.subscription,
+                  label: 'ترقية الباقة عبر واتساب',
+                  planName: quota?.planNameAr ?? quota?.planName,
+                  featureName: 'زيادة عدد أجهزة الراوتر المسموح بها',
+                  fontSize: 12,
+                  showPhonePill: true,
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('إغلاق', style: TextStyle(color: Color(0xFF94A3B8))),
                 ),
               ],
             ),
@@ -251,7 +310,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         backgroundColor: const Color(0xFF1E293B),
         elevation: 0,
         title: Text(
-          isEditing ? 'تعديل إعدادات راوتر ميكروتك' : 'إعداد وربط راوتر ميكروتك',
+          isEditing ? 'تعديل إعدادات راوتر MikroTik' : 'إعداد وربط راوتر MikroTik',
           style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
@@ -289,9 +348,15 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
               // Subscription Alert if Not Active
               () {
-                final quota = ref.watch(tenantQuotaProvider).asData?.value;
-                final status = quota?.status ?? 'NONE';
-                if (widget.router != null || status == 'ACTIVE') return const SizedBox.shrink();
+                final quotaState = ref.watch(tenantQuotaProvider);
+                final quota = quotaState.asData?.value;
+                final user = ref.watch(currentUserProvider);
+                if (quotaState.isLoading && quota == null) return const SizedBox.shrink();
+                final status = quota?.status ?? user?.subscriptionStatus ?? 'NONE';
+                final isSubActive = status == 'ACTIVE' || status == 'TRIAL';
+                if (widget.router != null || isSubActive || user?.subscriptionPlan != null) {
+                  return const SizedBox.shrink();
+                }
 
                 final isExpired = status == 'EXPIRED';
                 final isWarning = isExpired || status == 'SUSPENDED';

@@ -827,6 +827,38 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ],
             ),
           ),
+          const SizedBox(width: 6),
+          // Quick Add Router button
+          Tooltip(
+            message: 'إضافة راوتر جديد إلى باقتك',
+            child: InkWell(
+              onTap: widget.onOpenRouterSetup,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.add, size: 14, color: Color(0xFF38BDF8)),
+                    SizedBox(width: 2),
+                    Text(
+                      'إضافة',
+                      style: TextStyle(
+                        color: Color(0xFF38BDF8),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1265,24 +1297,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildQuickActionsGrid() {
-    final user = ref.watch(currentUserProvider);
     final actions = [
-      _ActionItem('استوديو الكروت', Icons.auto_awesome, const Color(0xFF8B5CF6), () => widget.onNavigateTab?.call(2)),
+      _ActionItem('إنشاء كروت', Icons.auto_awesome, const Color(0xFF8B5CF6), () => widget.onNavigateTab?.call(2)),
       _ActionItem('قوالب الطباعة', Icons.palette_outlined, const Color(0xFFA855F7), widget.onOpenTemplates),
-      _ActionItem('باقات وسرعات', Icons.speed, const Color(0xFFF59E0B), widget.onOpenProfiles),
+      _ActionItem('بروفايلات', Icons.speed, const Color(0xFFF59E0B), widget.onOpenProfiles),
       _ActionItem('اشتراكات PPPoE', Icons.settings_ethernet, const Color(0xFF06B6D4), widget.onOpenPppoe),
-      _ActionItem('نقطة البيع POS', Icons.point_of_sale, const Color(0xFF10B981), widget.onOpenPos),
-      _ActionItem('رادار الشبكة', Icons.radar, const Color(0xFF06B6D4), _navigateToRadar),
-      _ActionItem('مخزن الكروت', Icons.inventory_2, const Color(0xFF3B82F6), () => widget.onNavigateTab?.call(1)),
-      _ActionItem('التقارير المالية', Icons.bar_chart, const Color(0xFFF59E0B), () => widget.onNavigateTab?.call(4)),
+      _ActionItem('الرادار', Icons.radar, const Color(0xFF06B6D4), _navigateToRadar),
+      _ActionItem('الكروت', Icons.inventory_2, const Color(0xFF3B82F6), () => widget.onNavigateTab?.call(1)),
+      _ActionItem('تقارير', Icons.bar_chart, const Color(0xFFF59E0B), () => widget.onNavigateTab?.call(4)),
       _ActionItem('حسابي والأمان', Icons.person_pin_outlined, const Color(0xFF38BDF8), widget.onOpenUserProfile),
-      if (user?.role == 'SUPER_ADMIN' || user?.role == 'TENANT_ADMIN')
-        _ActionItem('المستخدمون', Icons.group_outlined, const Color(0xFF10B981), widget.onOpenTenantUsers),
-      _ActionItem('محفظة السحاب', Icons.cloud_done, const Color(0xFFEC4899), widget.onOpenCloudWallet),
-      _ActionItem('إعداد الراوتر', Icons.settings_input_antenna, const Color(0xFF6366F1), widget.onOpenRouterSetup),
+      _ActionItem('راوتر MikroTik', Icons.settings_input_antenna, const Color(0xFF6366F1), widget.onOpenRouterSetup),
       _ActionItem('محفظة الأوفلاين', Icons.wallet, const Color(0xFF14B8A6), widget.onOpenOfflineWallet),
       _ActionItem('مركز المزامنة', Icons.sync, const Color(0xFFF97316), widget.onOpenSync),
-      _ActionItem('تقرير الوردية', Icons.receipt_long, const Color(0xFF0EA5E9), widget.onOpenShift),
     ];
 
     return GridView.builder(

@@ -295,10 +295,10 @@ export const DevicesView: React.FC = () => {
         <div>
           <h1 className="page-title" style={{ color: '#ffffff', fontWeight: 800 }}>
             <RouterIcon color="var(--primary)" size={24} />
-            <span style={{ color: '#ffffff' }}>أجهزة وموجهات ميكروتك</span>
+            <span style={{ color: '#ffffff' }}>أجهزة الراوتر</span>
           </h1>
           <p className="page-subtitle" style={{ color: 'var(--text-secondary, #94a3b8)' }}>
-            إدارة الراوترات المركزية والتحكم في كروت الهوتسبوت والمستخدمين
+            إدارة راوترات MikroTik والتحكم في الاتصال والخدمات
           </p>
         </div>
 

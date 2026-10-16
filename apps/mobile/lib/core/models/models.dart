@@ -13,6 +13,9 @@ class AuthUser {
   final String? currency;
   final DateTime? createdAt;
   final String? subscriptionPlan;
+  final String? subscriptionPlanAr;
+  final DateTime? subscriptionExpiresAt;
+  final String subscriptionStatus;
 
   AuthUser({
     required this.id,
@@ -26,21 +29,50 @@ class AuthUser {
     this.currency,
     this.createdAt,
     this.subscriptionPlan,
+    this.subscriptionPlanAr,
+    this.subscriptionExpiresAt,
+    this.subscriptionStatus = 'ACTIVE',
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
+    final tenantObj = json['tenant'] is Map ? json['tenant'] as Map : null;
+    final subObj = (tenantObj?['subscription'] is Map)
+        ? tenantObj!['subscription'] as Map
+        : (json['subscription'] is Map ? json['subscription'] as Map : null);
+
+    final subPlan = json['subscriptionPlan'] as String? ??
+        subObj?['planName'] as String? ??
+        subObj?['plan'] as String? ??
+        tenantObj?['plan'] as String?;
+
+    final subPlanAr = json['subscriptionPlanAr'] as String? ??
+        subObj?['planNameAr'] as String?;
+
+    final subExpires = json['subscriptionExpiresAt'] != null
+        ? DateTime.tryParse(json['subscriptionExpiresAt'].toString())
+        : (subObj?['expiresAt'] != null
+            ? DateTime.tryParse(subObj!['expiresAt'].toString())
+            : null);
+
+    final subStatus = json['subscriptionStatus'] as String? ??
+        subObj?['status'] as String? ??
+        (subPlan != null ? 'ACTIVE' : 'NONE');
+
     return AuthUser(
       id: json['id'] as String? ?? '',
       email: json['email'] as String? ?? '',
       fullName: json['fullName'] as String? ?? json['name'] as String? ?? '',
       role: json['role'] as String? ?? 'CASHIER',
       tenantId: json['tenantId'] as String? ?? '',
-      tenantName: json['tenantName'] as String? ?? json['tenant']?['name'] as String?,
+      tenantName: json['tenantName'] as String? ?? tenantObj?['name'] as String?,
       phone: json['phone'] as String?,
       status: json['status'] as String? ?? 'ACTIVE',
-      currency: json['currency'] as String? ?? json['tenant']?['currency'] as String? ?? 'SDG',
+      currency: json['currency'] as String? ?? tenantObj?['currency'] as String? ?? 'SDG',
       createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'].toString()) : null,
-      subscriptionPlan: json['subscriptionPlan'] as String? ?? json['tenant']?['plan'] as String?,
+      subscriptionPlan: subPlan,
+      subscriptionPlanAr: subPlanAr,
+      subscriptionExpiresAt: subExpires,
+      subscriptionStatus: subStatus,
     );
   }
 
@@ -56,6 +88,9 @@ class AuthUser {
     'currency': currency,
     'createdAt': createdAt?.toIso8601String(),
     'subscriptionPlan': subscriptionPlan,
+    'subscriptionPlanAr': subscriptionPlanAr,
+    'subscriptionExpiresAt': subscriptionExpiresAt?.toIso8601String(),
+    'subscriptionStatus': subscriptionStatus,
   };
 
   AuthUser copyWith({
@@ -70,6 +105,9 @@ class AuthUser {
     String? currency,
     DateTime? createdAt,
     String? subscriptionPlan,
+    String? subscriptionPlanAr,
+    DateTime? subscriptionExpiresAt,
+    String? subscriptionStatus,
   }) {
     return AuthUser(
       id: id ?? this.id,
@@ -83,6 +121,9 @@ class AuthUser {
       currency: currency ?? this.currency,
       createdAt: createdAt ?? this.createdAt,
       subscriptionPlan: subscriptionPlan ?? this.subscriptionPlan,
+      subscriptionPlanAr: subscriptionPlanAr ?? this.subscriptionPlanAr,
+      subscriptionExpiresAt: subscriptionExpiresAt ?? this.subscriptionExpiresAt,
+      subscriptionStatus: subscriptionStatus ?? this.subscriptionStatus,
     );
   }
 }
@@ -1218,6 +1259,7 @@ class FinancialReportModel {
 
 /// SaaS Subscription & Quotas model
 class TenantQuotaModel {
+  final String? tenantId;
   final String? planName;
   final String? planNameAr;
   final int maxRouters;
@@ -1231,6 +1273,7 @@ class TenantQuotaModel {
   final String status;
 
   TenantQuotaModel({
+    this.tenantId,
     this.planName,
     this.planNameAr,
     this.maxRouters = 1,
@@ -1256,9 +1299,14 @@ class TenantQuotaModel {
 
     final unlim = json['isUnlimited'] == true || (json['isUnlimited'] == null && rawLimit == null);
 
+    final plan = json['planName'] as String? ?? json['plan'] as String? ?? json['expiredPlanName'] as String?;
+    final planAr = json['planNameAr'] as String?;
+    final tenantId = json['tenantId'] as String? ?? json['tenant']?['id'] as String?;
+
     return TenantQuotaModel(
-      planName: json['plan'] as String? ?? json['planName'] as String?,
-      planNameAr: json['planNameAr'] as String?,
+      tenantId: tenantId,
+      planName: plan,
+      planNameAr: planAr,
       maxRouters: json['maxRouters'] as int? ?? 1,
       cardLimit: unlim ? null : parsedLimit,
       usedCards: parsedUsed,
@@ -1270,6 +1318,21 @@ class TenantQuotaModel {
       status: json['status'] as String? ?? 'ACTIVE',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'tenantId': tenantId,
+    'planName': planName,
+    'planNameAr': planNameAr,
+    'maxRouters': maxRouters,
+    'cardLimit': cardLimit,
+    'usedCards': usedCards,
+    'remainingCards': remainingCards,
+    'isUnlimited': isUnlimited,
+    'cycleStart': cycleStart?.toIso8601String(),
+    'cycleEnd': cycleEnd?.toIso8601String(),
+    'expiresAt': expiresAt?.toIso8601String(),
+    'status': status,
+  };
 }
 
 /// ============================================================================

@@ -109,10 +109,10 @@ export const SalesInvoicesView: React.FC = () => {
         <div>
           <h1 className="page-title">
             <Receipt color="var(--primary)" size={24} />
-            فواتير ومبيعات الكروت
+            المبيعات والفواتير
           </h1>
           <p className="page-subtitle">
-            سجل العمليات المالية، تتبع المبيعات، وإجراء الاسترجاع الآمن
+            سجل العمليات المالية، تتبع مبيعات كروت Hotspot، وإجراء الاسترجاع الآمن
           </p>
         </div>
 

@@ -8,6 +8,7 @@ import '../../../core/services/card_pdf_generator_service.dart';
 import 'card_templates_screen.dart';
 import '../../../core/widgets/whatsapp_button.dart';
 import '../../../core/utils/whatsapp_helper.dart';
+import '../../../core/utils/validity_helper.dart';
 
 class CardStudioScreen extends ConsumerStatefulWidget {
   final VoidCallback? onBatchCreated;
@@ -98,9 +99,16 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
   void _handleGenerateBatch(List<HotspotProfileModel> profiles, List<RouterDeviceModel> routers) async {
     if (_isGenerating) return;
 
-    final quota = ref.read(tenantQuotaProvider).asData?.value;
-    final status = quota?.status ?? 'NONE';
-    if (status != 'ACTIVE') {
+    var quota = ref.read(tenantQuotaProvider).asData?.value;
+    if (quota == null) {
+      try {
+        quota = await ref.read(tenantQuotaProvider.notifier).fetchFresh();
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final user = ref.read(currentUserProvider);
+    final status = quota?.status ?? user?.subscriptionStatus ?? 'NONE';
+    if (status != 'ACTIVE' && user?.subscriptionPlan == null) {
       final isExpired = status == 'EXPIRED';
       showDialog(
         context: context,
@@ -611,7 +619,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: const [
                 Text(
-                  'استوديو الكروت والتوليد',
+                  'إنشاء كروت',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -619,7 +627,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                   ),
                 ),
                 Text(
-                  'معاينة حية، ثيمات احترافية، وتوليد فوري',
+                  'توليد كروت Hotspot، باقات مخصصة، وثيمات احترافية',
                   style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
                 ),
               ],
@@ -880,7 +888,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                   },
                   icon: const Icon(Icons.palette_outlined, size: 16, color: Color(0xFF38BDF8)),
                   label: const Text(
-                    'إدارة واستيراد القوالب',
+                    'قوالب وتصاميم الكروت',
                     style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -1052,7 +1060,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
   Widget _buildLiveCardPreview(HotspotProfileModel? profile, _ThemeConfig theme) {
     final profileTitle = profile != null ? (profile.displayName ?? profile.name) : 'باقة هوتسبوت قياسية';
     final priceText = profile != null ? '${profile.price.toStringAsFixed(0)} SDG' : '--- SDG';
-    final validityText = profile?.validity ?? '24 ساعة';
+    final validityText = formatValidityArabic(profile?.validity);
     final speedText = profile?.rateLimit ?? '4M/2M';
 
     return Container(
@@ -1202,10 +1210,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
 
   Widget _buildQuotaBanner() {
     final quotaAsync = ref.watch(tenantQuotaProvider);
+    final user = ref.watch(currentUserProvider);
     return quotaAsync.when(
       data: (quota) {
-        final status = quota?.status ?? 'NONE';
-        final isNotSubscribed = status == 'NONE' || quota == null;
+        final status = quota?.status ?? user?.subscriptionStatus ?? 'NONE';
+        final isNotSubscribed = (status == 'NONE' || quota == null) && user?.subscriptionPlan == null;
         final isExpired = status == 'EXPIRED';
         final isSuspended = status == 'SUSPENDED';
 
@@ -1264,11 +1273,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
           );
         }
 
-        final planName = quota.planNameAr ?? quota.planName ?? 'الباقة النشطة';
-        final isUnlimited = quota.isUnlimited;
-        final limit = quota.cardLimit;
-        final used = quota.usedCards;
-        final remaining = quota.remainingCards ?? (limit != null ? limit - used : 0);
+        final planName = quota?.planNameAr ?? quota?.planName ?? user?.subscriptionPlanAr ?? user?.subscriptionPlan ?? 'الباقة النشطة';
+        final isUnlimited = quota?.isUnlimited ?? true;
+        final limit = quota?.cardLimit;
+        final used = quota?.usedCards ?? 0;
+        final remaining = quota?.remainingCards ?? (limit != null ? limit - used : 0);
 
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),

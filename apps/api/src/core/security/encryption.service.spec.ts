@@ -51,7 +51,9 @@ describe('EncryptionService', () => {
     const encrypted = service.encrypt('sensitive-data');
     const tampered = {
       ...encrypted,
-      authTag: 'ff' + encrypted.authTag.substring(2),
+      authTag: encrypted.authTag.startsWith('00')
+        ? 'ff' + encrypted.authTag.substring(2)
+        : '00' + encrypted.authTag.substring(2),
     };
 
     expect(() => service.decrypt(tampered)).toThrow();

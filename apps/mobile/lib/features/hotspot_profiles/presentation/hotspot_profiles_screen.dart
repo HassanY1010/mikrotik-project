@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import 'create_hotspot_profile_screen.dart';
+import '../../../core/utils/validity_helper.dart';
 
 class HotspotProfilesScreen extends ConsumerStatefulWidget {
   const HotspotProfilesScreen({super.key});
@@ -131,7 +132,7 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
         backgroundColor: const Color(0xFF1E293B),
         elevation: 0,
         title: const Text(
-          'بروفايلات وسرعات الهوتسبوت',
+          'بروفايلات',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         actions: [
@@ -323,7 +324,7 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                                             if (p.rateLimit != null)
                                               _buildBadge('⚡ ${p.rateLimit}', const Color(0xFF38BDF8)),
                                             if (p.validity != null)
-                                              _buildBadge('⏳ ${p.validity}', const Color(0xFF10B981)),
+                                              _buildBadge('⏳ ${formatValidityArabic(p.validity)}', const Color(0xFF10B981)),
                                             _buildBadge('🎟️ كروت جاهزة: ${p.availableCards}', const Color(0xFFA78BFA)),
                                             if (p.deviceName != null)
                                               _buildBadge('📡 ${p.deviceName}', const Color(0xFFF97316)),

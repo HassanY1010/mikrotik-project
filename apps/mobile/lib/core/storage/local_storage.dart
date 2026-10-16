@@ -68,6 +68,7 @@ class LocalStorage {
   Future<void> clearAuth() async {
     await _prefs.remove(_tokenKey);
     await _prefs.remove(_userKey);
+    await clearTenantQuota();
   }
 
   // --- Auth User ---
@@ -214,5 +215,50 @@ class LocalStorage {
     raw.insert(0, jsonEncode(json)); // Most recent first
     if (raw.length > 500) raw.removeRange(500, raw.length); // Cap at 500 records
     await _prefs.setStringList(_salesHistoryKey, raw);
+  }
+
+  // --- Cached Tenant Quota & Subscription ---
+  static const String _quotaKey = 'cached_tenant_quota';
+
+  String _getQuotaKey(String? tenantId) =>
+      (tenantId != null && tenantId.isNotEmpty) ? '${_quotaKey}_$tenantId' : _quotaKey;
+
+  TenantQuotaModel? getTenantQuota([String? expectedTenantId]) {
+    final hasExpectedTenant = expectedTenantId != null && expectedTenantId.isNotEmpty;
+    final raw = hasExpectedTenant
+        ? _prefs.getString(_getQuotaKey(expectedTenantId))
+        : _prefs.getString(_quotaKey);
+    if (raw == null) return null;
+    try {
+      final model = TenantQuotaModel.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      if (hasExpectedTenant &&
+          model.tenantId != null &&
+          model.tenantId!.isNotEmpty &&
+          model.tenantId != expectedTenantId) {
+        return null; // Mismatched tenant: do not leak another tenant's cached quota
+      }
+      return model;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setTenantQuota(TenantQuotaModel quota, [String? tenantId]) async {
+    final effectiveTenantId = tenantId ?? quota.tenantId;
+    final jsonStr = jsonEncode(quota.toJson());
+    if (effectiveTenantId != null && effectiveTenantId.isNotEmpty) {
+      await _prefs.setString(_getQuotaKey(effectiveTenantId), jsonStr);
+    }
+    await _prefs.setString(_quotaKey, jsonStr);
+  }
+
+  Future<void> clearTenantQuota([String? tenantId]) async {
+    if (tenantId != null && tenantId.isNotEmpty) {
+      await _prefs.remove(_getQuotaKey(tenantId));
+    }
+    final keys = _prefs.getKeys().where((k) => k.startsWith(_quotaKey)).toList();
+    for (final k in keys) {
+      await _prefs.remove(k);
+    }
   }
 }

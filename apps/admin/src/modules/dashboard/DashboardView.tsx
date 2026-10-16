@@ -121,10 +121,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         <div>
           <h1 className="page-title">
             <Activity color="var(--primary)" size={24} />
-            لوحة التحكم والمؤشرات التشغيلية
+            لوحة التحكم والتحليلات
           </h1>
           <p className="page-subtitle">
-            نظرة عامة حية على مبيعات الهوتسبوت والمخزون وحالة الراوترات
+            نظرة عامة حية على مبيعات Hotspot، الكروت، وحالة راوترات MikroTik
           </p>
         </div>
 
@@ -135,7 +135,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </button>
           <button className="btn btn-primary" onClick={() => onNavigate('pos')}>
             <ShoppingBag size={16} />
-            نقطة بيع سريعة
+            نقطة البيع (POS)
           </button>
         </div>
       </div>

@@ -5,6 +5,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import 'receipt_dialog.dart';
+import '../../../core/utils/validity_helper.dart';
 
 class PosScreen extends ConsumerStatefulWidget {
   const PosScreen({super.key});
@@ -49,7 +50,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         message = 'تمت المزامنة بنجاح! تم اعتماد ${pushResult.appliedCount} عملية بيع في الخادم وتحديث الباقات.';
         bgColor = const Color(0xFF0D9488);
       } else {
-        message = 'تم تحديث قائمة الباقات والمخزن بنجاح.';
+        message = 'تم تحديث قائمة الباقات والكروت بنجاح.';
         bgColor = const Color(0xFF0D9488);
       }
 
@@ -447,7 +448,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                       ),
                       if (p.validity != null || p.rateLimit != null)
                         Text(
-                          '${p.validity ?? ''} ${p.rateLimit != null ? '• ${p.rateLimit}' : ''}',
+                          '${formatValidityArabic(p.validity)} ${p.rateLimit != null ? '• ${p.rateLimit}' : ''}',
                           style: const TextStyle(fontSize: 11, color: Colors.grey),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -533,7 +534,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                       ),
                       if (_selectedProfile?.validity != null)
                         Text(
-                          'صلاحية: ${_selectedProfile!.validity}',
+                          'صلاحية: ${formatValidityArabic(_selectedProfile!.validity)}',
                           style: const TextStyle(fontSize: 11, color: Colors.grey),
                         ),
                     ],

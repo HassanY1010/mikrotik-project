@@ -32,6 +32,9 @@ class CurrentUserNotifier extends Notifier<AuthUser?> {
 
   void setUser(AuthUser? user) {
     state = user;
+    if (user == null) {
+      ref.invalidate(tenantQuotaProvider);
+    }
   }
 
   Future<void> fetchMe() async {
@@ -45,6 +48,7 @@ class CurrentUserNotifier extends Notifier<AuthUser?> {
         final updatedUser = AuthUser.fromJson(data);
         await storage.setUser(updatedUser);
         state = updatedUser;
+        ref.read(tenantQuotaProvider.notifier).fetchFresh(updatedUser.tenantId);
       }
     } catch (_) {}
   }
@@ -653,10 +657,13 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
     return [
       CardTemplateModel(
         id: 'tpl-1',
-        name: 'ثيم كرة القدم الذهبي',
+        name: 'ثيم كرة القدم الذهبي (85×54 مم)',
         themePreset: 'FOOTBALL',
         primaryColor: '#065F46',
         accentColor: '#F59E0B',
+        widthMm: 85,
+        heightMm: 54,
+        orientation: 'landscape',
         isDefault: true,
         layoutConfig: {
           'showQr': true,
@@ -671,10 +678,13 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       ),
       CardTemplateModel(
         id: 'tpl-2',
-        name: 'عيد مبارك الملكي',
+        name: 'عيد مبارك الملكي (85×54 مم)',
         themePreset: 'EID_MUBARAK',
         primaryColor: '#1E3A8A',
         accentColor: '#D97706',
+        widthMm: 85,
+        heightMm: 54,
+        orientation: 'landscape',
         layoutConfig: {
           'showQr': true,
           'showPin': true,
@@ -687,10 +697,13 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       ),
       CardTemplateModel(
         id: 'tpl-3',
-        name: 'الفيروزي الحديث',
+        name: 'الفيروزي الحديث (85×54 مم)',
         themePreset: 'TURQUOISE',
         primaryColor: '#0F766E',
         accentColor: '#06B6D4',
+        widthMm: 85,
+        heightMm: 54,
+        orientation: 'landscape',
         layoutConfig: {
           'showQr': true,
           'showPin': true,
@@ -702,10 +715,13 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       ),
       CardTemplateModel(
         id: 'tpl-4',
-        name: 'تذكرة كلاسيكية (Ticket)',
+        name: 'تذكرة كلاسيكية (100×40 مم)',
         themePreset: 'TICKET',
         primaryColor: '#4338CA',
         accentColor: '#EC4899',
+        widthMm: 100,
+        heightMm: 40,
+        orientation: 'landscape',
         layoutConfig: {
           'showQr': true,
           'showPin': true,
@@ -717,10 +733,13 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       ),
       CardTemplateModel(
         id: 'tpl-5',
-        name: 'مدمج أنيق (Compact)',
+        name: 'مدمج أنيق (70×35 مم)',
         themePreset: 'COMPACT',
         primaryColor: '#334155',
         accentColor: '#64748B',
+        widthMm: 70,
+        heightMm: 35,
+        orientation: 'landscape',
         layoutConfig: {
           'showQr': true,
           'showPin': true,
@@ -728,6 +747,24 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
           'showValidity': true,
           'showSpeed': true,
           'networkName': 'بطاقة الاتصال المدمجة',
+        },
+      ),
+      CardTemplateModel(
+        id: 'tpl-6',
+        name: 'شبكة مصغرة مكثفة (50×30 مم)',
+        themePreset: 'MINI',
+        primaryColor: '#4F46E5',
+        accentColor: '#06B6D4',
+        widthMm: 50,
+        heightMm: 30,
+        orientation: 'landscape',
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': false,
+          'networkName': 'سودافاي شبكة سريعة',
         },
       ),
     ];
@@ -1157,7 +1194,7 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
       } else {
         state = state.copyWith(
           isLoading: false,
-          errorMessage: 'تعذر الاتصال بالخادم لجلب بيانات المخزون. يرجى التحقق من الشبكة وإعادة المحاولة.',
+          errorMessage: 'تعذر الاتصال بالخادم لجلب بيانات الكروت. يرجى التحقق من الشبكة وإعادة المحاولة.',
         );
       }
     }
@@ -1177,6 +1214,33 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
     }
   }
 
+  Future<Map<String, dynamic>> bulkDeleteCards(List<String> cardIds) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.cardsBulkDelete,
+        data: {'cardIds': cardIds},
+      );
+      await loadInventory(isRefresh: true);
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) {
+        return {'success': true, ...raw};
+      }
+      return {'success': true, 'message': 'تم حذف الكروت المحددة بنجاح'};
+    } catch (e) {
+      String msg = 'فشل حذف الكروت المحددة';
+      if (e is DioException && e.response?.data is Map) {
+        final d = e.response!.data as Map;
+        msg = d['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteCard(String cardId) async {
+    return bulkDeleteCards([cardId]);
+  }
+
   Future<void> refresh() async {
     await loadInventory(isRefresh: true);
   }
@@ -1187,27 +1251,104 @@ final cardsInventoryProvider = NotifierProvider<CardsInventoryNotifier, CardsInv
 );
 
 /// Provider for dynamic SaaS subscription quota and limit details
-final tenantQuotaProvider = FutureProvider.autoDispose<TenantQuotaModel?>((ref) async {
-  final apiClient = ref.read(apiClientProvider);
-  try {
-    final res = await apiClient.get('/cards/quota');
-    final raw = res.data;
-    final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
-    if (data is Map<String, dynamic>) {
-      return TenantQuotaModel.fromJson(data);
+class TenantQuotaNotifier extends AsyncNotifier<TenantQuotaModel?> {
+  @override
+  Future<TenantQuotaModel?> build() async {
+    final storage = ref.watch(localStorageProvider);
+    final user = ref.watch(currentUserProvider);
+    final tenantId = user?.tenantId;
+
+    // 1. Immediately return cached quota if available for this specific tenant
+    final cached = storage.getTenantQuota(tenantId);
+    if (cached != null) {
+      // Trigger background update without clearing cached state
+      _fetchAndUpdateInBackground(tenantId);
+      return cached;
     }
-  } catch (_) {
+
+    // 2. Fallback to currentUser subscription info if cached is null
+    if (user != null && user.subscriptionPlan != null) {
+      final fallbackModel = TenantQuotaModel(
+        tenantId: user.tenantId,
+        planName: user.subscriptionPlan,
+        planNameAr: user.subscriptionPlanAr,
+        status: user.subscriptionStatus,
+        expiresAt: user.subscriptionExpiresAt,
+        isUnlimited: true,
+      );
+      _fetchAndUpdateInBackground(tenantId);
+      return fallbackModel;
+    }
+
+    return _fetchFromServer(tenantId);
+  }
+
+  Future<TenantQuotaModel?> _fetchFromServer([String? currentTenantId]) async {
+    final apiClient = ref.read(apiClientProvider);
+    final storage = ref.read(localStorageProvider);
     try {
-      final res = await apiClient.get(ApiEndpoints.currentTenant);
+      final res = await apiClient.get('/cards/quota');
       final raw = res.data;
       final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
-      if (data is Map<String, dynamic> && data['subscription'] is Map) {
-        return TenantQuotaModel.fromJson(Map<String, dynamic>.from(data['subscription'] as Map));
+      if (data is Map<String, dynamic>) {
+        final mapWithTenant = Map<String, dynamic>.from(data);
+        if (mapWithTenant['tenantId'] == null && currentTenantId != null) {
+          mapWithTenant['tenantId'] = currentTenantId;
+        }
+        final model = TenantQuotaModel.fromJson(mapWithTenant);
+        await storage.setTenantQuota(model, currentTenantId);
+        return model;
+      }
+    } catch (_) {
+      try {
+        final res = await apiClient.get(ApiEndpoints.currentTenant);
+        final raw = res.data;
+        final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+        if (data is Map<String, dynamic> && data['subscription'] is Map) {
+          final subMap = Map<String, dynamic>.from(data['subscription'] as Map);
+          if (subMap['tenantId'] == null && currentTenantId != null) {
+            subMap['tenantId'] = currentTenantId;
+          }
+          final model = TenantQuotaModel.fromJson(subMap);
+          await storage.setTenantQuota(model, currentTenantId);
+          return model;
+        }
+      } catch (_) {}
+    }
+    return storage.getTenantQuota(currentTenantId);
+  }
+
+  Future<void> _fetchAndUpdateInBackground([String? currentTenantId]) async {
+    try {
+      final fresh = await _fetchFromServer(currentTenantId);
+      if (fresh != null) {
+        state = AsyncValue.data(fresh);
       }
     } catch (_) {}
   }
-  return null;
-});
+
+  Future<TenantQuotaModel?> refresh() async {
+    final user = ref.read(currentUserProvider);
+    final tenantId = user?.tenantId;
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetchFromServer(tenantId));
+    return state.asData?.value;
+  }
+
+  Future<TenantQuotaModel?> fetchFresh([String? targetTenantId]) async {
+    final tenantId = targetTenantId ?? ref.read(currentUserProvider)?.tenantId;
+    final fresh = await _fetchFromServer(tenantId);
+    if (fresh != null) {
+      state = AsyncValue.data(fresh);
+      return fresh;
+    }
+    return state.asData?.value;
+  }
+}
+
+final tenantQuotaProvider = AsyncNotifierProvider<TenantQuotaNotifier, TenantQuotaModel?>(
+  TenantQuotaNotifier.new,
+);
 
 /// ============================================================================
 /// PPPoE & BROADBAND RIVERPOD PROVIDERS

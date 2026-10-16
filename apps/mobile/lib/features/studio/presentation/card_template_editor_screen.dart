@@ -6,12 +6,10 @@ import '../../../core/providers.dart';
 
 class CardTemplateEditorScreen extends ConsumerStatefulWidget {
   final CardTemplateModel? template; // null for creating new
-  final bool isImported;
 
   const CardTemplateEditorScreen({
     super.key,
     this.template,
-    this.isImported = false,
   });
 
   @override
@@ -42,6 +40,54 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   late bool _showSpeed;
 
   bool _isSaving = false;
+
+  final List<Map<String, dynamic>> _cardSizePresets = const [
+    {
+      'id': 'CREDIT_CARD',
+      'name': 'كرت قياسي (85×54 مم)',
+      'desc': 'المقاس المعتمد القياسي لبطاقات الكروت (Credit Card)',
+      'width': 85,
+      'height': 54,
+      'orientation': 'landscape',
+      'icon': Icons.credit_card,
+    },
+    {
+      'id': 'TICKET',
+      'name': 'تذكرة هوتسبوت (100×40 مم)',
+      'desc': 'تنسيق تذكرة أو إيصال أفقي واسع مناسب لنقاط البيع',
+      'width': 100,
+      'height': 40,
+      'orientation': 'landscape',
+      'icon': Icons.confirmation_number_outlined,
+    },
+    {
+      'id': 'COMPACT',
+      'name': 'كرت مدمج (70×35 مم)',
+      'desc': 'مقاس اقتصادي موفر للورق في طباعة الورق العادي A4',
+      'width': 70,
+      'height': 35,
+      'orientation': 'landscape',
+      'icon': Icons.crop_landscape,
+    },
+    {
+      'id': 'MINI_GRID',
+      'name': 'كرت شبكة مصغر (50×30 مم)',
+      'desc': 'للطباعة المكثفة السريعة (حتى 100 كرت في الورقة الواحدة)',
+      'width': 50,
+      'height': 30,
+      'orientation': 'landscape',
+      'icon': Icons.grid_view_rounded,
+    },
+    {
+      'id': 'PORTRAIT',
+      'name': 'كرت عمودي (54×85 مم)',
+      'desc': 'تصميم طولي عمودي مناسب للحافظات والتعليق',
+      'width': 54,
+      'height': 85,
+      'orientation': 'portrait',
+      'icon': Icons.crop_portrait,
+    },
+  ];
 
   final List<Map<String, dynamic>> _presetThemes = [
     {
@@ -109,7 +155,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     final tpl = widget.template;
 
     _nameController = TextEditingController(
-      text: tpl != null ? (widget.isImported ? '${tpl.name} (مستورد)' : tpl.name) : 'قالب كرت جديد',
+      text: tpl?.name ?? 'قالب كرت جديد',
     );
     _networkNameController = TextEditingController(
       text: tpl?.networkName ?? 'سودافاي هوتسبوت',
@@ -180,7 +226,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     setState(() => _isSaving = true);
 
     final updatedTemplate = CardTemplateModel(
-      id: widget.isImported ? '' : (widget.template?.id ?? ''),
+      id: widget.template?.id ?? '',
       name: _nameController.text.trim(),
       widthMm: _widthMm,
       heightMm: _heightMm,
@@ -205,7 +251,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     final notifier = ref.read(cardTemplatesProvider.notifier);
     Map<String, dynamic> result;
 
-    if (widget.template != null && !widget.isImported) {
+    if (widget.template != null) {
       result = await notifier.updateTemplate(updatedTemplate);
     } else {
       result = await notifier.createTemplate(updatedTemplate);
@@ -217,13 +263,9 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
 
     if (result['success'] == true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.isImported
-                ? 'تم استيراد وحفظ القالب بنجاح في المنظومة!'
-                : 'تم حفظ تصميم القالب بنجاح!',
-          ),
-          backgroundColor: const Color(0xFF10B981),
+        const SnackBar(
+          content: Text('تم حفظ تصميم القالب بنجاح!'),
+          backgroundColor: Color(0xFF10B981),
         ),
       );
       Navigator.pop(context, true);
@@ -245,9 +287,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
         backgroundColor: const Color(0xFF1E293B),
         elevation: 0,
         title: Text(
-          widget.isImported
-              ? 'مراجعة وتعديل القالب المستورد'
-              : (widget.template == null ? 'إنشاء قالب طباعة جديد' : 'تعديل تصميم القالب'),
+          widget.template == null ? 'إنشاء قالب طباعة جديد' : 'تعديل تصميم القالب',
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         actions: [
@@ -281,6 +321,12 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
             _buildLivePreviewHeader(),
             const SizedBox(height: 8),
             _buildInteractiveCardPreview(),
+            const SizedBox(height: 24),
+
+            // Pre-defined Card Sizes Selector
+            _buildSectionTitle('المقاسات والقوالب المحددة مسبقًا:', Icons.aspect_ratio),
+            const SizedBox(height: 10),
+            _buildCardSizeSelector(),
             const SizedBox(height: 24),
 
             // Theme Presets Selector
@@ -336,7 +382,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
             Icon(Icons.remove_red_eye_outlined, color: Color(0xFF38BDF8), size: 20),
             SizedBox(width: 8),
             Text(
-              'معاينة الكرت الحية (Live Preview)',
+              'معاينة الكرت الحية',
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ],
@@ -349,7 +395,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
             border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.2)),
           ),
           child: Text(
-            '$_widthMm x $_heightMm mm',
+            '$_widthMm × $_heightMm مم (${_orientation == 'portrait' ? 'عمودي' : 'أفقي'})',
             style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
           ),
         ),
@@ -357,11 +403,120 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     );
   }
 
+  Widget _buildCardSizeSelector() {
+    return Column(
+      children: _cardSizePresets.map((preset) {
+        final isSelected = _widthMm == preset['width'] && _heightMm == preset['height'];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF1E3A8A).withValues(alpha: 0.35) : const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              setState(() {
+                _widthMm = preset['width'] as int;
+                _heightMm = preset['height'] as int;
+                _orientation = preset['orientation'] as String;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFF38BDF8).withValues(alpha: 0.2)
+                          : const Color(0xFF334155).withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isSelected ? const Color(0xFF38BDF8) : Colors.transparent,
+                        width: 1,
+                      ),
+                    ),
+                    child: Icon(
+                      preset['icon'] as IconData,
+                      color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              preset['name'] as String,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : const Color(0xFFE2E8F0),
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isSelected ? const Color(0xFF38BDF8).withValues(alpha: 0.2) : const Color(0xFF0F172A),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+                                ),
+                              ),
+                              child: Text(
+                                '${preset['width']}×${preset['height']} مم',
+                                style: TextStyle(
+                                  color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          preset['desc'] as String,
+                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                    color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF64748B),
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildInteractiveCardPreview() {
+    final isPortrait = _heightMm > _widthMm;
     return Center(
       child: Container(
         width: double.infinity,
-        constraints: const BoxConstraints(maxWidth: 360, minHeight: 180),
+        constraints: BoxConstraints(
+          maxWidth: isPortrait ? 260 : 360,
+          minHeight: isPortrait ? 300 : 180,
+        ),
         margin: const EdgeInsets.symmetric(vertical: 8),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(

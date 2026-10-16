@@ -20,6 +20,9 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounceTimer;
   String _selectedStatus = 'ALL';
+  bool _isSelectionMode = false;
+  final Set<String> _selectedCardIds = {};
+  bool _isDeleting = false;
 
   final List<Map<String, String>> _statusFilters = [
     {'key': 'ALL', 'label': 'الكل'},
@@ -86,6 +89,225 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     ref.read(cardsInventoryProvider.notifier).loadInventory(
           page: page,
         );
+  }
+
+  void _toggleSelectionMode() {
+    setState(() {
+      _isSelectionMode = !_isSelectionMode;
+      if (!_isSelectionMode) {
+        _selectedCardIds.clear();
+      }
+    });
+  }
+
+  void _toggleCardSelection(String cardId) {
+    setState(() {
+      if (_selectedCardIds.contains(cardId)) {
+        _selectedCardIds.remove(cardId);
+      } else {
+        _selectedCardIds.add(cardId);
+      }
+    });
+  }
+
+  void _toggleSelectAllVisible(List<CardModel> visibleCards) {
+    setState(() {
+      final allVisibleIds = visibleCards.map((c) => c.id).toSet();
+      final hasAll = allVisibleIds.isNotEmpty && allVisibleIds.every((id) => _selectedCardIds.contains(id));
+      if (hasAll) {
+        _selectedCardIds.removeAll(allVisibleIds);
+      } else {
+        _selectedCardIds.addAll(allVisibleIds);
+      }
+    });
+  }
+
+  Future<void> _handleBulkDelete(List<CardModel> currentCards) async {
+    if (_selectedCardIds.isEmpty) return;
+
+    final selectedCount = _selectedCardIds.length;
+    final selectedCards = currentCards.where((c) => _selectedCardIds.contains(c.id)).toList();
+    final soldCount = selectedCards.where((c) => c.status == 'SOLD').length;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444), size: 24),
+            SizedBox(width: 8),
+            Text(
+              'تأكيد الحذف الجماعي',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'هل تريد بالتأكيد حذف الكروت المحددة وعددها $selectedCount كرت؟\nسيتم حذفها من النظام ومزامنة الحذف مع راوتر MikroTik.',
+              style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+            ),
+            if (soldCount > 0) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, color: Colors.amber, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'تنبيه: يتضمن التحديد $soldCount كرت مباع. سيتم الاحتفاظ بها لحماية السجلات المالية والمحاسبية.',
+                        style: const TextStyle(color: Colors.amber, fontSize: 11, height: 1.3),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('نعم، حذف $selectedCount كرت'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    final result = await ref
+        .read(cardsInventoryProvider.notifier)
+        .bulkDeleteCards(_selectedCardIds.toList());
+
+    if (!mounted) return;
+    setState(() {
+      _isDeleting = false;
+      _selectedCardIds.clear();
+      _isSelectionMode = false;
+    });
+
+    final success = result['success'] == true;
+    final message = result['message']?.toString() ??
+        (success ? 'تم تنفيذ عملية الحذف بنجاح' : 'فشلت عملية الحذف');
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  Future<void> _handleDeleteSingleCard(CardModel card) async {
+    if (card.status == 'SOLD') {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.shield_outlined, color: Colors.amber, size: 22),
+              SizedBox(width: 8),
+              Text(
+                'حماية السجلات المالية',
+                style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: const Text(
+            'لا يمكن حذف هذا الكرت لأنه مباع ومرتبط بسجلات مبيعات وقيود محاسبية في النظام.',
+            style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('حسناً', style: TextStyle(color: Color(0xFF38BDF8))),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.delete_outline, color: Color(0xFFEF4444), size: 22),
+            SizedBox(width: 8),
+            Text(
+              'حذف الكرت نهائياً',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Text(
+          'هل تريد بالتأكيد حذف الكرت "${card.username}" نهائياً من قاعدة البيانات وإزالته من راوتر MikroTik؟\nلا يمكن التراجع عن هذا الإجراء.',
+          style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('نعم، حذف نهائي'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await ref.read(cardsInventoryProvider.notifier).deleteCard(card.id);
+
+    if (!mounted) return;
+    final success = result['success'] == true;
+    final msg = result['message']?.toString() ?? (success ? 'تم حذف الكرت بنجاح' : 'فشل حذف الكرت');
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+      ),
+    );
   }
 
   Future<void> _toggleCardStatus(CardModel card) async {
@@ -381,44 +603,134 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
       appBar: AppBar(
         backgroundColor: const Color(0xFF1E293B),
         elevation: 0,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF3B82F6).withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.inventory_2, color: Color(0xFF60A5FA), size: 22),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  'مخزن الكروت والمخزون',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: _toggleSelectionMode,
+                tooltip: 'إلغاء وضع التحديد',
+              )
+            : null,
+        title: _isSelectionMode
+            ? Text(
+                'تم تحديد ${_selectedCardIds.length} كرت',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              )
+            : Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.inventory_2, color: Color(0xFF60A5FA), size: 22),
                   ),
-                ),
-                Text(
-                  'إدارة فعلية، تتبع الحالات، والبحث المتقدم',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                ),
-              ],
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'الكروت',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        'إدارة كروت Hotspot، تتبع الحالات، والبحث المتقدم',
+                        style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+        actions: [
+          if (_isSelectionMode) ...[
+            IconButton(
+              icon: Icon(
+                state.cards.isNotEmpty &&
+                        state.cards.every((c) => _selectedCardIds.contains(c.id))
+                    ? Icons.deselect
+                    : Icons.select_all,
+                color: const Color(0xFF38BDF8),
+              ),
+              onPressed: () => _toggleSelectAllVisible(state.cards),
+              tooltip: 'تحديد / إلغاء تحديد الكل',
+            ),
+            if (_selectedCardIds.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.delete_sweep, color: Color(0xFFEF4444)),
+                onPressed: _isDeleting ? null : () => _handleBulkDelete(state.cards),
+                tooltip: 'حذف المحدد (${_selectedCardIds.length})',
+              ),
+          ] else ...[
+            IconButton(
+              onPressed: _toggleSelectionMode,
+              icon: const Icon(Icons.checklist_rtl_rounded, color: Color(0xFF38BDF8)),
+              tooltip: 'تحديد كروت متعددة للحذف',
+            ),
+            IconButton(
+              onPressed: () => ref.read(cardsInventoryProvider.notifier).refresh(),
+              icon: const Icon(Icons.refresh, color: Color(0xFF94A3B8)),
+              tooltip: 'تحديث الكروت',
             ),
           ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: () => ref.read(cardsInventoryProvider.notifier).refresh(),
-            icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
-            tooltip: 'تحديث المخزون',
-          ),
         ],
       ),
+      bottomNavigationBar: (_isSelectionMode && _selectedCardIds.isNotEmpty)
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E293B),
+                border: const Border(top: BorderSide(color: Color(0xFF334155))),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, -3),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'المحدد: ${_selectedCardIds.length} كرت من أصل ${state.totalMatching}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFEF4444),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: _isDeleting ? null : () => _handleBulkDelete(state.cards),
+                      icon: _isDeleting
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.delete_sweep, size: 18),
+                      label: Text(_isDeleting ? 'جارٍ الحذف...' : 'حذف المحدد (${_selectedCardIds.length})'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : null,
       body: RefreshIndicator(
         onRefresh: () => ref.read(cardsInventoryProvider.notifier).refresh(),
         color: const Color(0xFF38BDF8),
@@ -535,7 +847,7 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                         const Icon(Icons.storage_rounded, size: 14, color: Color(0xFF38BDF8)),
                         const SizedBox(width: 4),
                         Text(
-                          'إجمالي المخزون: ${state.totalInventory} كرت',
+                          'إجمالي الكروت: ${state.totalInventory} كرت',
                           style: const TextStyle(
                             color: Color(0xFF38BDF8),
                             fontSize: 12,
@@ -582,7 +894,7 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
             ),
             SizedBox(height: 16),
             Text(
-              'جارٍ جلب مخزون الكروت الفعلي...',
+              'جارٍ جلب الكروت الفعلية...',
               style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
             ),
           ],
@@ -601,7 +913,7 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
               const Icon(Icons.cloud_off_rounded, size: 54, color: Color(0xFFEF4444)),
               const SizedBox(height: 14),
               const Text(
-                'تعذر تحميل المخزون',
+                'تعذر تحميل الكروت',
                 style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 6),
@@ -647,12 +959,12 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
               ),
               const SizedBox(height: 16),
               const Text(
-                'لا توجد كروت مسجلة في المخزون حتى الآن',
+                'لا توجد كروت مسجلة في النظام حتى الآن',
                 style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               const Text(
-                'يمكنك البدء بتوليد دفعة كروت جديدة وتخصيص الباقات والثيمات عبر استوديو الكروت.',
+                'يمكنك البدء بتوليد دفعة كروت جديدة وتخصيص الباقات والثيمات عبر إنشاء كروت.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
               ),
@@ -671,7 +983,7 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                   );
                 },
                 icon: const Icon(Icons.add_card, size: 18),
-                label: const Text('الانتقال إلى استوديو الكروت والتوليد'),
+                label: const Text('الانتقال إلى إنشاء كروت'),
               ),
             ],
           ),
@@ -793,25 +1105,46 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
         statusIcon = Icons.help_outline;
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF334155)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              // QR Code Quick Viewer Button
-              IconButton(
-                onPressed: () => _showCardDetailsDialog(card),
-                icon: const Icon(Icons.qr_code_2, color: Color(0xFF38BDF8), size: 28),
-                tooltip: 'عرض تفاصيل الكرت والـ QR',
-              ),
-              const SizedBox(width: 8),
+    final isSelected = _selectedCardIds.contains(card.id);
+
+    return InkWell(
+      onTap: _isSelectionMode ? () => _toggleCardSelection(card.id) : null,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFF1E3A8A).withValues(alpha: 0.35)
+              : const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                if (_isSelectionMode) ...[
+                  Checkbox(
+                    value: isSelected,
+                    onChanged: (_) => _toggleCardSelection(card.id),
+                    activeColor: const Color(0xFF38BDF8),
+                    checkColor: const Color(0xFF0F172A),
+                    side: const BorderSide(color: Color(0xFF64748B)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                // QR Code Quick Viewer Button
+                IconButton(
+                  onPressed: () => _showCardDetailsDialog(card),
+                  icon: const Icon(Icons.qr_code_2, color: Color(0xFF38BDF8), size: 28),
+                  tooltip: 'عرض تفاصيل الكرت والـ QR',
+                ),
+                const SizedBox(width: 8),
 
               // Card Main Info
               Expanded(
@@ -922,6 +1255,8 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                             _showCardDetailsDialog(card);
                           } else if (val == 'toggle_status') {
                             _toggleCardStatus(card);
+                          } else if (val == 'delete_card') {
+                            _handleDeleteSingleCard(card);
                           }
                         },
                         itemBuilder: (ctx) => [
@@ -963,6 +1298,16 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                               ],
                             ),
                           ),
+                          const PopupMenuItem(
+                            value: 'delete_card',
+                            child: Row(
+                              children: [
+                                Icon(Icons.delete_outline, size: 16, color: Color(0xFFEF4444)),
+                                SizedBox(width: 8),
+                                Text('حذف الكرت نهائياً', style: TextStyle(color: Color(0xFFEF4444), fontSize: 12)),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -973,8 +1318,9 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildPaginationBar(CardsInventoryState state) {
     return Container(

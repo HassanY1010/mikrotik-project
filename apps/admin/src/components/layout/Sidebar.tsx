@@ -6,7 +6,6 @@ import {
   Network,
   CreditCard,
   Printer,
-  ShoppingBag,
   Receipt,
   BarChart3,
   ShieldCheck,
@@ -63,17 +62,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const operationalNavItems = [
     { id: 'dashboard' as NavigationTab, label: 'لوحة التحكم والتحليلات', icon: LayoutDashboard },
-    { id: 'devices' as NavigationTab, label: 'أجهزة وموجهات ميكروتك', icon: Router },
-    { id: 'hotspot' as NavigationTab, label: 'باقات وسرعات الهوتسبوت', icon: Zap },
+    { id: 'devices' as NavigationTab, label: 'أجهزة الراوتر', icon: Router },
+    { id: 'hotspot' as NavigationTab, label: 'بروفايلات Hotspot', icon: Zap },
     { id: 'portal' as NavigationTab, label: 'مصمم صفحات HotSpot', icon: Palette },
-    { id: 'pppoe' as NavigationTab, label: 'اشتراكات النطاق العريض (PPPoE)', icon: Network },
-    { id: 'cards' as NavigationTab, label: 'مخزون وتوليد الكروت', icon: CreditCard },
-    { id: 'print' as NavigationTab, label: 'استوديو طباعة الكروت', icon: Printer },
-    { id: 'pos' as NavigationTab, label: 'نقطة البيع السريعة', icon: ShoppingBag },
-    { id: 'sales' as NavigationTab, label: 'فواتير ومبيعات الكروت', icon: Receipt },
-    { id: 'reports' as NavigationTab, label: 'التقارير المالية والورديات', icon: BarChart3 },
+    { id: 'pppoe' as NavigationTab, label: 'اشتراكات PPPoE', icon: Network },
+    { id: 'cards' as NavigationTab, label: 'الكروت', icon: CreditCard },
+    { id: 'print' as NavigationTab, label: 'طباعة الكروت', icon: Printer },
+    { id: 'sales' as NavigationTab, label: 'المبيعات والفواتير', icon: Receipt },
+    { id: 'reports' as NavigationTab, label: 'التقارير', icon: BarChart3 },
     { id: 'audit' as NavigationTab, label: 'سجل التدقيق والأمان', icon: ShieldCheck },
-    { id: 'settings' as NavigationTab, label: 'إعدادات الشبكة والنظام', icon: Settings },
+    { id: 'settings' as NavigationTab, label: 'إعدادات النظام', icon: Settings },
   ];
 
   const renderNavList = (items: typeof operationalNavItems) => (

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/utils/validity_helper.dart';
 
 class CreateHotspotProfileScreen extends ConsumerStatefulWidget {
   final HotspotProfileModel? editProfile;
@@ -34,15 +35,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
     '20M/20M',
   ];
 
-  final List<Map<String, String>> _validityPresets = [
-    {'label': '1 ساعة', 'value': '1h'},
-    {'label': '3 ساعات', 'value': '3h'},
-    {'label': '12 ساعة', 'value': '12h'},
-    {'label': '1 يوم', 'value': '1d'},
-    {'label': '3 أيام', 'value': '3d'},
-    {'label': '1 أسبوع', 'value': '7d'},
-    {'label': '1 شهر', 'value': '30d'},
-  ];
+  final List<Map<String, String>> _validityPresets = validityPresets;
 
   @override
   void initState() {
@@ -88,14 +81,16 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
     final notifier = ref.read(profilesProvider.notifier);
     Map<String, dynamic> result;
 
+    final validDuration = normalizeValidityDuration(_validityController.text.trim());
+
     if (widget.editProfile != null) {
       result = await notifier.updateProfile(
         id: widget.editProfile!.id,
         name: _nameController.text.trim(),
         displayName: _displayNameController.text.trim(),
         rateLimit: _rateLimitController.text.trim(),
-        validity: _validityController.text.trim(),
-        sessionTimeout: _validityController.text.trim(),
+        validity: validDuration,
+        sessionTimeout: validDuration,
         price: double.tryParse(_priceController.text.trim()) ?? 0,
         sharedUsers: int.tryParse(_sharedUsersController.text.trim()) ?? 1,
       );
@@ -105,8 +100,8 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
         deviceId: _selectedDeviceId!,
         displayName: _displayNameController.text.trim(),
         rateLimit: _rateLimitController.text.trim(),
-        sessionTimeout: _validityController.text.trim(),
-        validity: _validityController.text.trim(),
+        sessionTimeout: validDuration,
+        validity: validDuration,
         price: double.tryParse(_priceController.text.trim()) ?? 0,
         sharedUsers: int.tryParse(_sharedUsersController.text.trim()) ?? 1,
       );
@@ -306,8 +301,14 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                 TextFormField(
                   controller: _validityController,
                   style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
-                  decoration: _inputDecoration('أو أدخل مدة مخصصة', 'مثال: 1h, 3h, 1d, 7d, 30d'),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'الرجاء تحديد الصلاحية' : null,
+                  decoration: _inputDecoration('أو أدخل مدة مخصصة', 'مثال: 1m, 15m, 1h, 3h, 1d, 7d'),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'الرجاء إدخال مدة الصلاحية';
+                    if (!isValidValidityDuration(v)) {
+                      return 'مدة الصلاحية غير صالحة. اكتب رقماً متبوعاً بـ m (دقيقة) أو h (ساعة) أو d (يوم)، مثل 1m أو 1h أو 1d';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 20),
 

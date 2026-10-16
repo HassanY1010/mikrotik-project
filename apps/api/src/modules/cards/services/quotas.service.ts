@@ -15,6 +15,7 @@ export interface QuotaDetails {
   cardLimit: number | null;
   usedCards: number;
   remainingCards: number | null;
+  maxRouters?: number;
 }
 
 @Injectable()
@@ -50,7 +51,8 @@ export class QuotasService {
     const sub = await this.prisma.subscription.findFirst({
       where: {
         tenantId,
-        status: SubscriptionStatus.ACTIVE,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+        expiresAt: { gt: now },
       },
       include: {
         plan: true,
@@ -74,7 +76,7 @@ export class QuotasService {
         });
       }
 
-      if (anySub?.status === SubscriptionStatus.EXPIRED) {
+      if (anySub?.status === SubscriptionStatus.EXPIRED || (anySub?.status === SubscriptionStatus.ACTIVE && anySub?.expiresAt <= now)) {
         throw new ForbiddenException({
           code: 'SUBSCRIPTION_EXPIRED',
           message: 'انتهت صلاحية اشتراك الشبكة. يرجى تجديد الباقة للمتابعة',
@@ -94,13 +96,14 @@ export class QuotasService {
       });
     }
 
-    if (new Date(sub.expiresAt).getTime() <= now.getTime()) {
+    if (sub.status === SubscriptionStatus.EXPIRED || new Date(sub.expiresAt) <= now) {
       throw new ForbiddenException({
         code: 'SUBSCRIPTION_EXPIRED',
-        message: `انتهت صلاحية اشتراك الشبكة في ${new Date(sub.expiresAt).toLocaleDateString('ar-EG')}. يرجى التجديد`,
+        message: 'انتهت صلاحية اشتراك الشبكة. يرجى تجديد الباقة للمتابعة',
       });
     }
 
+    // Subscription is guaranteed valid (status=ACTIVE and expiresAt > now) at this point
     return sub;
   }
 
@@ -194,7 +197,66 @@ export class QuotasService {
    * Returns current quota usage statistics for a tenant.
    */
   async getTenantQuota(tenantId: string, now: Date = new Date()): Promise<QuotaDetails> {
-    const sub = await this.resolveTenantSubscription(tenantId, now);
+    const sub = await this.prisma.subscription.findFirst({
+      where: {
+        tenantId,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+        expiresAt: { gt: now },
+      },
+      include: {
+        plan: true,
+      },
+      orderBy: {
+        expiresAt: 'desc',
+      },
+    });
+
+    if (!sub) {
+      // Find latest expired or suspended subscription to return informative status without throwing 403
+      const latestSub = await this.prisma.subscription.findFirst({
+        where: { tenantId },
+        include: { plan: true },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (latestSub) {
+        const isSuspended = (latestSub as any).status === 'SUSPENDED';
+        const isExpired = latestSub.status === SubscriptionStatus.EXPIRED || new Date(latestSub.expiresAt) <= now;
+        const status = isSuspended ? 'SUSPENDED' : isExpired ? 'EXPIRED' : latestSub.status;
+
+        return {
+          subscriptionId: latestSub.id,
+          planId: latestSub.plan.id,
+          planName: latestSub.plan.name,
+          planNameAr: latestSub.plan.nameAr,
+          status,
+          cycleStart: latestSub.startsAt,
+          cycleEnd: latestSub.expiresAt,
+          expiresAt: latestSub.expiresAt,
+          isUnlimited: false,
+          cardLimit: 0,
+          usedCards: 0,
+          remainingCards: 0,
+          maxRouters: latestSub.maxRouters ?? latestSub.plan.maxRouters,
+        };
+      }
+
+      return {
+        subscriptionId: '',
+        planId: '',
+        planName: 'NONE',
+        planNameAr: 'لا يوجد اشتراك',
+        status: 'NONE',
+        cycleStart: now,
+        cycleEnd: now,
+        expiresAt: now,
+        isUnlimited: false,
+        cardLimit: 0,
+        usedCards: 0,
+        remainingCards: 0,
+      };
+    }
+
     const { cycleStart, cycleEnd } = this.calculateBillingCycle(sub.startsAt, sub.expiresAt, now);
     const { isUnlimited, cardLimit } = this.resolvePlanLimit(sub.plan);
 
@@ -236,6 +298,7 @@ export class QuotasService {
       cardLimit,
       usedCards,
       remainingCards,
+      maxRouters: sub.maxRouters ?? sub.plan.maxRouters,
     };
   }
 
@@ -267,7 +330,7 @@ export class QuotasService {
     try {
       await tx.$queryRaw<Array<{ id: string; expiresAt: Date; status: string }>>`
         SELECT id, "expiresAt", status FROM subscriptions
-        WHERE "tenantId" = ${tenantId} AND status = 'ACTIVE'
+        WHERE "tenantId" = ${tenantId} AND status IN ('ACTIVE', 'TRIAL') AND "expiresAt" > ${now}
         ORDER BY "expiresAt" DESC LIMIT 1
         FOR UPDATE;
       `;
@@ -279,7 +342,8 @@ export class QuotasService {
     const sub = await tx.subscription.findFirst({
       where: {
         tenantId,
-        status: SubscriptionStatus.ACTIVE,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+        expiresAt: { gt: now },
       },
       include: {
         plan: true,
@@ -296,12 +360,7 @@ export class QuotasService {
       });
     }
 
-    if (new Date(sub.expiresAt).getTime() <= now.getTime()) {
-      throw new ForbiddenException({
-        code: 'SUBSCRIPTION_EXPIRED',
-        message: 'انتهت صلاحية اشتراك الشبكة الحالية',
-      });
-    }
+    // Subscription is guaranteed valid (status=ACTIVE and expiresAt > now) at this point
 
     const { cycleStart, cycleEnd } = this.calculateBillingCycle(sub.startsAt, sub.expiresAt, now);
     const { isUnlimited, cardLimit } = this.resolvePlanLimit(sub.plan);
@@ -363,6 +422,7 @@ export class QuotasService {
       cardLimit,
       usedCards,
       remainingCards,
+      maxRouters: sub.maxRouters ?? sub.plan.maxRouters,
     };
   }
 }

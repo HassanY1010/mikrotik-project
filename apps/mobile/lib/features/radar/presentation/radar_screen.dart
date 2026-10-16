@@ -168,7 +168,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
               crossAxisAlignment: CrossAxisAlignment.start,
               children: const [
                 Text(
-                  'رادار الشبكة والمستخدمين',
+                  'رادار جلسات Hotspot',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -176,7 +176,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                   ),
                 ),
                 Text(
-                  'مراقبة الجلسات الحية والتحكم بالطرد',
+                  'مراقبة الجلسات الحية والتحكم في الاتصال',
                   style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
                 ),
               ],
@@ -187,7 +187,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
             onPressed: () => ref.read(activeSessionsProvider.notifier).refresh(),
-            tooltip: 'تحديث الجلسات الحية',
+            tooltip: 'تحديث جلسات Hotspot',
           ),
         ],
       ),

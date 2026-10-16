@@ -5,6 +5,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import 'register_screen.dart';
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -122,7 +123,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  void _showServerSettingsDialog() {
+  void showServerSettingsDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -159,13 +160,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       appBar: AppBar(
         title: const Text('سودافاي | SudaFi'),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: 'إعدادات الخادم',
-            onPressed: _showServerSettingsDialog,
-          ),
-        ],
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -298,7 +292,41 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 8),
+
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: () async {
+                            final resetEmail = await Navigator.push<String>(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ForgotPasswordScreen(
+                                  initialEmail: _emailController.text.trim(),
+                                ),
+                              ),
+                            );
+                            if (resetEmail != null && resetEmail.isNotEmpty) {
+                              _emailController.text = resetEmail;
+                              _passwordController.clear();
+                            }
+                          },
+                          child: const Text(
+                            'نسيت كلمة المرور؟',
+                            style: TextStyle(
+                              color: Color(0xFF0D9488),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
 
                       ElevatedButton(
                         onPressed: _isLoading ? null : _handleLogin,
@@ -329,12 +357,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             _emailController.text = registeredEmail;
                           }
                         },
-                      ),
-                      const SizedBox(height: 16),
-                      TextButton.icon(
-                        icon: const Icon(Icons.dns, size: 18),
-                        label: const Text('تعديل عنوان السيرفر'),
-                        onPressed: _showServerSettingsDialog,
                       ),
                     ],
                   ),

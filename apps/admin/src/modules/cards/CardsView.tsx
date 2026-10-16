@@ -182,10 +182,10 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
         <div>
           <h1 className="page-title">
             <CreditCard color="var(--primary)" size={24} />
-            مخزون وتوليد كروت الهوتسبوت
+            الكروت
           </h1>
           <p className="page-subtitle">
-            توليد كروت آمنة عشوائية (CSPRNG)، تتبع الحالات، والتحكم في المخزون
+            إدارة وتتبع كروت Hotspot، فحص الحالات، وتوليد دفعات كروت جديدة
           </p>
         </div>
 
@@ -215,7 +215,7 @@ export const CardsView: React.FC<CardsViewProps> = ({ onNavigate }) => {
               onClick={() => onNavigate('print')}
             >
               <Printer size={16} />
-              استوديو تصدير وطباعة الـ PDF
+              طباعة الكروت (PDF)
             </button>
           )}
           <button className="btn btn-outline" onClick={() => fetchCards(true)} disabled={loading}>

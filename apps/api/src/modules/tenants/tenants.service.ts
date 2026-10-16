@@ -270,7 +270,7 @@ export class TenantsService {
           subscriptions: {
             include: { plan: true },
             orderBy: { createdAt: 'desc' },
-            take: 1,
+            take: 5,
           },
           _count: {
             select: {
@@ -331,7 +331,10 @@ export class TenantsService {
     }
 
     const data = tenants.map((t) => {
-      const sub = t.subscriptions && t.subscriptions[0];
+      const activeSub = t.subscriptions?.find(
+        (s) => s.status === SubscriptionStatus.ACTIVE && new Date(s.expiresAt) > now,
+      );
+      const sub = activeSub || (t.subscriptions && t.subscriptions[0]);
       const isSubActive = sub && sub.status === SubscriptionStatus.ACTIVE && new Date(sub.expiresAt) > now;
       const isSubExpired = sub && (sub.status === SubscriptionStatus.EXPIRED || new Date(sub.expiresAt) <= now);
       const subscriptionStatus = isSubActive ? 'ACTIVE' : isSubExpired ? 'EXPIRED' : (sub ? sub.status : 'NONE');
@@ -383,7 +386,10 @@ export class TenantsService {
       where: { deletedAt: null },
       include: {
         subscriptions: {
-          where: { status: SubscriptionStatus.ACTIVE },
+          where: {
+            status: SubscriptionStatus.ACTIVE,
+            expiresAt: { gt: new Date() },
+          },
           include: { plan: true },
           orderBy: { expiresAt: 'desc' },
           take: 1,
@@ -629,11 +635,15 @@ export class TenantsService {
       resolvedId = firstActive.id;
     }
 
+    const now = new Date();
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: resolvedId },
       include: {
         subscriptions: {
-          where: { status: SubscriptionStatus.ACTIVE },
+          where: {
+            status: SubscriptionStatus.ACTIVE,
+            expiresAt: { gt: now },
+          },
           include: { plan: true },
           orderBy: { expiresAt: 'desc' },
           take: 1,
@@ -720,25 +730,58 @@ export class TenantsService {
         isUnlimited,
         cycleStart: candidateStart.toISOString(),
         cycleEnd: candidateEnd.toISOString(),
-        status: sub.status,
+        status: SubscriptionStatus.ACTIVE,
         startsAt: sub.startsAt.toISOString(),
         expiresAt: sub.expiresAt.toISOString(),
       };
     } else {
-      subscriptionData = {
-        plan: 'NONE',
-        planNameAr: 'لا يوجد اشتراك',
-        maxRouters: 0,
-        maxCardsPerMonth: 0,
-        usedCards: 0,
-        remainingCards: 0,
-        isUnlimited: false,
-        cycleStart: null,
-        cycleEnd: null,
-        status: 'NONE',
-        startsAt: null,
-        expiresAt: null,
-      };
+      // Check if there is a subscription that has expired
+      // This is returned for informational purposes only — it does NOT grant plan access
+      const expiredSub = await this.prisma.subscription.findFirst({
+        where: {
+          tenantId: resolvedId,
+          OR: [
+            { status: SubscriptionStatus.EXPIRED },
+            { status: SubscriptionStatus.ACTIVE, expiresAt: { lte: now } },
+          ],
+        },
+        include: { plan: true },
+        orderBy: { expiresAt: 'desc' },
+      });
+
+      if (expiredSub) {
+        subscriptionData = {
+          plan: expiredSub.plan.name,
+          planName: expiredSub.plan.name,
+          planNameAr: expiredSub.plan.nameAr,
+          maxRouters: expiredSub.maxRouters,
+          maxCardsPerMonth: 0,
+          usedCards: 0,
+          remainingCards: 0,
+          isUnlimited: false,
+          cycleStart: null,
+          cycleEnd: null,
+          status: 'EXPIRED',
+          startsAt: expiredSub.startsAt.toISOString(),
+          expiresAt: expiredSub.expiresAt.toISOString(),
+          expiredPlanName: expiredSub.plan.name,
+        };
+      } else {
+        subscriptionData = {
+          plan: 'NONE',
+          planNameAr: 'لا يوجد اشتراك',
+          maxRouters: 0,
+          maxCardsPerMonth: 0,
+          usedCards: 0,
+          remainingCards: 0,
+          isUnlimited: false,
+          cycleStart: null,
+          cycleEnd: null,
+          status: 'NONE',
+          startsAt: null,
+          expiresAt: null,
+        };
+      }
     }
 
     return {
