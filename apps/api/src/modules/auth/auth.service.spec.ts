@@ -1,4 +1,4 @@
-import { UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
+import { UnauthorizedException, ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -349,7 +349,7 @@ describe('AuthService', () => {
   });
 
   describe('forgotPassword', () => {
-    it('should return generic success message when user exists and send email', async () => {
+    it('should return success and exists true when user exists in database', async () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
         email: 'user@sudafi.sd',
@@ -360,20 +360,16 @@ describe('AuthService', () => {
       const result = await authService.forgotPassword({ email: 'user@sudafi.sd' });
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain('إذا كان البريد الإلكتروني مسجلاً لدينا');
-      expect(prisma.passwordResetToken.create).toHaveBeenCalled();
-      expect(mailService.sendPasswordResetEmail).toHaveBeenCalled();
+      expect(result.exists).toBe(true);
+      expect(result.message).toContain('البريد الإلكتروني مسجل');
     });
 
-    it('should return generic success message even if user does not exist (zero enumeration)', async () => {
+    it('should throw NotFoundException when user does not exist', async () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
 
-      const result = await authService.forgotPassword({ email: 'unknown@sudafi.sd' });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('إذا كان البريد الإلكتروني مسجلاً لدينا');
-      expect(prisma.passwordResetToken.create).not.toHaveBeenCalled();
-      expect(mailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+      await expect(
+        authService.forgotPassword({ email: 'unknown@sudafi.sd' }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -477,6 +473,32 @@ describe('AuthService', () => {
       expect(result.success).toBe(true);
       expect(result.message).toContain('تم تغيير كلمة المرور بنجاح');
       expect(hashingService.hashPassword).toHaveBeenCalledWith('NewSecurePassword@2026');
+      expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('should directly reset password without code when email and newPassword match', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-direct-123',
+        email: 'direct@sudafi.sd',
+        status: UserStatus.ACTIVE,
+      });
+
+      (prisma.$transaction as jest.Mock).mockResolvedValue([
+        { id: 'user-direct-123' },
+        { count: 1 },
+        { count: 2 },
+        { id: 'log-direct' },
+      ]);
+
+      const result = await authService.resetPassword({
+        email: 'direct@sudafi.sd',
+        newPassword: 'BrandNewPassword@2026',
+        confirmPassword: 'BrandNewPassword@2026',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('تم تغيير كلمة المرور بنجاح');
+      expect(hashingService.hashPassword).toHaveBeenCalledWith('BrandNewPassword@2026');
       expect(prisma.$transaction).toHaveBeenCalled();
     });
   });

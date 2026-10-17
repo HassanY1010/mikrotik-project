@@ -21,7 +21,6 @@ class ResetPasswordScreen extends ConsumerStatefulWidget {
 class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _emailController;
-  late final TextEditingController _codeController;
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
@@ -34,13 +33,11 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   void initState() {
     super.initState();
     _emailController = TextEditingController(text: widget.initialEmail ?? '');
-    _codeController = TextEditingController(text: widget.initialCode ?? '');
   }
 
   @override
   void dispose() {
     _emailController.dispose();
-    _codeController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
@@ -58,7 +55,6 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
 
     try {
       final email = _emailController.text.trim();
-      final code = _codeController.text.trim();
       final newPassword = _newPasswordController.text;
       final confirmPassword = _confirmPasswordController.text;
 
@@ -66,7 +62,6 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
         ApiEndpoints.resetPassword,
         data: {
           'email': email,
-          'code': code,
           'newPassword': newPassword,
           'confirmPassword': confirmPassword,
         },
@@ -89,7 +84,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
         Navigator.pop(context, email);
       }
     } catch (e) {
-      String msg = 'تعذر تغيير كلمة المرور. يرجى التحقق من صحة الرمز والاتصال بالخادم';
+      String msg = 'تعذر تغيير كلمة المرور. يرجى التحقق من البيانات والمحاولة لاحقاً';
       if (e is DioException) {
         if (e.response != null && e.response?.data is Map) {
           final errorData = e.response!.data as Map;
@@ -156,12 +151,12 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                         ),
                         child: const Icon(
                           Icons.key_rounded,
-                          size: 30,
+                          size: 32,
                           color: Color(0xFF0D9488),
                         ),
                       ),
                       Text(
-                        'تعيين كلمة مرور جديدة',
+                        'تعيين كلمة المرور الجديدة',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
@@ -170,10 +165,11 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'أدخل رمز التحقق المكون من 6 أرقام المرسل لبريدك الإلكتروني',
+                        'أدخل كلمة المرور الجديدة لحسابك وقم بتأكيدها للحفظ',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: Colors.grey,
+                          height: 1.4,
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -205,41 +201,16 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
+                        readOnly: widget.initialEmail != null && widget.initialEmail!.isNotEmpty,
+                        decoration: InputDecoration(
                           labelText: 'البريد الإلكتروني',
-                          prefixIcon: Icon(Icons.email_outlined),
+                          prefixIcon: const Icon(Icons.email_outlined),
+                          filled: widget.initialEmail != null && widget.initialEmail!.isNotEmpty,
+                          fillColor: const Color(0xFF0F172A).withValues(alpha: 0.3),
                         ),
                         validator: (val) {
                           if (val == null || val.trim().isEmpty) {
                             return 'يرجى إدخال البريد الإلكتروني';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      TextFormField(
-                        controller: _codeController,
-                        keyboardType: TextInputType.number,
-                        maxLength: 6,
-                        style: const TextStyle(
-                          letterSpacing: 8.0,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                        textAlign: TextAlign.center,
-                        decoration: const InputDecoration(
-                          labelText: 'رمز التحقق (6 أرقام)',
-                          prefixIcon: Icon(Icons.pin_outlined),
-                          counterText: '',
-                          hintText: '123456',
-                        ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return 'يرجى إدخال رمز التحقق';
-                          }
-                          if (val.trim().length < 6) {
-                            return 'رمز التحقق يجب أن يتكون من 6 أرقام';
                           }
                           return null;
                         },
@@ -268,7 +239,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                             return 'يرجى إدخال كلمة المرور الجديدة';
                           }
                           if (val.length < 8) {
-                            return 'يجب ألا تقل كلمة المرور عن 8 أحرف';
+                            return 'كلمة المرور يجب ألا تقل عن 8 أحرف';
                           }
                           return null;
                         },
@@ -280,7 +251,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                         obscureText: _obscureConfirmPassword,
                         decoration: InputDecoration(
                           labelText: 'تأكيد كلمة المرور الجديدة',
-                          prefixIcon: const Icon(Icons.lock_reset_outlined),
+                          prefixIcon: const Icon(Icons.lock_reset),
                           suffixIcon: IconButton(
                             icon: Icon(
                               _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
@@ -297,7 +268,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                             return 'يرجى تأكيد كلمة المرور الجديدة';
                           }
                           if (val != _newPasswordController.text) {
-                            return 'كلمتا المرور غير متطابقتين';
+                            return 'كلمة المرور غير متطابقة';
                           }
                           return null;
                         },
@@ -315,13 +286,13 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Text('حفظ وتعيين كلمة المرور الجديدة'),
+                            : const Text('حفظ كلمة المرور وتعيينها'),
                       ),
                       const SizedBox(height: 12),
 
-                      TextButton(
+                      OutlinedButton(
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('العودة إلى تسجيل الدخول'),
+                        child: const Text('إلغاء والعودة'),
                       ),
                     ],
                   ),

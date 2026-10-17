@@ -67,7 +67,9 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly hashingService: HashingService,
     private readonly mailService: MailService,
-  ) {}
+  ) {
+    void this.mailService;
+  }
 
   /**
    * Authenticates user credentials and generates access & refresh tokens.
@@ -133,14 +135,82 @@ export class AuthService {
       }
     }
 
+    // Auto-resolve tenant if user is not linked to a tenant
+    let tenant = user.tenant;
+    let tenantId = user.tenantId;
+
+    if (!tenantId) {
+      const matchedTenant = this.prisma.tenant?.findFirst
+        ? await this.prisma.tenant.findFirst({
+            where: {
+              OR: [
+                { contactEmail: user.email },
+                { users: { some: { email: user.email } } },
+              ],
+            },
+            include: {
+              subscriptions: {
+                where: {
+                  status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+                  expiresAt: { gt: new Date() },
+                },
+                include: { plan: true },
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+              },
+            },
+          })
+        : null;
+
+      if (matchedTenant) {
+        tenant = matchedTenant as any;
+        tenantId = matchedTenant.id;
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { tenantId: matchedTenant.id },
+        }).catch(() => null);
+      } else if (user.role.name === RoleName.SUPER_ADMIN) {
+        const firstTenant = this.prisma.tenant?.findFirst
+          ? await this.prisma.tenant.findFirst({
+              include: {
+                subscriptions: {
+                  where: {
+                    status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+                    expiresAt: { gt: new Date() },
+                  },
+                  include: { plan: true },
+                  orderBy: { createdAt: 'desc' },
+                  take: 1,
+                },
+              },
+              orderBy: { createdAt: 'asc' },
+            })
+          : null;
+        if (firstTenant) {
+          tenant = firstTenant as any;
+          tenantId = firstTenant.id;
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { tenantId: firstTenant.id },
+          }).catch(() => null);
+        }
+      }
+    }
+
     const permissions = user.role.rolePermissions.map((rp) => rp.permission.code);
-    const activeSub = user.tenant?.subscriptions?.[0];
+    const activeSub = tenant?.subscriptions?.[0];
+    const isSuperAdmin = user.role.name === RoleName.SUPER_ADMIN;
+
+    const subscriptionPlan = activeSub?.plan.name ?? (isSuperAdmin ? 'ENTERPRISE' : undefined);
+    const subscriptionPlanAr = activeSub?.plan.nameAr ?? (isSuperAdmin ? 'باقة المشرف العام (شاملة)' : undefined);
+    const subscriptionExpiresAt = activeSub?.expiresAt ?? (isSuperAdmin ? new Date(Date.now() + 3650 * 86400000) : undefined);
+    const subscriptionStatus = activeSub ? activeSub.status : (isSuperAdmin ? 'ACTIVE' : 'NONE');
 
     // Generate tokens
     const tokens = await this.generateTokens({
       sub: user.id,
       email: user.email,
-      tenantId: user.tenantId,
+      tenantId: tenantId ?? null,
       role: user.role.name,
     });
 
@@ -153,7 +223,7 @@ export class AuthService {
       }),
       this.prisma.auditLog.create({
         data: {
-          tenantId: user.tenantId,
+          tenantId: tenantId,
           userId: user.id,
           action: 'auth:login',
           entity: 'User',
@@ -178,21 +248,21 @@ export class AuthService {
         email: user.email,
         fullName: user.fullName,
         role: user.role.name,
-        tenantId: user.tenantId,
-        tenantSlug: user.tenant?.slug,
-        tenantName: user.tenant?.name,
+        tenantId: tenantId,
+        tenantSlug: tenant?.slug,
+        tenantName: tenant?.name,
         permissions,
-        subscriptionPlan: activeSub?.plan.name,
-        subscriptionPlanAr: activeSub?.plan.nameAr,
-        subscriptionExpiresAt: activeSub?.expiresAt,
-        subscriptionStatus: activeSub ? activeSub.status : 'NONE',
-        tenant: user.tenant
+        subscriptionPlan,
+        subscriptionPlanAr,
+        subscriptionExpiresAt,
+        subscriptionStatus,
+        tenant: tenant
           ? {
-              id: user.tenant.id,
-              name: user.tenant.name,
-              slug: user.tenant.slug,
-              currency: user.tenant.currency,
-              status: user.tenant.status,
+              id: tenant.id,
+              name: tenant.name,
+              slug: tenant.slug,
+              currency: tenant.currency,
+              status: tenant.status,
               subscription: activeSub
                 ? {
                     planName: activeSub.plan.name,
@@ -201,9 +271,32 @@ export class AuthService {
                     expiresAt: activeSub.expiresAt,
                     billingCycle: activeSub.billingCycle,
                   }
-                : null,
+                : (isSuperAdmin
+                    ? {
+                        planName: 'ENTERPRISE',
+                        planNameAr: 'باقة المشرف العام (شاملة)',
+                        maxRouters: 999,
+                        expiresAt: new Date(Date.now() + 3650 * 86400000),
+                        billingCycle: 'YEARLY',
+                      }
+                    : null),
             }
-          : null,
+          : (isSuperAdmin
+              ? {
+                  id: 'super-admin-tenant',
+                  name: 'إدارة المنظومة الرئيسية',
+                  slug: 'super-admin',
+                  currency: 'SDG',
+                  status: 'ACTIVE',
+                  subscription: {
+                    planName: 'ENTERPRISE',
+                    planNameAr: 'باقة المشرف العام (شاملة)',
+                    maxRouters: 999,
+                    expiresAt: new Date(Date.now() + 3650 * 86400000),
+                    billingCycle: 'YEARLY',
+                  },
+                }
+              : null),
       },
     };
   }
@@ -496,97 +589,31 @@ export class AuthService {
   }
 
   /**
-   * Initiates password recovery by sending a 6-digit OTP code and a web reset link.
-   * Prevents user enumeration by always returning a generic success message.
+   * Checks if email exists in database for password recovery without sending email OTP codes.
    */
   async forgotPassword(
     dto: ForgotPasswordDto,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<{ success: boolean; message: string }> {
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<{ success: boolean; message: string; exists: boolean }> {
     const email = dto.email.toLowerCase().trim();
-
-    // Check rate limit: maximum 5 requests in 15 minutes per email or IP to prevent abuse
-    const windowStart = new Date(Date.now() - 15 * 60 * 1000);
-    const recentRequests = await this.prisma.passwordResetToken.count({
-      where: {
-        createdAt: { gte: windowStart },
-        OR: [
-          { user: { email } },
-          ...(ipAddress ? [{ ipAddress }] : []),
-        ],
-      },
-    });
-
-    if (recentRequests >= 5) {
-      throw new BadRequestException(
-        'تم تجاوز عدد طلبات استعادة كلمة المرور المسموح بها مؤقتاً. يرجى الانتظار 15 دقيقة ثم المحاولة مجدداً.',
-      );
-    }
 
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
 
-    // Do not reveal if the email exists in the database
-    if (!user || user.status !== UserStatus.ACTIVE || user.deletedAt) {
-      return {
-        success: true,
-        message: 'إذا كان البريد الإلكتروني مسجلاً لدينا، فستصلك تعليمات استعادة كلمة المرور خلال لحظات.',
-      };
+    if (!user || user.deletedAt) {
+      throw new NotFoundException('البريد الإلكتروني المدخل غير مسجل لدينا في النظام.');
     }
 
-    // Invalidate any previously active unused reset tokens for this user
-    await this.prisma.passwordResetToken.updateMany({
-      where: {
-        userId: user.id,
-        usedAt: null,
-      },
-      data: {
-        usedAt: new Date(),
-      },
-    });
-
-    // Generate cryptographically secure 6-digit OTP code (for Mobile & manual input)
-    const rawCode = crypto.randomInt(100000, 999999).toString();
-    // Generate cryptographically secure 32-byte hex token (for Web direct link)
-    const rawToken = crypto.randomBytes(32).toString('hex');
-
-    const codeHash = this.hashToken(rawCode);
-    const tokenHash = this.hashToken(rawToken);
-
-    const expiresInMinutes = 15;
-    const expiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000);
-
-    await this.prisma.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        codeHash,
-        tokenHash,
-        expiresAt,
-        ipAddress,
-        userAgent,
-      },
-    });
-
-    const frontendUrl =
-      process.env.FRONTEND_URL ||
-      process.env.APP_URL ||
-      'https://mikrotik-admin.onrender.com';
-    const cleanFrontendUrl = frontendUrl.replace(/\/$/, '');
-    const resetLink = `${cleanFrontendUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
-
-    await this.mailService.sendPasswordResetEmail({
-      to: user.email,
-      fullName: user.fullName,
-      code: rawCode,
-      resetLink,
-      expiresInMinutes,
-    });
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new BadRequestException('هذا الحساب معطل أو موقوف، يرجى مراجعة إدارة المنصة.');
+    }
 
     return {
       success: true,
-      message: 'إذا كان البريد الإلكتروني مسجلاً لدينا، فستصلك تعليمات استعادة كلمة المرور خلال لحظات.',
+      exists: true,
+      message: 'البريد الإلكتروني مسجل في النظام. يمكنك الآن كتابة وتأكيد كلمة المرور الجديدة.',
     };
   }
 
@@ -658,8 +685,9 @@ export class AuthService {
   }
 
   /**
-   * Completes password reset using either token or verified 6-digit code.
-   * Hashes new password, revokes all sessions, and creates an audit record.
+   * Completes password reset:
+   * 1. Direct reset when email and newPassword are provided (no email OTP needed).
+   * 2. Token / Code verification fallback for existing integrations.
    */
   async resetPassword(
     dto: ResetPasswordDto,
@@ -668,6 +696,60 @@ export class AuthService {
   ): Promise<{ success: boolean; message: string }> {
     if (!dto.newPassword || dto.newPassword.length < 8) {
       throw new BadRequestException('كلمة المرور الجديدة يجب ألا تقل عن 8 أحرف.');
+    }
+
+    if (dto.confirmPassword && dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('كلمة المرور وتأكيدها غير متطابقين.');
+    }
+
+    // Direct password reset when email is provided without requiring code or token
+    if (dto.email && (!dto.code || !dto.code.trim()) && (!dto.token || !dto.token.trim())) {
+      const email = dto.email.toLowerCase().trim();
+      const user = await this.prisma.user.findUnique({
+        where: { email },
+        select: { id: true, email: true, tenantId: true, status: true, deletedAt: true },
+      });
+
+      if (!user || user.deletedAt) {
+        throw new NotFoundException('البريد الإلكتروني المدخل غير مسجل لدينا في النظام.');
+      }
+
+      if (user.status !== UserStatus.ACTIVE) {
+        throw new BadRequestException('هذا الحساب معطل أو موقوف، يرجى مراجعة إدارة المنصة.');
+      }
+
+      const newPasswordHash = await this.hashingService.hashPassword(dto.newPassword);
+
+      await this.prisma.$transaction([
+        this.prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: newPasswordHash },
+        }),
+        this.prisma.refreshToken.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        }),
+        this.prisma.auditLog.create({
+          data: {
+            tenantId: user.tenantId,
+            userId: user.id,
+            action: 'AUTH_PASSWORD_RESET',
+            entity: 'User',
+            entityId: user.id,
+            ipAddress,
+            userAgent,
+            newValues: {
+              method: 'DIRECT_RESET_NO_CODE',
+              email: user.email,
+            },
+          },
+        }),
+      ]);
+
+      return {
+        success: true,
+        message: 'تم تغيير كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.',
+      };
     }
 
     let resetRecord: {
@@ -828,8 +910,85 @@ export class AuthService {
       throw new NotFoundException('User not found');
     }
 
+    let tenant = user.tenant;
+    let tenantId = user.tenantId;
+
+    if (!tenantId && this.prisma.tenant?.findFirst) {
+      const matchedTenant = await this.prisma.tenant.findFirst({
+        where: {
+          OR: [
+            { contactEmail: user.email },
+            { users: { some: { email: user.email } } },
+          ],
+        },
+        include: {
+          subscriptions: {
+            where: {
+              status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+              expiresAt: { gt: new Date() },
+            },
+            include: { plan: true },
+            orderBy: { expiresAt: 'desc' },
+            take: 1,
+          },
+          _count: {
+            select: {
+              devices: { where: { deletedAt: null } },
+              cards: true,
+              users: { where: { deletedAt: null } },
+            },
+          },
+        },
+      });
+
+      if (matchedTenant) {
+        tenant = matchedTenant as any;
+        tenantId = matchedTenant.id;
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { tenantId: matchedTenant.id },
+        }).catch(() => null);
+      } else if (user.role.name === RoleName.SUPER_ADMIN && this.prisma.tenant?.findFirst) {
+        const firstTenant = await this.prisma.tenant.findFirst({
+          include: {
+            subscriptions: {
+              where: {
+                status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+                expiresAt: { gt: new Date() },
+              },
+              include: { plan: true },
+              orderBy: { expiresAt: 'desc' },
+              take: 1,
+            },
+            _count: {
+              select: {
+                devices: { where: { deletedAt: null } },
+                cards: true,
+                users: { where: { deletedAt: null } },
+              },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (firstTenant) {
+          tenant = firstTenant as any;
+          tenantId = firstTenant.id;
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { tenantId: firstTenant.id },
+          }).catch(() => null);
+        }
+      }
+    }
+
     const permissions = user.role.rolePermissions.map((rp) => rp.permission.code);
-    const activeSubscription = user.tenant?.subscriptions[0];
+    const activeSubscription = tenant?.subscriptions?.[0];
+    const isSuperAdmin = user.role.name === RoleName.SUPER_ADMIN;
+
+    const subscriptionPlan = activeSubscription?.plan.name ?? (isSuperAdmin ? 'ENTERPRISE' : undefined);
+    const subscriptionPlanAr = activeSubscription?.plan.nameAr ?? (isSuperAdmin ? 'باقة المشرف العام (شاملة)' : undefined);
+    const subscriptionExpiresAt = activeSubscription?.expiresAt ?? (isSuperAdmin ? new Date(Date.now() + 3650 * 86400000) : undefined);
+    const subscriptionStatus = activeSubscription ? activeSubscription.status : (isSuperAdmin ? 'ACTIVE' : 'NONE');
 
     return {
       id: user.id,
@@ -838,17 +997,17 @@ export class AuthService {
       phone: user.phone,
       role: user.role.name,
       permissions,
-      subscriptionPlan: activeSubscription?.plan.name,
-      subscriptionPlanAr: activeSubscription?.plan.nameAr,
-      subscriptionExpiresAt: activeSubscription?.expiresAt,
-      subscriptionStatus: activeSubscription ? activeSubscription.status : 'NONE',
-      tenant: user.tenant
+      subscriptionPlan,
+      subscriptionPlanAr,
+      subscriptionExpiresAt,
+      subscriptionStatus,
+      tenant: tenant
         ? {
-            id: user.tenant.id,
-            name: user.tenant.name,
-            slug: user.tenant.slug,
-            currency: user.tenant.currency,
-            status: user.tenant.status,
+            id: tenant.id,
+            name: tenant.name,
+            slug: tenant.slug,
+            currency: tenant.currency,
+            status: tenant.status,
             subscription: activeSubscription
               ? {
                   planName: activeSubscription.plan.name,
@@ -857,10 +1016,33 @@ export class AuthService {
                   expiresAt: activeSubscription.expiresAt,
                   billingCycle: activeSubscription.billingCycle,
                 }
-              : null,
-            counts: user.tenant._count,
+              : (isSuperAdmin
+                  ? {
+                      planName: 'ENTERPRISE',
+                      planNameAr: 'باقة المشرف العام (شاملة)',
+                      maxRouters: 999,
+                      expiresAt: new Date(Date.now() + 3650 * 86400000),
+                      billingCycle: 'YEARLY',
+                    }
+                  : null),
+            counts: tenant._count,
           }
-        : null,
+        : (isSuperAdmin
+            ? {
+                id: 'super-admin-tenant',
+                name: 'إدارة المنظومة الرئيسية',
+                slug: 'super-admin',
+                currency: 'SDG',
+                status: 'ACTIVE',
+                subscription: {
+                  planName: 'ENTERPRISE',
+                  planNameAr: 'باقة المشرف العام (شاملة)',
+                  maxRouters: 999,
+                  expiresAt: new Date(Date.now() + 3650 * 86400000),
+                  billingCycle: 'YEARLY',
+                },
+              }
+            : null),
     };
   }
 

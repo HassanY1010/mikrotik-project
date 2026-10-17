@@ -50,11 +50,12 @@ export class CardsController {
   @ApiOperation({ summary: 'Get current card generation quota and usage for tenant' })
   @ApiResponse({ status: 200, description: 'Quota details' })
   async getQuota(
+    @CurrentUser('role') userRole?: string,
     @CurrentUser('tenantId') userTenantId?: string,
     @TenantId() headerTenantId?: string,
   ) {
     const effectiveTenantId = userTenantId || headerTenantId || '';
-    return this.cardsService.getTenantQuota(effectiveTenantId);
+    return this.cardsService.getTenantQuota(effectiveTenantId, userRole);
   }
 
   @Get()

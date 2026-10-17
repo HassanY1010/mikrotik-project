@@ -398,8 +398,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               // Subscription Status Banner for Non-Subscribed / Expired Accounts
               ref.watch(tenantQuotaProvider).when(
                 data: (quota) {
+                  final currentUser = ref.watch(currentUserProvider);
+                  final isSuperAdmin = currentUser?.role.toUpperCase() == 'SUPER_ADMIN';
+                  if (isSuperAdmin) return const SizedBox.shrink();
+
                   final status = quota?.status ?? 'NONE';
-                  if (status == 'ACTIVE') return const SizedBox.shrink();
+                  if (status == 'ACTIVE' || status == 'TRIAL') return const SizedBox.shrink();
 
                   final isExpired = status == 'EXPIRED';
                   final isSuspended = status == 'SUSPENDED';

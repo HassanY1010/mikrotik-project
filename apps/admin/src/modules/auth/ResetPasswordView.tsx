@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   Lock,
   Mail,
-  KeyRound,
   Eye,
   EyeOff,
   ArrowRight,
@@ -25,11 +24,9 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
   onBackToLogin,
   initialEmail = '',
   initialToken = '',
-  initialCode = '',
 }) => {
   const { showToast } = useToast();
   const [email, setEmail] = useState(initialEmail);
-  const [code, setCode] = useState(initialCode);
   const [token] = useState(initialToken);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -50,11 +47,6 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
       return;
     }
 
-    if (!isTokenMode && (!code.trim() || code.trim().length < 6)) {
-      setError('يرجى إدخال رمز التحقق المكون من 6 أرقام كاملاً');
-      return;
-    }
-
     if (newPassword.length < 8) {
       setError('يجب ألا تقل كلمة المرور الجديدة عن 8 أحرف');
       return;
@@ -70,7 +62,6 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
     try {
       const payload: {
         email?: string;
-        code?: string;
         token?: string;
         newPassword: string;
         confirmPassword?: string;
@@ -83,7 +74,6 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
         payload.token = token;
       } else {
         payload.email = email.trim();
-        payload.code = code.trim();
       }
 
       await apiClient.post<{ success: boolean; message: string }>(
@@ -97,7 +87,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
       const msg =
         err instanceof Error
           ? err.message
-          : 'تعذر تعيين كلمة المرور الجديدة. تأكد من صحة الرمز وصلاحيته';
+          : 'تعذر تعيين كلمة المرور الجديدة. يرجى التحقق من صحة البيانات والمحاولة مجدداً';
       setError(msg);
       showToast('تعذر تعيين كلمة المرور', 'error');
     } finally {
@@ -146,9 +136,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
             تعيين كلمة المرور الجديدة
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.35rem' }}>
-            {isTokenMode
-              ? 'تم التحقق من رابط الاستعادة، اختر كلمة مرور جديدة وقوية لحسابك'
-              : 'أدخل رمز التحقق المرسل إلى بريدك ثم عيّن كلمة المرور الجديدة'}
+            أدخل كلمة المرور الجديدة لحسابك وقم بتأكيدها للحفظ
           </p>
         </div>
 
@@ -176,25 +164,26 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
           <div>
             <div
               style={{
-                padding: '1.5rem',
+                padding: '1.25rem',
                 backgroundColor: 'rgba(16, 185, 129, 0.1)',
                 border: '1px solid rgba(16, 185, 129, 0.3)',
                 borderRadius: 'var(--radius-lg)',
                 color: 'var(--text-primary)',
-                textAlign: 'center',
+                fontSize: '0.9rem',
+                lineHeight: 1.6,
                 marginBottom: '1.75rem',
+                display: 'flex',
+                gap: '0.75rem',
+                alignItems: 'center',
               }}
             >
-              <CheckCircle2
-                size={48}
-                style={{ color: 'var(--success)', margin: '0 auto 1rem' }}
-              />
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                تم تغيير كلمة المرور بنجاح!
-              </h3>
-              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
-                تم تحديث كلمة المرور وتأمين حسابك وإبطال الجلسات السابقة. يمكنك الآن تسجيل الدخول مباشرة بكلمة المرور الجديدة.
-              </p>
+              <CheckCircle2 size={24} style={{ color: 'var(--success)', flexShrink: 0 }} />
+              <div>
+                <strong style={{ display: 'block', color: 'var(--success)', marginBottom: '0.2rem' }}>
+                  تم تحديث كلمة المرور بنجاح
+                </strong>
+                <span>يمكنك الآن استخدام كلمة المرور الجديدة لتسجيل الدخول إلى حسابك.</span>
+              </div>
             </div>
 
             <button
@@ -210,76 +199,33 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
         ) : (
           <form onSubmit={handleSubmit}>
             {!isTokenMode && (
-              <>
-                <div className="form-group" style={{ marginBottom: '1.25rem' }}>
-                  <label className="form-label" htmlFor="reset-email">
-                    البريد الإلكتروني
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      id="reset-email"
-                      type="email"
-                      className="input"
-                      style={{ paddingRight: '2.5rem' }}
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@network.com"
-                      required
-                    />
-                    <Mail
-                      size={17}
-                      style={{
-                        position: 'absolute',
-                        right: '0.85rem',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: 'var(--text-muted)',
-                      }}
-                    />
-                  </div>
+              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                <label className="form-label" htmlFor="reset-email">
+                  البريد الإلكتروني
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    id="reset-email"
+                    type="email"
+                    className="input"
+                    style={{ paddingRight: '2.5rem' }}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@network.com"
+                    required
+                  />
+                  <Mail
+                    size={17}
+                    style={{
+                      position: 'absolute',
+                      right: '0.85rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--text-muted)',
+                    }}
+                  />
                 </div>
-
-                <div className="form-group" style={{ marginBottom: '1.25rem' }}>
-                  <label className="form-label" htmlFor="reset-code">
-                    رمز التحقق (6 أرقام)
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      id="reset-code"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={6}
-                      className="input"
-                      style={{
-                        paddingRight: '2.5rem',
-                        letterSpacing: '0.25em',
-                        fontWeight: 700,
-                        fontSize: '1.1rem',
-                        direction: 'ltr',
-                        textAlign: 'center',
-                      }}
-                      value={code}
-                      onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="123456"
-                      required
-                    />
-                    <KeyRound
-                      size={17}
-                      style={{
-                        position: 'absolute',
-                        right: '0.85rem',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: 'var(--text-muted)',
-                      }}
-                    />
-                  </div>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
-                    الرمز مكون من 6 أرقام وصلك عبر البريد، وصالح لمدة 15 دقيقة
-                  </span>
-                </div>
-              </>
+              </div>
             )}
 
             <div className="form-group" style={{ marginBottom: '1.25rem' }}>
@@ -296,6 +242,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="8 أحرف على الأقل"
                   required
+                  autoFocus={isTokenMode}
                 />
                 <Lock
                   size={17}
@@ -309,7 +256,6 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
                   style={{
                     position: 'absolute',
                     left: '0.85rem',
@@ -320,21 +266,21 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
                     color: 'var(--text-muted)',
                     cursor: 'pointer',
                     padding: 0,
-                    display: 'flex',
                   }}
+                  onClick={() => setShowPassword(!showPassword)}
                 >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>
             </div>
 
             <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-              <label className="form-label" htmlFor="confirm-new-password">
+              <label className="form-label" htmlFor="confirm-password">
                 تأكيد كلمة المرور الجديدة
               </label>
               <div style={{ position: 'relative' }}>
                 <input
-                  id="confirm-new-password"
+                  id="confirm-password"
                   type={showConfirmPassword ? 'text' : 'password'}
                   className="input"
                   style={{ paddingRight: '2.5rem', paddingLeft: '2.5rem' }}
@@ -355,7 +301,6 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
                 />
                 <button
                   type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   style={{
                     position: 'absolute',
                     left: '0.85rem',
@@ -366,41 +311,38 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
                     color: 'var(--text-muted)',
                     cursor: 'pointer',
                     padding: 0,
-                    display: 'flex',
                   }}
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 >
-                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {showConfirmPassword ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>
-              {newPassword && confirmPassword && (
-                <div style={{ marginTop: '0.4rem', fontSize: '0.8rem' }}>
-                  {newPassword === confirmPassword ? (
-                    <span style={{ color: 'var(--success)' }}>✔ كلمتا المرور متطابقتان</span>
-                  ) : (
-                    <span style={{ color: 'var(--danger)' }}>✖ كلمتا المرور غير متطابقتين</span>
-                  )}
-                </div>
-              )}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-                disabled={loading}
-              >
-                {loading ? 'جاري تعيين كلمة المرور...' : 'حفظ وتعيين كلمة المرور الجديدة'}
-                <ArrowLeft size={16} />
-              </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
+              disabled={loading}
+            >
+              {loading ? (
+                <span>جاري الحفظ والتحديث...</span>
+              ) : (
+                <>
+                  <span>حفظ كلمة المرور وتعيينها</span>
+                  <ArrowLeft size={16} />
+                </>
+              )}
+            </button>
 
+            <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
               <button
                 type="button"
-                className="btn btn-outline"
-                style={{ width: '100%', padding: '0.7rem', fontSize: '0.9rem' }}
+                className="btn btn-ghost"
+                style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}
                 onClick={onBackToLogin}
               >
-                <ArrowRight size={16} />
+                <ArrowRight size={15} />
                 <span>العودة إلى تسجيل الدخول</span>
               </button>
             </div>

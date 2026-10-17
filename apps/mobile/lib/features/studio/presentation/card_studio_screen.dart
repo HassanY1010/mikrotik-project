@@ -107,8 +107,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     }
     if (!mounted) return;
     final user = ref.read(currentUserProvider);
+    final isSuperAdmin = user?.role.toUpperCase() == 'SUPER_ADMIN';
     final status = quota?.status ?? user?.subscriptionStatus ?? 'NONE';
-    if (status != 'ACTIVE' && user?.subscriptionPlan == null) {
+    if (!isSuperAdmin && status != 'ACTIVE' && status != 'TRIAL' && user?.subscriptionPlan == null) {
       final isExpired = status == 'EXPIRED';
       showDialog(
         context: context,
@@ -1211,9 +1212,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
   Widget _buildQuotaBanner() {
     final quotaAsync = ref.watch(tenantQuotaProvider);
     final user = ref.watch(currentUserProvider);
+    if (user?.role.toUpperCase() == 'SUPER_ADMIN') {
+      return const SizedBox.shrink();
+    }
     return quotaAsync.when(
       data: (quota) {
         final status = quota?.status ?? user?.subscriptionStatus ?? 'NONE';
+        if (status == 'ACTIVE' || status == 'TRIAL') {
+          return const SizedBox.shrink();
+        }
         final isNotSubscribed = (status == 'NONE' || quota == null) && user?.subscriptionPlan == null;
         final isExpired = status == 'EXPIRED';
         final isSuspended = status == 'SUSPENDED';

@@ -459,7 +459,7 @@ async function main(): Promise<void> {
     update: {
       passwordHash: adminPasswordHash,
       roleId: superAdminRoleId,
-      tenantId: null,
+      tenantId: demoTenant.id,
       fullName: 'أحمد - مدير النظام (Super Admin)',
       status: UserStatus.ACTIVE,
     },
@@ -469,7 +469,7 @@ async function main(): Promise<void> {
       fullName: 'أحمد - مدير النظام (Super Admin)',
       phone: '+249912345678',
       roleId: superAdminRoleId,
-      tenantId: null,
+      tenantId: demoTenant.id,
       status: UserStatus.ACTIVE,
     },
   });

@@ -1295,6 +1295,14 @@ class TenantQuotaNotifier extends AsyncNotifier<TenantQuotaModel?> {
         if (mapWithTenant['tenantId'] == null && currentTenantId != null) {
           mapWithTenant['tenantId'] = currentTenantId;
         }
+        final user = ref.read(currentUserProvider);
+        if (user?.role.toUpperCase() == 'SUPER_ADMIN' &&
+            (mapWithTenant['status'] == null || mapWithTenant['status'] == 'NONE')) {
+          mapWithTenant['status'] = 'ACTIVE';
+          mapWithTenant['isUnlimited'] = true;
+          mapWithTenant['planName'] = mapWithTenant['planName'] ?? 'ENTERPRISE';
+          mapWithTenant['planNameAr'] = mapWithTenant['planNameAr'] ?? 'باقة المشرف العام (شاملة)';
+        }
         final model = TenantQuotaModel.fromJson(mapWithTenant);
         await storage.setTenantQuota(model, currentTenantId);
         return model;
@@ -1309,13 +1317,35 @@ class TenantQuotaNotifier extends AsyncNotifier<TenantQuotaModel?> {
           if (subMap['tenantId'] == null && currentTenantId != null) {
             subMap['tenantId'] = currentTenantId;
           }
+          final user = ref.read(currentUserProvider);
+          if (user?.role.toUpperCase() == 'SUPER_ADMIN' &&
+              (subMap['status'] == null || subMap['status'] == 'NONE')) {
+            subMap['status'] = 'ACTIVE';
+            subMap['isUnlimited'] = true;
+          }
           final model = TenantQuotaModel.fromJson(subMap);
           await storage.setTenantQuota(model, currentTenantId);
           return model;
         }
       } catch (_) {}
     }
-    return storage.getTenantQuota(currentTenantId);
+    final cached = storage.getTenantQuota(currentTenantId);
+    if (cached == null) {
+      final user = ref.read(currentUserProvider);
+      if (user?.role.toUpperCase() == 'SUPER_ADMIN') {
+        return TenantQuotaModel(
+          tenantId: currentTenantId,
+          planName: 'ENTERPRISE',
+          planNameAr: 'باقة المشرف العام (شاملة)',
+          status: 'ACTIVE',
+          isUnlimited: true,
+          maxRouters: 999,
+          cardLimit: 999999,
+          remainingCards: 999999,
+        );
+      }
+    }
+    return cached;
   }
 
   Future<void> _fetchAndUpdateInBackground([String? currentTenantId]) async {

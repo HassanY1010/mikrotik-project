@@ -1,6 +1,7 @@
 import { Injectable, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { SubscriptionStatus, CardBatchStatus, SyncStatus, Prisma } from '@prisma/client';
+import { RoleName } from '@mikrotik-saas/shared-types';
 
 export interface QuotaDetails {
   subscriptionId: string;
@@ -196,28 +197,72 @@ export class QuotasService {
   /**
    * Returns current quota usage statistics for a tenant.
    */
-  async getTenantQuota(tenantId: string, now: Date = new Date()): Promise<QuotaDetails> {
-    const sub = await this.prisma.subscription.findFirst({
-      where: {
-        tenantId,
-        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
-        expiresAt: { gt: now },
-      },
-      include: {
-        plan: true,
-      },
-      orderBy: {
-        expiresAt: 'desc',
-      },
-    });
+  async getTenantQuota(tenantId: string, now: Date = new Date(), role?: string): Promise<QuotaDetails> {
+    let effectiveTenantId = tenantId;
+
+    if (!effectiveTenantId) {
+      const defaultTenant = await this.prisma.tenant.findFirst({
+        include: {
+          subscriptions: {
+            where: {
+              status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+              expiresAt: { gt: now },
+            },
+            include: { plan: true },
+            orderBy: { expiresAt: 'desc' },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (defaultTenant) {
+        effectiveTenantId = defaultTenant.id;
+      }
+    }
+
+    const sub = effectiveTenantId
+      ? await this.prisma.subscription.findFirst({
+          where: {
+            tenantId: effectiveTenantId,
+            status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+            expiresAt: { gt: now },
+          },
+          include: {
+            plan: true,
+          },
+          orderBy: {
+            expiresAt: 'desc',
+          },
+        })
+      : null;
 
     if (!sub) {
+      if (role === RoleName.SUPER_ADMIN || role === 'SUPER_ADMIN') {
+        return {
+          subscriptionId: 'super-admin-sub',
+          planId: 'super-admin-plan',
+          planName: 'ENTERPRISE',
+          planNameAr: 'باقة المشرف العام (شاملة)',
+          status: 'ACTIVE',
+          cycleStart: now,
+          cycleEnd: new Date(Date.now() + 3650 * 86400000),
+          expiresAt: new Date(Date.now() + 3650 * 86400000),
+          isUnlimited: true,
+          cardLimit: 999999,
+          usedCards: 0,
+          remainingCards: 999999,
+          maxRouters: 999,
+        };
+      }
+
       // Find latest expired or suspended subscription to return informative status without throwing 403
-      const latestSub = await this.prisma.subscription.findFirst({
-        where: { tenantId },
-        include: { plan: true },
-        orderBy: { createdAt: 'desc' },
-      });
+      const latestSub = effectiveTenantId
+        ? await this.prisma.subscription.findFirst({
+            where: { tenantId: effectiveTenantId },
+            include: { plan: true },
+            orderBy: { createdAt: 'desc' },
+          })
+        : null;
 
       if (latestSub) {
         const isSuspended = (latestSub as any).status === 'SUSPENDED';
@@ -262,7 +307,7 @@ export class QuotasService {
 
     const usedCards = await this.prisma.card.count({
       where: {
-        tenantId,
+        tenantId: effectiveTenantId,
         createdAt: {
           gte: cycleStart,
           lt: cycleEnd,

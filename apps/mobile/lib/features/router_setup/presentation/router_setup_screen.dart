@@ -144,9 +144,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     }
     if (!mounted) return;
     final currentUser = ref.read(currentUserProvider);
+    final isSuperAdmin = currentUser?.role.toUpperCase() == 'SUPER_ADMIN';
     final status = quota?.status ?? currentUser?.subscriptionStatus ?? 'NONE';
     final isSubActive = status == 'ACTIVE' || status == 'TRIAL';
-    if (widget.router == null && !isSubActive && currentUser?.subscriptionPlan == null) {
+    if (!isSuperAdmin && widget.router == null && !isSubActive && currentUser?.subscriptionPlan == null) {
       final isExpired = status == 'EXPIRED';
       showDialog(
         context: context,
@@ -351,6 +352,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 final quotaState = ref.watch(tenantQuotaProvider);
                 final quota = quotaState.asData?.value;
                 final user = ref.watch(currentUserProvider);
+                if (user?.role.toUpperCase() == 'SUPER_ADMIN') return const SizedBox.shrink();
                 if (quotaState.isLoading && quota == null) return const SizedBox.shrink();
                 final status = quota?.status ?? user?.subscriptionStatus ?? 'NONE';
                 final isSubActive = status == 'ACTIVE' || status == 'TRIAL';

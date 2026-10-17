@@ -554,26 +554,31 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   }
 
   Widget _buildSubscriptionQuotaCard(AsyncValue<TenantQuotaModel?> quotaAsync) {
+    final user = ref.watch(currentUserProvider);
+    final isSuperAdmin = user?.role.toUpperCase() == 'SUPER_ADMIN';
+
     return quotaAsync.when(
       data: (quota) {
-        final status = quota?.status ?? 'NONE';
-        final isNotSubscribed = status == 'NONE' || quota == null;
-        final isExpired = status == 'EXPIRED';
-        final isSuspended = status == 'SUSPENDED';
+        final status = quota?.status ?? (isSuperAdmin ? 'ACTIVE' : 'NONE');
+        final isNotSubscribed = !isSuperAdmin && (status == 'NONE' || quota == null);
+        final isExpired = !isSuperAdmin && status == 'EXPIRED';
+        final isSuspended = !isSuperAdmin && status == 'SUSPENDED';
         final isTrial = status == 'TRIAL';
-        final isActive = (status == 'ACTIVE' || isTrial) && quota != null;
+        final isActive = isSuperAdmin || ((status == 'ACTIVE' || isTrial) && quota != null);
 
-        final planName = isNotSubscribed
-            ? 'غير مشترك (لا توجد باقة)'
-            : (isExpired
-                ? 'منتهي الصلاحية'
-                : (isSuspended
-                    ? 'معلق مؤقتاً'
-                    : (isTrial
-                        ? '${quota.planNameAr ?? quota.planName ?? "باقة تجريبية"} (تجريبية)'
-                        : (quota.planNameAr ?? quota.planName ?? 'الباقة النشطة'))));
+        final planName = isSuperAdmin && (quota == null || quota.planName == null || status == 'NONE')
+            ? 'باقة المشرف العام (وصول كامل)'
+            : (isNotSubscribed
+                ? 'غير مشترك (لا توجد باقة)'
+                : (isExpired
+                    ? 'منتهي الصلاحية'
+                    : (isSuspended
+                        ? 'معلق مؤقتاً'
+                        : (isTrial
+                            ? '${quota?.planNameAr ?? quota?.planName ?? "باقة تجريبية"} (تجريبية)'
+                            : (quota?.planNameAr ?? quota?.planName ?? user?.subscriptionPlanAr ?? user?.subscriptionPlan ?? 'الباقة النشطة')))));
 
-        final isUnlimited = quota != null && isActive && quota.isUnlimited;
+        final isUnlimited = isSuperAdmin || (quota != null && isActive && quota.isUnlimited);
         final limit = (quota != null && !isNotSubscribed) ? quota.cardLimit : 0;
         final used = (quota != null && !isNotSubscribed) ? quota.usedCards : 0;
         final remaining = (quota != null && !isNotSubscribed)

@@ -18,9 +18,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _emailController;
   bool _isLoading = false;
-  bool _isSubmitted = false;
   String? _errorMessage;
-  String? _successMessage;
 
   @override
   void initState() {
@@ -46,24 +44,26 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
     try {
       final email = _emailController.text.trim();
-      final response = await apiClient.post(
+      await apiClient.post(
         ApiEndpoints.forgotPassword,
         data: {'email': email},
       );
 
-      final responseData = response.data;
-      String msg =
-          'إذا كان البريد الإلكتروني مسجلاً لدينا، فستصلك تعليمات استعادة كلمة المرور خلال لحظات.';
-      if (responseData is Map && responseData['message'] != null) {
-        msg = responseData['message'].toString();
-      }
+      if (!mounted) return;
 
-      setState(() {
-        _isSubmitted = true;
-        _successMessage = msg;
-      });
+      final result = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ResetPasswordScreen(
+            initialEmail: email,
+          ),
+        ),
+      );
+      if (result != null && mounted) {
+        Navigator.pop(context, result);
+      }
     } catch (e) {
-      String msg = 'تعذر إرسال الطلب. يرجى التحقق من اتصال الإنترنت والمحاولة لاحقاً';
+      String msg = 'البريد الإلكتروني غير مسجل أو تعذر الاتصال بالخادم';
       if (e is DioException) {
         if (e.response != null && e.response?.data is Map) {
           final errorData = e.response!.data as Map;
@@ -88,20 +88,6 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
           _isLoading = false;
         });
       }
-    }
-  }
-
-  void _navigateToResetPassword() async {
-    final result = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ResetPasswordScreen(
-          initialEmail: _emailController.text.trim(),
-        ),
-      ),
-    );
-    if (result != null && mounted) {
-      Navigator.pop(context, result);
     }
   }
 
@@ -158,10 +144,11 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'أدخل بريدك الإلكتروني المسجل لإرسال رمز التحقق المكون من 6 أرقام',
+                        'أدخل بريدك الإلكتروني المسجل في النظام للتحقق منه والانتقال مباشرة لكتابة كلمة المرور الجديدة',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: Colors.grey,
+                          height: 1.4,
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -190,103 +177,46 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                         const SizedBox(height: 16),
                       ],
 
-                      if (_isSubmitted) ...[
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.teal.shade900.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.teal.shade400),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: const [
-                                  Icon(Icons.check_circle_outline, color: Color(0xFF2DD4BF), size: 22),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'تم إرسال الطلب بنجاح',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF2DD4BF),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                _successMessage ?? '',
-                                style: const TextStyle(fontSize: 13, height: 1.4),
-                              ),
-                              const SizedBox(height: 6),
-                              const Text(
-                                'افحص صندوق الوارد (أو مجلد الرسائل غير المرغوب فيها Spam) للحصول على رمز الـ OTP. الرمز صالح لمدة 15 دقيقة.',
-                                style: TextStyle(fontSize: 12, color: Colors.grey),
-                              ),
-                            ],
-                          ),
+                      TextFormField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'البريد الإلكتروني',
+                          prefixIcon: Icon(Icons.email_outlined),
+                          hintText: 'name@network.com',
                         ),
-                        const SizedBox(height: 20),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'يرجى إدخال البريد الإلكتروني';
+                          }
+                          if (!val.contains('@') || !val.contains('.')) {
+                            return 'يرجى إدخال بريد إلكتروني صحيح';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
 
-                        ElevatedButton.icon(
-                          icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                          label: const Text('إدخال رمز التحقق وتعيين كلمة المرور'),
-                          onPressed: _navigateToResetPassword,
-                        ),
-                        const SizedBox(height: 10),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                        label: _isLoading
+                            ? const SizedBox(
+                                height: 22,
+                                width: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('متابعة تعيين كلمة المرور'),
+                        onPressed: _isLoading ? null : _handleForgotPassword,
+                      ),
+                      const SizedBox(height: 12),
 
-                        OutlinedButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('العودة إلى تسجيل الدخول'),
-                        ),
-                      ] else ...[
-                        TextFormField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(
-                            labelText: 'البريد الإلكتروني',
-                            prefixIcon: Icon(Icons.email_outlined),
-                            hintText: 'name@network.com',
-                          ),
-                          validator: (val) {
-                            if (val == null || val.trim().isEmpty) {
-                              return 'يرجى إدخال البريد الإلكتروني';
-                            }
-                            if (!val.contains('@') || !val.contains('.')) {
-                              return 'يرجى إدخال بريد إلكتروني صحيح';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 20),
-
-                        ElevatedButton(
-                          onPressed: _isLoading ? null : _handleForgotPassword,
-                          child: _isLoading
-                              ? const SizedBox(
-                                  height: 22,
-                                  width: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Text('إرسال رمز التحقق'),
-                        ),
-                        const SizedBox(height: 12),
-
-                        TextButton(
-                          onPressed: _navigateToResetPassword,
-                          child: const Text('لدي رمز تحقق بالفعل؟ تعيين كلمة المرور'),
-                        ),
-                        const SizedBox(height: 8),
-
-                        OutlinedButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('العودة إلى تسجيل الدخول'),
-                        ),
-                      ],
+                      OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('العودة إلى تسجيل الدخول'),
+                      ),
                     ],
                   ),
                 ),

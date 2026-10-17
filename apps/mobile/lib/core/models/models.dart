@@ -40,23 +40,28 @@ class AuthUser {
         ? tenantObj!['subscription'] as Map
         : (json['subscription'] is Map ? json['subscription'] as Map : null);
 
+    final role = json['role'] as String? ?? 'CASHIER';
+    final isSuperAdmin = role.toUpperCase() == 'SUPER_ADMIN';
+
     final subPlan = json['subscriptionPlan'] as String? ??
         subObj?['planName'] as String? ??
         subObj?['plan'] as String? ??
-        tenantObj?['plan'] as String?;
+        tenantObj?['plan'] as String? ??
+        (isSuperAdmin ? 'ENTERPRISE' : null);
 
     final subPlanAr = json['subscriptionPlanAr'] as String? ??
-        subObj?['planNameAr'] as String?;
+        subObj?['planNameAr'] as String? ??
+        (isSuperAdmin ? 'باقة المشرف العام (شاملة)' : null);
 
     final subExpires = json['subscriptionExpiresAt'] != null
         ? DateTime.tryParse(json['subscriptionExpiresAt'].toString())
         : (subObj?['expiresAt'] != null
             ? DateTime.tryParse(subObj!['expiresAt'].toString())
-            : null);
+            : (isSuperAdmin ? DateTime.now().add(const Duration(days: 3650)) : null));
 
     final subStatus = json['subscriptionStatus'] as String? ??
         subObj?['status'] as String? ??
-        (subPlan != null ? 'ACTIVE' : 'NONE');
+        (subPlan != null ? 'ACTIVE' : (isSuperAdmin ? 'ACTIVE' : 'NONE'));
 
     return AuthUser(
       id: json['id'] as String? ?? '',

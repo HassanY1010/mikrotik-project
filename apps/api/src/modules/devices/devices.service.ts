@@ -109,10 +109,26 @@ export class DevicesService {
 
       // Atomically verify subscription, quota limit, duplicate host, and create device inside transaction
       const device = await this.prisma.$transaction(async (tx) => {
+        let effectiveTenantId = tenantId;
+        if (!effectiveTenantId) {
+          const defaultTenant = await tx.tenant.findFirst({
+            include: {
+              subscriptions: {
+                where: { status: { in: ['ACTIVE', 'TRIAL'] } },
+                orderBy: { createdAt: 'desc' },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          });
+          if (defaultTenant) {
+            effectiveTenantId = defaultTenant.id;
+          }
+        }
+
         // 1. Verify active subscription and router limit
         const subscription = await tx.subscription.findFirst({
           where: {
-            tenantId,
+            tenantId: effectiveTenantId,
             status: { in: ['ACTIVE', 'TRIAL'] },
           },
           include: { plan: true },
@@ -135,7 +151,7 @@ export class DevicesService {
 
         const currentDeviceCount = await tx.mikroTikDevice.count({
           where: {
-            tenantId,
+            tenantId: effectiveTenantId,
             deletedAt: null,
           },
         });
@@ -152,7 +168,7 @@ export class DevicesService {
         // 2. Check duplicate host + port
         const existing = await tx.mikroTikDevice.findFirst({
           where: {
-            tenantId,
+            tenantId: effectiveTenantId,
             host: dto.host,
             apiPort: resolvedApiPort,
             deletedAt: null,
@@ -168,7 +184,7 @@ export class DevicesService {
 
         return tx.mikroTikDevice.create({
           data: {
-            tenantId,
+            tenantId: effectiveTenantId,
             name: dto.name,
             host: dto.host,
             apiPort: resolvedApiPort,

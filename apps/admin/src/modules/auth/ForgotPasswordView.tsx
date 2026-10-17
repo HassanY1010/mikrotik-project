@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, ArrowRight, ArrowLeft, CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Mail, ArrowRight, ArrowLeft, AlertCircle, ShieldCheck } from 'lucide-react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
 
@@ -18,8 +18,6 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
   const [email, setEmail] = useState(initialEmail);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string>('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,23 +31,19 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
     setError(null);
 
     try {
-      const response = await apiClient.post<{ success: boolean; message: string }>(
+      await apiClient.post<{ success: boolean; message: string }>(
         '/auth/forgot-password',
         { email: cleanEmail },
       );
-      const msg =
-        response?.message ||
-        'إذا كان البريد الإلكتروني مسجلاً لدينا، فستصلك تعليمات استعادة كلمة المرور خلال لحظات.';
-      setSuccessMessage(msg);
-      setSubmitted(true);
-      showToast('تم إرسال تعليمات الاستعادة بنجاح', 'success');
+      showToast('البريد الإلكتروني مسجل، جاري الانتقال لتعيين كلمة المرور الجديدة', 'success');
+      onProceedToReset(cleanEmail);
     } catch (err: unknown) {
       const msg =
         err instanceof Error
           ? err.message
-          : 'تعذر إرسال طلب الاستعادة، يرجى المحاولة لاحقاً';
+          : 'البريد الإلكتروني غير مسجل في النظام، يرجى التحقق من صحة البريد';
       setError(msg);
-      showToast('حدث خطأ أثناء إرسال الطلب', 'error');
+      showToast(msg, 'error');
     } finally {
       setLoading(false);
     }
@@ -95,8 +89,8 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
           <h1 style={{ fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-0.02em' }}>
             استعادة كلمة المرور
           </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.35rem' }}>
-            أدخل بريدك الإلكتروني المسجل لإرسال رمز التحقق ورابط إعادة التعيين
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.35rem', lineHeight: 1.5 }}>
+            أدخل بريدك الإلكتروني المسجل في المنظومة للتحقق منه والانتقال مباشرة لكتابة كلمة المرور الجديدة
           </p>
         </div>
 
@@ -120,125 +114,64 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
           </div>
         )}
 
-        {submitted ? (
-          <div>
-            <div
-              style={{
-                padding: '1.25rem',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                borderRadius: 'var(--radius-lg)',
-                color: 'var(--text-primary)',
-                fontSize: '0.9rem',
-                lineHeight: 1.6,
-                marginBottom: '1.75rem',
-                display: 'flex',
-                gap: '0.75rem',
-                alignItems: 'flex-start',
-              }}
-            >
-              <CheckCircle2 size={22} style={{ color: 'var(--success)', flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <strong style={{ display: 'block', color: 'var(--success)', marginBottom: '0.25rem' }}>
-                  تم إرسال الطلب بنجاح
-                </strong>
-                <span>{successMessage}</span>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem', marginBottom: 0 }}>
-                  يرجى فحص صندوق الوارد (أو مجلد الرسائل غير المرغوب فيها Spam) للحصول على رمز التحقق المكون من 6 أرقام. الرمز صالح لمدة 15 دقيقة.
-                </p>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-                onClick={() => onProceedToReset(email)}
-              >
-                <span>إدخال رمز التحقق وتعيين كلمة المرور</span>
-                <ArrowLeft size={16} />
-              </button>
-
-              <button
-                type="button"
-                className="btn btn-outline"
-                style={{ width: '100%', padding: '0.75rem', fontSize: '0.9rem' }}
-                onClick={onBackToLogin}
-              >
-                <ArrowRight size={16} />
-                <span>العودة إلى تسجيل الدخول</span>
-              </button>
+        <form onSubmit={handleSubmit}>
+          <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+            <label className="form-label" htmlFor="recovery-email">
+              البريد الإلكتروني المسجل
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                id="recovery-email"
+                type="email"
+                className="input"
+                style={{ paddingRight: '2.5rem' }}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="admin@network.com"
+                required
+                autoFocus
+              />
+              <Mail
+                size={18}
+                style={{
+                  position: 'absolute',
+                  right: '0.85rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--text-muted)',
+                }}
+              />
             </div>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-              <label className="form-label" htmlFor="recovery-email">
-                البريد الإلكتروني المسجل
-              </label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  id="recovery-email"
-                  type="email"
-                  className="input"
-                  style={{ paddingRight: '2.5rem' }}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@network.com"
-                  required
-                  autoFocus
-                />
-                <Mail
-                  size={17}
-                  style={{
-                    position: 'absolute',
-                    right: '0.85rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--text-muted)',
-                  }}
-                />
-              </div>
-            </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-                disabled={loading}
-              >
-                {loading ? 'جاري إرسال التعليمات...' : 'إرسال رمز الاستعادة'}
+          <button
+            type="submit"
+            className="btn btn-primary"
+            style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
+            disabled={loading}
+          >
+            {loading ? (
+              <span>جاري التحقق من البريد...</span>
+            ) : (
+              <>
+                <span>متابعة تعيين كلمة المرور</span>
                 <ArrowLeft size={16} />
-              </button>
+              </>
+            )}
+          </button>
 
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{
-                  width: '100%',
-                  padding: '0.65rem',
-                  fontSize: '0.875rem',
-                  color: 'var(--text-secondary)',
-                }}
-                onClick={() => onProceedToReset(email)}
-              >
-                <span>لدي رمز تحقق بالفعل؟ تعيين كلمة المرور مباشرة</span>
-              </button>
-
-              <button
-                type="button"
-                className="btn btn-outline"
-                style={{ width: '100%', padding: '0.7rem', fontSize: '0.9rem' }}
-                onClick={onBackToLogin}
-              >
-                <ArrowRight size={16} />
-                <span>العودة إلى تسجيل الدخول</span>
-              </button>
-            </div>
-          </form>
-        )}
+          <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}
+              onClick={onBackToLogin}
+            >
+              <ArrowRight size={15} />
+              <span>العودة إلى تسجيل الدخول</span>
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

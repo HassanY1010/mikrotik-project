@@ -933,8 +933,8 @@ export class CardsService {
   /**
    * Retrieves active card quota details for a tenant.
    */
-  async getTenantQuota(tenantId: string) {
-    return this.quotasService.getTenantQuota(tenantId);
+  async getTenantQuota(tenantId: string, role?: string) {
+    return this.quotasService.getTenantQuota(tenantId, new Date(), role);
   }
 
   async findAllCards(
