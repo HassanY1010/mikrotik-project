@@ -141,3 +141,36 @@ export function calculateExpirationDate(startDate: Date, validityStr: string): D
   const parsed = parseValidityDuration(validityStr);
   return new Date(startDate.getTime() + parsed.totalSeconds * 1000);
 }
+
+/**
+ * Parses validity string into numeric amount and unit ('m', 'h', 'd').
+ * Supports fallback to 1d and handles legacy week 'w' values (converting 1w -> 7d).
+ */
+export function parseValidityParts(
+  val?: string | null,
+  defaultAmount = 1,
+  defaultUnit: 'm' | 'h' | 'd' = 'd',
+): { amount: number; unit: 'm' | 'h' | 'd' } {
+  if (!val || typeof val !== 'string') {
+    return { amount: defaultAmount, unit: defaultUnit };
+  }
+  const trimmed = val.trim().toLowerCase();
+
+  // Legacy week support (e.g. '1w' -> 7d)
+  const legacyWeek = trimmed.match(/^([1-9]\d*)w$/);
+  if (legacyWeek) {
+    const weeks = parseInt(legacyWeek[1], 10);
+    return { amount: weeks * 7, unit: 'd' };
+  }
+
+  const match = trimmed.match(VALIDITY_DURATION_REGEX);
+  if (!match) {
+    return { amount: defaultAmount, unit: defaultUnit };
+  }
+
+  return {
+    amount: parseInt(match[1], 10),
+    unit: match[2] as 'm' | 'h' | 'd',
+  };
+}
+

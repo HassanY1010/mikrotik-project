@@ -48,7 +48,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
       if (resp['message']) {
         if (Array.isArray(resp['message'])) {
-          errorMessage = 'Validation failed';
+          const msgs = (resp['message'] as unknown[]).map(String);
+          errorMessage = msgs.length > 0 ? msgs.join(' | ') : 'Validation failed';
           details = resp['message'];
         } else {
           errorMessage = String(resp['message']);

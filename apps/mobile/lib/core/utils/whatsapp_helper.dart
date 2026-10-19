@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../theme/app_theme.dart';
 
 enum WhatsAppActionType {
   support,
@@ -103,10 +104,13 @@ class WhatsAppHelper {
         SnackBar(
           content: Row(
             children: [
-              const Icon(Icons.info_outline, color: Colors.white, size: 20),
+              Icon(Icons.info_outline, color: context.textPrimary, size: 20),
               const SizedBox(width: 8),
               Expanded(
-                child: Text('رقم الدعم الفني عبر واتساب: $supportPhoneDisplay'),
+                child: Text(
+                  'رقم الدعم الفني عبر واتساب: $supportPhoneDisplay',
+                  style: TextStyle(color: context.textPrimary),
+                ),
               ),
               TextButton(
                 onPressed: () {
@@ -119,7 +123,7 @@ class WhatsAppHelper {
               ),
             ],
           ),
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: context.bgCard,
           duration: const Duration(seconds: 5),
         ),
       );

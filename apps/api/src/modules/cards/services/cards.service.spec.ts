@@ -6,7 +6,7 @@ import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.fa
 import { CardCodeGeneratorService } from './card-code-generator.service';
 import { QuotasService } from './quotas.service';
 import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
-import { CardStatus, CardBatchStatus, RouterOsVersion, SyncStatus } from '@prisma/client';
+import { CardStatus, CardBatchStatus, RouterOsVersion, SyncStatus, PrintJobStatus } from '@prisma/client';
 
 describe('CardsService', () => {
   let service: CardsService;
@@ -56,6 +56,12 @@ describe('CardsService', () => {
       },
       hotspotActiveSession: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      cardTemplate: {
+        findFirst: jest.fn(),
+      },
+      printJob: {
+        create: jest.fn(),
       },
       $transaction: jest.fn((cb) => (typeof cb === 'function' ? cb(prisma) : Promise.all(cb))),
     };
@@ -231,6 +237,98 @@ describe('CardsService', () => {
 
       expect(result.batch.status).toBe(CardBatchStatus.COMPLETED);
       expect(result.batch.syncedToRouter).toBe(true);
+    });
+
+    it('should throw NotFoundException if templateId is specified but template does not exist', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue({ id: mockDeviceId });
+      prisma.hotspotProfile.findFirst.mockResolvedValue({ id: mockProfileId });
+      prisma.cardTemplate.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createBatch(mockTenantId, mockUserId, {
+          deviceId: mockDeviceId,
+          profileId: mockProfileId,
+          totalCards: 2,
+          price: 500,
+          templateId: 'non-existent-template-id',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should link matchedTemplate and create PrintJob record when valid templateId is provided', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue({
+        id: mockDeviceId,
+        name: 'Core Router',
+        host: '192.168.88.1',
+        apiPort: 8728,
+        restPort: 443,
+        useSsl: false,
+        username: 'admin',
+        passwordEncrypted: 'pw',
+        iv: 'iv',
+        authTag: 'tag',
+        rosVersion: RouterOsVersion.V7,
+        isOnline: true,
+      });
+
+      prisma.hotspotProfile.findFirst.mockResolvedValue({
+        id: mockProfileId,
+        name: '1hour-unlimited',
+        sessionTimeout: '1h',
+      });
+
+      prisma.cardTemplate.findFirst.mockResolvedValue({
+        id: 'tpl-custom-1',
+        name: 'قالب كرت مخصص',
+        themePreset: 'TURQUOISE',
+        widthMm: 85,
+      });
+
+      prisma.card.findMany.mockResolvedValue([]);
+      prisma.card.createMany.mockResolvedValue({ count: 2 });
+
+      prisma.cardBatch.create.mockResolvedValue({
+        id: mockBatchId,
+        batchNumber: 'B-261003-ABCD',
+        totalCards: 2,
+        price: '500',
+        themePreset: 'TURQUOISE',
+        createdAt: new Date(),
+      });
+
+      prisma.cardBatch.findUnique.mockResolvedValue({
+        id: mockBatchId,
+        batchNumber: 'B-261003-ABCD',
+        totalCards: 2,
+        price: '500',
+        status: CardBatchStatus.COMPLETED,
+        themePreset: 'TURQUOISE',
+        createdAt: new Date(),
+        device: { name: 'Core Router' },
+        profile: { name: '1hour-unlimited' },
+      });
+
+      const result = await service.createBatch(mockTenantId, mockUserId, {
+        deviceId: mockDeviceId,
+        profileId: mockProfileId,
+        totalCards: 2,
+        price: 500,
+        templateId: 'tpl-custom-1',
+      });
+
+      expect(prisma.printJob.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId: mockTenantId,
+          templateId: 'tpl-custom-1',
+          cardBatchId: mockBatchId,
+          printerType: 'A4_SHEET',
+          status: PrintJobStatus.PENDING,
+          totalCards: 2,
+        }),
+      });
+      expect(result.batch.templateId).toBe('tpl-custom-1');
+      expect(result.batch.templateName).toBe('قالب كرت مخصص');
+      expect(result.batch.themePreset).toBe('TURQUOISE');
     });
   });
 

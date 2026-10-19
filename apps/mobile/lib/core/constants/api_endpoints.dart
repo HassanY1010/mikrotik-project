@@ -5,12 +5,14 @@ class ApiEndpoints {
   // Auth endpoints
   static const String login = '/auth/login';
   static const String register = '/auth/register';
+  static const String refresh = '/auth/refresh';
   static const String profile = '/auth/profile';
   static const String authMe = '/auth/me';
   static const String changePassword = '/auth/change-password';
   static const String forgotPassword = '/auth/forgot-password';
   static const String verifyResetCode = '/auth/verify-reset-code';
   static const String resetPassword = '/auth/reset-password';
+  static const String deleteAccount = '/auth/account';
 
   // User management endpoints
   static const String users = '/users';
@@ -40,6 +42,10 @@ class ApiEndpoints {
   static String deviceEmergencyLock(String id) => '/devices/$id/emergency-lock';
   static String deviceAntiTethering(String id) => '/devices/$id/anti-tethering';
   static String deviceTest(String id) => '/devices/$id/test-connection';
+  static String deviceBackup(String id) => '/devices/$id/backup';
+  static String deviceBackups(String id) => '/devices/$id/backups';
+  static String deviceBackupDownload(String id, String filename) =>
+      '/devices/$id/backups/$filename/download';
 
   // Hotspot
   static String hotspotKick(String sessionId) => '/hotspot/sessions/$sessionId/kick';

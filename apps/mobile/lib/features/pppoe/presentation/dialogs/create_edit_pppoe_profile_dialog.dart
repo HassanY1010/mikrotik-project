@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/providers.dart';
+import '../../../../core/theme/app_theme.dart';
 
 class CreateEditPppoeProfileDialog extends ConsumerStatefulWidget {
   final PppoeProfileModel? existingProfile;
@@ -121,8 +122,11 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
     final isEditing = widget.existingProfile != null;
 
     return Dialog(
-      backgroundColor: const Color(0xFF1E293B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: context.bgCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: context.borderColor),
+      ),
       child: Container(
         constraints: const BoxConstraints(maxWidth: 480),
         padding: const EdgeInsets.all(22),
@@ -148,15 +152,15 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                     Expanded(
                       child: Text(
                         isEditing ? 'تعديل بروفايل PPPoE' : 'إضافة بروفايل سرعة جديد',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: context.textPrimary,
                           fontSize: 17,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Color(0xFF94A3B8), size: 20),
+                      icon: Icon(Icons.close, color: context.textSecondary, size: 20),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                   ],
@@ -279,23 +283,23 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: context.bgScaffold,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF334155)),
+                    border: Border.all(color: context.borderColor),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Column(
+                      Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             'جلسة واحدة لكل حساب (Only-One)',
-                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                            style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
                           ),
                           Text(
                             'منع الاتصال المتزامن بأكثر من جهاز بنفس الحساب',
-                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                            style: TextStyle(color: context.textSecondary, fontSize: 11),
                           ),
                         ],
                       ),
@@ -313,7 +317,7 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                 TextFormField(
                   controller: _descriptionController,
                   maxLines: 2,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: TextStyle(color: context.textPrimary, fontSize: 13),
                   decoration: _buildInputDecoration(
                     label: 'ملاحظات وتفاصيل إضافية',
                     hint: 'باقة مخصصة للاستخدام المنزلي غير المحدود...',
@@ -329,11 +333,11 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                       child: OutlinedButton(
                         onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFF475569)),
+                          side: BorderSide(color: context.borderColor),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           padding: const EdgeInsets.symmetric(vertical: 13),
                         ),
-                        child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+                        child: Text('إلغاء', style: TextStyle(color: context.textSecondary)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -375,20 +379,20 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
   }) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+      labelStyle: TextStyle(color: context.textSecondary, fontSize: 13),
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
-      prefixIcon: Icon(icon, color: const Color(0xFF64748B), size: 18),
+      hintStyle: TextStyle(color: context.textSecondary, fontSize: 12),
+      prefixIcon: Icon(icon, color: context.textSecondary, size: 18),
       filled: true,
-      fillColor: const Color(0xFF0F172A),
+      fillColor: context.bgScaffold,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF334155)),
+        borderSide: BorderSide(color: context.borderColor),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF334155)),
+        borderSide: BorderSide(color: context.borderColor),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),

@@ -9,25 +9,28 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateTemplateDto {
   @ApiProperty({ description: 'Template name', example: 'Default 85x54 Business Card' })
-  @IsString()
-  @IsNotEmpty()
+  @IsString({ message: 'اسم القالب يجب أن يكون نصاً' })
+  @IsNotEmpty({ message: 'اسم القالب مطلوب' })
   name!: string;
 
   @ApiPropertyOptional({ description: 'Width in millimeters', example: 85, default: 85 })
-  @IsInt()
-  @Min(20)
-  @Max(300)
+  @Type(() => Number)
+  @IsInt({ message: 'عرض الكرت يجب أن يكون رقماً صحيحاً بالمليمتر' })
+  @Min(10, { message: 'أقل عرض مسموح به هو 10 مم' })
+  @Max(1000, { message: 'أقصى عرض مسموح به هو 1000 مم' })
   @IsOptional()
   widthMm?: number;
 
   @ApiPropertyOptional({ description: 'Height in millimeters', example: 54, default: 54 })
-  @IsInt()
-  @Min(20)
-  @Max(300)
+  @Type(() => Number)
+  @IsInt({ message: 'ارتفاع الكرت يجب أن يكون رقماً صحيحاً بالمليمتر' })
+  @Min(10, { message: 'أقل ارتفاع مسموح به هو 10 مم' })
+  @Max(1000, { message: 'أقصى ارتفاع مسموح به هو 1000 مم' })
   @IsOptional()
   heightMm?: number;
 
@@ -36,7 +39,8 @@ export class CreateTemplateDto {
     enum: ['landscape', 'portrait'],
     default: 'landscape',
   })
-  @IsIn(['landscape', 'portrait'])
+  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase().trim() : value))
+  @IsIn(['landscape', 'portrait'], { message: 'الاتجاه يجب أن يكون إما أفقي (landscape) أو عمودي (portrait)' })
   @IsOptional()
   orientation?: string;
 
@@ -57,9 +61,19 @@ export class CreateTemplateDto {
       instructions: 'اتصل بالشبكة وامسح الرمز لتسجيل الدخول الفوري',
     },
   })
-  @IsObject()
-  @IsNotEmpty()
-  layoutConfig!: Record<string, unknown>;
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+    return value ?? {};
+  })
+  @IsObject({ message: 'إعدادات عناصر الكرت layoutConfig يجب أن تكون كائناً صحيحاً' })
+  @IsOptional()
+  layoutConfig?: Record<string, unknown>;
 
   @ApiPropertyOptional({ description: 'Theme preset style', example: 'FOOTBALL' })
   @IsString()
@@ -81,3 +95,4 @@ export class CreateTemplateDto {
   @IsOptional()
   isDefault?: boolean;
 }
+

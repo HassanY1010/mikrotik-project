@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import 'create_user_dialog.dart';
 
 class TenantUsersScreen extends ConsumerStatefulWidget {
@@ -26,12 +27,12 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تأكيد حذف المستخدم', style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: Text('تأكيد حذف المستخدم', style: TextStyle(color: context.textPrimary, fontSize: 16)),
         content: Text(
           'هل أنت متأكد من حذف حساب «${u.fullName}» (${u.email})؟ سيفقد المستخدم إمكانية الدخول للنظام فوراً.',
-          style: const TextStyle(color: Color(0xFF94A3B8)),
+          style: TextStyle(color: context.textSecondary),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8)))),
@@ -97,9 +98,9 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen> {
     final usersAsync = ref.watch(tenantUsersProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         title: const Text(
           'مستخدمو المنظومة والموظفون',
@@ -118,9 +119,9 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen> {
           // Header Action Banner
           Container(
             padding: const EdgeInsets.all(14),
-            decoration: const BoxDecoration(
-              color: Color(0xFF1E293B),
-              border: Border(bottom: BorderSide(color: Color(0xFF334155))),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              border: Border(bottom: BorderSide(color: context.borderColor)),
             ),
             child: Column(
               children: [
@@ -149,14 +150,14 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen> {
                 const SizedBox(height: 10),
                 TextField(
                   controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: context.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'بحث باسم الموظف أو البريد...',
-                    hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
-                    prefixIcon: const Icon(Icons.search, color: Color(0xFF64748B), size: 20),
+                    hintStyle: TextStyle(color: context.textSecondary, fontSize: 13),
+                    prefixIcon: Icon(Icons.search, color: context.textSecondary, size: 20),
                     suffixIcon: _searchQuery.isNotEmpty
                         ? IconButton(
-                            icon: const Icon(Icons.clear, color: Color(0xFF64748B), size: 18),
+                            icon: Icon(Icons.clear, color: context.textSecondary, size: 18),
                             onPressed: () {
                               _searchController.clear();
                               setState(() => _searchQuery = '');
@@ -164,10 +165,10 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen> {
                           )
                         : null,
                     filled: true,
-                    fillColor: const Color(0xFF0F172A),
+                    fillColor: context.bgScaffold,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
                     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8))),
                   ),
                   onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
@@ -234,9 +235,9 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen> {
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
+                        color: context.bgCard,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFF334155)),
+                        border: Border.all(color: context.borderColor),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,

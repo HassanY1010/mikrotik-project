@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../core/context/AuthContext';
 import { useToast } from '../../core/context/ToastContext';
-import { Lock, Mail, ArrowLeft } from 'lucide-react';
+import { useTheme } from '../../core/context/ThemeContext';
+import { Lock, Mail, ArrowLeft, Sun, Moon } from 'lucide-react';
 
 interface LoginViewProps {
   onForgotPassword?: () => void;
@@ -10,6 +11,7 @@ interface LoginViewProps {
 export const LoginView: React.FC<LoginViewProps> = ({ onForgotPassword }) => {
   const { login } = useAuth();
   const { showToast } = useToast();
+  const { isDark, toggleTheme } = useTheme();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -41,7 +43,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onForgotPassword }) => {
     }
   };
 
-
   return (
     <div
       style={{
@@ -50,9 +51,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onForgotPassword }) => {
         alignItems: 'center',
         justifyContent: 'center',
         padding: '1.5rem',
-        background: 'radial-gradient(ellipse at top, #1e293b 0%, #0b1120 100%)',
+        background: 'var(--bg-auth-gradient)',
+        position: 'relative',
       }}
     >
+      <div style={{ position: 'absolute', top: '1.5rem', left: '1.5rem' }}>
+        <button
+          className="btn btn-outline btn-icon"
+          onClick={toggleTheme}
+          title={isDark ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'}
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            borderColor: 'var(--border)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          {isDark ? <Sun size={18} color="var(--accent)" /> : <Moon size={18} color="var(--primary)" />}
+        </button>
+      </div>
+
       <div
         className="card card-glass"
         style={{

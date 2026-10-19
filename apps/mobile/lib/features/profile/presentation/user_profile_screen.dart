@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import 'tenant_users_screen.dart';
 import 'create_user_dialog.dart';
 import '../../studio/presentation/card_templates_screen.dart';
@@ -49,13 +50,13 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: ctx.bgCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Row(
-            children: const [
-              Icon(Icons.lock_reset_rounded, color: Color(0xFF38BDF8), size: 22),
-              SizedBox(width: 10),
-              Text('تغيير كلمة المرور', style: TextStyle(color: Colors.white, fontSize: 16)),
+            children: [
+              const Icon(Icons.lock_reset_rounded, color: Color(0xFF38BDF8), size: 22),
+              const SizedBox(width: 10),
+              Text('تغيير كلمة المرور', style: TextStyle(color: ctx.textPrimary, fontSize: 16)),
             ],
           ),
           content: SizedBox(
@@ -69,17 +70,18 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     TextFormField(
                       controller: currentPassController,
                       obscureText: obscureCurrent,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: TextStyle(color: ctx.textPrimary, fontSize: 14),
                       decoration: InputDecoration(
                         labelText: 'كلمة المرور الحالية *',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        labelStyle: TextStyle(color: ctx.textSecondary, fontSize: 12),
                         suffixIcon: IconButton(
-                          icon: Icon(obscureCurrent ? Icons.visibility_off : Icons.visibility, color: const Color(0xFF64748B), size: 18),
+                          icon: Icon(obscureCurrent ? Icons.visibility_off : Icons.visibility, color: ctx.textSecondary, size: 18),
                           onPressed: () => setDialogState(() => obscureCurrent = !obscureCurrent),
                         ),
                         filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
+                        fillColor: ctx.bgCardAlt,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: ctx.borderColor)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: ctx.borderColor)),
                       ),
                       validator: (v) => v == null || v.isEmpty ? 'أدخل كلمة المرور الحالية' : null,
                     ),
@@ -87,17 +89,18 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     TextFormField(
                       controller: newPassController,
                       obscureText: obscureNew,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: TextStyle(color: ctx.textPrimary, fontSize: 14),
                       decoration: InputDecoration(
                         labelText: 'كلمة المرور الجديدة *',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        labelStyle: TextStyle(color: ctx.textSecondary, fontSize: 12),
                         suffixIcon: IconButton(
-                          icon: Icon(obscureNew ? Icons.visibility_off : Icons.visibility, color: const Color(0xFF64748B), size: 18),
+                          icon: Icon(obscureNew ? Icons.visibility_off : Icons.visibility, color: ctx.textSecondary, size: 18),
                           onPressed: () => setDialogState(() => obscureNew = !obscureNew),
                         ),
                         filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
+                        fillColor: ctx.bgCardAlt,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: ctx.borderColor)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: ctx.borderColor)),
                       ),
                       validator: (v) {
                         if (v == null || v.isEmpty) return 'أدخل كلمة المرور الجديدة';
@@ -109,13 +112,14 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     TextFormField(
                       controller: confirmPassController,
                       obscureText: obscureNew,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: TextStyle(color: ctx.textPrimary, fontSize: 14),
                       decoration: InputDecoration(
                         labelText: 'تأكيد كلمة المرور الجديدة *',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        labelStyle: TextStyle(color: ctx.textSecondary, fontSize: 12),
                         filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
+                        fillColor: ctx.bgCardAlt,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: ctx.borderColor)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: ctx.borderColor)),
                       ),
                       validator: (v) {
                         if (v != newPassController.text) return 'كلمات المرور غير متطابقة';
@@ -130,7 +134,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
           actions: [
             TextButton(
               onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
-              child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+              child: Text('إلغاء', style: TextStyle(color: ctx.textSecondary)),
             ),
             ElevatedButton(
               onPressed: isSubmitting
@@ -178,15 +182,15 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: ctx.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('تسجيل الخروج', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        content: const Text(
+        title: Text('تسجيل الخروج', style: TextStyle(color: ctx.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: Text(
           'هل أنت متأكد من رغبتك في إنهاء الجلسة وتسجيل الخروج؟',
-          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          style: TextStyle(color: ctx.textSecondary, fontSize: 13),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8)))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء', style: TextStyle(color: ctx.textSecondary))),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
@@ -201,6 +205,234 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
       ref.read(currentUserProvider.notifier).setUser(null);
       if (mounted) Navigator.pop(context);
     }
+  }
+
+  void _handleDeleteAccount() async {
+    HapticFeedback.heavyImpact();
+    final formKey = GlobalKey<FormState>();
+    final passwordController = TextEditingController();
+    final reasonController = TextEditingController();
+    final currentUser = ref.read(currentUserProvider);
+    final isTenantAdmin = currentUser != null &&
+        (currentUser.role.toUpperCase() == 'TENANT_ADMIN' ||
+            currentUser.role.toUpperCase() == 'OWNER' ||
+            currentUser.role.toUpperCase() == 'ADMIN');
+    bool confirmDeleteOrg = false;
+    bool obscurePassword = true;
+    bool isAgreed = false;
+    bool isSubmitting = false;
+    String? dialogError;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: ctx.bgCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 24),
+              const SizedBox(width: 8),
+              Text(
+                'حذف الحساب نهائيًا',
+                style: TextStyle(color: ctx.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 380,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF7F1D1D).withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.5)),
+                      ),
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.error_outline_rounded, color: Color(0xFFF87171), size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'تحذير شديد الأهمية: هذا الإجراء نهائي ولا يمكن التراجع عنه بأي شكل! سيتم حذف حسابك وإلغاء جميع الجلسات والرموز التابعة له.',
+                              style: TextStyle(color: Color(0xFFFECACA), fontSize: 12, height: 1.4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: passwordController,
+                      obscureText: obscurePassword,
+                      style: TextStyle(color: ctx.textPrimary, fontSize: 14),
+                      decoration: InputDecoration(
+                        labelText: 'كلمة المرور الحالية لتأكيد الهوية *',
+                        labelStyle: TextStyle(color: ctx.textSecondary, fontSize: 12),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscurePassword ? Icons.visibility_off : Icons.visibility,
+                            color: ctx.textSecondary,
+                            size: 18,
+                          ),
+                          onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
+                        ),
+                        filled: true,
+                        fillColor: ctx.bgCardAlt,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: ctx.borderColor),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: ctx.borderColor),
+                        ),
+                      ),
+                      validator: (v) => v == null || v.isEmpty ? 'يرجى إدخال كلمة المرور لتأكيد الحذف' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: reasonController,
+                      style: TextStyle(color: ctx.textPrimary, fontSize: 14),
+                      decoration: InputDecoration(
+                        labelText: 'سبب حذف الحساب (اختياري)',
+                        labelStyle: TextStyle(color: ctx.textSecondary, fontSize: 12),
+                        filled: true,
+                        fillColor: ctx.bgCardAlt,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: ctx.borderColor),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: ctx.borderColor),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: isAgreed,
+                      activeColor: const Color(0xFFDC2626),
+                      checkColor: Colors.white,
+                      onChanged: isSubmitting
+                          ? null
+                          : (val) => setDialogState(() => isAgreed = val ?? false),
+                      title: const Text(
+                        'أقر وأؤكد بأنني أرغب بحذف حسابي نهائيًا وأعلم بعدم إمكانية استرجاعه',
+                        style: TextStyle(color: Color(0xFFE2E8F0), fontSize: 11.5, fontWeight: FontWeight.w600),
+                      ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    if (isTenantAdmin) ...[
+                      const SizedBox(height: 6),
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: confirmDeleteOrg,
+                        activeColor: const Color(0xFFDC2626),
+                        checkColor: Colors.white,
+                        onChanged: isSubmitting
+                            ? null
+                            : (val) => setDialogState(() => confirmDeleteOrg = val ?? false),
+                        title: const Text(
+                          'أوافق على حذف المنظومة وجميع أجهزة MikroTik وكروت الهوتسبوت في حال كنت المالك الوحيد',
+                          style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                    ],
+                    if (dialogError != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF450A0A),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFDC2626)),
+                        ),
+                        child: Text(
+                          dialogError!,
+                          style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+              child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+            ),
+            ElevatedButton(
+              onPressed: (!isAgreed || isSubmitting)
+                  ? null
+                  : () async {
+                      if (!formKey.currentState!.validate()) return;
+                      setDialogState(() {
+                        isSubmitting = true;
+                        dialogError = null;
+                      });
+
+                      final res = await ref.read(currentUserProvider.notifier).deleteAccount(
+                            password: passwordController.text,
+                            reason: reasonController.text,
+                            confirmDeleteOrganization: isTenantAdmin ? confirmDeleteOrg : null,
+                          );
+
+                      if (!mounted) return;
+
+                      if (res['success'] == true) {
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        await ref.read(localStorageProvider).clearAuth();
+                        ref.read(currentUserProvider.notifier).setUser(null);
+                        if (mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('تم حذف حسابك نهائيًا بنجاح.'),
+                              backgroundColor: Color(0xFF10B981),
+                            ),
+                          );
+                        }
+                      } else {
+                        setDialogState(() {
+                          isSubmitting = false;
+                          dialogError = res['message']?.toString() ?? 'فشل حذف الحساب';
+                        });
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                disabledBackgroundColor: const Color(0xFF7F1D1D).withValues(alpha: 0.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text(
+                      'حذف الحساب نهائيًا',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   String _formatRole(String role) {
@@ -231,19 +463,31 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
             user.role.toUpperCase() == 'ADMIN');
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
-        title: const Text(
+        title: Text(
           'حساب المستخدم والمنظومة',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
         ),
         actions: [
           IconButton(
+            icon: Icon(
+              ref.watch(themeModeProvider) == ThemeMode.light
+                  ? Icons.dark_mode_outlined
+                  : Icons.light_mode_outlined,
+              color: const Color(0xFFF59E0B),
+            ),
+            tooltip: 'تبديل المظهر',
+            onPressed: () {
+              ref.read(themeModeProvider.notifier).toggleTheme();
+            },
+          ),
+          IconButton(
             icon: _isRefreshing
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.refresh),
+                ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: context.textPrimary))
+                : Icon(Icons.refresh, color: context.textPrimary),
             onPressed: _isRefreshing ? null : _handleRefresh,
           ),
         ],
@@ -255,13 +499,15 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+              gradient: LinearGradient(
+                colors: context.isDarkMode
+                    ? const [Color(0xFF1E293B), Color(0xFF0F172A)]
+                    : const [Colors.white, Color(0xFFF1F5F9)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Row(
               children: [
@@ -277,12 +523,12 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     children: [
                       Text(
                         user?.fullName.isNotEmpty == true ? user!.fullName : 'مستخدم المنظومة',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                        style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         user?.email ?? '',
-                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                        style: TextStyle(color: context.textSecondary, fontSize: 13),
                       ),
                       const SizedBox(height: 8),
                       Container(
@@ -315,21 +561,21 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               children: [
                 _buildInfoRow('اسم المؤسسة / المستأجر', user?.tenantName ?? 'منظومة ميكروتك الذكية', Icons.apartment),
-                const Divider(color: Color(0xFF334155), height: 20),
+                Divider(color: context.borderColor, height: 20),
                 _buildInfoRow('معرف المستأجر (Tenant ID)', user?.tenantId ?? 'tenant-active', Icons.fingerprint),
-                const Divider(color: Color(0xFF334155), height: 20),
+                Divider(color: context.borderColor, height: 20),
                 _buildInfoRow('العملة المعتمدة', user?.currency ?? 'SDG (جنيه سوداني)', Icons.monetization_on_outlined),
-                const Divider(color: Color(0xFF334155), height: 20),
+                Divider(color: context.borderColor, height: 20),
                 _buildInfoRow('حالة الحساب', 'نشط ومفعل (ACTIVE)', Icons.verified_user_outlined, valueColor: const Color(0xFF10B981)),
                 if (user?.phone != null && user!.phone!.isNotEmpty) ...[
-                  const Divider(color: Color(0xFF334155), height: 20),
+                  Divider(color: context.borderColor, height: 20),
                   _buildInfoRow('رقم الهاتف المسجل', user.phone!, Icons.phone_outlined),
                 ],
               ],
@@ -344,9 +590,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
+                color: context.bgCard,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.2)),
+                border: Border.all(color: context.borderColor),
               ),
               child: Column(
                 children: [
@@ -386,9 +632,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     'يمكنك إنشاء حسابات جديدة لموظفي الكاشير أو مديري الفروع ومنحهم صلاحيات فورية.',
-                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                    style: TextStyle(color: context.textSecondary, fontSize: 11),
                   ),
                 ],
               ),
@@ -401,26 +647,26 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
           const SizedBox(height: 10),
           Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               children: [
                 ListTile(
                   leading: const Icon(Icons.style_outlined, color: Color(0xFFA78BFA)),
-                  title: const Text('قوالب وتصاميم الطباعة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text('اختيار وتخصيص القوالب الجاهزة ومقاسات الطباعة', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  title: Text('قوالب وتصاميم الطباعة', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: Text('اختيار وتخصيص القوالب الجاهزة ومقاسات الطباعة', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFF64748B)),
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const CardTemplatesScreen()));
                   },
                 ),
-                const Divider(color: Color(0xFF334155), height: 1),
+                Divider(color: context.borderColor, height: 1),
                 ListTile(
                   leading: const Icon(Icons.speed_outlined, color: Color(0xFF38BDF8)),
-                  title: const Text('بروفايلات', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text('إنشاء باقات جديدة ومزامنتها مع أجهزة MikroTik', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  title: Text('بروفايلات', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: Text('إنشاء باقات جديدة ومزامنتها مع أجهزة MikroTik', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFF64748B)),
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const HotspotProfilesScreen()));
@@ -429,15 +675,23 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 24),
+
+          // Appearance & Theme Mode Section
+          _buildSectionHeader('مظهر التطبيق والسمة:', Icons.palette_outlined),
+          const SizedBox(height: 10),
+          _buildThemeSelectorCard(),
+          const SizedBox(height: 24),
+
           // Technical Support & Help Section
           _buildSectionHeader('المساعدة والدعم الفني:', Icons.support_agent_rounded),
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -453,18 +707,18 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                       child: const Icon(Icons.headset_mic_rounded, color: Color(0xFF25D366), size: 22),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             'الدعم الفني المباشر',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
                           ),
-                          SizedBox(height: 2),
+                          const SizedBox(height: 2),
                           Text(
                             'فريق خدمة عملاء SudaFi متاح لمساعدتك عبر واتساب',
-                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                            style: TextStyle(color: context.textSecondary, fontSize: 11),
                           ),
                         ],
                       ),
@@ -488,17 +742,17 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               children: [
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.lock_outline, color: Color(0xFFFBBF24)),
-                  title: const Text('كلمة المرور', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text('تحديث كلمة المرور الخاصة بحسابك بأمان', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  title: Text('كلمة المرور', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: Text('تحديث كلمة المرور الخاصة بحسابك بأمان', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                   trailing: OutlinedButton(
                     onPressed: _handleChangePassword,
                     style: OutlinedButton.styleFrom(
@@ -508,13 +762,44 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     child: const Text('تغيير', style: TextStyle(color: Color(0xFFFBBF24), fontSize: 12)),
                   ),
                 ),
-                const Divider(color: Color(0xFF334155), height: 20),
+                Divider(color: context.borderColor, height: 20),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.logout_rounded, color: Color(0xFFEF4444)),
                   title: const Text('تسجيل الخروج', style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text('إنهاء الجلسة الحالية وحفظ العمليات غير المتزامنة بأمان', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  subtitle: Text('إنهاء الجلسة الحالية وحفظ العمليات غير المتزامنة بأمان', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                   onTap: _handleLogout,
+                ),
+                Divider(color: context.borderColor, height: 20),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7F1D1D).withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFDC2626).withValues(alpha: 0.4)),
+                    ),
+                    child: const Icon(Icons.delete_forever_rounded, color: Color(0xFFEF4444), size: 20),
+                  ),
+                  title: const Text(
+                    'حذف الحساب نهائيًا',
+                    style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  subtitle: Text(
+                    'حذف حسابك نهائيًا وجميع بياناته المرتبطة دون إمكانية الاسترجاع',
+                    style: TextStyle(color: context.textSecondary, fontSize: 11),
+                  ),
+                  trailing: OutlinedButton(
+                    onPressed: _handleDeleteAccount,
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFFDC2626)),
+                      backgroundColor: const Color(0xFFDC2626).withValues(alpha: 0.1),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('حذف الحساب', style: TextStyle(color: Color(0xFFEF4444), fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                  onTap: _handleDeleteAccount,
                 ),
               ],
             ),
@@ -525,14 +810,181 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     );
   }
 
+  Widget _buildThemeSelectorCard() {
+    final currentMode = ref.watch(themeModeProvider);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: (currentMode == ThemeMode.light
+                          ? const Color(0xFFF59E0B)
+                          : const Color(0xFF0D9488))
+                      .withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  currentMode == ThemeMode.light
+                      ? Icons.light_mode_rounded
+                      : (currentMode == ThemeMode.system
+                          ? Icons.brightness_auto_rounded
+                          : Icons.dark_mode_rounded),
+                  color: currentMode == ThemeMode.light
+                      ? const Color(0xFFF59E0B)
+                      : (currentMode == ThemeMode.system
+                          ? const Color(0xFF6366F1)
+                          : const Color(0xFF38BDF8)),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'سمة المنظومة ومظهر الواجهة',
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'يتم حفظ التفضيل محلياً ويعمل فورياً عبر كامل شاشات التطبيق',
+                      style: TextStyle(color: context.textSecondary, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _buildThemeOptionTile(
+                  title: 'داكن',
+                  subtitle: 'الوضع الأصلي',
+                  icon: Icons.dark_mode_rounded,
+                  mode: ThemeMode.dark,
+                  isSelected: currentMode == ThemeMode.dark,
+                  activeColor: const Color(0xFF38BDF8),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildThemeOptionTile(
+                  title: 'فاتح',
+                  subtitle: 'مريح للعين',
+                  icon: Icons.light_mode_rounded,
+                  mode: ThemeMode.light,
+                  isSelected: currentMode == ThemeMode.light,
+                  activeColor: const Color(0xFF0D9488),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildThemeOptionTile(
+                  title: 'تلقائي',
+                  subtitle: 'حسب الجهاز',
+                  icon: Icons.brightness_auto_rounded,
+                  mode: ThemeMode.system,
+                  isSelected: currentMode == ThemeMode.system,
+                  activeColor: const Color(0xFF6366F1),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThemeOptionTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required ThemeMode mode,
+    required bool isSelected,
+    required Color activeColor,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          ref.read(themeModeProvider.notifier).setThemeMode(mode);
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? activeColor.withValues(alpha: 0.12)
+                : (context.isDarkMode
+                    ? const Color(0xFF0F172A).withValues(alpha: 0.4)
+                    : const Color(0xFFF1F5F9)),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? activeColor : context.borderColor,
+              width: isSelected ? 1.8 : 1.0,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected ? activeColor : context.textSecondary,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  color: isSelected ? activeColor : context.textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: isSelected
+                      ? activeColor.withValues(alpha: 0.8)
+                      : context.textSecondary,
+                  fontSize: 9,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionHeader(String title, IconData icon) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: const Color(0xFF38BDF8)),
+        Icon(icon, size: 18, color: const Color(0xFF0D9488)),
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
         ),
       ],
     );
@@ -541,13 +993,13 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   Widget _buildInfoRow(String label, String value, IconData icon, {Color? valueColor}) {
     return Row(
       children: [
-        Icon(icon, size: 16, color: const Color(0xFF64748B)),
+        Icon(icon, size: 16, color: context.textSecondary),
         const SizedBox(width: 10),
-        Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+        Text(label, style: TextStyle(color: context.textSecondary, fontSize: 12)),
         const Spacer(),
         Text(
           value,
-          style: TextStyle(color: valueColor ?? Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+          style: TextStyle(color: valueColor ?? context.textPrimary, fontWeight: FontWeight.bold, fontSize: 12),
         ),
       ],
     );
@@ -608,8 +1060,10 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+            gradient: LinearGradient(
+              colors: context.isDarkMode
+                  ? const [Color(0xFF1E293B), Color(0xFF0F172A)]
+                  : const [Colors.white, Color(0xFFF1F5F9)],
               begin: Alignment.topRight,
               end: Alignment.bottomLeft,
             ),
@@ -617,7 +1071,11 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
             border: Border.all(
               color: isNotSubscribed
                   ? const Color(0xFFF59E0B).withValues(alpha: 0.3)
-                  : (isExpired ? const Color(0xFFEF4444).withValues(alpha: 0.3) : const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                  : (isExpired
+                      ? const Color(0xFFEF4444).withValues(alpha: 0.3)
+                      : (context.isDarkMode
+                          ? const Color(0xFF0284C7).withValues(alpha: 0.3)
+                          : context.borderColor)),
             ),
           ),
           child: Column(
@@ -633,9 +1091,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     size: 20,
                   ),
                   const SizedBox(width: 8),
-                  const Text(
+                  Text(
                     'تفاصيل باقة الاشتراك والحصص:',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                   const Spacer(),
                   Container(
@@ -697,9 +1155,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 'الحد الأقصى لأجهزة الراوتر',
                 isNotSubscribed ? '0 أجهزة (غير مشترك)' : '$maxRouters أجهزة',
                 Icons.router_outlined,
-                valueColor: isNotSubscribed ? const Color(0xFF94A3B8) : Colors.white,
+                valueColor: isNotSubscribed ? context.textSecondary : context.textPrimary,
               ),
-              const Divider(color: Color(0xFF334155), height: 16),
+              Divider(color: context.borderColor, height: 16),
               _buildInfoRow(
                 'الحد الأقصى للكروت بالدورة',
                 isNotSubscribed
@@ -707,17 +1165,17 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     : (isUnlimited ? 'غير محدود (Unlimited)' : '$limit كرت'),
                 Icons.all_inclusive_rounded,
                 valueColor: isNotSubscribed
-                    ? const Color(0xFF94A3B8)
-                    : (isUnlimited ? const Color(0xFF38BDF8) : Colors.white),
+                    ? context.textSecondary
+                    : (isUnlimited ? const Color(0xFF38BDF8) : context.textPrimary),
               ),
-              const Divider(color: Color(0xFF334155), height: 16),
+              Divider(color: context.borderColor, height: 16),
               _buildInfoRow(
                 'الكروت المستهلكة',
                 '$used كرت',
                 Icons.check_circle_outline,
-                valueColor: isNotSubscribed ? const Color(0xFF94A3B8) : const Color(0xFFFBBF24),
+                valueColor: isNotSubscribed ? context.textSecondary : const Color(0xFFFBBF24),
               ),
-              const Divider(color: Color(0xFF334155), height: 16),
+              Divider(color: context.borderColor, height: 16),
               _buildInfoRow(
                 'الرصيد المتبقي للتوليد',
                 isNotSubscribed
@@ -735,7 +1193,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                   child: LinearProgressIndicator(
                     value: usagePercent,
                     minHeight: 6,
-                    backgroundColor: const Color(0xFF334155),
+                    backgroundColor: context.isDarkMode ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
                     valueColor: AlwaysStoppedAnimation<Color>(
                       usagePercent > 0.9 ? const Color(0xFFEF4444) : const Color(0xFF0284C7),
                     ),
@@ -747,18 +1205,18 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                   children: [
                     Text(
                       'نسبة الاستهلاك: ${(usagePercent * 100).toStringAsFixed(1)}%',
-                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      style: TextStyle(color: context.textSecondary, fontSize: 11),
                     ),
                     if (cycleEnd != null)
                       Text(
                         'تجديد الحصة: ${cycleEnd.day}/${cycleEnd.month}/${cycleEnd.year}',
-                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                        style: TextStyle(color: context.textSecondary, fontSize: 11),
                       ),
                   ],
                 ),
               ],
               if (expiresAt != null) ...[
-                const Divider(color: Color(0xFF334155), height: 16),
+                Divider(color: context.borderColor, height: 16),
                 _buildInfoRow(
                   'تاريخ انتهاء الاشتراك',
                   '${expiresAt.day}/${expiresAt.month}/${expiresAt.year}',

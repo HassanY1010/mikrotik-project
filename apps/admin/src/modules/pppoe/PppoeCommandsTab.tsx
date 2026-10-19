@@ -664,8 +664,8 @@ export const PppoeCommandsTab: React.FC<PppoeCommandsTabProps> = ({
                   <div
                     style={{
                       padding: '1rem',
-                      backgroundColor: '#0F172A',
-                      color: '#E2E8F0',
+                      backgroundColor: 'var(--bg-app)',
+                      color: 'var(--text-primary)',
                       fontFamily: 'monospace',
                       fontSize: '0.8rem',
                       display: 'flex',
@@ -674,14 +674,15 @@ export const PppoeCommandsTab: React.FC<PppoeCommandsTabProps> = ({
                     }}
                   >
                     <div>
-                      <div style={{ color: '#94A3B8', marginBottom: '0.35rem' }}>// Payload المدخل:</div>
+                      <div style={{ color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>// Payload المدخل:</div>
                       <pre
                         style={{
                           margin: 0,
-                          backgroundColor: '#1E293B',
+                          backgroundColor: 'var(--bg-card-alt)',
                           padding: '0.75rem',
                           borderRadius: 'var(--radius-sm)',
-                          border: '1px solid #334155',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-primary)',
                           overflowX: 'auto',
                         }}
                       >
@@ -691,14 +692,15 @@ export const PppoeCommandsTab: React.FC<PppoeCommandsTabProps> = ({
 
                     {commandDetails.result && (
                       <div>
-                        <div style={{ color: '#34D399', marginBottom: '0.35rem' }}>// Result المخرجات من الراوتر:</div>
+                        <div style={{ color: 'var(--success)', marginBottom: '0.35rem' }}>// Result المخرجات من الراوتر:</div>
                         <pre
                           style={{
                             margin: 0,
-                            backgroundColor: '#1E293B',
+                            backgroundColor: 'var(--bg-card-alt)',
                             padding: '0.75rem',
                             borderRadius: 'var(--radius-sm)',
-                            border: '1px solid #334155',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-primary)',
                             overflowX: 'auto',
                           }}
                         >

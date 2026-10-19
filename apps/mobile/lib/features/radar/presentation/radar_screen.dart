@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 
 class RadarScreen extends ConsumerStatefulWidget {
   const RadarScreen({super.key});
@@ -45,16 +46,16 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
-          children: const [
-            Icon(Icons.wifi_off, color: Colors.redAccent, size: 24),
-            SizedBox(width: 8),
+          children: [
+            const Icon(Icons.wifi_off, color: Colors.redAccent, size: 24),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
                 'قطع اتصال المستخدم',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
           ],
@@ -71,9 +72,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
+                color: context.bgCardAlt,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF334155)),
+                border: Border.all(color: context.borderColor),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -149,9 +150,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
     final selectedRouterId = ref.watch(selectedRouterIdProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         title: Row(
           children: [
@@ -166,13 +167,13 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text(
                   'رادار جلسات Hotspot',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: context.textPrimary,
                   ),
                 ),
                 Text(
@@ -200,26 +201,26 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: context.textPrimary),
               decoration: InputDecoration(
                 hintText: 'بحث باسم المستخدم أو IP أو MAC...',
-                hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                hintStyle: TextStyle(color: context.textSecondary, fontSize: 13),
                 prefixIcon: const Icon(Icons.search, color: Color(0xFF38BDF8)),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
-                        icon: const Icon(Icons.clear, color: Color(0xFF94A3B8), size: 18),
+                        icon: Icon(Icons.clear, color: context.textSecondary, size: 18),
                         onPressed: () => setState(() => _searchQuery = ''),
                       )
                     : null,
                 filled: true,
-                fillColor: const Color(0xFF1E293B),
+                fillColor: context.bgCard,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF334155)),
+                  borderSide: BorderSide(color: context.borderColor),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF334155)),
+                  borderSide: BorderSide(color: context.borderColor),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -354,9 +355,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E293B),
-        border: Border(bottom: BorderSide(color: Color(0xFF334155))),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        border: Border(bottom: BorderSide(color: context.borderColor)),
       ),
       child: Row(
         children: [
@@ -385,9 +386,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
               Container(
                 width: 48,
                 height: 48,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Color(0xFF0F172A),
+                  color: context.bgCardAlt,
                 ),
                 child: const Icon(Icons.radar, color: Color(0xFF06B6D4), size: 26),
               ),
@@ -403,10 +404,10 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                   DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: currentRouter?.id,
-                      dropdownColor: const Color(0xFF1E293B),
+                      dropdownColor: context.bgCard,
                       isDense: true,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: context.textPrimary,
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
                       ),
@@ -469,9 +470,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.2),
@@ -530,7 +531,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
             ],
           ),
           const SizedBox(height: 10),
-          const Divider(color: Color(0xFF334155), height: 1),
+          Divider(color: context.borderColor, height: 1),
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

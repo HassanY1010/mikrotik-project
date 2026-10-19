@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/services/card_pdf_generator_service.dart';
+import '../../../core/theme/app_theme.dart';
 
 class CardsWalletScreen extends ConsumerStatefulWidget {
   const CardsWalletScreen({super.key});
@@ -89,7 +90,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: context.bgCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -101,7 +102,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -135,9 +136,9 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
+                color: context.bgCardAlt,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF334155)),
+                border: Border.all(color: context.borderColor),
               ),
               child: Column(
                 children: [
@@ -147,7 +148,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                       const Text('اسم المستخدم:', style: TextStyle(color: Colors.grey, fontSize: 13)),
                       SelectableText(
                         card.username,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary),
                       ),
                     ],
                   ),
@@ -207,7 +208,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: context.bgCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -348,9 +349,9 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                 controller: networkNameController,
                 decoration: InputDecoration(
                   labelText: 'اسم الشبكة المطبوع أعلى الكرت',
-                  labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                  labelStyle: TextStyle(color: context.textSecondary),
                   filled: true,
-                  fillColor: const Color(0xFF0F172A),
+                  fillColor: context.bgScaffold,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               ),
@@ -490,7 +491,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                       hintText: 'بحث بالرقم التسلسلي أو اسم المستخدم...',
                       prefixIcon: const Icon(Icons.search, size: 20),
                       filled: true,
-                      fillColor: const Color(0xFF1E293B),
+                      fillColor: context.bgCard,
                       suffixIcon: _searchQuery.isNotEmpty
                           ? IconButton(
                               icon: const Icon(Icons.clear, size: 18),
@@ -502,11 +503,11 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                           : null,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Color(0xFF334155)),
+                        borderSide: BorderSide(color: context.borderColor),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Color(0xFF334155)),
+                        borderSide: BorderSide(color: context.borderColor),
                       ),
                     ),
                     onChanged: (val) => setState(() => _searchQuery = val.trim()),
@@ -516,9 +517,9 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                   Container(
                     height: 44,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF101827),
+                      color: context.bgCardAlt,
                       borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: const Color(0xFF334155)),
+                      border: Border.all(color: context.borderColor),
                     ),
                     child: Row(
                       children: [
@@ -556,8 +557,8 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                           children: [
                             Container(
                               padding: const EdgeInsets.all(24),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF1E293B),
+                              decoration: BoxDecoration(
+                                color: context.bgCardAlt,
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.credit_card_off, size: 52, color: Colors.grey),
@@ -567,7 +568,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                               cards.isEmpty
                                   ? 'محفظتك خالية من الكروت المحجوزة'
                                   : 'لا توجد كروت مطابقة لمعايير البحث',
-                              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white70),
+                              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: context.textPrimary),
                             ),
                             const SizedBox(height: 8),
                             Text(
@@ -605,12 +606,12 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
 
                         return Container(
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1E293B),
+                            color: context.bgCard,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: isAvailable
                                   ? const Color(0xFF0D9488).withValues(alpha: 0.3)
-                                  : const Color(0xFF334155),
+                                  : context.borderColor,
                             ),
                           ),
                           child: ListTile(

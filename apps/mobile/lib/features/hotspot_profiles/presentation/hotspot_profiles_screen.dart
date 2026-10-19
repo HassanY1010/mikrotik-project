@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import 'create_hotspot_profile_screen.dart';
 import '../../../core/utils/validity_helper.dart';
 
@@ -35,9 +36,9 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
     final selectedRouter = await showDialog<RouterDeviceModel>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('اختر الراوتر لمزامنة الباقات', style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: Text('اختر الراوتر لمزامنة الباقات', style: TextStyle(color: context.textPrimary, fontSize: 16)),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.builder(
@@ -47,8 +48,8 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
               final r = routers[idx];
               return ListTile(
                 leading: Icon(Icons.router, color: r.isOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444)),
-                title: Text(r.name, style: const TextStyle(color: Colors.white)),
-                subtitle: Text(r.host, style: const TextStyle(color: Color(0xFF94A3B8))),
+                title: Text(r.name, style: TextStyle(color: context.textPrimary)),
+                subtitle: Text(r.host, style: TextStyle(color: context.textSecondary)),
                 onTap: () => Navigator.pop(ctx, r),
               );
             },
@@ -79,12 +80,12 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تأكيد حذف الباقة', style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: Text('تأكيد حذف الباقة', style: TextStyle(color: context.textPrimary, fontSize: 16)),
         content: Text(
           'هل أنت متأكد من حذف الباقة «${p.displayName ?? p.name}»؟ سيتم حذفها من المنظومة ومن راوتر ميكروتك.',
-          style: const TextStyle(color: Color(0xFF94A3B8)),
+          style: TextStyle(color: context.textSecondary),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8)))),
@@ -127,13 +128,13 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
     }).toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
-        title: const Text(
+        title: Text(
           'بروفايلات',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
         ),
         actions: [
           IconButton(
@@ -155,9 +156,9 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
           // Top Bar with Actions & Search
           Container(
             padding: const EdgeInsets.all(14),
-            decoration: const BoxDecoration(
-              color: Color(0xFF1E293B),
-              border: Border(bottom: BorderSide(color: Color(0xFF334155))),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              border: Border(bottom: BorderSide(color: context.borderColor)),
             ),
             child: Column(
               children: [
@@ -166,11 +167,11 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () async {
-                          final created = await Navigator.push<bool>(
+                          final created = await Navigator.push<dynamic>(
                             context,
                             MaterialPageRoute(builder: (_) => const CreateHotspotProfileScreen()),
                           );
-                          if (created == true) {
+                          if (created != null && created != false) {
                             ref.read(profilesProvider.notifier).fetchProfiles();
                           }
                         },
@@ -217,10 +218,10 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                           )
                         : null,
                     filled: true,
-                    fillColor: const Color(0xFF0F172A),
+                    fillColor: context.bgScaffold,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
                     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8))),
                   ),
                   onChanged: (v) => setState(() => _searchQuery = v.trim()),
@@ -256,9 +257,9 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 12),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
+                          color: context.bgCard,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFF334155)),
+                          border: Border.all(color: context.borderColor),
                         ),
                         child: Column(
                           children: [
@@ -321,6 +322,13 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                                           spacing: 6,
                                           runSpacing: 6,
                                           children: [
+                                            if (p.isUnlimited)
+                                              _buildBadge('🌐 باقة مفتوحة', const Color(0xFF10B981))
+                                            else
+                                              _buildBadge(
+                                                '📦 ${p.quotaGb != null ? (p.quotaGb! % 1 == 0 ? p.quotaGb!.toInt() : p.quotaGb!.toStringAsFixed(1)) : ''} GB',
+                                                const Color(0xFFEC4899),
+                                              ),
                                             if (p.rateLimit != null)
                                               _buildBadge('⚡ ${p.rateLimit}', const Color(0xFF38BDF8)),
                                             if (p.validity != null)
@@ -337,7 +345,7 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                               ),
                             ),
 
-                            const Divider(color: Color(0xFF334155), height: 1),
+                            Divider(color: context.borderColor, height: 1),
 
                             // Actions
                             Padding(
@@ -347,13 +355,13 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                                 children: [
                                   TextButton.icon(
                                     onPressed: () async {
-                                      final updated = await Navigator.push<bool>(
+                                      final updated = await Navigator.push<dynamic>(
                                         context,
                                         MaterialPageRoute(
                                           builder: (_) => CreateHotspotProfileScreen(editProfile: p),
                                         ),
                                       );
-                                      if (updated == true) {
+                                      if (updated != null && updated != false) {
                                         ref.read(profilesProvider.notifier).fetchProfiles();
                                       }
                                     },

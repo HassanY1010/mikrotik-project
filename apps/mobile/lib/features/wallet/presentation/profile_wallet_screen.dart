@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 
 class ProfileWalletScreen extends ConsumerStatefulWidget {
   const ProfileWalletScreen({super.key});
@@ -34,16 +35,16 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+        builder: (dialogCtx, setDialogState) => AlertDialog(
+          backgroundColor: context.bgCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
-            children: const [
-              Icon(Icons.add_card, color: Color(0xFF10B981), size: 24),
-              SizedBox(width: 8),
+            children: [
+              const Icon(Icons.add_card, color: Color(0xFF10B981), size: 24),
+              const SizedBox(width: 8),
               Text(
                 'شحن رصيد المحفظة السحابية',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -52,22 +53,22 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'المبلغ المراد شحنه (SDG):',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                  style: TextStyle(color: context.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _rechargeController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
                   decoration: InputDecoration(
                     hintText: 'مثال: 15000',
-                    hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                    hintStyle: TextStyle(color: context.textSecondary),
                     suffixText: 'SDG',
                     suffixStyle: const TextStyle(color: Color(0xFF10B981)),
                     filled: true,
-                    fillColor: const Color(0xFF0F172A),
+                    fillColor: context.bgScaffold,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
@@ -86,9 +87,9 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0F172A),
+                          color: context.bgCardAlt,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFF334155)),
+                          border: Border.all(color: context.borderColor),
                         ),
                         child: Text(
                           '+$preset',
@@ -99,19 +100,19 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
                   }).toList(),
                 ),
                 const SizedBox(height: 16),
-                const Text(
+                Text(
                   'البيان أو رقم السند / الإيصال:',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                  style: TextStyle(color: context.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _notesController,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: context.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'مثال: إيداع نقدي الخزينة / إيصال #102',
-                    hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                    hintStyle: TextStyle(color: context.textSecondary),
                     filled: true,
-                    fillColor: const Color(0xFF0F172A),
+                    fillColor: context.bgScaffold,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
@@ -192,15 +193,15 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
-          children: const [
-            Icon(Icons.stars, color: Color(0xFFFBBF24), size: 24),
-            SizedBox(width: 8),
+          children: [
+            const Icon(Icons.stars, color: Color(0xFFFBBF24), size: 24),
+            const SizedBox(width: 8),
             Text(
               'استبدال نقاط الولاء',
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -210,20 +211,20 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
           children: [
             Text(
               'النقاط المتوفرة: $currentPoints نقطة (كل 1000 نقطة = 1000 SDG رصيد مجاني)',
-              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+              style: TextStyle(color: context.textSecondary, fontSize: 12),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _redeemPointsController,
               keyboardType: TextInputType.number,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
               decoration: InputDecoration(
                 labelText: 'عدد النقاط المراد استبدالها',
-                labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                labelStyle: TextStyle(color: context.textSecondary),
                 suffixText: 'نقطة',
                 suffixStyle: const TextStyle(color: Color(0xFFFBBF24)),
                 filled: true,
-                fillColor: const Color(0xFF0F172A),
+                fillColor: context.bgScaffold,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
@@ -295,9 +296,9 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
     final walletAsync = ref.watch(walletProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         title: Row(
           children: [
@@ -312,13 +313,13 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text(
                   'محفظة السحاب ونقاط الولاء',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: context.textPrimary,
                   ),
                 ),
                 Text(
@@ -367,7 +368,7 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
     return RefreshIndicator(
       onRefresh: () => ref.read(walletProvider.notifier).refresh(),
       color: const Color(0xFFEC4899),
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: context.bgCard,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
@@ -449,7 +450,7 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
+                color: context.bgCard,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
               ),
@@ -470,11 +471,11 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('نقاط الولاء والمكافآت', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                            Text('نقاط الولاء والمكافآت', style: TextStyle(color: context.textSecondary, fontSize: 12)),
                             const SizedBox(height: 4),
                             Text(
                               '${wallet.loyaltyPoints} نقطة مجمعة',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
                             ),
                             const SizedBox(height: 2),
                             const Text('تكسب نقطة لكل 100 SDG مبيعات. كل 1000 نقطة = 1000 SDG رصيد محفظة', style: TextStyle(color: Color(0xFF64748B), fontSize: 10)),
@@ -485,7 +486,7 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
                   ),
                   if (wallet.loyaltyPoints >= 1000) ...[
                     const SizedBox(height: 12),
-                    const Divider(color: Color(0xFF334155), height: 1),
+                    Divider(color: context.borderColor, height: 1),
                     const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
@@ -511,9 +512,9 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
+                color: context.bgCard,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFF334155)),
+                border: Border.all(color: context.borderColor),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -521,10 +522,10 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text('سماح بكروت الإدارة والتغذية التلقائية', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                        SizedBox(height: 2),
-                        Text('توليد كروت مباشرة بالخصم من رصيد المحفظة السحابية', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                      children: [
+                        Text('سماح بكروت الإدارة والتغذية التلقائية', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(height: 2),
+                        Text('توليد كروت مباشرة بالخصم من رصيد المحفظة السحابية', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                       ],
                     ),
                   ),
@@ -589,23 +590,23 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: context.bgCard,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF334155)),
+          border: Border.all(color: context.borderColor),
         ),
         child: Column(
-          children: const [
-            Icon(Icons.history_toggle_off, color: Color(0xFF64748B), size: 44),
-            SizedBox(height: 10),
+          children: [
+            const Icon(Icons.history_toggle_off, color: Color(0xFF64748B), size: 44),
+            const SizedBox(height: 10),
             Text(
               'لا توجد حركات محفظة مسجلة حتى الآن',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
               'سيتم تسجيل عمليات الشحن، استبدال النقاط، واستهلاك الكروت هنا تلقائياً',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+              style: TextStyle(color: context.textSecondary, fontSize: 11),
             ),
           ],
         ),
@@ -642,9 +643,9 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E293B),
+            color: context.bgCard,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF334155)),
+            border: Border.all(color: context.borderColor),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -663,7 +664,7 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
                         children: [
                           Text(
                             displayTitle,
-                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 2),

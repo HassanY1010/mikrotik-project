@@ -515,10 +515,10 @@ export const HotspotPortalDesignerView: React.FC = () => {
         {/* Left Column: Visual Customizer */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* Preset Themes Card */}
-          <div style={{ background: '#1E293B', borderRadius: '16px', padding: '1.25rem', border: '1px solid #334155' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '1.25rem', border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
               <Sparkles className="text-amber-400" size={18} />
-              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#FFFFFF', margin: 0 }}>القوالب الجاهزة (Design Presets)</h2>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>القوالب الجاهزة (Design Presets)</h2>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
               {Object.entries(PRESET_STYLES).map(([key, item]) => {
@@ -530,14 +530,14 @@ export const HotspotPortalDesignerView: React.FC = () => {
                     onClick={() => applyPreset(key as any)}
                     style={{
                       padding: '0.875rem',
-                      background: isSelected ? 'rgba(14, 165, 233, 0.12)' : '#0F172A',
-                      border: `1.5px solid ${isSelected ? '#0EA5E9' : '#334155'}`,
+                      background: isSelected ? 'rgba(14, 165, 233, 0.12)' : 'var(--bg-card-alt)',
+                      border: `1.5px solid ${isSelected ? '#0EA5E9' : 'var(--border)'}`,
                       borderRadius: '12px',
                       cursor: 'pointer',
                       textAlign: 'right',
                     }}
                   >
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: isSelected ? '#38BDF8' : '#F8FAFC', marginBottom: '0.35rem' }}>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: isSelected ? '#38BDF8' : 'var(--text-primary)', marginBottom: '0.35rem' }}>
                       {item.label}
                     </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
@@ -552,78 +552,78 @@ export const HotspotPortalDesignerView: React.FC = () => {
           </div>
 
           {/* Branding & Texts Card */}
-          <div style={{ background: '#1E293B', borderRadius: '16px', padding: '1.25rem', border: '1px solid #334155' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '1.25rem', border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
               <Layers className="text-sky-400" size={18} />
-              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#FFFFFF', margin: 0 }}>الهوية والنصوص (Branding)</h2>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>الهوية والنصوص (Branding)</h2>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>اسم القالب</label>
+                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>اسم القالب</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: '#0F172A', border: '1px solid #334155', borderRadius: '8px', color: '#FFFFFF' }}
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
                 />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>اسم الشبكة</label>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>اسم الشبكة</label>
                   <input
                     type="text"
                     value={networkName}
                     onChange={(e) => setNetworkName(e.target.value)}
-                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: '#0F172A', border: '1px solid #334155', borderRadius: '8px', color: '#FFFFFF' }}
+                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>عنوان الترحيب</label>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>عنوان الترحيب</label>
                   <input
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: '#0F172A', border: '1px solid #334155', borderRadius: '8px', color: '#FFFFFF' }}
+                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
                   />
                 </div>
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>النص التوضيحي</label>
+                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>النص التوضيحي</label>
                 <input
                   type="text"
                   value={subtitle}
                   onChange={(e) => setSubtitle(e.target.value)}
-                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: '#0F172A', border: '1px solid #334155', borderRadius: '8px', color: '#FFFFFF' }}
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
                 />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>رابط الشعار (Logo URL)</label>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>رابط الشعار (Logo URL)</label>
                   <input
                     type="text"
                     value={logoUrl}
                     onChange={(e) => setLogoUrl(e.target.value)}
                     placeholder="https://example.com/logo.png"
-                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: '#0F172A', border: '1px solid #334155', borderRadius: '8px', color: '#FFFFFF' }}
+                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>هاتف الدعم الفني</label>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>هاتف الدعم الفني</label>
                   <input
                     type="text"
                     value={contactPhone}
                     onChange={(e) => setContactPhone(e.target.value)}
-                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: '#0F172A', border: '1px solid #334155', borderRadius: '8px', color: '#FFFFFF' }}
+                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
                   />
                 </div>
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>طريقة تسجيل الدخول</label>
+                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>طريقة تسجيل الدخول</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
                   {[
                     { id: 'VOUCHER', label: 'كروت فقط' },
@@ -636,10 +636,10 @@ export const HotspotPortalDesignerView: React.FC = () => {
                       onClick={() => setLoginMethod(m.id as any)}
                       style={{
                         padding: '0.5rem',
-                        background: loginMethod === m.id ? 'rgba(14, 165, 233, 0.2)' : '#0F172A',
-                        border: `1px solid ${loginMethod === m.id ? '#0EA5E9' : '#334155'}`,
+                        background: loginMethod === m.id ? 'rgba(14, 165, 233, 0.2)' : 'var(--bg-card-alt)',
+                        border: `1px solid ${loginMethod === m.id ? '#0EA5E9' : 'var(--border)'}`,
                         borderRadius: '8px',
-                        color: loginMethod === m.id ? '#38BDF8' : '#94A3B8',
+                        color: loginMethod === m.id ? '#38BDF8' : 'var(--text-secondary)',
                         fontSize: '0.8125rem',
                         fontWeight: 600,
                         cursor: 'pointer',
@@ -654,42 +654,42 @@ export const HotspotPortalDesignerView: React.FC = () => {
           </div>
 
           {/* Color Palette Card */}
-          <div style={{ background: '#1E293B', borderRadius: '16px', padding: '1.25rem', border: '1px solid #334155' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '1.25rem', border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
               <Palette className="text-emerald-400" size={18} />
-              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#FFFFFF', margin: 0 }}>لوحة الألوان (Colors)</h2>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>لوحة الألوان (Colors)</h2>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.875rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>اللون الأساسي (Primary)</label>
+                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>اللون الأساسي (Primary)</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} style={{ width: 36, height: 36, borderRadius: 6, border: 'none', cursor: 'pointer' }} />
-                  <input type="text" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} style={{ flex: 1, padding: '0.5rem', background: '#0F172A', border: '1px solid #334155', borderRadius: 6, color: '#FFFFFF' }} />
+                  <input type="text" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} style={{ flex: 1, padding: '0.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)' }} />
                 </div>
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>لون الزر والتمييز (Accent)</label>
+                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>لون الزر والتمييز (Accent)</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} style={{ width: 36, height: 36, borderRadius: 6, border: 'none', cursor: 'pointer' }} />
-                  <input type="text" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} style={{ flex: 1, padding: '0.5rem', background: '#0F172A', border: '1px solid #334155', borderRadius: 6, color: '#FFFFFF' }} />
+                  <input type="text" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} style={{ flex: 1, padding: '0.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)' }} />
                 </div>
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>خلفية الصفحة (Background)</label>
+                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>خلفية الصفحة (Background)</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input type="color" value={backgroundColor} onChange={(e) => setBackgroundColor(e.target.value)} style={{ width: 36, height: 36, borderRadius: 6, border: 'none', cursor: 'pointer' }} />
-                  <input type="text" value={backgroundColor} onChange={(e) => setBackgroundColor(e.target.value)} style={{ flex: 1, padding: '0.5rem', background: '#0F172A', border: '1px solid #334155', borderRadius: 6, color: '#FFFFFF' }} />
+                  <input type="text" value={backgroundColor} onChange={(e) => setBackgroundColor(e.target.value)} style={{ flex: 1, padding: '0.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)' }} />
                 </div>
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>لون بطاقة الدخول (Card)</label>
+                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>لون بطاقة الدخول (Card)</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input type="color" value={cardColor} onChange={(e) => setCardColor(e.target.value)} style={{ width: 36, height: 36, borderRadius: 6, border: 'none', cursor: 'pointer' }} />
-                  <input type="text" value={cardColor} onChange={(e) => setCardColor(e.target.value)} style={{ flex: 1, padding: '0.5rem', background: '#0F172A', border: '1px solid #334155', borderRadius: 6, color: '#FFFFFF' }} />
+                  <input type="text" value={cardColor} onChange={(e) => setCardColor(e.target.value)} style={{ flex: 1, padding: '0.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)' }} />
                 </div>
               </div>
             </div>
@@ -697,15 +697,15 @@ export const HotspotPortalDesignerView: React.FC = () => {
         </div>
 
         {/* Right Column: Live Interactive Device Preview */}
-        <div style={{ position: 'sticky', top: '1.5rem', background: '#1E293B', borderRadius: '16px', padding: '1.25rem', border: '1px solid #334155', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ position: 'sticky', top: '1.5rem', background: 'var(--bg-card)', borderRadius: '16px', padding: '1.25rem', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Globe className="text-sky-400" size={18} />
-              <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: '#FFFFFF' }}>معاينة حية فورية</span>
+              <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>معاينة حية فورية</span>
             </div>
 
             {/* Viewport switcher */}
-            <div style={{ display: 'flex', background: '#0F172A', padding: '3px', borderRadius: '8px', border: '1px solid #334155' }}>
+            <div style={{ display: 'flex', background: 'var(--bg-input)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border)' }}>
               <button
                 type="button"
                 onClick={() => setViewport('mobile')}
@@ -714,10 +714,10 @@ export const HotspotPortalDesignerView: React.FC = () => {
                   alignItems: 'center',
                   gap: '4px',
                   padding: '4px 10px',
-                  background: viewport === 'mobile' ? '#334155' : 'transparent',
+                  background: viewport === 'mobile' ? 'var(--primary)' : 'transparent',
                   border: 'none',
                   borderRadius: '6px',
-                  color: viewport === 'mobile' ? '#FFFFFF' : '#94A3B8',
+                  color: viewport === 'mobile' ? '#FFFFFF' : 'var(--text-secondary)',
                   fontSize: '0.75rem',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -782,15 +782,15 @@ export const HotspotPortalDesignerView: React.FC = () => {
 
       {/* Publish to Router Modal */}
       {publishModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.75)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div style={{ background: '#1E293B', borderRadius: '20px', border: '1px solid #334155', width: '100%', maxWidth: '520px', padding: '1.75rem' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.65)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem', backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '20px', border: '1px solid var(--border)', width: '100%', maxWidth: '520px', padding: '1.75rem', boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
               <div style={{ padding: '0.625rem', background: 'rgba(16, 185, 129, 0.15)', borderRadius: '12px' }}>
                 <UploadCloud className="text-emerald-400" size={24} />
               </div>
               <div>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: '#FFFFFF', margin: 0 }}>نشر التصميم إلى راوتر MikroTik</h3>
-                <p style={{ fontSize: '0.8125rem', color: '#94A3B8', margin: 0 }}>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>نشر التصميم إلى راوتر MikroTik</h3>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', margin: 0 }}>
                   رفع ملفات HTML و CSS مباشرة إلى ذاكرة الراوتر عبر Windows LAN Agent
                 </p>
               </div>
@@ -798,11 +798,11 @@ export const HotspotPortalDesignerView: React.FC = () => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>اختر جهاز الراوتر المستهدف</label>
+                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>اختر جهاز الراوتر المستهدف</label>
                 <select
                   value={selectedDeviceId}
                   onChange={(e) => setSelectedDeviceId(e.target.value)}
-                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: '#0F172A', border: '1px solid #334155', borderRadius: '8px', color: '#FFFFFF' }}
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
                 >
                   {devices.map((d) => (
                     <option key={d.id} value={d.id}>
@@ -814,32 +814,32 @@ export const HotspotPortalDesignerView: React.FC = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>مجلد الراوتر (html-directory)</label>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>مجلد الراوتر (html-directory)</label>
                   <input
                     type="text"
                     value={targetDirectory}
                     onChange={(e) => setTargetDirectory(e.target.value)}
                     placeholder="hotspot"
-                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: '#0F172A', border: '1px solid #334155', borderRadius: '8px', color: '#FFFFFF' }}
+                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8125rem', color: '#94A3B8', marginBottom: '0.375rem' }}>بروفايل الهوتسبوت المستهدف</label>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>بروفايل الهوتسبوت المستهدف</label>
                   <input
                     type="text"
                     value={applyToProfile}
                     onChange={(e) => setApplyToProfile(e.target.value)}
                     placeholder="hsprof1"
-                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: '#0F172A', border: '1px solid #334155', borderRadius: '8px', color: '#FFFFFF' }}
+                    style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
                   />
                 </div>
               </div>
 
               {/* Command status monitor card */}
               {commandStatus && (
-                <div style={{ padding: '1rem', background: '#0F172A', borderRadius: '12px', border: '1px solid #334155' }}>
+                <div style={{ padding: '1rem', background: 'var(--bg-card-alt)', borderRadius: '12px', border: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.8125rem', color: '#94A3B8' }}>حالة أمر النشر في الوكيل:</span>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>حالة أمر النشر في الوكيل:</span>
                     <span
                       style={{
                         padding: '2px 8px',
@@ -854,17 +854,17 @@ export const HotspotPortalDesignerView: React.FC = () => {
                             : 'rgba(245, 158, 11, 0.2)',
                         color:
                           commandStatus.status === 'COMPLETED'
-                            ? '#34D399'
+                            ? 'var(--success)'
                             : commandStatus.status === 'FAILED'
-                            ? '#F87171'
-                            : '#FBBF24',
+                            ? 'var(--danger)'
+                            : 'var(--warning)',
                       }}
                     >
                       {commandStatus.status}
                     </span>
                   </div>
                   {commandStatus.errorMessage && (
-                    <div style={{ fontSize: '0.75rem', color: '#F87171', marginTop: '0.25rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.25rem' }}>
                       {commandStatus.errorMessage}
                     </div>
                   )}
@@ -877,7 +877,7 @@ export const HotspotPortalDesignerView: React.FC = () => {
                 type="button"
                 onClick={() => setPublishModalOpen(false)}
                 disabled={isPublishing}
-                style={{ padding: '0.625rem 1.25rem', background: '#334155', color: '#FFFFFF', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                style={{ padding: '0.625rem 1.25rem', background: 'var(--bg-card-alt)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer' }}
               >
                 إلغاء
               </button>

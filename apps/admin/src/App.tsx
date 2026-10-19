@@ -2,6 +2,7 @@ import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './core/context/AuthContext';
 import { ToastProvider } from './core/context/ToastContext';
 import { SubscriptionProvider } from './core/context/SubscriptionContext';
+import { ThemeProvider } from './core/context/ThemeContext';
 import { SubscriptionAlertBanner } from './components/common/SubscriptionAlertBanner';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar, NavigationTab } from './components/layout/Sidebar';
@@ -268,13 +269,15 @@ const AdminLayout: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <SubscriptionProvider>
-        <ToastProvider>
-          <AdminLayout />
-        </ToastProvider>
-      </SubscriptionProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <SubscriptionProvider>
+          <ToastProvider>
+            <AdminLayout />
+          </ToastProvider>
+        </SubscriptionProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 };
 

@@ -53,3 +53,37 @@ export function formatValidityArabic(val?: string | null): string {
       return val;
   }
 }
+
+export interface ParsedValidity {
+  amount: number;
+  unit: 'm' | 'h' | 'd';
+}
+
+/**
+ * Parses validity duration string into number amount and unit ('m', 'h', 'd').
+ * Supports fallback to 1d and handles legacy week 'w' values (converting 1w -> 7d).
+ */
+export function parseValidityParts(val?: string | null): ParsedValidity {
+  if (!val || typeof val !== 'string') {
+    return { amount: 1, unit: 'd' };
+  }
+  const trimmed = val.trim().toLowerCase();
+
+  // Legacy week support (e.g. '1w' -> 7d)
+  const legacyWeek = trimmed.match(/^([1-9]\d*)w$/);
+  if (legacyWeek) {
+    const weeks = parseInt(legacyWeek[1], 10);
+    return { amount: weeks * 7, unit: 'd' };
+  }
+
+  const match = trimmed.match(VALIDITY_REGEX);
+  if (!match) {
+    return { amount: 1, unit: 'd' };
+  }
+
+  return {
+    amount: parseInt(match[1], 10),
+    unit: match[2] as 'm' | 'h' | 'd',
+  };
+}
+

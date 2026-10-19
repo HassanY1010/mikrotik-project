@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 
 class HotspotPortalDesignerScreen extends ConsumerStatefulWidget {
   const HotspotPortalDesignerScreen({super.key});
@@ -230,17 +231,17 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF0F172A),
+        backgroundColor: ctx.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         contentPadding: const EdgeInsets.all(16),
         title: Row(
           children: [
             const Icon(Icons.preview_rounded, color: Color(0xFF38BDF8), size: 22),
             const SizedBox(width: 8),
-            const Text('معاينة حية لصفحة الدخول', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('معاينة حية لصفحة الدخول', style: TextStyle(color: ctx.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
             const Spacer(),
             IconButton(
-              icon: const Icon(Icons.close, color: Color(0xFF94A3B8)),
+              icon: Icon(Icons.close, color: ctx.textSecondary),
               onPressed: () => Navigator.pop(ctx),
             ),
           ],
@@ -551,13 +552,16 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
           }
 
           return AlertDialog(
-            backgroundColor: const Color(0xFF1E293B),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(
+            backgroundColor: context.bgCard,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: context.borderColor),
+            ),
+            title: Row(
               children: [
-                Icon(Icons.router_rounded, color: Color(0xFF0EA5E9)),
-                SizedBox(width: 8),
-                Text('نشر التصميم إلى راوتر ميكروتك', style: TextStyle(color: Colors.white, fontSize: 16)),
+                const Icon(Icons.router_rounded, color: Color(0xFF0EA5E9)),
+                const SizedBox(width: 8),
+                Text('نشر التصميم إلى راوتر ميكروتك', style: TextStyle(color: context.textPrimary, fontSize: 16)),
               ],
             ),
             content: SizedBox(
@@ -567,16 +571,23 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('اختر الراوتر المستهدف:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                    Text('اختر الراوتر المستهدف:', style: TextStyle(color: context.textSecondary, fontSize: 12)),
                     const SizedBox(height: 6),
                     DropdownButtonFormField<String>(
                       value: selectedDeviceId,
-                      dropdownColor: const Color(0xFF0F172A),
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      dropdownColor: context.bgCard,
+                      style: TextStyle(color: context.textPrimary, fontSize: 13),
                       decoration: InputDecoration(
                         filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                        fillColor: context.bgScaffold,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
                       items: routers.map((r) {
@@ -593,31 +604,47 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                     ),
                     const SizedBox(height: 12),
 
-                    const Text('مجلد الراوتر (html-directory):', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                    Text('مجلد الراوتر (html-directory):', style: TextStyle(color: context.textSecondary, fontSize: 12)),
                     const SizedBox(height: 6),
                     TextField(
                       controller: dirController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: TextStyle(color: context.textPrimary, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: 'hotspot',
+                        hintStyle: TextStyle(color: context.textSecondary, fontSize: 12),
                         filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                        fillColor: context.bgScaffold,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
                     ),
                     const SizedBox(height: 12),
 
-                    const Text('بروفايل الهوتسبوت لتطبيق الصفحة عليه:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                    Text('بروفايل الهوتسبوت لتطبيق الصفحة عليه:', style: TextStyle(color: context.textSecondary, fontSize: 12)),
                     const SizedBox(height: 6),
                     TextField(
                       controller: profileController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: TextStyle(color: context.textPrimary, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: 'hsprof1',
+                        hintStyle: TextStyle(color: context.textSecondary, fontSize: 12),
                         filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                        fillColor: context.bgScaffold,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
                     ),
@@ -627,7 +654,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0F172A),
+                        color: context.bgCardAlt,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: getStatusColor().withOpacity(0.3)),
                       ),
@@ -652,7 +679,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                           ),
                           if (currentCommandId != null) ...[
                             const SizedBox(height: 4),
-                            Text('معرف الأمر: $currentCommandId', style: const TextStyle(color: Color(0xFF64748B), fontSize: 10)),
+                            Text('معرف الأمر: $currentCommandId', style: TextStyle(color: context.textSecondary, fontSize: 10)),
                           ],
                           if (commandError != null) ...[
                             const SizedBox(height: 6),
@@ -671,7 +698,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                   stopPolling();
                   Navigator.pop(ctx);
                 },
-                child: const Text('إغلاق', style: TextStyle(color: Color(0xFF94A3B8))),
+                child: Text('إغلاق', style: TextStyle(color: context.textSecondary)),
               ),
               ElevatedButton.icon(
                 onPressed: (commandStatus == 'DISPATCHING' || commandStatus == 'DISPATCHED' || commandStatus == 'PENDING')
@@ -695,11 +722,11 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
-        title: const Text('مصمم صفحات HotSpot', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        title: Text('مصمم صفحات HotSpot', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 17)),
         actions: [
           IconButton(
             icon: const Icon(Icons.remove_red_eye_outlined),
@@ -749,7 +776,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                           icon: const Icon(Icons.send_rounded, size: 14),
                           label: const Text('نشر للراوتر'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF0F172A),
+                            backgroundColor: context.isDarkMode ? const Color(0xFF0F172A) : const Color(0xFF0284C7),
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -773,9 +800,9 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                         selected: isSelected,
                         onSelected: (_) => _applyPreset(e.key),
                         selectedColor: const Color(0xFF0EA5E9),
-                        backgroundColor: const Color(0xFF1E293B),
+                        backgroundColor: context.bgCard,
                         labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                          color: isSelected ? Colors.white : context.textSecondary,
                           fontSize: 12,
                           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                         ),
@@ -820,15 +847,16 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
+                      color: context.bgCard,
                       borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: context.borderColor),
                     ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         value: _loginMethod,
                         isExpanded: true,
-                        dropdownColor: const Color(0xFF0F172A),
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        dropdownColor: context.bgCard,
+                        style: TextStyle(color: context.textPrimary, fontSize: 13),
                         items: const [
                           DropdownMenuItem(
                             value: 'VOUCHER_CODE',
@@ -900,8 +928,8 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
   Widget _buildSectionTitle(String title) {
     return Text(
       title,
-      style: const TextStyle(
-        color: Color(0xFF94A3B8),
+      style: TextStyle(
+        color: context.textSecondary,
         fontSize: 13,
         fontWeight: FontWeight.bold,
       ),
@@ -914,18 +942,29 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12)),
+          Text(label, style: TextStyle(color: context.textPrimary, fontSize: 12)),
           const SizedBox(height: 4),
           TextField(
             controller: controller,
             maxLines: maxLines,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
+            style: TextStyle(color: context.textPrimary, fontSize: 13),
             decoration: InputDecoration(
               hintText: placeholder,
-              hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 13),
+              hintStyle: TextStyle(color: context.textSecondary, fontSize: 13),
               filled: true,
-              fillColor: const Color(0xFF1E293B),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              fillColor: context.bgCard,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: context.borderColor),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: context.borderColor),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFF0EA5E9)),
+              ),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             ),
           ),

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Mail, ArrowRight, ArrowLeft, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Mail, ArrowRight, ArrowLeft, AlertCircle, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
+import { useTheme } from '../../core/context/ThemeContext';
 
 interface ForgotPasswordViewProps {
   onBackToLogin: () => void;
@@ -15,6 +16,7 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
   initialEmail = '',
 }) => {
   const { showToast } = useToast();
+  const { isDark, toggleTheme } = useTheme();
   const [email, setEmail] = useState(initialEmail);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,9 +59,24 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         padding: '1.5rem',
-        background: 'radial-gradient(ellipse at top, #1e293b 0%, #0b1120 100%)',
+        background: 'var(--bg-auth-gradient)',
+        position: 'relative',
       }}
     >
+      <div style={{ position: 'absolute', top: '1.5rem', left: '1.5rem' }}>
+        <button
+          className="btn btn-outline btn-icon"
+          onClick={toggleTheme}
+          title={isDark ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'}
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            borderColor: 'var(--border)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          {isDark ? <Sun size={18} color="var(--accent)" /> : <Moon size={18} color="var(--primary)" />}
+        </button>
+      </div>
       <div
         className="card card-glass"
         style={{

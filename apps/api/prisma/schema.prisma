@@ -394,6 +394,7 @@ model HotspotProfile {
   keepaliveTimeout String?
   sharedUsers      Int      @default(1)
   addressPool      String?
+  dataLimitBytes   BigInt?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

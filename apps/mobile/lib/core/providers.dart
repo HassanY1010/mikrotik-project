@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'models/models.dart';
@@ -5,15 +6,60 @@ import 'network/api_client.dart';
 import 'storage/local_storage.dart';
 import 'sync/offline_sync_manager.dart';
 import 'constants/api_endpoints.dart';
+import 'services/backup_downloader.dart';
 
 // Initialized at main startup
 final localStorageProvider = Provider<LocalStorage>((ref) {
   throw UnimplementedError();
 });
 
+// App Theme Mode Notifier (supports 'dark', 'light', 'system', defaults to 'dark')
+class ThemeModeNotifier extends Notifier<ThemeMode> {
+  @override
+  ThemeMode build() {
+    final storage = ref.watch(localStorageProvider);
+    final saved = storage.getThemeMode();
+    switch (saved) {
+      case 'light':
+        return ThemeMode.light;
+      case 'system':
+        return ThemeMode.system;
+      case 'dark':
+      default:
+        return ThemeMode.dark;
+    }
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    state = mode;
+    final storage = ref.read(localStorageProvider);
+    final str = mode == ThemeMode.light
+        ? 'light'
+        : mode == ThemeMode.system
+            ? 'system'
+            : 'dark';
+    await storage.setThemeMode(str);
+  }
+
+  Future<void> toggleTheme() async {
+    if (state == ThemeMode.light) {
+      await setThemeMode(ThemeMode.dark);
+    } else {
+      await setThemeMode(ThemeMode.light);
+    }
+  }
+}
+
+final themeModeProvider = NotifierProvider<ThemeModeNotifier, ThemeMode>(ThemeModeNotifier.new);
+
 final apiClientProvider = Provider<ApiClient>((ref) {
   final storage = ref.watch(localStorageProvider);
-  return ApiClient(localStorage: storage);
+  return ApiClient(
+    localStorage: storage,
+    onSessionExpired: () {
+      ref.read(currentUserProvider.notifier).setUser(null);
+    },
+  );
 });
 
 final syncManagerProvider = Provider<OfflineSyncManager>((ref) {
@@ -82,6 +128,41 @@ class CurrentUserNotifier extends Notifier<AuthUser?> {
       return {
         'success': false,
         'message': 'تعذر الاتصال بالخادم لتغيير كلمة المرور',
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteAccount({
+    required String password,
+    String? reason,
+    bool? confirmDeleteOrganization,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.delete(
+        ApiEndpoints.deleteAccount,
+        data: {
+          'password': password,
+          if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+          if (confirmDeleteOrganization == true) 'confirmDeleteOrganization': true,
+        },
+      );
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) {
+        return raw;
+      }
+      return {'success': true, 'message': 'تم حذف الحساب بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل حذف الحساب',
+        };
+      }
+      return {
+        'success': false,
+        'message': 'تعذر الاتصال بالخادم لحذف الحساب',
       };
     }
   }
@@ -247,6 +328,7 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     String? validity,
     double? price,
     int? sharedUsers,
+    double? dataLimitGb,
   }) async {
     final apiClient = ref.read(apiClientProvider);
     try {
@@ -261,6 +343,7 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
           if (validity != null && validity.isNotEmpty) 'validity': validity.trim(),
           if (price != null) 'price': price,
           if (sharedUsers != null) 'sharedUsers': sharedUsers,
+          'dataLimitGb': dataLimitGb,
         },
       );
       await fetchProfiles();
@@ -293,6 +376,8 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     String? validity,
     double? price,
     int? sharedUsers,
+    double? dataLimitGb,
+    bool updateDataLimit = false,
   }) async {
     final apiClient = ref.read(apiClientProvider);
     try {
@@ -306,6 +391,7 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
           if (validity != null) 'validity': validity.trim(),
           if (price != null) 'price': price,
           if (sharedUsers != null) 'sharedUsers': sharedUsers,
+          if (updateDataLimit) 'dataLimitGb': dataLimitGb,
         },
       );
       await fetchProfiles();
@@ -372,8 +458,16 @@ final profilesProvider = NotifierProvider<CachedProfilesNotifier, List<HotspotPr
 // Selected Router ID state notifier
 class SelectedRouterNotifier extends Notifier<String?> {
   @override
-  String? build() => null;
-  void select(String? id) => state = id;
+  String? build() {
+    final storage = ref.watch(localStorageProvider);
+    return storage.getSelectedRouterId();
+  }
+
+  void select(String? id) {
+    state = id;
+    final storage = ref.read(localStorageProvider);
+    storage.setSelectedRouterId(id);
+  }
 }
 
 final selectedRouterIdProvider = NotifierProvider<SelectedRouterNotifier, String?>(
@@ -382,6 +476,9 @@ final selectedRouterIdProvider = NotifierProvider<SelectedRouterNotifier, String
 
 // Routers List AsyncNotifier
 class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
+  bool _isUsingCachedData = false;
+  bool get isUsingCachedData => _isUsingCachedData;
+
   @override
   Future<List<RouterDeviceModel>> build() async {
     return _fetch();
@@ -389,24 +486,59 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
 
   Future<List<RouterDeviceModel>> _fetch() async {
     final apiClient = ref.read(apiClientProvider);
+    final storage = ref.read(localStorageProvider);
+    final cached = storage.getCachedRouters();
+
     try {
       final res = await apiClient.get(ApiEndpoints.devices);
       final raw = res.data;
       final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
       if (list is List) {
         final devices = list.map((d) => RouterDeviceModel.fromJson(d as Map<String, dynamic>)).toList();
-        if (devices.isNotEmpty && ref.read(selectedRouterIdProvider) == null) {
-          ref.read(selectedRouterIdProvider.notifier).select(devices.first.id);
+        await storage.saveCachedRouters(devices);
+        _isUsingCachedData = false;
+
+        // Reconcile active router selection
+        final currentSelectedId = ref.read(selectedRouterIdProvider);
+        if (devices.isNotEmpty) {
+          final hasMatch = currentSelectedId != null && devices.any((d) => d.id == currentSelectedId);
+          if (!hasMatch) {
+            ref.read(selectedRouterIdProvider.notifier).select(devices.first.id);
+          }
+        } else if (devices.isEmpty && currentSelectedId != null) {
+          ref.read(selectedRouterIdProvider.notifier).select(null);
         }
+
         return devices;
       }
-    } catch (_) {}
-    return [];
+    } catch (e) {
+      // If it's a 401/403 Unauthorized, rethrow so session/auth handler processes it
+      if (e is DioException && (e.response?.statusCode == 401 || e.response?.statusCode == 403)) {
+        rethrow;
+      }
+      // If network or server error occurs, fallback to cached routers if present
+      if (cached.isNotEmpty) {
+        _isUsingCachedData = true;
+        return cached;
+      }
+      rethrow;
+    }
+    _isUsingCachedData = false;
+    return cached;
   }
 
   Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch());
+    try {
+      final fresh = await _fetch();
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      // If we already hold routers, preserve them non-destructively
+      if (state.hasValue && state.value!.isNotEmpty) {
+        // preserve current state without wiping out
+      } else {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 
   Future<Map<String, dynamic>> testConnectionDirect(Map<String, dynamic> data) async {
@@ -529,6 +661,133 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
       }
       return {'success': false, 'message': msg};
     }
+  }
+
+  Future<Map<String, dynamic>> createBackup(
+    String deviceId, {
+    String? backupName,
+    String? password,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final payload = <String, dynamic>{};
+      if (backupName != null && backupName.trim().isNotEmpty) {
+        payload['name'] = backupName.trim();
+      }
+      if (password != null && password.trim().isNotEmpty) {
+        payload['password'] = password.trim();
+      }
+
+      final res = await apiClient.post(
+        ApiEndpoints.deviceBackup(deviceId),
+        data: payload,
+      );
+
+      final data = res.data;
+      final isSuccess = (data is Map && data['success'] == true) ||
+          res.statusCode == 200 ||
+          res.statusCode == 201;
+      final msg = (data is Map && data['message'] != null)
+          ? data['message'].toString()
+          : (isSuccess ? 'تم إنشاء النسخة الاحتياطية بنجاح' : 'فشل إنشاء النسخة الاحتياطية');
+      final backupInfo = (data is Map && data['backup'] is Map)
+          ? Map<String, dynamic>.from(data['backup'] as Map)
+          : null;
+
+      return {
+        'success': isSuccess,
+        'message': msg,
+        'backup': backupInfo,
+      };
+    } catch (e) {
+      String msg = 'فشل إنشاء النسخة الاحتياطية للراوتر';
+      if (e is DioException) {
+        final d = e.response?.data;
+        if (d is Map) {
+          if (d['message'] != null) {
+            msg = d['message'].toString();
+          } else if (d['error'] != null) {
+            final errObj = d['error'];
+            msg = (errObj is Map && errObj['message'] != null)
+                ? errObj['message'].toString()
+                : errObj.toString();
+          }
+        } else if (e.message != null && e.message!.isNotEmpty) {
+          msg = e.message!;
+        }
+      } else {
+        msg = e.toString();
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> listBackups(String deviceId) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.deviceBackups(deviceId));
+      final data = res.data;
+      final list = (data is Map && data['data'] is List)
+          ? data['data'] as List
+          : (data is List ? data : []);
+      return list.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> downloadBackup(
+    String deviceId,
+    String filename,
+  ) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.dio.get<List<int>>(
+        ApiEndpoints.deviceBackupDownload(deviceId, filename),
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = res.data;
+      if (bytes != null && bytes.isNotEmpty) {
+        final savedPath = await saveBackupLocally(filename, bytes);
+        return {
+          'success': true,
+          'bytes': bytes,
+          'filename': filename,
+          'path': savedPath,
+          'size': bytes.length,
+          'message': savedPath.contains('المتصفح')
+              ? 'تم بدء تنزيل النسخة في المتصفح (${(bytes.length / 1024).toStringAsFixed(1)} KB)'
+              : 'تم حفظ النسخة محليًا على الجهاز (${(bytes.length / 1024).toStringAsFixed(1)} KB)',
+        };
+      }
+      return {
+        'success': false,
+        'message': 'ملف النسخة الاحتياطية فارغ أو لم يتم العثور عليه',
+      };
+    } catch (e) {
+      String msg = 'تعذر تنزيل ملف النسخة الاحتياطية من الراوتر';
+      if (e is DioException) {
+        final d = e.response?.data;
+        if (d is Map && d['message'] != null) {
+          msg = d['message'].toString();
+        } else if (e.response?.statusCode == 401) {
+          msg = 'فشل المصادقة مع الراوتر: تحقق من اسم المستخدم وكلمة المرور';
+        } else if (e.response?.statusCode == 403) {
+          msg = 'تم رفض الوصول: المستخدم لا يمتلك صلاحيات إدارة النسخ (sensitive)';
+        } else if (e.response?.statusCode == 404) {
+          msg = 'الملف غير موجود على الراوتر';
+        } else if (e.message != null && e.message!.isNotEmpty) {
+          msg = e.message!;
+        }
+      } else {
+        msg = e.toString().replaceFirst('Exception: ', '');
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<void> shareDownloadedBackup(String filePath, String filename) async {
+    await shareBackupFile(filePath, filename);
   }
 }
 
@@ -775,6 +1034,29 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
     state = await AsyncValue.guard(() => _fetch());
   }
 
+  String _extractApiError(DioException e, String fallback) {
+    final data = e.response?.data;
+    if (data is Map) {
+      final errObj = data['error'];
+      if (errObj is Map) {
+        final details = errObj['details'];
+        if (details is List && details.isNotEmpty) {
+          return details.map((d) => '• $d').join('\n');
+        }
+        if (errObj['message'] != null && errObj['message'].toString().isNotEmpty) {
+          return errObj['message'].toString();
+        }
+      }
+      if (data['message'] is List && (data['message'] as List).isNotEmpty) {
+        return (data['message'] as List).map((d) => '• $d').join('\n');
+      }
+      if (data['message'] != null && data['message'].toString().isNotEmpty) {
+        return data['message'].toString();
+      }
+    }
+    return e.message?.isNotEmpty == true ? e.message! : fallback;
+  }
+
   Future<Map<String, dynamic>> createTemplate(CardTemplateModel tpl) async {
     final apiClient = ref.read(apiClientProvider);
     try {
@@ -787,11 +1069,10 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
       return {'success': true, 'message': 'تم حفظ القالب بنجاح'};
     } catch (e) {
-      if (e is DioException && e.response?.data is Map) {
-        final err = Map<String, dynamic>.from(e.response!.data as Map);
+      if (e is DioException) {
         return {
           'success': false,
-          'message': err['message']?.toString() ?? 'فشل حفظ القالب في الخادم',
+          'message': _extractApiError(e, 'فشل حفظ القالب في الخادم'),
         };
       }
       return {'success': false, 'message': 'تعذر الاتصال بالخادم لحفظ القالب'};
@@ -810,11 +1091,10 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
       return {'success': true, 'message': 'تم تعديل القالب بنجاح'};
     } catch (e) {
-      if (e is DioException && e.response?.data is Map) {
-        final err = Map<String, dynamic>.from(e.response!.data as Map);
+      if (e is DioException) {
         return {
           'success': false,
-          'message': err['message']?.toString() ?? 'فشل تعديل القالب',
+          'message': _extractApiError(e, 'فشل تعديل القالب في الخادم'),
         };
       }
       return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
@@ -830,11 +1110,10 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
       return {'success': true, 'message': 'تم حذف القالب بنجاح'};
     } catch (e) {
-      if (e is DioException && e.response?.data is Map) {
-        final err = Map<String, dynamic>.from(e.response!.data as Map);
+      if (e is DioException) {
         return {
           'success': false,
-          'message': err['message']?.toString() ?? 'فشل حذف القالب',
+          'message': _extractApiError(e, 'فشل حذف القالب من الخادم'),
         };
       }
       return {'success': false, 'message': 'تعذر الاتصال بالخادم لحذف القالب'};

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import 'tabs/pppoe_accounts_tab.dart';
 import 'tabs/pppoe_profiles_tab.dart';
 import 'tabs/pppoe_sessions_tab.dart';
@@ -46,17 +47,17 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
     final commandsCount = ref.watch(pppoeCommandsProvider).length;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.settings_ethernet, color: Color(0xFF06B6D4), size: 22),
-            SizedBox(width: 8),
+            const Icon(Icons.settings_ethernet, color: Color(0xFF06B6D4), size: 22),
+            const SizedBox(width: 8),
             Text(
               'اشتراكات PPPoE',
-              style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+              style: TextStyle(color: context.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -73,9 +74,9 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
           // Router Selector & KPI Header
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            decoration: const BoxDecoration(
-              color: Color(0xFF1E293B),
-              border: Border(bottom: BorderSide(color: Color(0xFF334155))),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              border: Border(bottom: BorderSide(color: context.borderColor)),
             ),
             child: Column(
               children: [
@@ -103,15 +104,15 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
                     return Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0F172A),
+                        color: context.bgScaffold,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFF334155)),
+                        border: Border.all(color: context.borderColor),
                       ),
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
                           value: selectedRouterId ?? (routers.isNotEmpty ? routers.first.id : null),
                           isExpanded: true,
-                          dropdownColor: const Color(0xFF1E293B),
+                          dropdownColor: context.bgCard,
                           icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF06B6D4)),
                           items: routers.map((r) {
                             return DropdownMenuItem<String>(
@@ -126,7 +127,7 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
                                   const SizedBox(width: 8),
                                   Text(
                                     '${r.name} (${r.host})',
-                                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                                    style: TextStyle(color: context.textPrimary, fontSize: 13),
                                   ),
                                   const Spacer(),
                                   Text(
@@ -190,7 +191,7 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
 
           // Tab Bar
           Container(
-            color: const Color(0xFF1E293B),
+            color: context.bgCard,
             child: TabBar(
               controller: _tabController,
               isScrollable: true,
@@ -289,9 +290,9 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
+        color: context.bgScaffold,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       child: Row(
         children: [
@@ -319,7 +320,7 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
-        color: isGreen ? const Color(0xFF10B981) : const Color(0xFF334155),
+        color: isGreen ? const Color(0xFF10B981) : context.bgCardAlt,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(

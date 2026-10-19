@@ -5,9 +5,9 @@ import { Modal } from '../../components/common/Modal';
 import { Zap, Plus, RefreshCw, Layers, Trash2, Edit } from 'lucide-react';
 import { HotspotProfileItem, DeviceItem } from '../../core/types/view-models';
 import {
-  VALIDITY_PRESETS,
   formatValidityArabic,
   isValidValidityDuration,
+  parseValidityParts,
 } from '../../core/utils/validity';
 
 export const HotspotProfilesView: React.FC = () => {
@@ -21,7 +21,8 @@ export const HotspotProfilesView: React.FC = () => {
     name: '',
     displayName: '',
     price: 500,
-    validity: '1d',
+    validityAmount: 1,
+    validityUnit: 'd' as 'm' | 'h' | 'd',
     rateLimit: '2M/5M',
     sharedUsers: 1,
     deviceId: '',
@@ -35,7 +36,8 @@ export const HotspotProfilesView: React.FC = () => {
     name: '',
     displayName: '',
     price: 500,
-    validity: '1d',
+    validityAmount: 1,
+    validityUnit: 'd' as 'm' | 'h' | 'd',
     rateLimit: '2M/5M',
     sharedUsers: 1,
   });
@@ -83,18 +85,28 @@ export const HotspotProfilesView: React.FC = () => {
       return;
     }
 
-    if (formData.validity && !isValidValidityDuration(formData.validity)) {
-      showToast(
-        'مدة الصلاحية غير صالحة. اكتب رقماً موجباً متبوعاً بـ m (دقيقة) أو h (ساعة) أو d (يوم)، مثل 1m أو 1h أو 1d',
-        'warning',
-      );
+    const amount = Number(formData.validityAmount);
+    if (!amount || amount <= 0 || !Number.isInteger(amount)) {
+      showToast('الرجاء إدخال عدد صحيح موجب أكبر من الصفر في خانة مدة الصلاحية', 'warning');
+      return;
+    }
+
+    const effectiveValidity = `${amount}${formData.validityUnit}`.toLowerCase();
+    if (!isValidValidityDuration(effectiveValidity)) {
+      showToast('صيغة مدة الصلاحية غير مدعومة', 'warning');
       return;
     }
 
     setIsSubmitting(true);
     try {
       const created = await apiClient.post<HotspotProfileItem>('/hotspot/profiles', {
-        ...formData,
+        name: formData.name,
+        displayName: formData.displayName,
+        price: formData.price,
+        validity: effectiveValidity,
+        sessionTimeout: effectiveValidity,
+        rateLimit: formData.rateLimit,
+        sharedUsers: formData.sharedUsers,
         deviceId: effectiveDeviceId,
       });
       showToast('تم إنشاء باقة الهوتسبوت ومزامنتها بنجاح', 'success');
@@ -103,7 +115,8 @@ export const HotspotProfilesView: React.FC = () => {
         name: '',
         displayName: '',
         price: 500,
-        validity: '1d',
+        validityAmount: 1,
+        validityUnit: 'd',
         rateLimit: '2M/5M',
         sharedUsers: 1,
         deviceId: devices[0]?.id || '',
@@ -123,11 +136,13 @@ export const HotspotProfilesView: React.FC = () => {
 
   const handleOpenEdit = (profile: HotspotProfileItem) => {
     setEditingProfileId(profile.id);
+    const parsed = parseValidityParts(profile.validity || profile.sessionTimeout || '1d');
     setEditFormData({
       name: profile.name || '',
       displayName: profile.displayName || profile.name || '',
       price: profile.price || 500,
-      validity: profile.validity || '1d',
+      validityAmount: parsed.amount,
+      validityUnit: parsed.unit,
       rateLimit: profile.rateLimit || '2M/5M',
       sharedUsers: profile.sharedUsers || 1,
     });
@@ -138,11 +153,15 @@ export const HotspotProfilesView: React.FC = () => {
     e.preventDefault();
     if (!editingProfileId) return;
 
-    if (editFormData.validity && !isValidValidityDuration(editFormData.validity)) {
-      showToast(
-        'مدة الصلاحية غير صالحة. اكتب رقماً موجباً متبوعاً بـ m (دقيقة) أو h (ساعة) أو d (يوم)، مثل 1m أو 1h أو 1d',
-        'warning',
-      );
+    const amount = Number(editFormData.validityAmount);
+    if (!amount || amount <= 0 || !Number.isInteger(amount)) {
+      showToast('الرجاء إدخال عدد صحيح موجب أكبر من الصفر في خانة مدة الصلاحية', 'warning');
+      return;
+    }
+
+    const effectiveValidity = `${amount}${editFormData.validityUnit}`.toLowerCase();
+    if (!isValidValidityDuration(effectiveValidity)) {
+      showToast('صيغة مدة الصلاحية غير مدعومة', 'warning');
       return;
     }
 
@@ -150,9 +169,12 @@ export const HotspotProfilesView: React.FC = () => {
     try {
       const updated = await apiClient.patch<HotspotProfileItem>(`/hotspot/profiles/${editingProfileId}`, {
         name: editFormData.name,
+        displayName: editFormData.displayName,
         rateLimit: editFormData.rateLimit,
-        validity: editFormData.validity,
+        validity: effectiveValidity,
+        sessionTimeout: effectiveValidity,
         sharedUsers: Number(editFormData.sharedUsers) || 1,
+        price: editFormData.price,
       });
       showToast('تم تحديث باقة الهوتسبوت بنجاح', 'success');
       setIsEditOpen(false);
@@ -397,31 +419,126 @@ export const HotspotProfilesView: React.FC = () => {
             </div>
 
             <div className="form-group">
-              <label className="form-label" htmlFor="prof-validity">
-                مدة الصلاحية (مثال: 1m, 1h, 1d) *
+              <label className="form-label">
+                مدة الصلاحية / الجلسة (Validity) *
               </label>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                {VALIDITY_PRESETS.map((item) => (
-                  <button
-                    key={item.value}
-                    type="button"
-                    className={`btn btn-sm ${formData.validity === item.value ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ fontSize: '11px', padding: '3px 8px' }}
-                    onClick={() => setFormData({ ...formData, validity: item.value })}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+
+              {/* اختيار وحدة المدة (دقيقة M، ساعة H، يوم D) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '8px' }}>
+                {[
+                  { key: 'm', label: 'دقيقة', symbol: 'M' },
+                  { key: 'h', label: 'ساعة', symbol: 'H' },
+                  { key: 'd', label: 'يوم', symbol: 'D' },
+                ].map((u) => {
+                  const isSelected = formData.validityUnit === u.key;
+                  return (
+                    <button
+                      key={u.key}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, validityUnit: u.key as 'm' | 'h' | 'd' })}
+                      className={`btn btn-sm ${isSelected ? 'btn-primary' : 'btn-outline'}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '5px',
+                        padding: '6px 4px',
+                        borderRadius: '8px',
+                        fontWeight: isSelected ? 'bold' : 'normal',
+                        borderWidth: isSelected ? '2px' : '1px',
+                        fontSize: '12px',
+                      }}
+                    >
+                      <span>{u.label}</span>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          background: isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.08)',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        {u.symbol}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-              <input
-                id="prof-validity"
-                className="input"
-                style={{ direction: 'ltr', textAlign: 'left' }}
-                value={formData.validity}
-                onChange={(e) => setFormData({ ...formData, validity: e.target.value })}
-                placeholder="1m, 15m, 1h, 3h, 1d, 7d"
-                required
-              />
+
+              {/* إدخال العدد مع مؤشر الوحدة */}
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  id="prof-validity"
+                  type="number"
+                  min={1}
+                  max={10000}
+                  step={1}
+                  className="input"
+                  style={{
+                    direction: 'ltr',
+                    textAlign: 'left',
+                    paddingLeft: '75px',
+                    fontFamily: 'monospace',
+                    fontWeight: 'bold',
+                    fontSize: '14px',
+                  }}
+                  value={formData.validityAmount}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setFormData({ ...formData, validityAmount: isNaN(val) ? ('' as any) : val });
+                  }}
+                  placeholder={
+                    formData.validityUnit === 'm'
+                      ? 'مثال: 15 أو 30 أو 50'
+                      : formData.validityUnit === 'h'
+                        ? 'مثال: 1 أو 5 أو 70'
+                        : 'مثال: 1 أو 7 أو 30'
+                  }
+                  required
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '8px',
+                    pointerEvents: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    color: '#10B981',
+                    padding: '2px 6px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  {formData.validityUnit === 'm' ? 'M دقيقة' : formData.validityUnit === 'h' ? 'H ساعة' : 'D يوم'}
+                </div>
+              </div>
+
+              {/* معاينة القيمة الناتجة */}
+              <div
+                style={{
+                  marginTop: '6px',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary, #94a3b8)',
+                  background: 'rgba(56, 189, 248, 0.08)',
+                  padding: '5px 8px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+              >
+                <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>القيمة:</span>
+                <span style={{ fontWeight: 'bold', color: '#10B981', direction: 'ltr' }}>
+                  {formData.validityAmount ? `${formData.validityAmount}${formData.validityUnit.toUpperCase()}` : '--'}
+                </span>
+                <span>
+                  ({formData.validityAmount ? formatValidityArabic(`${formData.validityAmount}${formData.validityUnit}`) : 'أدخل رقماً'})
+                </span>
+              </div>
             </div>
           </div>
 
@@ -509,30 +626,126 @@ export const HotspotProfilesView: React.FC = () => {
             </div>
 
             <div className="form-group">
-              <label className="form-label" htmlFor="edit-prof-val">
-                مدة الصلاحية (مثال: 1m, 1h, 1d)
+              <label className="form-label">
+                مدة الصلاحية / الجلسة (Validity) *
               </label>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                {VALIDITY_PRESETS.map((item) => (
-                  <button
-                    key={item.value}
-                    type="button"
-                    className={`btn btn-sm ${editFormData.validity === item.value ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ fontSize: '11px', padding: '3px 8px' }}
-                    onClick={() => setEditFormData({ ...editFormData, validity: item.value })}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+
+              {/* اختيار وحدة المدة (دقيقة M، ساعة H، يوم D) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '8px' }}>
+                {[
+                  { key: 'm', label: 'دقيقة', symbol: 'M' },
+                  { key: 'h', label: 'ساعة', symbol: 'H' },
+                  { key: 'd', label: 'يوم', symbol: 'D' },
+                ].map((u) => {
+                  const isSelected = editFormData.validityUnit === u.key;
+                  return (
+                    <button
+                      key={u.key}
+                      type="button"
+                      onClick={() => setEditFormData({ ...editFormData, validityUnit: u.key as 'm' | 'h' | 'd' })}
+                      className={`btn btn-sm ${isSelected ? 'btn-primary' : 'btn-outline'}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '5px',
+                        padding: '6px 4px',
+                        borderRadius: '8px',
+                        fontWeight: isSelected ? 'bold' : 'normal',
+                        borderWidth: isSelected ? '2px' : '1px',
+                        fontSize: '12px',
+                      }}
+                    >
+                      <span>{u.label}</span>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          background: isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.08)',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        {u.symbol}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-              <input
-                id="edit-prof-val"
-                className="input"
-                style={{ direction: 'ltr', textAlign: 'left' }}
-                value={editFormData.validity}
-                onChange={(e) => setEditFormData({ ...editFormData, validity: e.target.value })}
-                placeholder="1m, 15m, 1h, 3h, 1d, 7d"
-              />
+
+              {/* إدخال العدد مع مؤشر الوحدة */}
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  id="edit-prof-val"
+                  type="number"
+                  min={1}
+                  max={10000}
+                  step={1}
+                  className="input"
+                  style={{
+                    direction: 'ltr',
+                    textAlign: 'left',
+                    paddingLeft: '75px',
+                    fontFamily: 'monospace',
+                    fontWeight: 'bold',
+                    fontSize: '14px',
+                  }}
+                  value={editFormData.validityAmount}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setEditFormData({ ...editFormData, validityAmount: isNaN(val) ? ('' as any) : val });
+                  }}
+                  placeholder={
+                    editFormData.validityUnit === 'm'
+                      ? 'مثال: 15 أو 30 أو 50'
+                      : editFormData.validityUnit === 'h'
+                        ? 'مثال: 1 أو 5 أو 70'
+                        : 'مثال: 1 أو 7 أو 30'
+                  }
+                  required
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '8px',
+                    pointerEvents: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    color: '#10B981',
+                    padding: '2px 6px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  {editFormData.validityUnit === 'm' ? 'M دقيقة' : editFormData.validityUnit === 'h' ? 'H ساعة' : 'D يوم'}
+                </div>
+              </div>
+
+              {/* معاينة القيمة الناتجة */}
+              <div
+                style={{
+                  marginTop: '6px',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary, #94a3b8)',
+                  background: 'rgba(56, 189, 248, 0.08)',
+                  padding: '5px 8px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+              >
+                <span style={{ color: '#38BDF8', fontWeight: 'bold' }}>القيمة:</span>
+                <span style={{ fontWeight: 'bold', color: '#10B981', direction: 'ltr' }}>
+                  {editFormData.validityAmount ? `${editFormData.validityAmount}${editFormData.validityUnit.toUpperCase()}` : '--'}
+                </span>
+                <span>
+                  ({editFormData.validityAmount ? formatValidityArabic(`${editFormData.validityAmount}${editFormData.validityUnit}`) : 'أدخل رقماً'})
+                </span>
+              </div>
             </div>
           </div>
 

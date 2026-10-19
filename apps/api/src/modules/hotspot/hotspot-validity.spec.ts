@@ -6,7 +6,7 @@ import { CardsService } from '../cards/services/cards.service';
 import { QuotasService } from '../cards/services/quotas.service';
 import { CardCodeGeneratorService } from '../cards/services/card-code-generator.service';
 import { EncryptionService } from '../../core/security/encryption.service';
-import { isValidValidityDuration } from '../../common/utils/validity-duration.util';
+import { isValidValidityDuration, parseValidityParts } from '../../common/utils/validity-duration.util';
 
 describe('Hotspot Validity Duration Integration & MikroTik Provisioning (m, h, d)', () => {
   let hotspotService: HotspotService;
@@ -307,9 +307,136 @@ describe('Hotspot Validity Duration Integration & MikroTik Provisioning (m, h, d
       const profiles = await hotspotService.listAllProfiles('tenant-01');
 
       expect(profiles[0].validity).toBe('15m');
+      expect(profiles[0].sessionTimeout).toBe('15m');
       expect(profiles[0].displayName).toContain('15 دقيقة');
       expect(profiles[1].validity).toBe('1h');
+      expect(profiles[1].sessionTimeout).toBe('1h');
       expect(profiles[1].displayName).toBe('باقة 1 ساعة (إنترنت مفتوح)');
     });
   });
+
+  describe('6. Validity Decomposition (parseValidityParts)', () => {
+    it('should correctly decompose minutes, hours, and days into amount and unit', () => {
+      expect(parseValidityParts('1m')).toEqual({ amount: 1, unit: 'm' });
+      expect(parseValidityParts('30M')).toEqual({ amount: 30, unit: 'm' });
+      expect(parseValidityParts('50m')).toEqual({ amount: 50, unit: 'm' });
+
+      expect(parseValidityParts('1h')).toEqual({ amount: 1, unit: 'h' });
+      expect(parseValidityParts('5H')).toEqual({ amount: 5, unit: 'h' });
+      expect(parseValidityParts('70h')).toEqual({ amount: 70, unit: 'h' });
+
+      expect(parseValidityParts('1d')).toEqual({ amount: 1, unit: 'd' });
+      expect(parseValidityParts('7D')).toEqual({ amount: 7, unit: 'd' });
+      expect(parseValidityParts('30d')).toEqual({ amount: 30, unit: 'd' });
+    });
+
+    it('should support legacy week conversions safely', () => {
+      expect(parseValidityParts('1w')).toEqual({ amount: 7, unit: 'd' });
+      expect(parseValidityParts('2w')).toEqual({ amount: 14, unit: 'd' });
+    });
+
+    it('should handle null, empty, and invalid values gracefully with defaults', () => {
+      expect(parseValidityParts(null)).toEqual({ amount: 1, unit: 'd' });
+      expect(parseValidityParts('')).toEqual({ amount: 1, unit: 'd' });
+      expect(parseValidityParts('invalid', 5, 'h')).toEqual({ amount: 5, unit: 'h' });
+    });
+  });
+
+  describe('7. Case-Insensitive Inputs (30M, 5H, 7D) & MikroTik Provisioning', () => {
+    const tenantId = 'tenant-test-01';
+    const deviceId = 'device-test-01';
+
+    const testDevice = {
+      id: deviceId,
+      name: 'Main MikroTik Core',
+      tenantId,
+      host: '192.168.88.1',
+      apiPort: 8728,
+      restPort: 443,
+      useSsl: false,
+      username: 'admin',
+      passwordEncrypted: 'enc',
+      iv: 'iv',
+      authTag: 'tag',
+      rosVersion: '7.12',
+      isOnline: true,
+      deletedAt: null,
+    };
+
+    it('should normalize uppercase "30M" to lowercase "30m" and provision session-timeout=30m to MikroTik', async () => {
+      mockPrisma.mikroTikDevice.findFirst.mockResolvedValue(testDevice);
+      mockPrisma.hotspotProfile.findFirst.mockResolvedValue(null);
+      mockPrisma.hotspotProfile.create.mockResolvedValue({
+        id: 'prof-30m',
+        name: 'test-30m',
+        sessionTimeout: '30m',
+        tenantId,
+        deviceId,
+      });
+
+      const profile = await hotspotService.createProfile(tenantId, deviceId, {
+        name: 'test-30m',
+        validity: '30M',
+      });
+
+      expect(mockMikrotikClient.createHotspotProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionTimeout: '30m',
+        }),
+      );
+      expect(mockPrisma.hotspotProfile.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          sessionTimeout: '30m',
+        }),
+      });
+      expect(profile.sessionTimeout).toBe('30m');
+    });
+
+    it('should normalize uppercase "5H" to lowercase "5h" and provision session-timeout=5h to MikroTik', async () => {
+      mockPrisma.mikroTikDevice.findFirst.mockResolvedValue(testDevice);
+      mockPrisma.hotspotProfile.findFirst.mockResolvedValue(null);
+      mockPrisma.hotspotProfile.create.mockResolvedValue({
+        id: 'prof-5h',
+        name: 'test-5h',
+        sessionTimeout: '5h',
+        tenantId,
+        deviceId,
+      });
+
+      await hotspotService.createProfile(tenantId, deviceId, {
+        name: 'test-5h',
+        validity: '5H',
+      });
+
+      expect(mockMikrotikClient.createHotspotProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionTimeout: '5h',
+        }),
+      );
+    });
+
+    it('should normalize uppercase "7D" to lowercase "7d" and provision session-timeout=7d to MikroTik', async () => {
+      mockPrisma.mikroTikDevice.findFirst.mockResolvedValue(testDevice);
+      mockPrisma.hotspotProfile.findFirst.mockResolvedValue(null);
+      mockPrisma.hotspotProfile.create.mockResolvedValue({
+        id: 'prof-7d',
+        name: 'test-7d',
+        sessionTimeout: '7d',
+        tenantId,
+        deviceId,
+      });
+
+      await hotspotService.createProfile(tenantId, deviceId, {
+        name: 'test-7d',
+        validity: '7D',
+      });
+
+      expect(mockMikrotikClient.createHotspotProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionTimeout: '7d',
+        }),
+      );
+    });
+  });
 });
+

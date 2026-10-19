@@ -18,6 +18,7 @@ import type { ChangePasswordDto } from './dto/change-password.dto';
 import type { ForgotPasswordDto } from './dto/forgot-password.dto';
 import type { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import type { ResetPasswordDto } from './dto/reset-password.dto';
+import type { DeleteAccountDto } from './dto/delete-account.dto';
 import { MailService } from './mail.service';
 import type { JwtPayload } from './jwt.strategy';
 
@@ -585,6 +586,160 @@ export class AuthService {
     return {
       success: true,
       message: 'Password changed successfully. All other sessions have been logged out.',
+    };
+  }
+
+  /**
+   * Permanently deletes or anonymizes user account and revokes active sessions.
+   * - Requires verifying user's current password.
+   * - Prevents deletion of the system's sole SUPER_ADMIN.
+   * - Prevents deletion of a TENANT_ADMIN if the tenant still has other active users/staff.
+   * - If user is a sole TENANT_ADMIN (no other staff), deletes the tenant (cascades to all tenant resources).
+   * - If user is a sub-user (e.g. CASHIER, MANAGER):
+   *     - If no financial or batch references exist, hard deletes user.
+   *     - If financial or batch records exist, anonymizes all PII and permanently deactivates account.
+   * - Completely revokes and removes all refresh tokens and reset tokens.
+   */
+  async deleteAccount(
+    userId: string,
+    dto: DeleteAccountDto,
+  ): Promise<{ success: boolean; message: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        role: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('المستخدم غير موجود');
+    }
+
+    const isPasswordValid = await this.hashingService.verifyPassword(
+      user.passwordHash,
+      dto.password,
+    );
+
+    if (!isPasswordValid) {
+      throw new BadRequestException('كلمة المرور الحالية غير صحيحة');
+    }
+
+    // 1. Guard against deleting the only SUPER_ADMIN
+    if (user.role.name === RoleName.SUPER_ADMIN) {
+      const superAdminCount = await this.prisma.user.count({
+        where: {
+          role: { name: RoleName.SUPER_ADMIN },
+          deletedAt: null,
+          status: UserStatus.ACTIVE,
+        },
+      });
+
+      if (superAdminCount <= 1) {
+        throw new BadRequestException('لا يمكن حذف الحساب: أنت المشرف العام الوحيد للنظام.');
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.refreshToken.deleteMany({ where: { userId } });
+        await tx.passwordResetToken.deleteMany({ where: { userId } });
+        await tx.user.delete({ where: { id: userId } });
+      });
+
+      this.logger.log(`[DELETE_ACCOUNT] Super admin account permanently deleted: ${userId}`);
+
+      return {
+        success: true,
+        message: 'تم حذف حساب المشرف العام بنجاح',
+      };
+    }
+
+    // 2. Guard against deleting TENANT_ADMIN when tenant has other active staff or operational assets
+    if (user.role.name === RoleName.TENANT_ADMIN && user.tenantId) {
+      const [otherUsersCount, devicesCount, cardsCount] = await Promise.all([
+        this.prisma.user.count({
+          where: {
+            tenantId: user.tenantId,
+            id: { not: userId },
+            deletedAt: null,
+          },
+        }),
+        this.prisma.mikroTikDevice.count({
+          where: {
+            tenantId: user.tenantId,
+            deletedAt: null,
+          },
+        }),
+        this.prisma.card.count({
+          where: {
+            tenantId: user.tenantId,
+          },
+        }),
+      ]);
+
+      if (otherUsersCount > 0) {
+        throw new ConflictException(
+          'لا يمكن حذف حساب مدير المنظومة لوجود مستخدمين آخرين تابعين للمؤسسة. يرجى حذف حسابات الموظفين أو نقل إدارة المؤسسة أولاً.',
+        );
+      }
+
+      // If the organization owns live routers or cards, require explicit confirmation
+      const hasOperationalAssets = devicesCount > 0 || cardsCount > 0;
+      if (hasOperationalAssets && dto.confirmDeleteOrganization !== true) {
+        throw new BadRequestException(
+          'تحذير: حسابك يمتلك منظومة عمل تحتوي على أجهزة MikroTik أو كروت هوتسبوت. لحماية شبكتك، يرجى إزالة أجهزة الشبكة أولاً أو تأكيد الموافقة على حذف المنظومة وجميع أجهزتها نهائياً.',
+        );
+      }
+
+      // Sole tenant admin with explicit confirmation or clean tenant: delete the tenant organization
+      await this.prisma.$transaction(async (tx) => {
+        await tx.refreshToken.deleteMany({ where: { userId } });
+        await tx.passwordResetToken.deleteMany({ where: { userId } });
+        await tx.tenant.delete({ where: { id: user.tenantId! } });
+      });
+
+      this.logger.log(
+        `[DELETE_ACCOUNT] Sole tenant admin account and tenant deleted: user=${userId}, tenant=${user.tenantId}, devicesCleaned=${devicesCount}`,
+      );
+
+      return {
+        success: true,
+        message: 'تم حذف الحساب وجميع بيانات المنظومة التابعة له نهائيًا',
+      };
+    }
+
+    // 3. Sub-user under a tenant (e.g., CASHIER, MANAGER)
+    const [batchesCount, salesCount, printJobsCount] = await Promise.all([
+      this.prisma.cardBatch.count({ where: { createdById: userId } }),
+      this.prisma.saleTransaction.count({ where: { cashierId: userId } }),
+      this.prisma.printJob.count({ where: { createdById: userId } }),
+    ]);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.refreshToken.deleteMany({ where: { userId } });
+      await tx.passwordResetToken.deleteMany({ where: { userId } });
+
+      if (batchesCount === 0 && salesCount === 0 && printJobsCount === 0) {
+        await tx.user.delete({ where: { id: userId } });
+      } else {
+        // Anonymize PII to maintain financial accounting audit constraints
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            fullName: 'مستخدم محذوف',
+            email: `deleted_${userId}@deleted.local`,
+            phone: null,
+            passwordHash: '',
+            status: UserStatus.INACTIVE,
+            deletedAt: new Date(),
+          },
+        });
+      }
+    });
+
+    this.logger.log(`[DELETE_ACCOUNT] Sub-user account deleted/anonymized: ${userId}`);
+
+    return {
+      success: true,
+      message: 'تم حذف الحساب نهائيًا وإلغاء جميع الجلسات',
     };
   }
 

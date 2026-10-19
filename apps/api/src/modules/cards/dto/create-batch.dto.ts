@@ -12,6 +12,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { VALIDITY_DURATION_REGEX } from '../../../common/utils/validity-duration.util';
 
@@ -31,6 +32,7 @@ export class CreateBatchDto {
     example: 100,
     default: 100,
   })
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(5000)
@@ -38,6 +40,10 @@ export class CreateBatchDto {
   totalCards?: number;
 
   @ApiPropertyOptional({ description: 'Alias for totalCards (quantity)', example: 100 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5000)
   @IsOptional()
   quantity?: number;
 
@@ -48,6 +54,7 @@ export class CreateBatchDto {
   prefix?: string;
 
   @ApiPropertyOptional({ description: 'Length of random code', example: 8, default: 8 })
+  @Type(() => Number)
   @IsInt()
   @Min(4)
   @Max(16)
@@ -55,6 +62,10 @@ export class CreateBatchDto {
   length?: number;
 
   @ApiPropertyOptional({ description: 'Alias for length (codeLength)', example: 8 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(4)
+  @Max(16)
   @IsOptional()
   codeLength?: number;
 
@@ -68,12 +79,14 @@ export class CreateBatchDto {
   pattern?: 'NUMERIC' | 'ALPHANUMERIC' | 'ALPHABETIC' | 'HEX';
 
   @ApiPropertyOptional({ description: 'Selling price per card in tenant currency', example: 500 })
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   @IsOptional()
   price?: number;
 
   @ApiPropertyOptional({ description: 'Validity duration in days once activated', example: 30 })
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @IsOptional()
@@ -94,6 +107,7 @@ export class CreateBatchDto {
     description: 'Data limit quota in Megabytes (e.g. 1024 for 1GB)',
     example: 1024,
   })
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @IsOptional()
@@ -123,6 +137,28 @@ export class CreateBatchDto {
   @IsString()
   @IsOptional()
   themePreset?: string;
+
+  @ApiPropertyOptional({
+    description: 'Card Template ID (UUID) for custom layout and theme',
+  })
+  @IsString()
+  @IsOptional()
+  templateId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias for templateId (cardTemplateId)',
+  })
+  @IsString()
+  @IsOptional()
+  cardTemplateId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional notes or batch description',
+  })
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  notes?: string;
 
   @ApiPropertyOptional({
     description: 'Whether to immediately provision cards on the MikroTik router',

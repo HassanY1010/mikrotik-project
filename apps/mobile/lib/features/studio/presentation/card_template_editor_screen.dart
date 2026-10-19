@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 
 class CardTemplateEditorScreen extends ConsumerStatefulWidget {
   final CardTemplateModel? template; // null for creating new
@@ -24,6 +25,8 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   late TextEditingController _headerTitleController;
   late TextEditingController _supportPhoneController;
   late TextEditingController _instructionsController;
+  late TextEditingController _widthController;
+  late TextEditingController _heightController;
 
   late String _themePreset;
   late Color _primaryColor;
@@ -32,6 +35,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   late int _heightMm;
   late String _orientation;
   late bool _isDefault;
+  bool _isCustomSize = false;
 
   late bool _showQr;
   late bool _showPin;
@@ -178,6 +182,10 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     _orientation = tpl?.orientation ?? 'landscape';
     _isDefault = tpl?.isDefault ?? false;
 
+    _isCustomSize = !_cardSizePresets.any((p) => p['width'] == _widthMm && p['height'] == _heightMm);
+    _widthController = TextEditingController(text: _widthMm.toString());
+    _heightController = TextEditingController(text: _heightMm.toString());
+
     _showQr = tpl?.showQr ?? true;
     _showPin = tpl?.showPin ?? true;
     _showPrice = tpl?.showPrice ?? true;
@@ -192,6 +200,8 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     _headerTitleController.dispose();
     _supportPhoneController.dispose();
     _instructionsController.dispose();
+    _widthController.dispose();
+    _heightController.dispose();
     super.dispose();
   }
 
@@ -223,13 +233,29 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   Future<void> _handleSave() async {
     if (!_formKey.currentState!.validate()) return;
 
+    int widthVal = _widthMm;
+    int heightVal = _heightMm;
+    if (_isCustomSize) {
+      widthVal = int.tryParse(_widthController.text.trim()) ?? _widthMm;
+      heightVal = int.tryParse(_heightController.text.trim()) ?? _heightMm;
+      if (widthVal < 10 || widthVal > 1000 || heightVal < 10 || heightVal > 1000) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('الأبعاد بالمليمتر يجب أن تكون بين 10 و 1000 مم'),
+            backgroundColor: Color(0xFFEF4444),
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isSaving = true);
 
     final updatedTemplate = CardTemplateModel(
       id: widget.template?.id ?? '',
       name: _nameController.text.trim(),
-      widthMm: _widthMm,
-      heightMm: _heightMm,
+      widthMm: widthVal,
+      heightMm: heightVal,
       orientation: _orientation,
       themePreset: _themePreset,
       primaryColor: _colorToHex(_primaryColor),
@@ -282,13 +308,13 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         title: Text(
           widget.template == null ? 'إنشاء قالب طباعة جديد' : 'تعديل تصميم القالب',
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
         ),
         actions: [
           Padding(
@@ -405,108 +431,298 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
 
   Widget _buildCardSizeSelector() {
     return Column(
-      children: _cardSizePresets.map((preset) {
-        final isSelected = _widthMm == preset['width'] && _heightMm == preset['height'];
-        return Container(
+      children: [
+        ..._cardSizePresets.map((preset) {
+          final isSelected = !_isCustomSize && _widthMm == preset['width'] && _heightMm == preset['height'];
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: isSelected ? const Color(0xFF1E3A8A).withValues(alpha: 0.35) : context.bgCard,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
+                width: isSelected ? 2 : 1,
+              ),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () {
+                setState(() {
+                  _isCustomSize = false;
+                  _widthMm = preset['width'] as int;
+                  _heightMm = preset['height'] as int;
+                  _orientation = preset['orientation'] as String;
+                  _widthController.text = _widthMm.toString();
+                  _heightController.text = _heightMm.toString();
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFF38BDF8).withValues(alpha: 0.2)
+                            : const Color(0xFF334155).withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isSelected ? const Color(0xFF38BDF8) : Colors.transparent,
+                          width: 1,
+                        ),
+                      ),
+                      child: Icon(
+                        preset['icon'] as IconData,
+                        color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                preset['name'] as String,
+                                style: TextStyle(
+                                  color: isSelected ? Colors.white : const Color(0xFFE2E8F0),
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? const Color(0xFF38BDF8).withValues(alpha: 0.2) : const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+                                  ),
+                                ),
+                                child: Text(
+                                  '${preset['width']}×${preset['height']} مم',
+                                  style: TextStyle(
+                                    color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            preset['desc'] as String,
+                            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                      color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF64748B),
+                      size: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+
+        // Custom Dimensions Preset Card
+        Container(
           margin: const EdgeInsets.only(bottom: 8),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF1E3A8A).withValues(alpha: 0.35) : const Color(0xFF1E293B),
+            color: _isCustomSize ? const Color(0xFF1E3A8A).withValues(alpha: 0.35) : context.bgCard,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
-              width: isSelected ? 2 : 1,
+              color: _isCustomSize ? const Color(0xFF38BDF8) : context.borderColor,
+              width: _isCustomSize ? 2 : 1,
             ),
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
             onTap: () {
               setState(() {
-                _widthMm = preset['width'] as int;
-                _heightMm = preset['height'] as int;
-                _orientation = preset['orientation'] as String;
+                _isCustomSize = true;
+                _widthController.text = _widthMm.toString();
+                _heightController.text = _heightMm.toString();
               });
             },
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Row(
+              child: Column(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? const Color(0xFF38BDF8).withValues(alpha: 0.2)
-                          : const Color(0xFF334155).withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: isSelected ? const Color(0xFF38BDF8) : Colors.transparent,
-                        width: 1,
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: _isCustomSize
+                              ? const Color(0xFF38BDF8).withValues(alpha: 0.2)
+                              : const Color(0xFF334155).withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: _isCustomSize ? const Color(0xFF38BDF8) : Colors.transparent,
+                            width: 1,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.straighten,
+                          color: _isCustomSize ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                          size: 22,
+                        ),
                       ),
-                    ),
-                    child: Icon(
-                      preset['icon'] as IconData,
-                      color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
-                      size: 22,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              preset['name'] as String,
-                              style: TextStyle(
-                                color: isSelected ? Colors.white : const Color(0xFFE2E8F0),
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                                fontSize: 13,
-                              ),
+                            Row(
+                              children: [
+                                Text(
+                                  'مقاس مخصص (أبعاد يدوية)',
+                                  style: TextStyle(
+                                    color: _isCustomSize ? Colors.white : const Color(0xFFE2E8F0),
+                                    fontWeight: _isCustomSize ? FontWeight.bold : FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: _isCustomSize ? const Color(0xFF38BDF8).withValues(alpha: 0.2) : const Color(0xFF0F172A),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: _isCustomSize ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '$_widthMm×$_heightMm مم',
+                                    style: TextStyle(
+                                      color: _isCustomSize ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: isSelected ? const Color(0xFF38BDF8).withValues(alpha: 0.2) : const Color(0xFF0F172A),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
-                                ),
-                              ),
-                              child: Text(
-                                '${preset['width']}×${preset['height']} مم',
-                                style: TextStyle(
-                                  color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                            const SizedBox(height: 3),
+                            const Text(
+                              'حدد أبعاد الكرت والاتجاه بحسب حجم ونوع الطابعة لديك',
+                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          preset['desc'] as String,
-                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        _isCustomSize ? Icons.check_circle : Icons.radio_button_unchecked,
+                        color: _isCustomSize ? const Color(0xFF38BDF8) : const Color(0xFF64748B),
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                  if (_isCustomSize) ...[
+                    const Divider(color: Color(0xFF334155), height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _widthController,
+                            keyboardType: TextInputType.number,
+                            style: TextStyle(color: context.textPrimary, fontSize: 13),
+                            decoration: InputDecoration(
+                              labelText: 'العرض (مم)',
+                              labelStyle: TextStyle(color: context.textSecondary, fontSize: 12),
+                              hintText: '85',
+                              hintStyle: TextStyle(color: context.textMuted),
+                              filled: true,
+                              fillColor: context.bgCardAlt,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onChanged: (val) {
+                              final w = int.tryParse(val.trim());
+                              if (w != null && w > 0) {
+                                setState(() {
+                                  _widthMm = w;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _heightController,
+                            keyboardType: TextInputType.number,
+                            style: TextStyle(color: context.textPrimary, fontSize: 13),
+                            decoration: InputDecoration(
+                              labelText: 'الارتفاع (مم)',
+                              labelStyle: TextStyle(color: context.textSecondary, fontSize: 12),
+                              hintText: '54',
+                              hintStyle: TextStyle(color: context.textMuted),
+                              filled: true,
+                              fillColor: context.bgCardAlt,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onChanged: (val) {
+                              final h = int.tryParse(val.trim());
+                              if (h != null && h > 0) {
+                                setState(() {
+                                  _heightMm = h;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        DropdownButtonHideUnderline(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFF334155)),
+                            ),
+                            child: DropdownButton<String>(
+                              value: _orientation,
+                              dropdownColor: const Color(0xFF1E293B),
+                              style: const TextStyle(color: Colors.white, fontSize: 12),
+                              items: const [
+                                DropdownMenuItem(value: 'landscape', child: Text('أفقي')),
+                                DropdownMenuItem(value: 'portrait', child: Text('عمودي')),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) setState(() => _orientation = val);
+                              },
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-                    color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF64748B),
-                    size: 20,
-                  ),
+                  ],
                 ],
               ),
             ),
           ),
-        );
-      }).toList(),
+        ),
+      ],
     );
   }
+
 
   Widget _buildInteractiveCardPreview() {
     final isPortrait = _heightMm > _widthMm;
@@ -749,10 +965,10 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+                color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -902,22 +1118,22 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       child: Column(
         children: [
           _buildSwitchRow('إظهار رمز الاستجابة السريعة (QR Code)', _showQr, (v) => setState(() => _showQr = v)),
-          const Divider(color: Color(0xFF334155), height: 1),
+          Divider(color: context.borderColor, height: 1),
           _buildSwitchRow('إظهار حقل الرمز السري (PIN / Password)', _showPin, (v) => setState(() => _showPin = v)),
-          const Divider(color: Color(0xFF334155), height: 1),
+          Divider(color: context.borderColor, height: 1),
           _buildSwitchRow('إظهار سعر الكرت', _showPrice, (v) => setState(() => _showPrice = v)),
-          const Divider(color: Color(0xFF334155), height: 1),
+          Divider(color: context.borderColor, height: 1),
           _buildSwitchRow('إظهار مدة صلاحية الباقة', _showValidity, (v) => setState(() => _showValidity = v)),
-          const Divider(color: Color(0xFF334155), height: 1),
+          Divider(color: context.borderColor, height: 1),
           _buildSwitchRow('إظهار محدد السرعة (Speed Limit)', _showSpeed, (v) => setState(() => _showSpeed = v)),
-          const Divider(color: Color(0xFF334155), height: 1),
+          Divider(color: context.borderColor, height: 1),
           _buildSwitchRow('تعيين كقالب افتراضي لطباعة الكروت', _isDefault, (v) => setState(() => _isDefault = v)),
         ],
       ),
@@ -930,7 +1146,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: const TextStyle(color: Colors.white, fontSize: 13)),
+          Text(title, style: TextStyle(color: context.textPrimary, fontSize: 13)),
           Switch(
             value: val,
             onChanged: onChanged,
@@ -944,13 +1160,13 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   InputDecoration _inputDecoration(String label, String hint) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+      labelStyle: TextStyle(color: context.textSecondary, fontSize: 13),
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
+      hintStyle: TextStyle(color: context.textMuted, fontSize: 12),
       filled: true,
-      fillColor: const Color(0xFF1E293B),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
+      fillColor: context.bgCard,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5)),
     );
   }

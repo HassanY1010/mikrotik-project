@@ -7,7 +7,7 @@ import { CardCodeGeneratorService } from './card-code-generator.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
 import { UpdateCardStatusDto } from '../dto/update-card-status.dto';
 import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
-import { CardStatus, CardBatchStatus, SyncStatus, Prisma } from '@prisma/client';
+import { CardStatus, CardBatchStatus, SyncStatus, PrintJobStatus, Prisma } from '@prisma/client';
 import { QuotasService } from './quotas.service';
 import { normalizeValidityDuration } from '../../../common/utils/validity-duration.util';
 
@@ -241,10 +241,29 @@ export class CardsService {
     const effectiveLength = dto.length || dto.codeLength || 8;
     const effectivePrice = dto.price !== undefined ? dto.price : (Number((profile as any)?.price) || 500);
 
+    // Resolve template if passed
+    const effectiveTemplateId = (dto.templateId || dto.cardTemplateId || '').trim();
+    let matchedTemplate: { id: string; name: string; themePreset: string | null; widthMm: number } | null = null;
+    if (effectiveTemplateId) {
+      matchedTemplate = await this.prisma.cardTemplate.findFirst({
+        where: { id: effectiveTemplateId, tenantId: resolvedTenantId },
+        select: { id: true, name: true, themePreset: true, widthMm: true },
+      });
+      if (!matchedTemplate) {
+        throw new NotFoundException({
+          code: 'TEMPLATE_NOT_FOUND',
+          message: `قالب تصميم الكروت المحدد (${effectiveTemplateId}) غير موجود أو تم حذفه`,
+        });
+      }
+    }
+
+    const resolvedThemePreset = matchedTemplate?.themePreset || dto.themePreset || 'FOOTBALL';
+
     const batchNumber = this.codeGenerator.generateBatchNumber();
     const rawTimeLimit = dto.timeLimit ?? profile.sessionTimeout ?? null;
     const timeLimit = rawTimeLimit ? normalizeValidityDuration(rawTimeLimit) : null;
-    const dataLimitBytes = dto.dataLimitMb ? BigInt(dto.dataLimitMb) * BigInt(1024 * 1024) : null;
+    const profileDataLimitBytes = (profile as any)?.dataLimitBytes != null ? BigInt((profile as any).dataLimitBytes) : null;
+    const dataLimitBytes = dto.dataLimitMb ? BigInt(dto.dataLimitMb) * BigInt(1024 * 1024) : profileDataLimitBytes;
 
     // 4. Atomic transaction: Lock subscription quota, create batch and cards in DB
     const { quotaInfo, batch, cardDataToInsert, plainCredentials } = await this.prisma.$transaction(
@@ -268,10 +287,29 @@ export class CardsService {
             timeLimit,
             dataLimitBytes,
             status: CardBatchStatus.PROCESSING,
-            themePreset: dto.themePreset ?? 'FOOTBALL',
+            themePreset: resolvedThemePreset,
             createdById: effectiveUserId,
           },
         });
+
+        if (matchedTemplate) {
+          try {
+            const printerType = (matchedTemplate.widthMm ?? 85) <= 80 ? 'THERMAL' : 'A4_SHEET';
+            await tx.printJob.create({
+              data: {
+                tenantId: resolvedTenantId,
+                templateId: matchedTemplate.id,
+                cardBatchId: batchRecord.id,
+                printerType,
+                status: PrintJobStatus.PENDING,
+                totalCards: effectiveTotalCards,
+                createdById: effectiveUserId,
+              },
+            });
+          } catch (pjErr) {
+            this.logger.warn(`PrintJob link for template ${matchedTemplate.id} skipped: ${pjErr}`);
+          }
+        }
 
         // Generate unique card codes via CSPRNG
         let usernames = this.codeGenerator.generateBatchCodes(
@@ -499,7 +537,9 @@ export class CardsService {
         syncedCount,
         failedCount,
         syncError,
-        themePreset: updatedBatch!.themePreset ?? dto.themePreset ?? 'FOOTBALL',
+        themePreset: updatedBatch!.themePreset ?? resolvedThemePreset,
+        templateId: matchedTemplate?.id ?? (effectiveTemplateId.length > 0 ? effectiveTemplateId : null),
+        templateName: matchedTemplate?.name ?? null,
         createdAt: updatedBatch!.createdAt,
       },
       quota: {
@@ -859,8 +899,16 @@ export class CardsService {
         syncedCardIds.push(card.id);
       } catch (err: any) {
         const msg = err instanceof Error ? err.message : String(err);
-        // Idempotent retry: if user already exists on router, treat as synced
+        // Idempotent retry: if user already exists on router, ensure latest quota and validity are set
         if (msg.includes('already have') || msg.includes('already exists')) {
+          try {
+            await client.updateHotspotUser(card.username, {
+              limitBytesTotal: card.dataLimitBytes ? Number(card.dataLimitBytes) : 0,
+              limitUptime: card.timeLimit ?? undefined,
+            });
+          } catch (_) {
+            // Non-fatal if update on existing user is rejected by router
+          }
           syncedCount++;
           syncedCardIds.push(card.id);
         } else {

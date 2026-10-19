@@ -5,10 +5,12 @@ import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/services/card_pdf_generator_service.dart';
+import '../../../core/theme/app_theme.dart';
 import 'card_templates_screen.dart';
 import '../../../core/widgets/whatsapp_button.dart';
 import '../../../core/utils/whatsapp_helper.dart';
 import '../../../core/utils/validity_helper.dart';
+import '../../hotspot_profiles/presentation/create_hotspot_profile_screen.dart';
 
 class CardStudioScreen extends ConsumerStatefulWidget {
   final VoidCallback? onBatchCreated;
@@ -51,22 +53,70 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     ref.invalidate(routersProvider);
   }
 
+  Future<void> _handleAddNewProfile() async {
+    final currentUser = ref.read(currentUserProvider);
+    final role = currentUser?.role.toUpperCase() ?? '';
+    final isAllowed = role == 'SUPER_ADMIN' ||
+        role == 'OWNER' ||
+        role == 'TENANT_ADMIN' ||
+        role == 'ADMIN' ||
+        role == 'MANAGER';
+    if (!isAllowed && role.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('عذراً، صلاحيات حسابك الحالية لا تسمح بإنشاء باقات جديدة. يرجى التواصل مع مسؤول النظام.'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    final selectedRouterId = ref.read(selectedRouterIdProvider) ?? (routers.isNotEmpty ? routers.first.id : null);
+
+    final createdResult = await Navigator.push<dynamic>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CreateHotspotProfileScreen(
+          initialDeviceId: selectedRouterId,
+        ),
+      ),
+    );
+
+    if (createdResult != null && createdResult != false) {
+      await ref.read(profilesProvider.notifier).fetchProfiles();
+      final updatedProfiles = ref.read(profilesProvider);
+
+      if (mounted) {
+        if (createdResult is String && updatedProfiles.any((p) => p.id == createdResult)) {
+          setState(() {
+            _selectedProfileId = createdResult;
+          });
+        } else if (updatedProfiles.isNotEmpty) {
+          setState(() {
+            _selectedProfileId = updatedProfiles.first.id;
+          });
+        }
+      }
+    }
+  }
+
   void _handleCustomQuantity() async {
     final controller = TextEditingController(text: _selectedQuantity.toString());
     final result = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تحديد كمية مخصصة', style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: Text('تحديد كمية مخصصة', style: TextStyle(color: context.textPrimary, fontSize: 16)),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
           autofocus: true,
-          style: const TextStyle(color: Colors.white, fontSize: 16),
-          decoration: const InputDecoration(
+          style: TextStyle(color: context.textPrimary, fontSize: 16),
+          decoration: InputDecoration(
             hintText: 'أدخل عدد الكروت (1 - 5000)',
-            hintStyle: TextStyle(color: Color(0xFF64748B)),
+            hintStyle: TextStyle(color: context.textMuted),
           ),
         ),
         actions: [
@@ -184,8 +234,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
         'singleCredential': _singleCredentialMode,
         'singleUserPin': _singleCredentialMode,
       };
-      if (_selectedCustomTemplate != null) {
-        payload['templateId'] = _selectedCustomTemplate!.id;
+      if (_selectedCustomTemplate != null && _selectedCustomTemplate!.id.trim().isNotEmpty) {
+        payload['templateId'] = _selectedCustomTemplate!.id.trim();
       }
       if (selectedRouterId != null) {
         payload['deviceId'] = selectedRouterId;
@@ -269,13 +319,29 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
         String errorMessage = 'تعذر الاتصال بالخادم وتوليد الدفعة';
         if (e is DioException) {
           final resData = e.response?.data;
-          if (resData is Map && resData['error'] != null) {
+          if (resData is Map) {
             final errObj = resData['error'];
-            errorMessage = (errObj is Map && errObj['message'] != null)
-                ? errObj['message'].toString()
-                : errObj.toString();
-          } else if (resData is Map && resData['message'] != null) {
-            errorMessage = resData['message'].toString();
+            if (errObj is Map) {
+              final details = errObj['details'];
+              final msg = errObj['message']?.toString();
+              if (details is List && details.isNotEmpty) {
+                final listStr = details.map((d) => '• $d').join('\n');
+                errorMessage = (msg != null && msg.isNotEmpty && msg != 'Validation failed')
+                    ? '$msg\n$listStr'
+                    : 'فشل التحقق من البيانات:\n$listStr';
+              } else if (msg != null && msg.isNotEmpty) {
+                errorMessage = msg;
+              } else {
+                errorMessage = errObj.toString();
+              }
+            } else if (resData['message'] is List) {
+              final listStr = (resData['message'] as List).map((d) => '• $d').join('\n');
+              errorMessage = 'فشل التحقق من البيانات:\n$listStr';
+            } else if (resData['message'] != null) {
+              errorMessage = resData['message'].toString();
+            } else if (resData['error'] != null) {
+              errorMessage = resData['error'].toString();
+            }
           } else if (e.message != null && e.message!.isNotEmpty) {
             errorMessage = e.message!;
           }
@@ -286,23 +352,23 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF1E293B),
+            backgroundColor: context.bgCard,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: Row(
-              children: const [
-                Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 24),
-                SizedBox(width: 8),
+              children: [
+                const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 24),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'فشل توليد الدفعة',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
             ),
             content: Text(
               errorMessage,
-              style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
+              style: TextStyle(color: context.textSecondary, fontSize: 13),
             ),
             actions: [
               TextButton(
@@ -328,23 +394,27 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     String? routerError,
   }) {
     CardPdfLayout selectedLayout = CardPdfLayout.a4Grid10;
-    final networkNameController = TextEditingController(text: 'سودافاي | SudaFi Net');
+    final networkNameController = TextEditingController(
+      text: (_selectedCustomTemplate?.networkName.isNotEmpty == true
+          ? _selectedCustomTemplate!.networkName
+          : 'سودافاي | SudaFi Net'),
+    );
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: context.bgCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
-            children: const [
-              Icon(Icons.check_circle, color: Color(0xFF10B981), size: 24),
-              SizedBox(width: 8),
+            children: [
+              const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 24),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'تم إنشاء الدفعة بنجاح! 📄',
-                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
             ],
@@ -587,7 +657,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     final routers = routersAsync.asData?.value ?? [];
     final selectedRouterId = ref.watch(selectedRouterIdProvider) ?? (routers.isNotEmpty ? routers.first.id : null);
 
-    if (_selectedProfileId == null && profiles.isNotEmpty) {
+    if ((_selectedProfileId == null || !profiles.any((p) => p.id == _selectedProfileId)) && profiles.isNotEmpty) {
       _selectedProfileId = profiles.first.id;
     }
 
@@ -601,9 +671,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
     final currentTheme = _themes[_selectedThemePreset] ?? _themes['FOOTBALL']!;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         title: Row(
           children: [
@@ -618,13 +688,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text(
                   'إنشاء كروت',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: context.textPrimary,
                   ),
                 ),
                 Text(
@@ -664,24 +734,24 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
 
             // Router Target Selector (if available)
             if (routers.isNotEmpty) ...[
-              const Text(
+              Text(
                 'راوتر MikroTik المستهدف',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: context.bgCard,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  border: Border.all(color: context.borderColor),
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: selectedRouterId,
-                    dropdownColor: const Color(0xFF1E293B),
+                    dropdownColor: context.bgCard,
                     isExpanded: true,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
                     items: routers.map((r) {
                       final isOnline = r.status.toUpperCase() == 'ONLINE';
                       return DropdownMenuItem<String>(
@@ -725,12 +795,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                   'اختر باقة الهوتسبوت',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
-                if (profiles.isEmpty)
-                  TextButton.icon(
-                    icon: const Icon(Icons.sync, size: 14, color: Color(0xFF38BDF8)),
-                    label: const Text('جلب الباقات', style: TextStyle(fontSize: 12, color: Color(0xFF38BDF8))),
-                    onPressed: () => ref.read(profilesProvider.notifier).fetchProfiles(),
+                TextButton.icon(
+                  key: const Key('button_add_new_profile'),
+                  icon: const Icon(Icons.add_circle_outline_rounded, size: 16, color: Color(0xFF10B981)),
+                  label: const Text(
+                    '+ إضافة باقة جديدة',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
                   ),
+                  onPressed: _handleAddNewProfile,
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -742,40 +815,116 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
                 border: Border.all(color: const Color(0xFF334155)),
               ),
               child: profiles.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      child: Text(
-                        'لا توجد باقات متاحة حالياً، يرجى إنشاء باقة من لوحة التحكم أو الضغط على تحديث',
-                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                  ? InkWell(
+                      key: const Key('empty_profiles_add_button'),
+                      onTap: _handleAddNewProfile,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: const [
+                            Expanded(
+                              child: Text(
+                                'لا توجد باقات متاحة حالياً. اضغط هنا لإضافة باقة جديدة',
+                                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                              ),
+                            ),
+                            Icon(Icons.add_circle_outline_rounded, color: Color(0xFF10B981), size: 20),
+                          ],
+                        ),
                       ),
                     )
                   : DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
+                        key: const Key('hotspot_profile_dropdown'),
                         value: _selectedProfileId,
                         dropdownColor: const Color(0xFF1E293B),
                         isExpanded: true,
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                        items: profiles.map((p) {
-                          return DropdownMenuItem<String>(
-                            value: p.id,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    p.displayName ?? p.name,
-                                    overflow: TextOverflow.ellipsis,
+                        items: [
+                          ...profiles.map((p) {
+                            return DropdownMenuItem<String>(
+                              key: Key('profile_item_${p.id}'),
+                              value: p.id,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            p.displayName ?? p.name,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (!p.isUnlimited && p.quotaGb != null) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFEC4899).withValues(alpha: 0.15),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              '${p.quotaGb! % 1 == 0 ? p.quotaGb!.toInt() : p.quotaGb!.toStringAsFixed(1)} GB',
+                                              style: const TextStyle(
+                                                color: Color(0xFFF472B6),
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
                                   ),
+                                  Text(
+                                    '${p.price.toStringAsFixed(0)} SDG',
+                                    style: const TextStyle(color: Color(0xFF38BDF8)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          DropdownMenuItem<String>(
+                            key: const Key('dropdown_add_new_profile_item'),
+                            value: '__ADD_NEW_PROFILE__',
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: const BoxDecoration(
+                                border: Border(
+                                  top: BorderSide(color: Color(0xFF334155), width: 1),
                                 ),
-                                Text(
-                                  '${p.price.toStringAsFixed(0)} SDG',
-                                  style: const TextStyle(color: Color(0xFF38BDF8)),
-                                ),
-                              ],
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  Icon(Icons.add_circle_outline_rounded, color: Color(0xFF10B981), size: 18),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    '+ إضافة باقة جديدة',
+                                    style: TextStyle(
+                                      color: Color(0xFF10B981),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          );
-                        }).toList(),
-                        onChanged: (id) => setState(() => _selectedProfileId = id),
+                          ),
+                        ],
+                        onChanged: (id) {
+                          if (id == '__ADD_NEW_PROFILE__') {
+                            _handleAddNewProfile();
+                          } else if (id != null) {
+                            setState(() => _selectedProfileId = id);
+                          }
+                        },
                       ),
                     ),
             ),
@@ -847,20 +996,22 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'اسم المستخدم = كلمة المرور',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                      Text(
-                        _singleCredentialMode
-                            ? 'إدخال رمز PIN واحد فقط عند تسجيل الدخول'
-                            : 'اسم مستخدم وكلمة مرور منفصلين',
-                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
-                      ),
-                    ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'اسم المستخدم = كلمة المرور',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        Text(
+                          _singleCredentialMode
+                              ? 'إدخال رمز PIN واحد فقط عند تسجيل الدخول'
+                              : 'اسم مستخدم وكلمة مرور منفصلين',
+                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                        ),
+                      ],
+                    ),
                   ),
                   Switch(
                     value: _singleCredentialMode,

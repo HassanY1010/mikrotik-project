@@ -4,7 +4,9 @@ import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/utils/whatsapp_helper.dart';
 import '../../../core/widgets/whatsapp_button.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../radar/presentation/radar_screen.dart';
+import '../../portal/presentation/hotspot_portal_designer_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   final Function(int tabIndex)? onNavigateTab;
@@ -21,6 +23,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
   final VoidCallback? onOpenPppoe;
   final VoidCallback? onOpenUserProfile;
   final VoidCallback? onOpenTenantUsers;
+  final VoidCallback? onOpenPortalDesigner;
 
   const DashboardScreen({
     super.key,
@@ -38,17 +41,54 @@ class DashboardScreen extends ConsumerStatefulWidget {
     this.onOpenPppoe,
     this.onOpenUserProfile,
     this.onOpenTenantUsers,
+    this.onOpenPortalDesigner,
   });
 
   @override
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsBindingObserver {
   bool _isTogglingLock = false;
   bool _isTogglingAntiTethering = false;
   bool _isTestingConnection = false;
   bool _isSyncing = false;
+  DateTime? _lastResumeRefreshAt;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final now = DateTime.now();
+      // Throttle resume refreshes: must be at least 15 seconds apart
+      if (_lastResumeRefreshAt == null || now.difference(_lastResumeRefreshAt!) > const Duration(seconds: 15)) {
+        _lastResumeRefreshAt = now;
+        _onAppResumed();
+      }
+    }
+  }
+
+  Future<void> _onAppResumed() async {
+    if (!mounted) return;
+    try {
+      // Re-verify session and fetch fresh routers and stats
+      await ref.read(routersProvider.notifier).refresh();
+      await ref.read(currentUserProvider.notifier).fetchMe();
+      ref.invalidate(financialReportProvider);
+      ref.invalidate(activeSessionsProvider);
+    } catch (_) {}
+  }
 
   Future<void> _handleSyncAndRefresh() async {
     if (_isSyncing) return;
@@ -157,13 +197,738 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
+  void _navigateToPortalDesigner() {
+    if (widget.onOpenPortalDesigner != null) {
+      widget.onOpenPortalDesigner!();
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const HotspotPortalDesignerScreen()),
+      );
+    }
+  }
+
+  Future<void> _handleRouterBackup() async {
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    if (routers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('لا يوجد راوتر مسجل في حسابك. يرجى إضافة راوتر أولاً.'),
+              ),
+            ],
+          ),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+
+    final selectedId = ref.read(selectedRouterIdProvider);
+    final currentRouter = routers.firstWhere(
+      (r) => r.id == selectedId,
+      orElse: () => routers.first,
+    );
+
+    final currentUser = ref.read(currentUserProvider);
+    final role = currentUser?.role.toUpperCase() ?? '';
+    final allowedRoles = ['SUPER_ADMIN', 'OWNER', 'TENANT_ADMIN', 'ADMIN', 'MANAGER'];
+    if (!allowedRoles.contains(role)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.shield_outlined, color: Colors.white, size: 20),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('عذراً، صلاحيات حسابك الحالية لا تسمح بإنشاء نسخ احتياطية للراوتر.'),
+              ),
+            ],
+          ),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+
+    _showBackupModal(currentRouter);
+  }
+
+  void _showBackupModal(RouterDeviceModel currentRouter) {
+    final now = DateTime.now();
+    final defaultName =
+        'backup_${currentRouter.name.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')}_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    final nameController = TextEditingController(text: defaultName);
+    final passController = TextEditingController();
+    bool isLoading = false;
+    bool isFetchingList = false;
+    List<Map<String, dynamic>>? existingBackups;
+    String? localError;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              backgroundColor: context.bgCard,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: BorderSide(color: context.borderColor),
+              ),
+              titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.backup_outlined, color: Color(0xFF10B981), size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'النسخ الاحتياطي للمايكروتك',
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Router info badge
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: context.bgCardAlt,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: context.borderColor),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.router, color: Color(0xFF38BDF8), size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  currentRouter.name,
+                                  style: TextStyle(
+                                    color: context.textPrimary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                Text(
+                                  '${currentRouter.host} • ROS ${currentRouter.rosVersion}',
+                                  style: TextStyle(
+                                    color: context.textSecondary,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: currentRouter.isOnline
+                                  ? Colors.green.withValues(alpha: 0.2)
+                                  : Colors.red.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: currentRouter.isOnline ? Colors.green : Colors.red,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: currentRouter.isOnline
+                                        ? Colors.greenAccent
+                                        : Colors.redAccent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  currentRouter.isOnline ? 'متصل' : 'غير متصل',
+                                  style: TextStyle(
+                                    color: currentRouter.isOnline
+                                        ? Colors.greenAccent
+                                        : Colors.redAccent,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Offline warning if router is offline
+                    if (!currentRouter.isOnline) ...[
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 18),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'تنبيه: الراوتر في حالة غير متصل حالياً بالخادم. يرجى التأكد من تشغيل الراوتر واتصاله بالشبكة قبل النسخ.',
+                                style: TextStyle(color: Color(0xFFFDE68A), fontSize: 11),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+
+                    // Input: Backup Name
+                    Text(
+                      'اسم ملف النسخة الاحتياطية:',
+                      style: TextStyle(
+                          color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: nameController,
+                      style: TextStyle(color: context.textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: context.bgScaffold,
+                        hintText: 'اسم النسخة الاحتياطية',
+                        hintStyle: TextStyle(color: context.textSecondary, fontSize: 12),
+                        suffixText: '.backup',
+                        suffixStyle: TextStyle(color: context.textSecondary, fontSize: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: Color(0xFF10B981)),
+                        ),
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Input: Optional Password
+                    Text(
+                      'كلمة مرور التشفير (اختياري):',
+                      style: TextStyle(
+                          color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: passController,
+                      obscureText: true,
+                      style: TextStyle(color: context.textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: context.bgScaffold,
+                        hintText: 'اترك الحقل فارغاً لنسخة بدون تشفير',
+                        hintStyle: TextStyle(color: context.textSecondary, fontSize: 11),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: Color(0xFF10B981)),
+                        ),
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+
+                    if (localError != null) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, color: Colors.redAccent, size: 16),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                localError!,
+                                style: const TextStyle(color: Colors.redAccent, fontSize: 11),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    const SizedBox(height: 14),
+
+                    // Existing backups collapsible section
+                    InkWell(
+                      onTap: isFetchingList
+                          ? null
+                          : () async {
+                              setDialogState(() {
+                                isFetchingList = true;
+                                localError = null;
+                              });
+                              try {
+                                final list = await ref
+                                    .read(routersProvider.notifier)
+                                    .listBackups(currentRouter.id);
+                                setDialogState(() {
+                                  existingBackups = list;
+                                  isFetchingList = false;
+                                });
+                              } catch (e) {
+                                setDialogState(() {
+                                  isFetchingList = false;
+                                  localError = 'تعذر جلب النسخ السابقة: $e';
+                                });
+                              }
+                            },
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: const [
+                              Icon(Icons.folder_zip_outlined, color: Color(0xFF38BDF8), size: 16),
+                              SizedBox(width: 6),
+                              Text(
+                                'عرض النسخ المحفوظة على الراوتر',
+                                style: TextStyle(
+                                  color: Color(0xFF38BDF8),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (isFetchingList)
+                            const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Color(0xFF38BDF8)),
+                            )
+                          else
+                            const Icon(Icons.keyboard_arrow_down,
+                                color: Color(0xFF38BDF8), size: 18),
+                        ],
+                      ),
+                    ),
+
+                    if (existingBackups != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 120),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: context.bgScaffold,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: context.borderColor),
+                        ),
+                        child: existingBackups!.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'لا توجد نسخ احتياطية مسجلة في الراوتر حالياً',
+                                  style: TextStyle(color: context.textSecondary, fontSize: 11),
+                                ),
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: existingBackups!.length,
+                                separatorBuilder: (context, index) =>
+                                    Divider(color: context.borderColor, height: 8),
+                                itemBuilder: (ctx, i) {
+                                  final b = existingBackups![i];
+                                  final bName = b['name']?.toString() ?? 'backup';
+                                  final bSize = b['size'] != null
+                                      ? '${(b['size'] / 1024).toStringAsFixed(1)} KB'
+                                      : '';
+                                  return Row(
+                                    children: [
+                                      const Icon(Icons.file_present_outlined,
+                                          size: 16, color: Color(0xFF10B981)),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              bName,
+                                              style: TextStyle(
+                                                  color: context.textPrimary,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            if (bSize.isNotEmpty)
+                                              Text(
+                                                bSize,
+                                                style: TextStyle(
+                                                    color: context.textSecondary, fontSize: 10),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.download_rounded,
+                                            size: 18, color: Color(0xFF38BDF8)),
+                                        tooltip: 'تنزيل وحفظ النسخة',
+                                        onPressed: () async {
+                                          final dlRes = await ref
+                                              .read(routersProvider.notifier)
+                                              .downloadBackup(currentRouter.id, bName);
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Row(
+                                                children: [
+                                                  Icon(
+                                                    dlRes['success'] == true
+                                                        ? Icons.check_circle
+                                                        : Icons.error_outline,
+                                                    color: Colors.white,
+                                                    size: 18,
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(
+                                                        dlRes['message']?.toString() ?? ''),
+                                                  ),
+                                                ],
+                                              ),
+                                              action: (dlRes['success'] == true && dlRes['path'] != null && !dlRes['path'].toString().contains('المتصفح'))
+                                                  ? SnackBarAction(
+                                                      label: 'مشاركة',
+                                                      textColor: Colors.yellowAccent,
+                                                      onPressed: () {
+                                                        ref.read(routersProvider.notifier).shareDownloadedBackup(dlRes['path'].toString(), bName);
+                                                      },
+                                                    )
+                                                  : null,
+                                              backgroundColor: dlRes['success'] == true
+                                                  ? const Color(0xFF10B981)
+                                                  : const Color(0xFFDC2626),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              actions: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: isLoading ? null : () => Navigator.pop(dialogContext),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: context.borderColor),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: Text('إلغاء', style: TextStyle(color: context.textSecondary)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton.icon(
+                        onPressed: isLoading
+                            ? null
+                            : () async {
+                                final nameVal = nameController.text.trim();
+                                final passVal = passController.text.trim();
+
+                                setDialogState(() {
+                                  isLoading = true;
+                                  localError = null;
+                                });
+
+                                final res = await ref.read(routersProvider.notifier).createBackup(
+                                      currentRouter.id,
+                                      backupName: nameVal.isNotEmpty ? nameVal : null,
+                                      password: passVal.isNotEmpty ? passVal : null,
+                                    );
+
+                                if (!dialogContext.mounted) return;
+
+                                if (res['success'] == true) {
+                                  Navigator.pop(dialogContext);
+                                  _showBackupSuccessDialog(
+                                    currentRouter: currentRouter,
+                                    backupInfo: res['backup'],
+                                    message: res['message']?.toString() ??
+                                        'تم إنشاء النسخة الاحتياطية بنجاح',
+                                  );
+                                } else {
+                                  setDialogState(() {
+                                    isLoading = false;
+                                    localError = res['message']?.toString() ??
+                                        'فشل إنشاء النسخة الاحتياطية';
+                                  });
+                                }
+                              },
+                        icon: isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.cloud_upload_outlined,
+                                size: 18, color: Colors.white),
+                        label: Text(
+                          isLoading ? 'جارٍ الحفظ...' : 'إنشاء النسخة الآن',
+                          style: const TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF10B981),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showBackupSuccessDialog({
+    required RouterDeviceModel currentRouter,
+    required Map<String, dynamic>? backupInfo,
+    required String message,
+  }) {
+    final filename = backupInfo?['filename']?.toString() ?? 'backup.backup';
+    final sizeBytes = backupInfo?['size'];
+    final sizeStr =
+        sizeBytes != null ? '${(sizeBytes / 1024).toStringAsFixed(1)} KB' : 'محفوظ بالراوتر';
+    final dateStr = backupInfo?['creationTime']?.toString() ??
+        DateTime.now().toString().substring(0, 16);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'اكتمل النسخ الاحتياطي',
+                style: TextStyle(
+                    color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message,
+              style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: context.bgCardAlt,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: context.borderColor),
+              ),
+              child: Column(
+                children: [
+                  _buildSuccessRow('الجهاز:', '${currentRouter.name} (${currentRouter.host})'),
+                  const SizedBox(height: 6),
+                  _buildSuccessRow('الملف:', filename, isBold: true),
+                  const SizedBox(height: 6),
+                  _buildSuccessRow('الحجم:', sizeStr),
+                  const SizedBox(height: 6),
+                  _buildSuccessRow('التاريخ:', dateStr),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.info_outline, color: Color(0xFF38BDF8), size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'النسخة محفوظة بأمان في ذاكرة الراوتر (Files). يمكنك استعادتها بأي وقت عبر WinBox أو النظام.',
+                    style: TextStyle(color: context.textSecondary, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final dlRes = await ref
+                      .read(routersProvider.notifier)
+                      .downloadBackup(currentRouter.id, filename);
+                  if (!ctx.mounted) return;
+                  final path = dlRes['path']?.toString();
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          Icon(
+                            dlRes['success'] == true ? Icons.check_circle : Icons.error_outline,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(dlRes['message']?.toString() ?? '')),
+                        ],
+                      ),
+                      action: (dlRes['success'] == true &&
+                              path != null &&
+                              !path.contains('المتصفح'))
+                          ? SnackBarAction(
+                              label: 'مشاركة',
+                              textColor: Colors.yellowAccent,
+                              onPressed: () {
+                                ref
+                                    .read(routersProvider.notifier)
+                                    .shareDownloadedBackup(path, filename);
+                              },
+                            )
+                          : null,
+                      backgroundColor: dlRes['success'] == true
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFDC2626),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.download_rounded, size: 16, color: Color(0xFF38BDF8)),
+                label: const Text('تنزيل النسخة', style: TextStyle(color: Color(0xFF38BDF8))),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFF38BDF8)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                ),
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                ),
+                child: const Text('تم',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildSuccessRow(String label, String value, {bool isBold = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: TextStyle(color: context.textSecondary, fontSize: 11)),
+        Flexible(
+          child: Text(
+            value,
+            style: TextStyle(
+              color: isBold ? const Color(0xFF38BDF8) : context.textPrimary,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              fontSize: 12,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _handleEmergencyLock(RouterDeviceModel router) async {
     final willLock = !router.isLocked;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: context.borderColor),
+        ),
         title: Row(
           children: [
             Icon(
@@ -173,7 +938,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(width: 8),
             Text(
               willLock ? 'تأكيد قفل الطوارئ' : 'إلغاء قفل الطوارئ',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ],
         ),
@@ -181,12 +946,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           willLock
               ? 'تنبيه أمني هام:\nسيتم إضافة وتفعيل قاعدة حظر فورية (Drop Filter) في جدار حماية الراوتر (Firewall) لمنع جميع حركة مرور بيانات الإنترنت عن المشتركين.\n\nهل تريد تنفيذ القفل فوراً؟'
               : 'سيتم تعطيل قاعدة الحظر في جدار حماية الراوتر واستئناف خدمة الإنترنت لجميع المشتركين.\n\nهل تريد المتابعة؟',
-          style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+          style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: Text('إلغاء', style: TextStyle(color: context.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -231,8 +996,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: context.borderColor),
+        ),
         title: Row(
           children: [
             Icon(
@@ -242,7 +1010,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(width: 8),
             Text(
               willEnable ? 'تفعيل حظر البث (TTL=1)' : 'تعطيل حظر البث (TTL)',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ],
         ),
@@ -250,12 +1018,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           willEnable
               ? 'سيتم إضافة وتفعيل قاعدة Mangle في الراوتر (change-ttl new-ttl=1) لمنع المشتركين من إعادة توزيع وبث باقات الإنترنت عبر نقاط اتصال أو هواتف أخرى.\n\nهل تريد تفعيل الحماية؟'
               : 'سيتم تعطيل قاعدة حظر توزيع الإنترنت (TTL) في الراوتر والسماح بتمرير الحزم بالقيمة الافتراضية.\n\nهل تريد المتابعة؟',
-          style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+          style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: Text('إلغاء', style: TextStyle(color: context.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -305,13 +1073,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final selectedRouterId = ref.watch(selectedRouterIdProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         leading: widget.onOpenDrawer != null
             ? IconButton(
-                icon: const Icon(Icons.menu_rounded, color: Colors.white),
+                icon: Icon(Icons.menu_rounded, color: context.textPrimary),
                 tooltip: 'القائمة الجانبية',
                 onPressed: widget.onOpenDrawer,
               )
@@ -329,18 +1097,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text(
                   'سودافاي | SudaFi',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: context.textPrimary,
                   ),
                 ),
                 Text(
                   'لوحة التحكم والتشغيل المباشر',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                  style: TextStyle(fontSize: 11, color: context.textSecondary),
                 ),
               ],
             ),
@@ -357,6 +1125,33 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 : const Icon(Icons.sync, color: Color(0xFF38BDF8)),
             tooltip: 'مزامنة وتحديث البيانات',
             onPressed: _isSyncing ? null : _handleSyncAndRefresh,
+          ),
+          IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: (ref.watch(themeModeProvider) == ThemeMode.light
+                        ? const Color(0xFFF59E0B)
+                        : const Color(0xFF38BDF8))
+                    .withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                ref.watch(themeModeProvider) == ThemeMode.light
+                    ? Icons.dark_mode_outlined
+                    : Icons.light_mode_outlined,
+                color: ref.watch(themeModeProvider) == ThemeMode.light
+                    ? const Color(0xFFF59E0B)
+                    : const Color(0xFF38BDF8),
+                size: 18,
+              ),
+            ),
+            tooltip: ref.watch(themeModeProvider) == ThemeMode.light
+                ? 'التبديل إلى الوضع الداكن'
+                : 'التبديل إلى الوضع الفاتح',
+            onPressed: () {
+              ref.read(themeModeProvider.notifier).toggleTheme();
+            },
           ),
           if (widget.onOpenUserProfile != null)
             IconButton(
@@ -461,8 +1256,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     : (isSuspended
                                         ? 'تم تعليق هذا الحساب مؤقتاً؛ يرجى التواصل مع إدارة المنصة.'
                                         : 'يمكنك استعراض النظام؛ ولتفعيل ربط موجهات ميكروتك وتوليد الكروت، يرجى تفعيل باقة الاشتراك.'),
-                                style: const TextStyle(
-                                  color: Color(0xFF94A3B8),
+                                style: TextStyle(
+                                  color: context.textSecondary,
                                   fontSize: 11,
                                   height: 1.35,
                                 ),
@@ -498,8 +1293,43 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     (r) => r.id == selectedRouterId,
                     orElse: () => routers.first,
                   );
+                  final isCached = ref.read(routersProvider.notifier).isUsingCachedData;
                   return Column(
                     children: [
+                      if (isCached)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.cloud_off_rounded, color: Colors.amber, size: 18),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'يتم عرض آخر بيانات محفوظة محلياً؛ تعذر الاتصال بالخادم للتحديث المباشر.',
+                                  style: TextStyle(color: Color(0xFFFDE68A), fontSize: 11),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () => ref.read(routersProvider.notifier).refresh(),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: const Text(
+                                  'تحديث الآن',
+                                  style: TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       _buildRouterHeaderBar(routers, currentRouter),
                       const SizedBox(height: 12),
                       _buildRouterHealthCard(currentRouter),
@@ -512,7 +1342,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     child: CircularProgressIndicator(),
                   ),
                 ),
-                error: (_, _) => _buildEmptyRouterCard(),
+                error: (err, _) => _buildRouterFetchErrorCard(err),
               ),
 
               const SizedBox(height: 16),
@@ -635,18 +1465,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
+                        color: context.bgCard,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFF334155)),
+                        border: Border.all(color: context.borderColor),
                       ),
                       child: Row(
                         children: [
                           Icon(Icons.wifi_off, color: Colors.redAccent.withValues(alpha: 0.8), size: 22),
                           const SizedBox(width: 10),
-                          const Expanded(
+                          Expanded(
                             child: Text(
                               'الراوتر غير متصل حالياً؛ لا يمكن جلب جلسات المستخدمين اللحظية (الرادار). اضغط فحص الاتصال للتحقق.',
-                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                              style: TextStyle(color: context.textSecondary, fontSize: 12),
                             ),
                           ),
                         ],
@@ -666,13 +1496,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
+                        color: context.bgCard,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Center(
+                      child: Center(
                         child: Text(
                           'تعذر جلب جلسات الهوتسبوت من الراوتر',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                          style: TextStyle(color: context.textSecondary, fontSize: 12),
                         ),
                       ),
                     ),
@@ -688,11 +1518,54 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
+  Widget _buildRouterFetchErrorCard(Object? error) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off_rounded, color: Colors.amber, size: 32),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'تعذر تحديث بيانات أجهزة الراوتر',
+                  style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  'حدث خطأ مؤقت أثناء الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.',
+                  style: TextStyle(color: context.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              ref.read(routersProvider.notifier).refresh();
+            },
+            icon: const Icon(Icons.refresh, size: 16, color: Colors.white),
+            label: const Text('إعادة المحاولة', style: TextStyle(color: Colors.white, fontSize: 12)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyRouterCard() {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
       ),
@@ -703,14 +1576,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text(
                   'لم يتم ربط راوتر نشط',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
                 ),
                 Text(
                   'اضغط على إعداد الراوتر لتهيئة بيانات الربط عبر API أو REST',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                  style: TextStyle(color: context.textSecondary, fontSize: 12),
                 ),
               ],
             ),
@@ -732,9 +1605,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       child: Row(
         children: [
@@ -744,9 +1617,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: selected.id,
-                dropdownColor: const Color(0xFF1E293B),
+                dropdownColor: context.bgCard,
                 isExpanded: true,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
                 items: routers.map((r) {
                   return DropdownMenuItem<String>(
                     value: r.id,
@@ -772,7 +1645,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFF334155).withValues(alpha: 0.6),
+                color: context.bgCardAlt,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -933,19 +1806,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+        gradient: LinearGradient(
+          colors: context.isDarkMode
+              ? const [Color(0xFF1E293B), Color(0xFF0F172A)]
+              : const [Colors.white, Color(0xFFF1F5F9)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: router.isLocked ? Colors.red.withValues(alpha: 0.5) : const Color(0xFF334155),
+          color: router.isLocked ? Colors.red.withValues(alpha: 0.5) : context.borderColor,
           width: router.isLocked ? 1.5 : 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
+            color: context.isDarkMode
+                ? Colors.black.withValues(alpha: 0.3)
+                : Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -963,8 +1840,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   const SizedBox(width: 6),
                   Text(
                     router.modelName ?? 'MikroTik RouterOS',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: context.textPrimary,
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
                     ),
@@ -984,7 +1861,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               Text(
                 'العمل: $uptimeStr',
-                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                style: TextStyle(color: context.textSecondary, fontSize: 11),
               ),
             ],
           ),
@@ -1054,7 +1931,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ],
 
           const SizedBox(height: 16),
-          const Divider(color: Color(0xFF334155), height: 1),
+          Divider(color: context.borderColor, height: 1),
           const SizedBox(height: 12),
 
           // Action Switches: Emergency Lock & Anti-Tethering
@@ -1070,7 +1947,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     decoration: BoxDecoration(
                       color: router.isLocked
                           ? Colors.red.withValues(alpha: 0.2)
-                          : const Color(0xFF334155).withValues(alpha: 0.4),
+                          : context.bgCardAlt,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
                         color: router.isLocked ? Colors.red : Colors.transparent,
@@ -1090,7 +1967,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
-                              color: router.isLocked ? Colors.redAccent : Colors.white,
+                              color: router.isLocked ? Colors.redAccent : context.textPrimary,
                             ),
                           ),
                         ),
@@ -1116,7 +1993,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     decoration: BoxDecoration(
                       color: router.antiTetheringEnabled
                           ? const Color(0xFF2563EB).withValues(alpha: 0.2)
-                          : const Color(0xFF334155).withValues(alpha: 0.4),
+                          : context.bgCardAlt,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
                         color: router.antiTetheringEnabled
@@ -1144,7 +2021,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               fontWeight: FontWeight.bold,
                               color: router.antiTetheringEnabled
                                   ? const Color(0xFF38BDF8)
-                                  : Colors.white,
+                                  : context.textPrimary,
                             ),
                           ),
                         ),
@@ -1176,13 +2053,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
+        color: context.bgCardAlt,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       child: Column(
         children: [
-          Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10)),
+          Text(label, style: TextStyle(color: context.textSecondary, fontSize: 10)),
           const SizedBox(height: 6),
           Text(
             valueStr,
@@ -1197,7 +2074,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: ratio.clamp(0.0, 1.0),
-              backgroundColor: const Color(0xFF334155),
+              backgroundColor: context.borderColor,
               valueColor: AlwaysStoppedAnimation<Color>(color),
               minHeight: 5,
             ),
@@ -1302,25 +2179,107 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Widget _buildQuickActionsGrid() {
     final actions = [
-      _ActionItem('إنشاء كروت', Icons.auto_awesome, const Color(0xFF8B5CF6), () => widget.onNavigateTab?.call(2)),
-      _ActionItem('قوالب الطباعة', Icons.palette_outlined, const Color(0xFFA855F7), widget.onOpenTemplates),
-      _ActionItem('بروفايلات', Icons.speed, const Color(0xFFF59E0B), widget.onOpenProfiles),
-      _ActionItem('اشتراكات PPPoE', Icons.settings_ethernet, const Color(0xFF06B6D4), widget.onOpenPppoe),
-      _ActionItem('الرادار', Icons.radar, const Color(0xFF06B6D4), _navigateToRadar),
-      _ActionItem('الكروت', Icons.inventory_2, const Color(0xFF3B82F6), () => widget.onNavigateTab?.call(1)),
-      _ActionItem('تقارير', Icons.bar_chart, const Color(0xFFF59E0B), () => widget.onNavigateTab?.call(4)),
-      _ActionItem('حسابي والأمان', Icons.person_pin_outlined, const Color(0xFF38BDF8), widget.onOpenUserProfile),
-      _ActionItem('راوتر MikroTik', Icons.settings_input_antenna, const Color(0xFF6366F1), widget.onOpenRouterSetup),
-      _ActionItem('محفظة الأوفلاين', Icons.wallet, const Color(0xFF14B8A6), widget.onOpenOfflineWallet),
-      _ActionItem('مركز المزامنة', Icons.sync, const Color(0xFFF97316), widget.onOpenSync),
+      _ActionItem(
+        'إنشاء كروت',
+        Icons.auto_awesome,
+        const Color(0xFF8B5CF6),
+        () => widget.onNavigateTab?.call(2),
+      ),
+      _ActionItem(
+        'قوالب الطباعة',
+        Icons.palette_outlined,
+        const Color(0xFFA855F7),
+        widget.onOpenTemplates,
+      ),
+      _ActionItem(
+        'مصمم صفحات الهوتسبوت',
+        Icons.brush_outlined,
+        const Color(0xFF0EA5E9),
+        _navigateToPortalDesigner,
+      ),
+      _ActionItem(
+        'نقطة البيع (POS)',
+        Icons.point_of_sale,
+        const Color(0xFF10B981),
+        widget.onOpenPos,
+      ),
+      _ActionItem(
+        'الكروت',
+        Icons.inventory_2,
+        const Color(0xFF3B82F6),
+        () => widget.onNavigateTab?.call(1),
+      ),
+      _ActionItem(
+        'بروفايلات',
+        Icons.speed,
+        const Color(0xFFF59E0B),
+        widget.onOpenProfiles,
+      ),
+      _ActionItem(
+        'اشتراكات PPPoE',
+        Icons.settings_ethernet,
+        const Color(0xFF06B6D4),
+        widget.onOpenPppoe,
+      ),
+      _ActionItem(
+        'الرادار',
+        Icons.radar,
+        const Color(0xFF06B6D4),
+        _navigateToRadar,
+      ),
+      _ActionItem(
+        'راوتر MikroTik',
+        Icons.settings_input_antenna,
+        const Color(0xFF6366F1),
+        widget.onOpenRouterSetup,
+      ),
+      _ActionItem(
+        'النسخ الاحتياطي للمايكروتك',
+        Icons.backup_outlined,
+        const Color(0xFF10B981),
+        _handleRouterBackup,
+      ),
+      _ActionItem(
+        'محفظة الأوفلاين',
+        Icons.wallet,
+        const Color(0xFF14B8A6),
+        widget.onOpenOfflineWallet,
+      ),
+      _ActionItem(
+        'مركز المزامنة',
+        Icons.sync,
+        const Color(0xFFF97316),
+        widget.onOpenSync,
+      ),
+      _ActionItem(
+        'تقارير',
+        Icons.bar_chart,
+        const Color(0xFFF59E0B),
+        () => widget.onNavigateTab?.call(4),
+      ),
+      _ActionItem(
+        'فريق العمل والصلاحيات',
+        Icons.people_outline,
+        const Color(0xFFEC4899),
+        widget.onOpenTenantUsers,
+      ),
+      _ActionItem(
+        'حسابي والأمان',
+        Icons.person_pin_outlined,
+        const Color(0xFF38BDF8),
+        widget.onOpenUserProfile,
+      ),
     ];
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    final crossAxisCount = screenWidth > 900 ? 5 : (screenWidth > 600 ? 4 : 3);
 
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: actions.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
         childAspectRatio: 1.05,
@@ -1333,9 +2292,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -1354,10 +2313,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: Colors.white,
+                    color: context.textPrimary,
                   ),
                 ),
               ],
@@ -1368,20 +2327,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
+
   Widget _buildRecentSessionsList(List<ActiveSessionModel> sessions) {
     if (sessions.isEmpty) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: context.bgCard,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF334155)),
+          border: Border.all(color: context.borderColor),
         ),
-        child: const Center(
+        child: Center(
           child: Text(
             'لا توجد جلسات نشطة حالياً على الراوتر',
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+            style: TextStyle(color: context.textSecondary, fontSize: 12),
           ),
         ),
       );
@@ -1395,9 +2355,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E293B),
+            color: context.bgCard,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF334155)),
+            border: Border.all(color: context.borderColor),
           ),
           child: Row(
             children: [
@@ -1412,15 +2372,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   children: [
                     Text(
                       s.user,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: context.textPrimary,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
                       ),
                     ),
                     Text(
                       '${s.address} • ${s.macAddress}',
-                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      style: TextStyle(color: context.textSecondary, fontSize: 11),
                     ),
                   ],
                 ),

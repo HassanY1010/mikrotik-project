@@ -14,11 +14,15 @@ import {
   Edit,
   Trash2,
   RefreshCw,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { TenantSettingsItem, UserItem } from '../../core/types/view-models';
+import { useTheme } from '../../core/context/ThemeContext';
 
 export const TenantSettingsView: React.FC = () => {
   const { showToast } = useToast();
+  const { theme, setTheme } = useTheme();
   const [tenant, setTenant] = useState<TenantSettingsItem>({
     name: '',
     slug: '',
@@ -551,6 +555,112 @@ export const TenantSettingsView: React.FC = () => {
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               جميع بيانات راوتراتك وكروت شبكتك مفصولة منطقياً ومشفرة باستخدام معيار AES-256-GCM.
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Theme & Appearance Section */}
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Sun size={18} color="var(--primary)" />
+              مظهر المنصة والسمة (Theme & Appearance)
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.825rem', marginTop: '0.25rem' }}>
+              اختر الوضع اللوني المفضل لديك، يتم حفظ تفضيلك محلياً ويسري على جميع شاشات المنصة فورياً
+            </p>
+          </div>
+          <span className="badge badge-info">
+            {theme === 'dark' ? 'الوضع النشط: الداكن الافتراضي' : 'الوضع النشط: الفاتح العصري'}
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+          {/* Dark Mode Card */}
+          <div
+            onClick={() => setTheme('dark')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setTheme('dark'); }}
+            style={{
+              cursor: 'pointer',
+              padding: '1.25rem',
+              borderRadius: 'var(--radius-lg)',
+              border: `2px solid ${theme === 'dark' ? 'var(--primary)' : 'var(--border)'}`,
+              backgroundColor: '#0f172a',
+              color: '#f8fafc',
+              transition: 'all 0.2s ease',
+              boxShadow: theme === 'dark' ? '0 0 0 1px var(--primary), var(--shadow-md)' : 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.75rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, fontSize: '0.95rem' }}>
+                <Moon size={18} color="#38bdf8" />
+                الوضع الداكن (Dark Mode)
+              </div>
+              <input
+                type="radio"
+                name="themeSelect"
+                checked={theme === 'dark'}
+                onChange={() => setTheme('dark')}
+                style={{ cursor: 'pointer' }}
+              />
+            </div>
+            <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0 }}>
+              المظهر الأزرق الداكن الكلاسيكي مع درجات كحلية عميقة وتناسق عالي التباين للإضاءة المنخفضة
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: 'auto', paddingTop: '0.5rem' }}>
+              <span style={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: '#0b1120', border: '1px solid #334155' }} />
+              <span style={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: '#0d9488' }} />
+              <span style={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: '#38bdf8' }} />
+            </div>
+          </div>
+
+          {/* Light Mode Card */}
+          <div
+            onClick={() => setTheme('light')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setTheme('light'); }}
+            style={{
+              cursor: 'pointer',
+              padding: '1.25rem',
+              borderRadius: 'var(--radius-lg)',
+              border: `2px solid ${theme === 'light' ? 'var(--primary)' : 'var(--border)'}`,
+              backgroundColor: '#f8fafc',
+              color: '#0f172a',
+              transition: 'all 0.2s ease',
+              boxShadow: theme === 'light' ? '0 0 0 1px var(--primary), var(--shadow-md)' : 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.75rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, fontSize: '0.95rem' }}>
+                <Sun size={18} color="#0d9488" />
+                الوضع الفاتح (Light Mode)
+              </div>
+              <input
+                type="radio"
+                name="themeSelect"
+                checked={theme === 'light'}
+                onChange={() => setTheme('light')}
+                style={{ cursor: 'pointer' }}
+              />
+            </div>
+            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
+              مظهر فاتح ناصع ومريح للعين، بخلفيات هادئة وتباين فائق الوضوح للقراءة في الأماكن المضاءة
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: 'auto', paddingTop: '0.5rem' }}>
+              <span style={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: '#ffffff', border: '1px solid #cbd5e1' }} />
+              <span style={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: '#0d9488' }} />
+              <span style={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: '#0284c7' }} />
+            </div>
           </div>
         </div>
       </div>

@@ -4,8 +4,10 @@ import {
   ConflictException,
   ForbiddenException,
   BadGatewayException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
+import * as path from 'path';
 import { PrismaService } from '../../core/database/prisma.service';
 import { EncryptionService } from '../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
@@ -13,7 +15,7 @@ import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
 import { DeviceStatus, RouterOsVersion, MikroTikDevice, Prisma } from '@prisma/client';
-import { RouterResource } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
+import { RouterResource, RouterBackupItem } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
 
 export interface DeviceResponse {
   id: string;
@@ -911,4 +913,256 @@ export class DevicesService {
         : 'تم إلغاء قاعدة حظر البث (TTL) بنجاح',
     };
   }
+
+  async createBackup(
+    tenantId: string,
+    id: string,
+    backupName?: string,
+    password?: string,
+    userId?: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    backup: {
+      filename: string;
+      size?: number;
+      creationTime?: string;
+      deviceName: string;
+      deviceHost: string;
+    };
+  }> {
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `لم يتم العثور على جهاز الراوتر المحدد (ID: ${id})`,
+      });
+    }
+
+    try {
+      const client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+
+      if (typeof client.createBackup !== 'function') {
+        throw new Error('العميل البرمجي لـ MikroTik لا يدعم ميزة النسخ الاحتياطي التلقائي');
+      }
+
+      const backupResult = await client.createBackup(backupName, password);
+
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: userId ?? null,
+          action: 'ROUTER_BACKUP_CREATED',
+          entity: 'mikrotik_device',
+          entityId: id,
+          newValues: {
+            backupFile: backupResult.filename,
+            size: backupResult.size,
+            deviceName: device.name,
+            deviceHost: device.host,
+          },
+        },
+      });
+
+      return {
+        success: true,
+        message: `تم إنشاء النسخة الاحتياطية (${backupResult.filename}) بنجاح على جهاز الراوتر`,
+        backup: {
+          filename: backupResult.filename,
+          size: backupResult.size,
+          creationTime: backupResult.creationTime,
+          deviceName: device.name,
+          deviceHost: device.host,
+        },
+      };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Failed to create backup for router ${device.name} (${device.host}): ${errMsg}`,
+      );
+      throw new BadGatewayException({
+        code: 'ROUTER_BACKUP_FAILED',
+        message: `فشل إنشاء النسخة الاحتياطية للراوتر (${device.name} - ${device.host}). تأكد من اتصال الراوتر واستجابته.`,
+        error: errMsg,
+      });
+    }
+  }
+
+  async listBackups(tenantId: string, id: string): Promise<RouterBackupItem[]> {
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `لم يتم العثور على جهاز الراوتر المحدد (ID: ${id})`,
+      });
+    }
+
+    try {
+      const client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+
+      if (typeof client.listBackups === 'function') {
+        return await client.listBackups();
+      }
+      return [];
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to list backups for router ${device.name}: ${errMsg}`);
+      throw new BadGatewayException({
+        code: 'ROUTER_BACKUPS_FETCH_FAILED',
+        message: `تعذر جلب قائمة النسخ الاحتياطية من الراوتر (${device.name})`,
+        error: errMsg,
+      });
+    }
+  }
+
+  async downloadBackup(
+    tenantId: string,
+    id: string,
+    filename: string,
+    userId?: string,
+  ): Promise<{ buffer: Buffer; filename: string; size: number }> {
+    const safeFilename = path.basename(filename.trim());
+    if (
+      !safeFilename.toLowerCase().endsWith('.backup') ||
+      !/^[a-zA-Z0-9_.-]+$/.test(safeFilename) ||
+      safeFilename.includes('..') ||
+      safeFilename.length > 100
+    ) {
+      throw new BadRequestException({
+        code: 'INVALID_FILENAME',
+        message: 'اسم ملف النسخة الاحتياطية غير صالح أو يحتوي على مسارات غير مسموح بها',
+      });
+    }
+
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `لم يتم العثور على جهاز الراوتر المحدد (ID: ${id})`,
+      });
+    }
+
+    try {
+      const client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+
+      if (typeof client.downloadBackup !== 'function') {
+        throw new BadGatewayException({
+          code: 'DOWNLOAD_NOT_SUPPORTED',
+          message: `التنزيل المباشر غير مدعوم على نوع اتصال هذا الراوتر. الملف (${safeFilename}) محفوظ في قائمة Files على الراوتر.`,
+        });
+      }
+
+      const buffer = await client.downloadBackup(safeFilename);
+
+      if (!buffer || buffer.length === 0) {
+        throw new BadGatewayException({
+          code: 'EMPTY_BACKUP_FILE',
+          message: 'ملف النسخة الاحتياطية الذي تم استلامه فارغ (0 بايت)',
+        });
+      }
+
+      // Validate size integrity against router file catalog
+      try {
+        const backups =
+          typeof client.listBackups === 'function' ? await client.listBackups() : [];
+        const expected = backups.find(
+          (b) => b.name === safeFilename || b.name.endsWith(`/${safeFilename}`),
+        );
+        if (expected?.size && expected.size > 0 && buffer.length !== expected.size) {
+          throw new BadGatewayException({
+            code: 'BACKUP_SIZE_MISMATCH',
+            message: `حجم الملف المنقول (${buffer.length} بايت) لا يطابق حجم الملف على الراوتر (${expected.size} بايت). قد يكون النقل انقطع.`,
+          });
+        }
+      } catch (validationErr) {
+        if (validationErr instanceof BadGatewayException) {
+          throw validationErr;
+        }
+      }
+
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: userId ?? null,
+          action: 'ROUTER_BACKUP_DOWNLOADED',
+          entity: 'mikrotik_device',
+          entityId: id,
+          newValues: {
+            filename: safeFilename,
+            sizeBytes: buffer.length,
+            deviceName: device.name,
+          },
+        },
+      });
+
+      return {
+        buffer,
+        filename: safeFilename,
+        size: buffer.length,
+      };
+    } catch (err) {
+      if (
+        err instanceof BadRequestException ||
+        err instanceof NotFoundException ||
+        err instanceof BadGatewayException
+      ) {
+        throw err;
+      }
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Failed to download backup ${safeFilename} for router ${device.name}: ${errMsg}`,
+      );
+      throw new BadGatewayException({
+        code: 'ROUTER_BACKUP_DOWNLOAD_FAILED',
+        message: `تعذر تنزيل ملف النسخة الاحتياطية من الراوتر (${device.name}): ${errMsg}`,
+      });
+    }
+  }
 }
+
+

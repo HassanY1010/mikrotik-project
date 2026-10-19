@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
@@ -37,10 +37,18 @@ export class HotspotService {
   async listProfiles(tenantId: string, deviceId: string) {
     await this.getValidDevice(tenantId, deviceId);
 
-    return this.prisma.hotspotProfile.findMany({
+    const profiles = await this.prisma.hotspotProfile.findMany({
       where: { tenantId, deviceId },
       orderBy: { name: 'asc' },
     });
+
+    return profiles.map((p) => ({
+      ...p,
+      dataLimitBytes: p.dataLimitBytes ? Number(p.dataLimitBytes) : null,
+      dataLimitGb: p.dataLimitBytes
+        ? Number((Number(p.dataLimitBytes) / (1024 * 1024 * 1024)).toFixed(2))
+        : null,
+    }));
   }
 
   async listAllProfiles(tenantId?: string | null) {
@@ -97,17 +105,23 @@ export class HotspotService {
         displayName = `${p.name} (${formatValidityDurationArabic(p.sessionTimeout)})`;
       }
 
+      const dataLimitBytesNum = p.dataLimitBytes ? Number(p.dataLimitBytes) : null;
+      const dataLimitGb = dataLimitBytesNum ? Number((dataLimitBytesNum / (1024 * 1024 * 1024)).toFixed(2)) : null;
+
       return {
         id: p.id,
         name: p.name,
         displayName,
         price,
         validity,
+        sessionTimeout: p.sessionTimeout,
         rateLimit: p.rateLimit || '2M/5M',
         sharedUsers: p.sharedUsers,
         deviceId: p.deviceId,
         device: p.device,
         availableCards: p._count.cards,
+        dataLimitBytes: dataLimitBytesNum,
+        dataLimitGb,
       };
     });
   }
@@ -162,7 +176,13 @@ export class HotspotService {
           addressPool: rp.addressPool ?? null,
         },
       });
-      synced.push(profile);
+      synced.push({
+        ...profile,
+        dataLimitBytes: profile.dataLimitBytes ? Number(profile.dataLimitBytes) : null,
+        dataLimitGb: profile.dataLimitBytes
+          ? Number((Number(profile.dataLimitBytes) / (1024 * 1024 * 1024)).toFixed(2))
+          : null,
+      });
     }
 
     return synced;
@@ -225,6 +245,23 @@ export class HotspotService {
       );
     }
 
+    // Calculate quota limit in bytes if provided
+    let calculatedDataLimitBytes: bigint | null = null;
+    if (dto.dataLimitGb !== undefined && dto.dataLimitGb !== null) {
+      const val = Number(dto.dataLimitGb);
+      if (Number.isNaN(val) || val <= 0) {
+        throw new BadRequestException('حجم البيانات بالجيجابايت يجب أن يكون رقماً موجباً أكبر من الصفر');
+      }
+      // 1 GB = 1024 * 1024 * 1024 bytes = 1,073,741,824 bytes
+      calculatedDataLimitBytes = BigInt(Math.round(val * 1024 * 1024 * 1024));
+    } else if (dto.dataLimitBytes !== undefined && dto.dataLimitBytes !== null) {
+      const bVal = Number(dto.dataLimitBytes);
+      if (Number.isNaN(bVal) || bVal < 0) {
+        throw new BadRequestException('حجم البيانات بالبايت يجب أن يكون صفراً أو رقماً موجباً');
+      }
+      calculatedDataLimitBytes = bVal > 0 ? BigInt(dto.dataLimitBytes) : null;
+    }
+
     // Save in DB
     const profile = await this.prisma.hotspotProfile.create({
       data: {
@@ -237,11 +274,16 @@ export class HotspotService {
         keepaliveTimeout: dto.keepaliveTimeout ?? null,
         sharedUsers: dto.sharedUsers ?? 1,
         addressPool: dto.addressPool ?? null,
+        dataLimitBytes: calculatedDataLimitBytes,
       },
     });
 
     this.logger.log(`Created hotspot profile "${profile.name}" on device ${device.id} (synced: ${routerProvisioned})`);
-    return profile;
+    return {
+      ...profile,
+      dataLimitBytes: profile.dataLimitBytes ? Number(profile.dataLimitBytes) : null,
+      dataLimitGb: profile.dataLimitBytes ? Number(profile.dataLimitBytes) / (1024 * 1024 * 1024) : null,
+    };
   }
 
   async createTenantProfile(tenantId: string, dto: CreateProfileDto) {
@@ -363,6 +405,29 @@ export class HotspotService {
       }
     }
 
+    let newDataLimitBytes: bigint | null | undefined = undefined;
+    if (dto.dataLimitGb !== undefined) {
+      if (dto.dataLimitGb === null) {
+        newDataLimitBytes = null;
+      } else {
+        const val = Number(dto.dataLimitGb);
+        if (Number.isNaN(val) || val <= 0) {
+          throw new BadRequestException('حجم البيانات بالجيجابايت يجب أن يكون رقماً موجباً أكبر من الصفر');
+        }
+        newDataLimitBytes = BigInt(Math.round(val * 1024 * 1024 * 1024));
+      }
+    } else if (dto.dataLimitBytes !== undefined) {
+      if (dto.dataLimitBytes === null) {
+        newDataLimitBytes = null;
+      } else {
+        const bVal = Number(dto.dataLimitBytes);
+        if (Number.isNaN(bVal) || bVal < 0) {
+          throw new BadRequestException('حجم البيانات بالبايت يجب أن يكون صفراً أو رقماً موجباً');
+        }
+        newDataLimitBytes = bVal > 0 ? BigInt(dto.dataLimitBytes) : null;
+      }
+    }
+
     const updated = await this.prisma.hotspotProfile.update({
       where: { id: profileId },
       data: {
@@ -371,10 +436,62 @@ export class HotspotService {
         ...(normalizedValidity !== undefined ? { sessionTimeout: normalizedValidity } : {}),
         ...(dto.sharedUsers !== undefined ? { sharedUsers: dto.sharedUsers } : {}),
         ...(dto.addressPool !== undefined ? { addressPool: dto.addressPool } : {}),
+        ...(newDataLimitBytes !== undefined ? { dataLimitBytes: newDataLimitBytes } : {}),
       },
     });
 
-    return updated;
+    if (newDataLimitBytes !== undefined) {
+      await this.prisma.card.updateMany({
+        where: { profileId, status: 'AVAILABLE' },
+        data: { dataLimitBytes: newDataLimitBytes },
+      });
+      await this.prisma.cardBatch.updateMany({
+        where: { profileId },
+        data: { dataLimitBytes: newDataLimitBytes },
+      });
+
+      if (profile.device && profile.device.isOnline) {
+        try {
+          const client = await this.mikrotikClientFactory.getClient({
+            id: profile.device.id,
+            name: profile.device.name,
+            host: profile.device.host,
+            apiPort: profile.device.apiPort,
+            restPort: profile.device.restPort,
+            useSsl: profile.device.useSsl,
+            username: profile.device.username,
+            passwordEncrypted: profile.device.passwordEncrypted,
+            iv: profile.device.iv,
+            authTag: profile.device.authTag,
+            rosVersion: profile.device.rosVersion,
+          });
+
+          const availableCards = await this.prisma.card.findMany({
+            where: { profileId, status: 'AVAILABLE' },
+            select: { username: true },
+            take: 200,
+          });
+
+          for (const card of availableCards) {
+            try {
+              await client.updateHotspotUser(card.username, {
+                limitBytesTotal: newDataLimitBytes ? Number(newDataLimitBytes) : 0,
+              });
+            } catch {
+              // Ignore if card not present on router
+            }
+          }
+        } catch (err) {
+          this.logger.warn(`Could not sync updated card limits to router: ${err}`);
+        }
+      }
+    }
+
+    return {
+      ...updated,
+      dataLimitBytes: updated.dataLimitBytes ? Number(updated.dataLimitBytes) : null,
+      dataLimitGb: updated.dataLimitBytes ? Number(updated.dataLimitBytes) / (1024 * 1024 * 1024) : null,
+    };
   }
 
   async listActiveSessions(

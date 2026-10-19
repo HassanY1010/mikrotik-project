@@ -281,6 +281,7 @@ export class SyncService {
           rateLimit: true,
           sessionTimeout: true,
           sharedUsers: true,
+          dataLimitBytes: true,
           _count: {
             select: {
               cards: { where: { status: CardStatus.AVAILABLE } },
@@ -324,6 +325,10 @@ export class SyncService {
         rateLimit: p.rateLimit,
         sessionTimeout: p.sessionTimeout,
         sharedUsers: p.sharedUsers,
+        dataLimitBytes: p.dataLimitBytes ? Number(p.dataLimitBytes) : null,
+        dataLimitGb: p.dataLimitBytes
+          ? Number((Number(p.dataLimitBytes) / (1024 * 1024 * 1024)).toFixed(2))
+          : null,
         availableCards: p._count?.cards ?? 0,
       })),
       batches: batches.map((b) => ({

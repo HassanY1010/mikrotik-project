@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../pos/presentation/pos_screen.dart';
 
 class FinanceReportsScreen extends ConsumerStatefulWidget {
@@ -41,9 +42,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
     final reportAsync = ref.watch(financialReportProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         title: Row(
           children: [
@@ -58,18 +59,18 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text(
                   'تقارير',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: context.textPrimary,
                   ),
                 ),
                 Text(
                   'بيانات مبيعات حقيقية وتدقيق الأرباح',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                  style: TextStyle(fontSize: 11, color: context.textSecondary),
                 ),
               ],
             ),
@@ -93,7 +94,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
         data: (report) => RefreshIndicator(
           onRefresh: _handleRefreshAndSync,
           color: const Color(0xFF38BDF8),
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: context.bgCard,
           child: _buildReportContent(context, report),
         ),
         loading: () => const Center(
@@ -163,9 +164,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
               margin: const EdgeInsets.only(bottom: 16),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
+                color: context.bgCard,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFF334155)),
+                border: Border.all(color: context.borderColor),
               ),
               child: Row(
                 children: [
@@ -181,15 +182,15 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'لا توجد عمليات بيع مسجلة حتى الآن',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
                         ),
-                        SizedBox(height: 3),
+                        const SizedBox(height: 3),
                         Text(
                           'يمكنك بدء تسجيل المبيعات وطباعة الإيصالات عبر نقطة البيع السريعة.',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                          style: TextStyle(color: context.textSecondary, fontSize: 11),
                         ),
                       ],
                     ),
@@ -265,9 +266,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Row(
               children: [
@@ -388,9 +389,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -398,7 +399,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(title, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w600)),
+              Text(title, style: TextStyle(color: context.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
               Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
@@ -412,7 +413,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
           const SizedBox(height: 8),
           Text(
             amount,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 4),
@@ -449,25 +450,25 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: context.bgCard,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF334155)),
+          border: Border.all(color: context.borderColor),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              children: const [
-                Icon(Icons.auto_graph_rounded, color: Color(0xFF94A3B8), size: 20),
-                SizedBox(width: 8),
+              children: [
+                Icon(Icons.auto_graph_rounded, color: context.textSecondary, size: 20),
+                const SizedBox(width: 8),
                 Text(
                   'التوقعات الذكية للأرباح (Smart Forecast)',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
                 ),
-                Spacer(),
+                const Spacer(),
                 Text(
                   'غير متاح حالياً',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                  style: TextStyle(color: context.textSecondary, fontSize: 11),
                 ),
               ],
             ),
@@ -507,8 +508,10 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF064E3B), Color(0xFF0F172A)],
+        gradient: LinearGradient(
+          colors: context.isDarkMode
+              ? const [Color(0xFF064E3B), Color(0xFF0F172A)]
+              : const [Color(0xFFECFDF5), Color(0xFFD1FAE5)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -522,12 +525,12 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
-                children: const [
-                  Icon(Icons.auto_graph_rounded, color: Color(0xFF34D399), size: 20),
-                  SizedBox(width: 8),
+                children: [
+                  const Icon(Icons.auto_graph_rounded, color: Color(0xFF34D399), size: 20),
+                  const SizedBox(width: 8),
                   Text(
                     'التوقعات الذكية للأرباح (Smart Forecast)',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                 ],
               ),
@@ -552,7 +555,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
             report.forecastMessage.isNotEmpty
                 ? report.forecastMessage
                 : 'بناءً على متوسط الاستهلاك وسرعة بيع الكروت، يتوقع النظام الآتي:',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11, height: 1.4),
+            style: TextStyle(color: context.isDarkMode ? Colors.white.withValues(alpha: 0.85) : const Color(0xFF065F46), fontSize: 11, height: 1.4),
           ),
           const SizedBox(height: 12),
           Row(
@@ -561,14 +564,14 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: context.bgCardAlt,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF1E293B)),
+                    border: Border.all(color: context.borderColor),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('توقع الـ 7 أيام القادمة', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                      Text('توقع الـ 7 أيام القادمة', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                       const SizedBox(height: 4),
                       Text(
                         _formatAmount(report.next7DaysForecast, report.currency),
@@ -583,14 +586,14 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: context.bgCardAlt,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF1E293B)),
+                    border: Border.all(color: context.borderColor),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('توقع الـ 30 يوماً القادمة', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                      Text('توقع الـ 30 يوماً القادمة', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                       const SizedBox(height: 4),
                       Text(
                         _formatAmount(report.next30DaysForecast, report.currency),
@@ -619,7 +622,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
       return Container(
         height: 120,
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: context.bgCard,
           borderRadius: BorderRadius.circular(12),
         ),
         child: const Center(
@@ -643,9 +646,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -656,7 +659,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
               margin: const EdgeInsets.only(bottom: 10),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
+                color: context.bgCardAlt,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: const Color(0xFF38BDF8), width: 0.8),
               ),
@@ -665,7 +668,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                 children: [
                   Text(
                     '${selectedItem['dayName'] ?? ''} (${selectedItem['date']})',
-                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: context.textPrimary, fontSize: 11, fontWeight: FontWeight.bold),
                   ),
                   Text(
                     '${_formatAmount(double.tryParse(selectedItem['amount']?.toString() ?? '0') ?? 0, currency)} • ${selectedItem['count'] ?? 0} مبيعة',
@@ -713,9 +716,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                                 end: Alignment.bottomCenter,
                               )
                             : null,
-                        color: v == 0 ? const Color(0xFF334155).withValues(alpha: 0.3) : null,
+                        color: v == 0 ? context.borderColor.withValues(alpha: 0.3) : null,
                         borderRadius: BorderRadius.circular(3),
-                        border: isSelected ? Border.all(color: Colors.white, width: 1) : null,
+                        border: isSelected ? Border.all(color: context.textPrimary, width: 1) : null,
                       ),
                     ),
                   ),
@@ -747,12 +750,12 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: context.bgCard,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF334155)),
+          border: Border.all(color: context.borderColor),
         ),
-        child: const Center(
-          child: Text('لا توجد باقات تم بيعها حتى الآن في سجلات النظام', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+        child: Center(
+          child: Text('لا توجد باقات تم بيعها حتى الآن في سجلات النظام', style: TextStyle(color: context.textSecondary, fontSize: 12)),
         ),
       );
     }
@@ -768,9 +771,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E293B),
+            color: context.bgCard,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF334155)),
+            border: Border.all(color: context.borderColor),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -789,7 +792,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                         child: const Icon(Icons.wifi, color: Color(0xFF10B981), size: 16),
                       ),
                       const SizedBox(width: 8),
-                      Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text(name, style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
                     ],
                   ),
                   Text(
@@ -802,7 +805,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('$count كرت تم بيعه', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  Text('$count كرت تم بيعه', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                   if (pct > 0)
                     Text('$pct% من إجمالي المبيعات', style: const TextStyle(color: Color(0xFF64748B), fontSize: 10)),
                 ],
@@ -813,7 +816,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
                     value: (pct / 100).clamp(0.0, 1.0),
-                    backgroundColor: const Color(0xFF0F172A),
+                    backgroundColor: context.bgCardAlt,
                     valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
                     minHeight: 4,
                   ),
@@ -831,12 +834,12 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: context.bgCard,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF334155)),
+          border: Border.all(color: context.borderColor),
         ),
-        child: const Center(
-          child: Text('لا توجد مبيعات مقترنة براوترات حتى الآن', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+        child: Center(
+          child: Text('لا توجد مبيعات مقترنة براوترات حتى الآن', style: TextStyle(color: context.textSecondary, fontSize: 12)),
         ),
       );
     }
@@ -852,9 +855,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E293B),
+            color: context.bgCard,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF334155)),
+            border: Border.all(color: context.borderColor),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -873,7 +876,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                         child: const Icon(Icons.router_rounded, color: Color(0xFF38BDF8), size: 16),
                       ),
                       const SizedBox(width: 8),
-                      Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text(name, style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
                     ],
                   ),
                   Text(
@@ -886,7 +889,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('$count عملية بيع مسجلة', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  Text('$count عملية بيع مسجلة', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                   if (pct > 0)
                     Text('$pct% من الإجمالي', style: const TextStyle(color: Color(0xFF64748B), fontSize: 10)),
                 ],
@@ -897,7 +900,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen> {
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
                     value: (pct / 100).clamp(0.0, 1.0),
-                    backgroundColor: const Color(0xFF0F172A),
+                    backgroundColor: context.bgCardAlt,
                     valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
                     minHeight: 4,
                   ),

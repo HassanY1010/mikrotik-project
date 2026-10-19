@@ -1,4 +1,15 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Matches,
+  Max,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { VALIDITY_DURATION_REGEX } from '../../../common/utils/validity-duration.util';
 
@@ -71,4 +82,21 @@ export class CreateProfileDto {
   @IsString()
   @IsOptional()
   deviceId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Data limit in Gigabytes (e.g. 1, 5, 10). If omitted or null, package is unlimited',
+    example: 5,
+  })
+  @IsOptional()
+  @ValidateIf((o) => o.dataLimitGb !== null && o.dataLimitGb !== undefined)
+  @IsNumber({}, { message: 'حجم البيانات يجب أن يكون رقماً' })
+  @IsPositive({ message: 'حجم البيانات بالجيجابايت يجب أن يكون رقماً موجباً أكبر من الصفر' })
+  dataLimitGb?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Data limit in raw bytes. If null or 0, package is unlimited',
+    example: 5368709120,
+  })
+  @IsOptional()
+  dataLimitBytes?: number | string | null;
 }

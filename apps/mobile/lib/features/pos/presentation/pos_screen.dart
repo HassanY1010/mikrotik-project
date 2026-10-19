@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import 'receipt_dialog.dart';
 import '../../../core/utils/validity_helper.dart';
 
@@ -386,12 +387,12 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                   decoration: BoxDecoration(
                     color: isSelected
                         ? const Color(0xFF0D9488).withValues(alpha: 0.18)
-                        : theme.cardTheme.color,
+                        : context.bgCard,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: isSelected
                           ? const Color(0xFF0D9488)
-                          : const Color(0xFF334155),
+                          : context.borderColor,
                       width: isSelected ? 2 : 1,
                     ),
                     boxShadow: isSelected
@@ -418,7 +419,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
-                                color: isSelected ? const Color(0xFF5EEAD4) : Colors.white,
+                                color: isSelected ? const Color(0xFF0D9488) : context.textPrimary,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -436,12 +437,12 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                               decoration: BoxDecoration(
                                 color: availableCount > 0
                                     ? Colors.green.shade800
-                                    : const Color(0xFF334155),
+                                    : context.bgCardAlt,
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 availableCount > 0 ? '$availableCount كرت' : 'مباشر',
-                                style: const TextStyle(fontSize: 10, color: Colors.white),
+                                style: TextStyle(fontSize: 10, color: availableCount > 0 ? Colors.white : context.textSecondary),
                               ),
                             ),
                         ],
@@ -483,21 +484,21 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: theme.cardTheme.color,
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            children: const [
-              Icon(Icons.point_of_sale, size: 20, color: Color(0xFF0D9488)),
-              SizedBox(width: 8),
+            children: [
+              const Icon(Icons.point_of_sale, size: 20, color: Color(0xFF0D9488)),
+              const SizedBox(width: 8),
               Text(
                 'تفاصيل العملية وإتمام البيع',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
             ],
           ),
@@ -507,12 +508,12 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF0F172A),
+              color: context.bgCardAlt,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _selectedProfile != null
                     ? const Color(0xFF0D9488).withValues(alpha: 0.5)
-                    : Colors.white10,
+                    : context.borderColor,
               ),
             ),
             child: Row(
@@ -529,7 +530,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
-                          color: _selectedProfile != null ? Colors.white : Colors.grey,
+                          color: _selectedProfile != null ? context.textPrimary : context.textSecondary,
                         ),
                       ),
                       if (_selectedProfile?.validity != null)
@@ -567,20 +568,20 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'الكمية المطلوبة:',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.textSecondary),
               ),
               Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A),
+                  color: context.bgCardAlt,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  border: Border.all(color: context.borderColor),
                 ),
                 child: Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.remove, size: 18),
+                      icon: Icon(Icons.remove, size: 18, color: context.textPrimary),
                       padding: const EdgeInsets.all(6),
                       constraints: const BoxConstraints(),
                       onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
@@ -589,11 +590,11 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Text(
                         '$_quantity',
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: context.textPrimary),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.add, size: 18),
+                      icon: Icon(Icons.add, size: 18, color: context.textPrimary),
                       padding: const EdgeInsets.all(6),
                       constraints: const BoxConstraints(),
                       onPressed: _quantity < 50 ? () => setState(() => _quantity++) : null,
@@ -606,9 +607,9 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           const SizedBox(height: 14),
 
           // Payment Method Selector
-          const Text(
+          Text(
             'طريقة الدفع',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.textSecondary),
           ),
           const SizedBox(height: 8),
           SegmentedButton<String>(
@@ -638,29 +639,42 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           TextField(
             controller: _customerPhoneController,
             keyboardType: TextInputType.phone,
+            style: TextStyle(color: context.textPrimary),
             decoration: InputDecoration(
               labelText: 'رقم هاتف العميل (اختياري)',
+              labelStyle: TextStyle(color: context.textSecondary),
               hintText: '09xxxxxxxx أو 01xxxxxxxx',
-              prefixIcon: const Icon(Icons.phone_android, size: 20),
+              hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
+              prefixIcon: Icon(Icons.phone_android, size: 20, color: context.textSecondary),
               filled: true,
-              fillColor: const Color(0xFF0F172A),
+              fillColor: context.bgCardAlt,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFF334155)),
+                borderSide: BorderSide(color: context.borderColor),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: context.borderColor),
               ),
             ),
           ),
           const SizedBox(height: 10),
           TextField(
             controller: _customerNameController,
+            style: TextStyle(color: context.textPrimary),
             decoration: InputDecoration(
               labelText: 'اسم العميل (اختياري)',
-              prefixIcon: const Icon(Icons.person_outline, size: 20),
+              labelStyle: TextStyle(color: context.textSecondary),
+              prefixIcon: Icon(Icons.person_outline, size: 20, color: context.textSecondary),
               filled: true,
-              fillColor: const Color(0xFF0F172A),
+              fillColor: context.bgCardAlt,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFF334155)),
+                borderSide: BorderSide(color: context.borderColor),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: context.borderColor),
               ),
             ),
           ),

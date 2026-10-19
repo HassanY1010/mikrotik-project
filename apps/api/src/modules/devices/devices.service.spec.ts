@@ -3,7 +3,12 @@ import { DevicesService } from './devices.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { EncryptionService } from '../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
-import { ForbiddenException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  ConflictException,
+  NotFoundException,
+  BadGatewayException,
+} from '@nestjs/common';
 import { RouterOsVersion } from '@prisma/client';
 
 describe('DevicesService', () => {
@@ -26,6 +31,9 @@ describe('DevicesService', () => {
         create: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
+      },
+      auditLog: {
+        create: jest.fn(),
       },
       $transaction: jest.fn((cb) => (typeof cb === 'function' ? cb(prisma) : Promise.all(cb))),
     };
@@ -329,4 +337,316 @@ describe('DevicesService', () => {
       expect((res as any).passwordEncrypted).toBeUndefined();
     });
   });
+
+  describe('createBackup', () => {
+    it('should throw NotFoundException if device does not exist or belongs to another tenant', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createBackup(mockTenantId, 'non-existent-device', 'my_backup'),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(prisma.mikroTikDevice.findFirst).toHaveBeenCalledWith({
+        where: { id: 'non-existent-device', tenantId: mockTenantId, deletedAt: null },
+      });
+    });
+
+    it('should create backup on MikroTik router and log audit event', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        apiPort: 8728,
+        restPort: 443,
+        useSsl: false,
+        username: 'admin',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+
+      const mockClient = {
+        createBackup: jest.fn().mockResolvedValue({
+          filename: 'my_backup.backup',
+          size: 1048576,
+          creationTime: '2026-10-18 08:30:00',
+        }),
+      };
+      mikrotikClientFactory.getClient.mockResolvedValue(mockClient);
+
+      const result = await service.createBackup(
+        mockTenantId,
+        mockDeviceId,
+        'my_backup',
+        'secret123',
+        'user-1',
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.backup.filename).toBe('my_backup.backup');
+      expect(result.backup.size).toBe(1048576);
+      expect(mockClient.createBackup).toHaveBeenCalledWith('my_backup', 'secret123');
+      expect(prisma.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId: mockTenantId,
+          userId: 'user-1',
+          action: 'ROUTER_BACKUP_CREATED',
+          entity: 'mikrotik_device',
+          entityId: mockDeviceId,
+        }),
+      });
+    });
+
+    it('should throw BadGatewayException if MikroTik router fails to create backup', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        apiPort: 8728,
+        restPort: 443,
+        useSsl: false,
+        username: 'admin',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+
+      const mockClient = {
+        createBackup: jest.fn().mockRejectedValue(new Error('Out of disk space')),
+      };
+      mikrotikClientFactory.getClient.mockResolvedValue(mockClient);
+
+      await expect(
+        service.createBackup(mockTenantId, mockDeviceId, 'fail_backup'),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('listBackups', () => {
+    it('should return list of backup files from router', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        apiPort: 8728,
+        restPort: 443,
+        useSsl: false,
+        username: 'admin',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+
+      const mockClient = {
+        listBackups: jest.fn().mockResolvedValue([
+          { name: 'backup_auto.backup', size: 524288, type: 'backup', creationTime: '2026-10-18' },
+        ]),
+      };
+      mikrotikClientFactory.getClient.mockResolvedValue(mockClient);
+
+      const list = await service.listBackups(mockTenantId, mockDeviceId);
+      expect(list).toHaveLength(1);
+      expect(list[0].name).toBe('backup_auto.backup');
+    });
+  });
+
+  describe('downloadBackup', () => {
+    it('should throw BadRequestException if filename is invalid or contains path traversal', async () => {
+      await expect(
+        service.downloadBackup(mockTenantId, mockDeviceId, '../../etc/passwd'),
+      ).rejects.toThrow();
+
+      await expect(
+        service.downloadBackup(mockTenantId, mockDeviceId, 'shell.sh'),
+      ).rejects.toThrow();
+    });
+
+    it('should throw NotFoundException if device does not belong to tenant', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.downloadBackup(mockTenantId, 'unknown-id', 'valid_file.backup'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should download backup buffer and record audit log', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        apiPort: 8728,
+        restPort: 443,
+        useSsl: false,
+        username: 'admin',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+
+      const fakeBuffer = Buffer.from('MIKROTIK_BACKUP_BINARY_DATA');
+      const mockClient = {
+        downloadBackup: jest.fn().mockResolvedValue(fakeBuffer),
+      };
+      mikrotikClientFactory.getClient.mockResolvedValue(mockClient);
+
+      const result = await service.downloadBackup(
+        mockTenantId,
+        mockDeviceId,
+        'valid_file.backup',
+        'user-admin',
+      );
+
+      expect(result.filename).toBe('valid_file.backup');
+      expect(result.size).toBe(fakeBuffer.length);
+      expect(mockClient.downloadBackup).toHaveBeenCalledWith('valid_file.backup');
+      expect(prisma.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId: mockTenantId,
+          userId: 'user-admin',
+          action: 'ROUTER_BACKUP_DOWNLOADED',
+          entity: 'mikrotik_device',
+          entityId: mockDeviceId,
+        }),
+      });
+    });
+
+    it('should throw BadGatewayException if downloaded buffer is empty (0 bytes)', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        apiPort: 8728,
+        restPort: 443,
+        useSsl: false,
+        username: 'admin',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+      mikrotikClientFactory.getClient.mockResolvedValue({
+        downloadBackup: jest.fn().mockResolvedValue(Buffer.alloc(0)),
+      });
+
+      await expect(
+        service.downloadBackup(mockTenantId, mockDeviceId, 'empty.backup'),
+      ).rejects.toThrow(BadGatewayException);
+    });
+
+    it('should throw BadGatewayException if downloaded buffer size does not match router file size', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        apiPort: 8728,
+        restPort: 443,
+        useSsl: false,
+        username: 'admin',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+      mikrotikClientFactory.getClient.mockResolvedValue({
+        downloadBackup: jest.fn().mockResolvedValue(Buffer.from('truncated_data')), // 14 bytes
+        listBackups: jest.fn().mockResolvedValue([
+          { name: 'mismatch.backup', size: 50000, type: 'backup' },
+        ]),
+      });
+
+      await expect(
+        service.downloadBackup(mockTenantId, mockDeviceId, 'mismatch.backup'),
+      ).rejects.toThrow(BadGatewayException);
+    });
+
+    it('should handle router HTTP 401 unauthorized error', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+      mikrotikClientFactory.getClient.mockResolvedValue({
+        downloadBackup: jest.fn().mockRejectedValue(new Error('HTTP 401 Unauthorized')),
+      });
+
+      await expect(
+        service.downloadBackup(mockTenantId, mockDeviceId, 'auth_fail.backup'),
+      ).rejects.toThrow(BadGatewayException);
+    });
+
+    it('should handle router HTTP 403 forbidden error (lacking sensitive policy)', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+      mikrotikClientFactory.getClient.mockResolvedValue({
+        downloadBackup: jest.fn().mockRejectedValue(new Error('HTTP 403 Forbidden: insufficient permissions')),
+      });
+
+      await expect(
+        service.downloadBackup(mockTenantId, mockDeviceId, 'forbidden.backup'),
+      ).rejects.toThrow(BadGatewayException);
+    });
+
+    it('should handle router HTTP 404 not found error', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+      mikrotikClientFactory.getClient.mockResolvedValue({
+        downloadBackup: jest.fn().mockRejectedValue(new Error('HTTP 404 Not Found')),
+      });
+
+      await expect(
+        service.downloadBackup(mockTenantId, mockDeviceId, 'not_found.backup'),
+      ).rejects.toThrow(BadGatewayException);
+    });
+
+    it('should handle router HTTP 500 internal server error', async () => {
+      const mockDevice = {
+        id: mockDeviceId,
+        tenantId: mockTenantId,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        rosVersion: RouterOsVersion.V7,
+      };
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+      mikrotikClientFactory.getClient.mockResolvedValue({
+        downloadBackup: jest.fn().mockRejectedValue(new Error('HTTP 500 Internal Server Error')),
+      });
+
+      await expect(
+        service.downloadBackup(mockTenantId, mockDeviceId, 'server_err.backup'),
+      ).rejects.toThrow(BadGatewayException);
+    });
+  });
 });
+
+

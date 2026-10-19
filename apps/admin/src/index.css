@@ -49,6 +49,70 @@
   --radius-full: 9999px;
 
   --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --bg-auth-gradient: radial-gradient(ellipse at top, #1e293b 0%, #0b1120 100%);
+}
+
+/* Light Mode Design System Tokens */
+[data-theme='light'] {
+  /* Brand colors tuned for light background contrast */
+  --primary: #0d9488;
+  --primary-hover: #0f766e;
+  --primary-light: rgba(13, 148, 136, 0.12);
+  --accent: #d97706;
+  --accent-hover: #b45309;
+
+  /* Neutral surfaces */
+  --bg-app: #f8fafc;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f1f5f9;
+  --bg-card-alt: #f8fafc;
+  --bg-input: #ffffff;
+  --bg-auth-gradient: radial-gradient(ellipse at top, #f8fafc 0%, #e2e8f0 100%);
+
+  /* Text & Typography */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+
+  /* Borders & Dividers */
+  --border: #e2e8f0;
+  --border-light: #cbd5e1;
+  --border-accent: rgba(13, 148, 136, 0.35);
+
+  /* Elevation & Shadows */
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 15px rgba(13, 148, 136, 0.15);
+
+  /* Status Colors */
+  --success: #059669;
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --warning: #d97706;
+  --warning-bg: rgba(245, 158, 11, 0.12);
+  --danger: #dc2626;
+  --danger-bg: rgba(239, 68, 68, 0.1);
+  --info: #0284c7;
+  --info-bg: rgba(6, 182, 212, 0.1);
+}
+
+[data-theme='light'] .card-glass {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='light'] .table tr:hover td {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme='light'] .btn-outline:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='light'] .modal-overlay {
+  background-color: rgba(15, 23, 42, 0.4);
 }
 
 html {

@@ -80,5 +80,77 @@ void main() {
       final presetValues = validityPresets.map((p) => p['value']).toList();
       expect(presetValues, containsAll(['1m', '15m', '30m', '1h', '3h', '1d', '7d']));
     });
+
+    test('7. Accurately decomposes validity into amount and unit (parseValidityParts)', () {
+      // Minutes
+      final p1 = parseValidityParts('1m');
+      expect(p1.amount, 1);
+      expect(p1.unit, 'm');
+      expect(p1.code, '1m');
+      expect(p1.upperCode, '1M');
+
+      final p15m = parseValidityParts('15M');
+      expect(p15m.amount, 15);
+      expect(p15m.unit, 'm');
+
+      final p30m = parseValidityParts('30m');
+      expect(p30m.amount, 30);
+      expect(p30m.unit, 'm');
+
+      final p50m = parseValidityParts('50m');
+      expect(p50m.amount, 50);
+      expect(p50m.unit, 'm');
+
+      // Hours
+      final p1h = parseValidityParts('1h');
+      expect(p1h.amount, 1);
+      expect(p1h.unit, 'h');
+      expect(p1h.upperCode, '1H');
+
+      final p5h = parseValidityParts('5h');
+      expect(p5h.amount, 5);
+      expect(p5h.unit, 'h');
+
+      final p70h = parseValidityParts('70H');
+      expect(p70h.amount, 70);
+      expect(p70h.unit, 'h');
+
+      // Days
+      final p1d = parseValidityParts('1d');
+      expect(p1d.amount, 1);
+      expect(p1d.unit, 'd');
+      expect(p1d.upperCode, '1D');
+
+      final p7d = parseValidityParts('7d');
+      expect(p7d.amount, 7);
+      expect(p7d.unit, 'd');
+
+      final p30d = parseValidityParts('30D');
+      expect(p30d.amount, 30);
+      expect(p30d.unit, 'd');
+
+      // Legacy week support (e.g. 1w -> 7d)
+      final pLegacy1w = parseValidityParts('1w');
+      expect(pLegacy1w.amount, 7);
+      expect(pLegacy1w.unit, 'd');
+
+      final pLegacy2w = parseValidityParts('2w');
+      expect(pLegacy2w.amount, 14);
+      expect(pLegacy2w.unit, 'd');
+
+      // Fallbacks
+      final pNull = parseValidityParts(null);
+      expect(pNull.amount, 1);
+      expect(pNull.unit, 'd');
+
+      final pEmpty = parseValidityParts('');
+      expect(pEmpty.amount, 1);
+      expect(pEmpty.unit, 'd');
+
+      final pInvalid = parseValidityParts('invalid', defaultAmount: 5, defaultUnit: 'h');
+      expect(pInvalid.amount, 5);
+      expect(pInvalid.unit, 'h');
+    });
   });
 }
+

@@ -7,6 +7,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/services/thermal_printer_service.dart';
+import '../../../core/theme/app_theme.dart';
 
 class ShiftSummaryScreen extends ConsumerStatefulWidget {
   const ShiftSummaryScreen({super.key});
@@ -257,7 +258,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: const [
@@ -278,9 +279,9 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
+                color: context.bgCardAlt,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF334155)),
+                border: Border.all(color: context.borderColor),
               ),
               child: Column(
                 children: [
@@ -318,14 +319,14 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                       Text('${fawryAmount.toStringAsFixed(0)} $currency', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     ],
                   ),
-                  const Divider(height: 16, color: Color(0xFF334155)),
+                  Divider(height: 16, color: context.borderColor),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('إجمالي الإيراد العام:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                       Text(
                         '${totalRevenue.toStringAsFixed(0)} $currency',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary),
                       ),
                     ],
                   ),
@@ -562,7 +563,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(16.0),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1E293B),
+                              color: context.bgCard,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(color: const Color(0xFF0D9488).withValues(alpha: 0.3)),
                             ),
@@ -599,7 +600,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(16.0),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1E293B),
+                              color: context.bgCard,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
                             ),
@@ -637,9 +638,9 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                     Container(
                       padding: const EdgeInsets.all(14.0),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
+                        color: context.bgCard,
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFF334155)),
+                        border: Border.all(color: context.borderColor),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -672,7 +673,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                                 child: Container(
                                   padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF0F172A),
+                                    color: context.bgCardAlt,
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Column(
@@ -681,7 +682,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                                       const SizedBox(height: 4),
                                       Text(
                                         '${cashInDrawer.toStringAsFixed(0)} SDG',
-                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
                                       ),
                                     ],
                                   ),
@@ -692,7 +693,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                                 child: Container(
                                   padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF0F172A),
+                                    color: context.bgCardAlt,
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Column(
@@ -712,7 +713,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                                 child: Container(
                                   padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF0F172A),
+                                    color: context.bgCardAlt,
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Column(
@@ -721,7 +722,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                                       const SizedBox(height: 4),
                                       Text(
                                         '${fawryAmount.toStringAsFixed(0)} SDG',
-                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
                                       ),
                                     ],
                                   ),
@@ -778,15 +779,15 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                       const SizedBox(height: 8),
                       Container(
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
+                          color: context.bgCard,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFF334155)),
+                          border: Border.all(color: context.borderColor),
                         ),
                         child: ListView.separated(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: _serverSummary!.profileBreakdown.length,
-                          separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFF334155)),
+                          separatorBuilder: (_, _) => Divider(height: 1, color: context.borderColor),
                           itemBuilder: (context, index) {
                             final p = _serverSummary!.profileBreakdown[index];
                             return ListTile(
@@ -823,9 +824,9 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                       Container(
                         padding: const EdgeInsets.all(28.0),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
+                          color: context.bgCard,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFF334155)),
+                          border: Border.all(color: context.borderColor),
                         ),
                         child: Center(
                           child: Column(
@@ -852,12 +853,12 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
 
                           return Container(
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1E293B),
+                              color: context.bgCard,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: isLocalOnly
                                     ? Colors.amber.withValues(alpha: 0.3)
-                                    : const Color(0xFF334155),
+                                    : context.borderColor,
                               ),
                             ),
                             child: ListTile(

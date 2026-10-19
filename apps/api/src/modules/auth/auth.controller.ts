@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Body,
   Req,
   Res,
@@ -19,6 +20,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterTenantDto } from './dto/register-tenant.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -155,6 +157,29 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ): Promise<{ success: boolean; message: string }> {
     return this.authService.changePassword(userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('account')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Permanently delete authenticated user account' })
+  @ApiResponse({ status: 200, description: 'Account permanently deleted' })
+  @ApiResponse({ status: 400, description: 'Invalid current password' })
+  @ApiResponse({ status: 409, description: 'Tenant has other active users/staff' })
+  async deleteAccount(
+    @CurrentUser('id') userId: string,
+    @Body() dto: DeleteAccountDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ success: boolean; message: string }> {
+    const result = await this.authService.deleteAccount(userId, dto);
+
+    // Clear refresh cookie
+    res.clearCookie('refresh_token', {
+      path: '/api/v1/auth',
+    });
+
+    return result;
   }
 
   @Public()

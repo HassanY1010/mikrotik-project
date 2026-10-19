@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../studio/presentation/card_studio_screen.dart';
 
 class CardsStoreScreen extends ConsumerStatefulWidget {
@@ -132,15 +133,15 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
-          children: const [
-            Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444), size: 24),
-            SizedBox(width: 8),
+          children: [
+            const Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444), size: 24),
+            const SizedBox(width: 8),
             Text(
               'تأكيد الحذف الجماعي',
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -229,15 +230,15 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: context.bgCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
-            children: const [
-              Icon(Icons.shield_outlined, color: Colors.amber, size: 22),
-              SizedBox(width: 8),
+            children: [
+              const Icon(Icons.shield_outlined, color: Colors.amber, size: 22),
+              const SizedBox(width: 8),
               Text(
                 'حماية السجلات المالية',
-                style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -259,15 +260,15 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
-          children: const [
-            Icon(Icons.delete_outline, color: Color(0xFFEF4444), size: 22),
-            SizedBox(width: 8),
+          children: [
+            const Icon(Icons.delete_outline, color: Color(0xFFEF4444), size: 22),
+            const SizedBox(width: 8),
             Text(
               'حذف الكرت نهائياً',
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -321,7 +322,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
@@ -332,7 +333,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             const SizedBox(width: 8),
             Text(
               actionTitle,
-              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -383,7 +384,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
@@ -435,9 +436,9 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A),
+                  color: context.bgCardAlt,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  border: Border.all(color: context.borderColor),
                 ),
                 child: Column(
                   children: [
@@ -451,7 +452,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                     if (card.clearPassword != null &&
                         card.clearPassword!.isNotEmpty &&
                         card.clearPassword != card.username) ...[
-                      const Divider(color: Color(0xFF1E293B)),
+                      Divider(color: context.borderColor),
                       _buildDetailRow(
                         'كلمة المرور:',
                         card.clearPassword!,
@@ -461,7 +462,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                       ),
                     ],
                     if (card.pinCode != null && card.pinCode!.isNotEmpty) ...[
-                      const Divider(color: Color(0xFF1E293B)),
+                      Divider(color: context.borderColor),
                       _buildDetailRow(
                         'رمز PIN:',
                         card.pinCode!,
@@ -470,31 +471,31 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                         canCopy: true,
                       ),
                     ],
-                    const Divider(color: Color(0xFF1E293B)),
+                    Divider(color: context.borderColor),
                     _buildDetailRow('الباقة:', card.profileName),
-                    const Divider(color: Color(0xFF1E293B)),
+                    Divider(color: context.borderColor),
                     _buildDetailRow('السعر:', '${card.price.toStringAsFixed(0)} SDG', textColor: const Color(0xFF10B981)),
-                    const Divider(color: Color(0xFF1E293B)),
+                    Divider(color: context.borderColor),
                     _buildDetailRow('الرقم التسلسلي:', card.serialNumber, canCopy: true),
                     if (card.batchNumber != null) ...[
-                      const Divider(color: Color(0xFF1E293B)),
+                      Divider(color: context.borderColor),
                       _buildDetailRow('رقم الدفعة:', card.batchNumber!),
                     ],
                     if (card.deviceName != null) ...[
-                      const Divider(color: Color(0xFF1E293B)),
+                      Divider(color: context.borderColor),
                       _buildDetailRow('الراوتر:', card.deviceName!),
                     ],
                     if (card.timeLimit != null) ...[
-                      const Divider(color: Color(0xFF1E293B)),
+                      Divider(color: context.borderColor),
                       _buildDetailRow('مدة الصلاحية:', card.timeLimit!),
                     ],
-                    const Divider(color: Color(0xFF1E293B)),
+                    Divider(color: context.borderColor),
                     _buildDetailRow(
                       'تاريخ التوليد:',
                       DateFormat('yyyy/MM/dd HH:mm').format(card.createdAt),
                     ),
                     if (card.soldAt != null) ...[
-                      const Divider(color: Color(0xFF1E293B)),
+                      Divider(color: context.borderColor),
                       _buildDetailRow(
                         'تاريخ البيع:',
                         DateFormat('yyyy/MM/dd HH:mm').format(card.soldAt!),
@@ -599,13 +600,13 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
     final state = ref.watch(cardsInventoryProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         leading: _isSelectionMode
             ? IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
+                icon: Icon(Icons.close, color: context.textPrimary),
                 onPressed: _toggleSelectionMode,
                 tooltip: 'إلغاء وضع التحديد',
               )
@@ -613,10 +614,10 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
         title: _isSelectionMode
             ? Text(
                 'تم تحديد ${_selectedCardIds.length} كرت',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: context.textPrimary,
                 ),
               )
             : Row(
@@ -632,18 +633,18 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                   const SizedBox(width: 10),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text(
                         'الكروت',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: context.textPrimary,
                         ),
                       ),
                       Text(
                         'إدارة كروت Hotspot، تتبع الحالات، والبحث المتقدم',
-                        style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                        style: TextStyle(fontSize: 11, color: context.textSecondary),
                       ),
                     ],
                   ),
@@ -686,8 +687,8 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
           ? Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
-                border: const Border(top: BorderSide(color: Color(0xFF334155))),
+                color: context.bgCard,
+                border: Border(top: BorderSide(color: context.borderColor)),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.3),
@@ -734,7 +735,7 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
       body: RefreshIndicator(
         onRefresh: () => ref.read(cardsInventoryProvider.notifier).refresh(),
         color: const Color(0xFF38BDF8),
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         child: Column(
           children: [
             // Search Input with Debounce & Clear
@@ -742,26 +743,26 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
               child: TextField(
                 controller: _searchController,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
+                style: TextStyle(color: context.textPrimary, fontSize: 14),
                 decoration: InputDecoration(
                   hintText: 'بحث بالرمز، الرقم التسلسلي، أو الباقة...',
-                  hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                  hintStyle: TextStyle(color: context.textSecondary, fontSize: 13),
                   prefixIcon: const Icon(Icons.search, color: Color(0xFF38BDF8)),
                   suffixIcon: _searchController.text.isNotEmpty
                       ? IconButton(
-                          icon: const Icon(Icons.clear, color: Color(0xFF94A3B8), size: 18),
+                          icon: Icon(Icons.clear, color: context.textSecondary, size: 18),
                           onPressed: _clearSearch,
                         )
                       : null,
                   filled: true,
-                  fillColor: const Color(0xFF1E293B),
+                  fillColor: context.bgCard,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF334155)),
+                    borderSide: BorderSide(color: context.borderColor),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF334155)),
+                    borderSide: BorderSide(color: context.borderColor),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -802,9 +803,9 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                       label: Text('${f['label']!}$countSuffix'),
                       selected: isSelected,
                       selectedColor: const Color(0xFF2563EB),
-                      backgroundColor: const Color(0xFF1E293B),
+                      backgroundColor: context.bgCard,
                       labelStyle: TextStyle(
-                        color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                        color: isSelected ? Colors.white : context.textSecondary,
                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                         fontSize: 12,
                       ),
@@ -821,21 +822,21 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: context.bgCard,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFF334155), width: 0.8),
+                  border: Border.all(color: context.borderColor, width: 0.8),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.filter_list, size: 14, color: Color(0xFF94A3B8)),
+                        Icon(Icons.filter_list, size: 14, color: context.textSecondary),
                         const SizedBox(width: 4),
                         Text(
                           'عدد النتائج: ${state.totalMatching} كرت',
-                          style: const TextStyle(
-                            color: Color(0xFFCBD5E1),
+                          style: TextStyle(
+                            color: context.textPrimary,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -863,8 +864,8 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
 
             // Slim linear loading indicator for background searching
             if (state.isLoading && state.cards.isNotEmpty)
-              const LinearProgressIndicator(
-                backgroundColor: Color(0xFF1E293B),
+              LinearProgressIndicator(
+                backgroundColor: context.bgCardAlt,
                 valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
                 minHeight: 2,
               ),
@@ -951,16 +952,16 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: context.bgCard,
                   shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF334155)),
+                  border: Border.all(color: context.borderColor),
                 ),
                 child: const Icon(Icons.inventory_2_outlined, size: 48, color: Color(0xFF64748B)),
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'لا توجد كروت مسجلة في النظام حتى الآن',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -1116,10 +1117,10 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
         decoration: BoxDecoration(
           color: isSelected
               ? const Color(0xFF1E3A8A).withValues(alpha: 0.35)
-              : const Color(0xFF1E293B),
+              : context.bgCard,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+            color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
             width: isSelected ? 1.5 : 1.0,
           ),
         ),
@@ -1132,8 +1133,8 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                     value: isSelected,
                     onChanged: (_) => _toggleCardSelection(card.id),
                     activeColor: const Color(0xFF38BDF8),
-                    checkColor: const Color(0xFF0F172A),
-                    side: const BorderSide(color: Color(0xFF64748B)),
+                    checkColor: context.bgScaffold,
+                    side: BorderSide(color: context.borderColor),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                   ),
                   const SizedBox(width: 4),
@@ -1248,7 +1249,7 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                         icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
-                        color: const Color(0xFF1E293B),
+                        color: context.bgCard,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         onSelected: (val) {
                           if (val == 'details') {
@@ -1325,9 +1326,9 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
   Widget _buildPaginationBar(CardsInventoryState state) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E293B),
-        border: Border(top: BorderSide(color: Color(0xFF334155), width: 0.8)),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        border: Border(top: BorderSide(color: context.borderColor, width: 0.8)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,

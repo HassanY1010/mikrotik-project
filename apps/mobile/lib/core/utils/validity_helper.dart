@@ -93,3 +93,45 @@ String formatValidityArabic(String? val) {
       return val;
   }
 }
+
+/// Parsed components of a validity duration.
+class ParsedValidity {
+  final int amount;
+  final String unit; // 'm', 'h', 'd'
+
+  const ParsedValidity({required this.amount, required this.unit});
+
+  String get code => '$amount$unit';
+  String get upperCode => '$amount${unit.toUpperCase()}';
+}
+
+/// Parses a validity string into its constituent numeric amount and unit.
+/// Gracefully falls back to defaultAmount and defaultUnit if input is invalid or missing.
+/// Handles legacy 'w' (week) values by converting to days (1w -> 7d).
+ParsedValidity parseValidityParts(String? val, {int defaultAmount = 1, String defaultUnit = 'd'}) {
+  if (val == null || val.trim().isEmpty) {
+    return ParsedValidity(amount: defaultAmount, unit: defaultUnit);
+  }
+  final trimmed = val.trim().toLowerCase();
+
+  // Legacy week support: e.g. '1w' -> 7d, '2w' -> 14d
+  final weekMatch = RegExp(r'^([1-9]\d*)w$').firstMatch(trimmed);
+  if (weekMatch != null) {
+    final weeks = int.tryParse(weekMatch.group(1) ?? '1') ?? 1;
+    return ParsedValidity(amount: weeks * 7, unit: 'd');
+  }
+
+  final match = _validityRegex.firstMatch(trimmed);
+  if (match == null) {
+    return ParsedValidity(amount: defaultAmount, unit: defaultUnit);
+  }
+
+  final amount = int.tryParse(match.group(1) ?? '') ?? defaultAmount;
+  final unit = match.group(2)?.toLowerCase() ?? defaultUnit;
+  if (unit != 'm' && unit != 'h' && unit != 'd') {
+    return ParsedValidity(amount: defaultAmount, unit: defaultUnit);
+  }
+
+  return ParsedValidity(amount: amount, unit: unit);
+}
+

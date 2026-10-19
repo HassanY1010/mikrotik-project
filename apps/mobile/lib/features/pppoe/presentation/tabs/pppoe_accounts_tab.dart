@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/providers.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../dialogs/create_edit_pppoe_account_dialog.dart';
 
 class PppoeAccountsTab extends ConsumerStatefulWidget {
@@ -37,19 +38,22 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('تأكيد $actionText المشترك', style: const TextStyle(color: Colors.white, fontSize: 16)),
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: context.borderColor),
+        ),
+        title: Text('تأكيد $actionText المشترك', style: TextStyle(color: context.textPrimary, fontSize: 16)),
         content: Text(
           willDisable
             ? 'هل أنت متأكد من تعطيل حساب المشترك «${account.username}»؟ سيتم حظر الاتصال وقطع الجلسة النشطة فوراً من الراوتر.'
             : 'هل أنت متأكد من إعادة تفعيل حساب المشترك «${account.username}» على الراوتر؟',
-          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          style: TextStyle(color: context.textSecondary, fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: Text('إلغاء', style: TextStyle(color: context.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -82,17 +86,20 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تأكيد حذف المشترك', style: TextStyle(color: Colors.white, fontSize: 16)),
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: context.borderColor),
+        ),
+        title: Text('تأكيد حذف المشترك', style: TextStyle(color: context.textPrimary, fontSize: 16)),
         content: Text(
           'هل أنت متأكد من رغبتك في حذف حساب المشترك «${account.username}» نهائياً؟ سيتم حذف بياناته من قاعدة البيانات وجدولة إزالة حسابه من الراوتر.',
-          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          style: TextStyle(color: context.textSecondary, fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: Text('إلغاء', style: TextStyle(color: context.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -128,10 +135,10 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showCreateEditDialog(),
         backgroundColor: const Color(0xFF38BDF8),
-        icon: const Icon(Icons.person_add, color: Color(0xFF0F172A)),
+        icon: const Icon(Icons.person_add, color: Colors.white),
         label: const Text(
           'إضافة مشترك',
-          style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold),
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
       body: Column(
@@ -144,20 +151,20 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
+                      color: context.bgCard,
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: const Color(0xFF334155)),
+                      border: Border.all(color: context.borderColor),
                     ),
                     child: TextField(
                       controller: _searchController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: TextStyle(color: context.textPrimary, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: 'بحث باسم المشترك، الهاتف، أو الـ IP...',
-                        hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                        prefixIcon: const Icon(Icons.search, color: Color(0xFF64748B), size: 18),
+                        hintStyle: TextStyle(color: context.textSecondary, fontSize: 12),
+                        prefixIcon: Icon(Icons.search, color: context.textSecondary, size: 18),
                         suffixIcon: _searchQuery.isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.clear, color: Color(0xFF94A3B8), size: 16),
+                                icon: Icon(Icons.clear, color: context.textSecondary, size: 16),
                                 onPressed: () {
                                   _searchController.clear();
                                   setState(() => _searchQuery = '');
@@ -219,8 +226,8 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                       const SizedBox(height: 12),
                       ElevatedButton(
                         onPressed: () => ref.read(pppoeAccountsProvider.notifier).refresh(),
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF334155)),
-                        child: const Text('إعادة المحاولة', style: TextStyle(color: Colors.white)),
+                        style: ElevatedButton.styleFrom(backgroundColor: context.bgCardAlt),
+                        child: Text('إعادة المحاولة', style: TextStyle(color: context.textPrimary)),
                       ),
                     ],
                   ),
@@ -248,18 +255,18 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.people_outline, color: Color(0xFF475569), size: 48),
+                        Icon(Icons.people_outline, color: context.textSecondary, size: 48),
                         const SizedBox(height: 12),
-                        const Text(
+                        Text(
                           'لا يوجد مشتركون مطابقون',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 15, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           _searchQuery.isNotEmpty || _statusFilter != 'ALL'
                               ? 'جرّب تغيير خيارات البحث أو التصفية'
                               : 'انقر على "إضافة مشترك" لإنشاء أول حساب PPPoE',
-                          style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                          style: TextStyle(color: context.textSecondary, fontSize: 12),
                         ),
                       ],
                     ),
@@ -268,7 +275,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
 
                 return RefreshIndicator(
                   color: const Color(0xFF38BDF8),
-                  backgroundColor: const Color(0xFF1E293B),
+                  backgroundColor: context.bgCard,
                   onRefresh: () => ref.read(pppoeAccountsProvider.notifier).refresh(),
                   child: ListView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 6, 16, 80),
@@ -298,16 +305,16 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
         selected: isSelected,
         onSelected: (_) => setState(() => _statusFilter = value),
         selectedColor: const Color(0xFF38BDF8),
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         labelStyle: TextStyle(
-          color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
+          color: isSelected ? Colors.white : context.textSecondary,
           fontSize: 12,
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: BorderSide(
-            color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+            color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
           ),
         ),
       ),
@@ -342,10 +349,10 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isOnline ? const Color(0xFF10B981).withValues(alpha: 0.5) : const Color(0xFF334155),
+          color: isOnline ? const Color(0xFF10B981).withValues(alpha: 0.5) : context.borderColor,
         ),
       ),
       child: Padding(
@@ -382,8 +389,8 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                     children: [
                       Text(
                         acc.username,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: context.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
@@ -392,7 +399,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                       if (acc.customerName != null && acc.customerName!.isNotEmpty)
                         Text(
                           acc.customerName!,
-                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                          style: TextStyle(color: context.textSecondary, fontSize: 12),
                         ),
                     ],
                   ),
@@ -414,11 +421,11 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
 
                 // Actions Menu
                 PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Color(0xFF94A3B8), size: 20),
-                  color: const Color(0xFF1E293B),
+                  icon: Icon(Icons.more_vert, color: context.textSecondary, size: 20),
+                  color: context.bgCard,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: Color(0xFF334155)),
+                    side: BorderSide(color: context.borderColor),
                   ),
                   onSelected: (val) {
                     if (val == 'edit') {
@@ -430,13 +437,13 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                     }
                   },
                   itemBuilder: (ctx) => [
-                    const PopupMenuItem(
+                    PopupMenuItem(
                       value: 'edit',
                       child: Row(
                         children: [
-                          Icon(Icons.edit_outlined, color: Color(0xFF38BDF8), size: 18),
-                          SizedBox(width: 8),
-                          Text('تعديل البيانات', style: TextStyle(color: Colors.white, fontSize: 13)),
+                          const Icon(Icons.edit_outlined, color: Color(0xFF38BDF8), size: 18),
+                          const SizedBox(width: 8),
+                          Text('تعديل البيانات', style: TextStyle(color: context.textPrimary, fontSize: 13)),
                         ],
                       ),
                     ),
@@ -476,7 +483,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
             ),
 
             const SizedBox(height: 10),
-            const Divider(color: Color(0xFF334155), height: 1),
+            Divider(color: context.borderColor, height: 1),
             const SizedBox(height: 10),
 
             // Metadata Row: Profile, Price, Live indicator
@@ -516,19 +523,19 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                 if (acc.staticIp != null && acc.staticIp!.isNotEmpty)
                   Text(
                     'IP: ${acc.staticIp}',
-                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11, fontFamily: 'monospace'),
+                    style: TextStyle(color: context.textSecondary, fontSize: 11, fontFamily: 'monospace'),
                   )
                 else if (acc.customerPhone != null && acc.customerPhone!.isNotEmpty)
                   Text(
                     'هاتف: ${acc.customerPhone}',
-                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                    style: TextStyle(color: context.textSecondary, fontSize: 11),
                   )
                 else
                   const SizedBox.shrink(),
 
                 Text(
                   '${acc.price.toStringAsFixed(0)} ج.س / ${acc.billingCycle == "YEARLY" ? "سنوياً" : "شهرياً"}',
-                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
                 ),
               ],
             ),

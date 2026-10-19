@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers.dart';
+import '../../../../core/theme/app_theme.dart';
 
 class PppoeCommandsTab extends ConsumerStatefulWidget {
   const PppoeCommandsTab({super.key});
@@ -62,7 +63,7 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
     }
   }
 
-  Widget _buildStatusBadge(String status) {
+  Widget _buildStatusBadge(BuildContext context, String status) {
     Color bg;
     Color fg;
     IconData icon;
@@ -100,8 +101,8 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
         text = 'انتهت المهلة';
         break;
       default:
-        bg = const Color(0xFF334155);
-        fg = Colors.white;
+        bg = context.bgCardAlt;
+        fg = context.textPrimary;
         icon = Icons.info_outline;
         text = status;
     }
@@ -140,18 +141,28 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
             padding: const EdgeInsets.all(12),
             margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF0369A1).withValues(alpha: 0.15),
+              color: context.isDarkMode
+                  ? const Color(0xFF0369A1).withValues(alpha: 0.15)
+                  : const Color(0xFFE0F2FE),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+              border: Border.all(
+                color: context.isDarkMode
+                    ? const Color(0xFF0284C7).withValues(alpha: 0.3)
+                    : const Color(0xFFBAE6FD),
+              ),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.info_outline, color: Color(0xFF38BDF8), size: 18),
-                SizedBox(width: 10),
+                const Icon(Icons.info_outline, color: Color(0xFF0284C7), size: 18),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     'تُنفذ عمليات PPPoE عبر وكيل LAN مشفر. لا تُعتبر العملية مكتملة على الراوتر حتى تصبح الحالة COMPLETED.',
-                    style: TextStyle(color: Color(0xFFBAE6FD), fontSize: 11, height: 1.4),
+                    style: TextStyle(
+                      color: context.isDarkMode ? const Color(0xFFBAE6FD) : const Color(0xFF0369A1),
+                      fontSize: 11,
+                      height: 1.4,
+                    ),
                   ),
                 ),
               ],
@@ -166,19 +177,19 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
+                      color: context.bgCard,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF334155)),
+                      border: Border.all(color: context.borderColor),
                     ),
                     child: TextField(
                       controller: _searchIdController,
-                      style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
-                      decoration: const InputDecoration(
+                      style: TextStyle(color: context.textPrimary, fontSize: 12, fontFamily: 'monospace'),
+                      decoration: InputDecoration(
                         hintText: 'ابحث بمعرّف الأمر (Command UUID)...',
-                        hintStyle: TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                        prefixIcon: Icon(Icons.search, color: Color(0xFF64748B), size: 16),
+                        hintStyle: TextStyle(color: context.textSecondary, fontSize: 11),
+                        prefixIcon: Icon(Icons.search, color: context.textSecondary, size: 16),
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
                       onSubmitted: (_) => _handleManualSearch(),
                     ),
@@ -207,16 +218,16 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.terminal, color: Color(0xFF475569), size: 48),
+                        Icon(Icons.terminal, color: context.textSecondary, size: 48),
                         const SizedBox(height: 12),
-                        const Text(
+                        Text(
                           'لم يتم جدولة أوامر راوتر جديدة خلال هذه الجلسة',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: context.textPrimary, fontSize: 14, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
+                        Text(
                           'ستظهر هنا حالة الأوامر عند إنشاء حسابات أو بروفايلات أو فصل جلسات',
-                          style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                          style: TextStyle(color: context.textSecondary, fontSize: 12),
                         ),
                       ],
                     ),
@@ -232,16 +243,16 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
+                          color: context.bgCard,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFF334155)),
+                          border: Border.all(color: context.borderColor),
                         ),
                         child: ExpansionTile(
                           tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                           leading: const Icon(Icons.bolt, color: Color(0xFFF59E0B), size: 22),
                           title: Text(
                             item.description,
-                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
                           ),
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -249,10 +260,10 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
                               const SizedBox(height: 2),
                               Text(
                                 _translateType(item.type),
-                                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                                style: TextStyle(color: context.textSecondary, fontSize: 11),
                               ),
                               const SizedBox(height: 4),
-                              _buildStatusBadge(status),
+                              _buildStatusBadge(context, status),
                             ],
                           ),
                           trailing: IconButton(
@@ -266,7 +277,7 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Divider(color: Color(0xFF334155)),
+                                  Divider(color: context.borderColor),
                                   const SizedBox(height: 6),
 
                                   // Error message if FAILED
@@ -297,14 +308,14 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
                                     ),
 
                                   // Command ID
-                                  _buildDetailRow('معرّف الأمر:', item.commandId),
+                                  _buildDetailRow(context, 'معرّف الأمر:', item.commandId),
                                   if (model?.operationId != null)
-                                    _buildDetailRow('معرّف العملية:', model!.operationId),
-                                  _buildDetailRow('وقت الجدولة:', item.queuedAt.toString().substring(0, 19)),
+                                    _buildDetailRow(context, 'معرّف العملية:', model!.operationId),
+                                  _buildDetailRow(context, 'وقت الجدولة:', item.queuedAt.toString().substring(0, 19)),
                                   if (model?.dispatchedAt != null)
-                                    _buildDetailRow('وقت الإرسال للوكيل:', model!.dispatchedAt!.toString().substring(0, 19)),
+                                    _buildDetailRow(context, 'وقت الإرسال للوكيل:', model!.dispatchedAt!.toString().substring(0, 19)),
                                   if (model?.completedAt != null)
-                                    _buildDetailRow('وقت الاكتمال:', model!.completedAt!.toString().substring(0, 19)),
+                                    _buildDetailRow(context, 'وقت الاكتمال:', model!.completedAt!.toString().substring(0, 19)),
                                 ],
                               ),
                             ),
@@ -319,18 +330,18 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
+  Widget _buildDetailRow(BuildContext context, String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+          Text(label, style: TextStyle(color: context.textSecondary, fontSize: 11)),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11, fontFamily: 'monospace'),
+              style: TextStyle(color: context.textPrimary, fontSize: 11, fontFamily: 'monospace'),
             ),
           ),
         ],

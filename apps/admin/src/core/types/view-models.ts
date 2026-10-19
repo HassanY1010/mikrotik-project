@@ -39,6 +39,7 @@ export interface HotspotProfileItem {
   displayName?: string;
   price: number;
   validity?: string;
+  sessionTimeout?: string;
   rateLimit?: string;
   sharedUsers?: number;
   deviceId?: string;

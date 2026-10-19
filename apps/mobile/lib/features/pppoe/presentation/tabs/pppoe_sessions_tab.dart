@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/providers.dart';
+import '../../../../core/theme/app_theme.dart';
 
 class PppoeSessionsTab extends ConsumerStatefulWidget {
   const PppoeSessionsTab({super.key});
@@ -31,30 +32,31 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: ctx.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تأكيد قطع اتصال الجلسة', style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: Text('تأكيد قطع اتصال الجلسة', style: TextStyle(color: ctx.textPrimary, fontSize: 16)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'هل أنت متأكد من رغبتك في قطع اتصال جلسة المشترك «${session.username}» فوراً من الراوتر؟',
-              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+              style: TextStyle(color: ctx.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
+                color: ctx.bgCardAlt,
                 borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: ctx.borderColor),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('عنوان IP: ${session.ipAddress}', style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontFamily: 'monospace')),
                   const SizedBox(height: 4),
-                  Text('مدة الاتصال: ${session.formattedUptime}', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                  Text('مدة الاتصال: ${session.formattedUptime}', style: TextStyle(color: ctx.textSecondary, fontSize: 12)),
                 ],
               ),
             ),
@@ -63,7 +65,7 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: Text('إلغاء', style: TextStyle(color: ctx.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -102,7 +104,10 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
           // Subheader: Quick stats & Force sync button
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            color: const Color(0xFF1E293B).withValues(alpha: 0.6),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              border: Border(bottom: BorderSide(color: context.borderColor)),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -122,14 +127,14 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
                         const SizedBox(width: 6),
                         Text(
                           'الجلسات الحية: ${sessionsAsync.asData?.value.length ?? 0}',
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                     if (lastSyncTime != null)
                       Text(
                         'آخر استعلام: ${lastSyncTime.hour.toString().padLeft(2, '0')}:${lastSyncTime.minute.toString().padLeft(2, '0')}:${lastSyncTime.second.toString().padLeft(2, '0')}',
-                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                        style: TextStyle(color: context.textSecondary, fontSize: 11),
                       ),
                   ],
                 ),
@@ -178,8 +183,8 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
                       const SizedBox(height: 12),
                       ElevatedButton(
                         onPressed: () => ref.read(pppoeSessionsProvider.notifier).refresh(),
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF334155)),
-                        child: const Text('إعادة المحاولة', style: TextStyle(color: Colors.white)),
+                        style: ElevatedButton.styleFrom(backgroundColor: context.bgCardAlt),
+                        child: Text('إعادة المحاولة', style: TextStyle(color: context.textPrimary)),
                       ),
                     ],
                   ),
@@ -191,16 +196,16 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.router_outlined, color: Color(0xFF475569), size: 48),
+                        Icon(Icons.router_outlined, color: context.textSecondary, size: 48),
                         const SizedBox(height: 12),
-                        const Text(
+                        Text(
                           'لا توجد جلسات PPPoE متصلة حالياً',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 15, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
+                        Text(
                           'اضغط على "مزامنة مباشرة مع الراوتر" لجلب الاتصالات الحية',
-                          style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                          style: TextStyle(color: context.textSecondary, fontSize: 12),
                         ),
                       ],
                     ),
@@ -209,14 +214,14 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
 
                 return RefreshIndicator(
                   color: const Color(0xFF10B981),
-                  backgroundColor: const Color(0xFF1E293B),
+                  backgroundColor: context.bgCard,
                   onRefresh: () => ref.read(pppoeSessionsProvider.notifier).refresh(),
                   child: ListView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                     itemCount: sessions.length,
                     itemBuilder: (context, index) {
                       final s = sessions[index];
-                      return _buildSessionCard(s);
+                      return _buildSessionCard(context, s);
                     },
                   ),
                 );
@@ -228,13 +233,13 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
     );
   }
 
-  Widget _buildSessionCard(PppoeActiveSessionModel s) {
+  Widget _buildSessionCard(BuildContext context, PppoeActiveSessionModel s) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -267,8 +272,8 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
                     children: [
                       Text(
                         s.username,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: context.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
@@ -277,7 +282,7 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
                       if (s.sessionId != null && s.sessionId!.isNotEmpty)
                         Text(
                           'معرّف الجلسة: ${s.sessionId}',
-                          style: const TextStyle(color: Color(0xFF64748B), fontSize: 11, fontFamily: 'monospace'),
+                          style: TextStyle(color: context.textSecondary, fontSize: 11, fontFamily: 'monospace'),
                         ),
                     ],
                   ),
@@ -301,7 +306,7 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
             ),
 
             const SizedBox(height: 10),
-            const Divider(color: Color(0xFF334155), height: 1),
+            Divider(color: context.borderColor, height: 1),
             const SizedBox(height: 10),
 
             // Metadata Grid: IP, Uptime, Bytes In/Out
@@ -323,11 +328,11 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
                 // Uptime
                 Row(
                   children: [
-                    const Icon(Icons.access_time, color: Color(0xFF94A3B8), size: 14),
+                    Icon(Icons.access_time, color: context.textSecondary, size: 14),
                     const SizedBox(width: 4),
                     Text(
                       s.formattedUptime,
-                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      style: TextStyle(color: context.textSecondary, fontSize: 11),
                     ),
                   ],
                 ),
@@ -368,7 +373,7 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
                 if (s.macAddress != null && s.macAddress!.isNotEmpty)
                   Text(
                     s.macAddress!,
-                    style: const TextStyle(color: Color(0xFF64748B), fontSize: 10, fontFamily: 'monospace'),
+                    style: TextStyle(color: context.textSecondary, fontSize: 10, fontFamily: 'monospace'),
                   ),
               ],
             ),

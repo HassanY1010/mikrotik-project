@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/providers.dart';
+import '../../../../core/theme/app_theme.dart';
 
 class CreateEditPppoeAccountDialog extends ConsumerStatefulWidget {
   final PppoeAccountModel? existingAccount;
@@ -149,8 +150,11 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
     }
 
     return Dialog(
-      backgroundColor: const Color(0xFF1E293B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: context.bgCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: context.borderColor),
+      ),
       child: Container(
         constraints: const BoxConstraints(maxWidth: 500),
         padding: const EdgeInsets.all(22),
@@ -176,15 +180,15 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                     Expanded(
                       child: Text(
                         isEditing ? 'تعديل حساب المشترك' : 'إضافة مشترك PPPoE جديد',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: context.textPrimary,
                           fontSize: 17,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Color(0xFF94A3B8), size: 20),
+                      icon: Icon(Icons.close, color: context.textSecondary, size: 20),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                   ],
@@ -222,7 +226,7 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                         controller: _usernameController,
                         readOnly: isEditing,
                         style: TextStyle(
-                          color: isEditing ? const Color(0xFF94A3B8) : Colors.white,
+                          color: isEditing ? context.textSecondary : context.textPrimary,
                           fontSize: 14,
                           fontFamily: 'monospace',
                         ),
@@ -241,8 +245,8 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         initialValue: _selectedProfileId,
-                        dropdownColor: const Color(0xFF1E293B),
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        dropdownColor: context.bgCard,
+                        style: TextStyle(color: context.textPrimary, fontSize: 13),
                         decoration: _buildInputDecoration(
                           label: 'باقة السرعة *',
                           hint: 'اختر الباقة',
@@ -276,31 +280,31 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
-                  style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'monospace'),
+                  style: TextStyle(color: context.textPrimary, fontSize: 14, fontFamily: 'monospace'),
                   decoration: InputDecoration(
                     labelText: isEditing ? 'كلمة المرور (اتركها فارغة للإبقاء عليها)' : 'كلمة المرور *',
-                    labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                    labelStyle: TextStyle(color: context.textSecondary, fontSize: 13),
                     hintText: '••••••••',
-                    hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
-                    prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF64748B), size: 18),
+                    hintStyle: TextStyle(color: context.textSecondary, fontSize: 12),
+                    prefixIcon: Icon(Icons.lock_outline, color: context.textSecondary, size: 18),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                        color: const Color(0xFF64748B),
+                        color: context.textSecondary,
                         size: 18,
                       ),
                       onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                     ),
                     filled: true,
-                    fillColor: const Color(0xFF0F172A),
+                    fillColor: context.bgScaffold,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF334155)),
+                      borderSide: BorderSide(color: context.borderColor),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF334155)),
+                      borderSide: BorderSide(color: context.borderColor),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -377,8 +381,8 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         initialValue: _billingCycle,
-                        dropdownColor: const Color(0xFF1E293B),
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        dropdownColor: context.bgCard,
+                        style: TextStyle(color: context.textPrimary, fontSize: 13),
                         decoration: _buildInputDecoration(
                           label: 'دورة الفوترة',
                           hint: 'شهري',
@@ -398,7 +402,7 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                       child: TextFormField(
                         controller: _priceController,
                         keyboardType: TextInputType.number,
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        style: TextStyle(color: context.textPrimary, fontSize: 14),
                         decoration: _buildInputDecoration(
                           label: 'سعر الاشتراك',
                           hint: '5000',
@@ -421,11 +425,17 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                       builder: (ctx, child) {
                         return Theme(
                           data: Theme.of(ctx).copyWith(
-                            colorScheme: const ColorScheme.dark(
-                              primary: Color(0xFF38BDF8),
-                              surface: Color(0xFF1E293B),
-                              onSurface: Colors.white,
-                            ),
+                            colorScheme: ctx.isDarkMode
+                                ? const ColorScheme.dark(
+                                    primary: Color(0xFF38BDF8),
+                                    surface: Color(0xFF1E293B),
+                                    onSurface: Colors.white,
+                                  )
+                                : const ColorScheme.light(
+                                    primary: Color(0xFF0284C7),
+                                    surface: Colors.white,
+                                    onSurface: Color(0xFF0F172A),
+                                  ),
                           ),
                           child: child!,
                         );
@@ -438,23 +448,23 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0F172A),
+                      color: context.bgScaffold,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF334155)),
+                      border: Border.all(color: context.borderColor),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.event_outlined, color: Color(0xFF64748B), size: 18),
+                            Icon(Icons.event_outlined, color: context.textSecondary, size: 18),
                             const SizedBox(width: 10),
                             Text(
                               _expiresAt != null
                                   ? 'تاريخ انتهاء الصلاحية: ${_expiresAt!.year}/${_expiresAt!.month}/${_expiresAt!.day}'
                                   : 'تاريخ انتهاء الصلاحية: مفتوح / تلقائي',
                               style: TextStyle(
-                                color: _expiresAt != null ? Colors.white : const Color(0xFF94A3B8),
+                                color: _expiresAt != null ? context.textPrimary : context.textSecondary,
                                 fontSize: 13,
                               ),
                             ),
@@ -463,7 +473,7 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                         if (_expiresAt != null)
                           GestureDetector(
                             onTap: () => setState(() => _expiresAt = null),
-                            child: const Icon(Icons.clear, color: Color(0xFF94A3B8), size: 16),
+                            child: Icon(Icons.clear, color: context.textSecondary, size: 16),
                           ),
                       ],
                     ),
@@ -475,7 +485,7 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                 TextFormField(
                   controller: _notesController,
                   maxLines: 2,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: TextStyle(color: context.textPrimary, fontSize: 13),
                   decoration: _buildInputDecoration(
                     label: 'ملاحظات المشترك أو الموقع الجغرافي',
                     hint: 'الخرطوم بحري - مربع 4 - منزل 12...',
@@ -491,11 +501,11 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                       child: OutlinedButton(
                         onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFF475569)),
+                          side: BorderSide(color: context.borderColor),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           padding: const EdgeInsets.symmetric(vertical: 13),
                         ),
-                        child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+                        child: Text('إلغاء', style: TextStyle(color: context.textSecondary)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -516,7 +526,7 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                               )
                             : Text(
                                 isEditing ? 'حفظ التعديلات' : 'إضافة وتفعيل المشترك',
-                                style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold),
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                               ),
                       ),
                     ),
@@ -537,20 +547,20 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
   }) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+      labelStyle: TextStyle(color: context.textSecondary, fontSize: 13),
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
-      prefixIcon: Icon(icon, color: const Color(0xFF64748B), size: 18),
+      hintStyle: TextStyle(color: context.textSecondary, fontSize: 12),
+      prefixIcon: Icon(icon, color: context.textSecondary, size: 18),
       filled: true,
-      fillColor: const Color(0xFF0F172A),
+      fillColor: context.bgScaffold,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF334155)),
+        borderSide: BorderSide(color: context.borderColor),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF334155)),
+        borderSide: BorderSide(color: context.borderColor),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 
 class CreateUserDialog extends ConsumerStatefulWidget {
   const CreateUserDialog({super.key});
@@ -81,7 +82,7 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: context.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -97,10 +98,10 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
             child: const Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF38BDF8), size: 22),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Text(
               'إنشاء مستخدم جديد',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 17),
             ),
           ),
         ],
@@ -114,17 +115,17 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'أدخل بيانات الموظف لمنحه صلاحية الدخول للنظام:',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                  style: TextStyle(color: context.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 14),
 
                 // Full Name
                 TextFormField(
                   controller: _fullNameController,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  decoration: _inputDecoration('الاسم الكامل *', 'مثال: محمد عبد الله', Icons.badge_outlined),
+                  style: TextStyle(color: context.textPrimary, fontSize: 14),
+                  decoration: _inputDecoration(context, 'الاسم الكامل *', 'مثال: محمد عبد الله', Icons.badge_outlined),
                   validator: (v) => v == null || v.trim().length < 2 ? 'الرجاء إدخال الاسم الكامل' : null,
                 ),
                 const SizedBox(height: 12),
@@ -133,8 +134,8 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  decoration: _inputDecoration('البريد الإلكتروني (لتسجيل الدخول) *', 'example@domain.com', Icons.email_outlined),
+                  style: TextStyle(color: context.textPrimary, fontSize: 14),
+                  decoration: _inputDecoration(context, 'البريد الإلكتروني (لتسجيل الدخول) *', 'example@domain.com', Icons.email_outlined),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) return 'الرجاء إدخال البريد الإلكتروني';
                     if (!v.contains('@') || !v.contains('.')) return 'بريد إلكتروني غير صالح';
@@ -147,8 +148,8 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
                 TextFormField(
                   controller: _phoneController,
                   keyboardType: TextInputType.phone,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  decoration: _inputDecoration('رقم الهاتف (اختياري)', '+249 912 345 678', Icons.phone_outlined),
+                  style: TextStyle(color: context.textPrimary, fontSize: 14),
+                  decoration: _inputDecoration(context, 'رقم الهاتف (اختياري)', '+249 912 345 678', Icons.phone_outlined),
                 ),
                 const SizedBox(height: 12),
 
@@ -156,21 +157,21 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: context.bgCardAlt,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF334155)),
+                    border: Border.all(color: context.borderColor),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: _selectedRole,
                       isExpanded: true,
-                      dropdownColor: const Color(0xFF1E293B),
+                      dropdownColor: context.bgCard,
                       items: _roles.map((r) {
                         return DropdownMenuItem<String>(
                           value: r['value'],
                           child: Text(
                             r['label']!,
-                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
                           ),
                         );
                       }).toList(),
@@ -186,25 +187,25 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  style: TextStyle(color: context.textPrimary, fontSize: 14),
                   decoration: InputDecoration(
                     labelText: 'كلمة المرور *',
-                    labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                    labelStyle: TextStyle(color: context.textSecondary, fontSize: 13),
                     hintText: '8 خانات على الأقل',
-                    hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
-                    prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF64748B), size: 20),
+                    hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6), fontSize: 12),
+                    prefixIcon: Icon(Icons.lock_outline, color: context.textSecondary, size: 20),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                        color: const Color(0xFF64748B),
+                        color: context.textSecondary,
                         size: 20,
                       ),
                       onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                     ),
                     filled: true,
-                    fillColor: const Color(0xFF0F172A),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
+                    fillColor: context.bgCardAlt,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
                     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8))),
                   ),
                   validator: (v) {
@@ -221,7 +222,7 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
       actions: [
         TextButton(
           onPressed: _isSubmitting ? null : () => Navigator.pop(context, false),
-          child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+          child: Text('إلغاء', style: TextStyle(color: context.textSecondary)),
         ),
         ElevatedButton(
           onPressed: _isSubmitting ? null : _handleSubmit,
@@ -242,17 +243,17 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
     );
   }
 
-  InputDecoration _inputDecoration(String label, String hint, IconData icon) {
+  InputDecoration _inputDecoration(BuildContext context, String label, String hint, IconData icon) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+      labelStyle: TextStyle(color: context.textSecondary, fontSize: 13),
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
-      prefixIcon: Icon(icon, color: const Color(0xFF64748B), size: 20),
+      hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6), fontSize: 12),
+      prefixIcon: Icon(icon, color: context.textSecondary, size: 20),
       filled: true,
-      fillColor: const Color(0xFF0F172A),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF334155))),
+      fillColor: context.bgCardAlt,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8))),
     );
   }

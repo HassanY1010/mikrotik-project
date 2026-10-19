@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import 'card_template_editor_screen.dart';
 
 class CardTemplatesScreen extends ConsumerStatefulWidget {
@@ -48,12 +49,12 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تأكيد الحذف', style: TextStyle(color: Colors.white, fontSize: 16)),
-        content: Text('هل أنت متأكد من حذف القالب «${tpl.name}»؟ لا يمكن التراجع عن هذه العملية.', style: const TextStyle(color: Color(0xFF94A3B8))),
+        title: Text('تأكيد الحذف', style: TextStyle(color: context.textPrimary, fontSize: 16)),
+        content: Text('هل أنت متأكد من حذف القالب «${tpl.name}»؟ لا يمكن التراجع عن هذه العملية.', style: TextStyle(color: context.textSecondary)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8)))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء', style: TextStyle(color: context.textSecondary))),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
@@ -93,9 +94,9 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
     final templatesAsync = ref.watch(cardTemplatesProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         title: const Text(
           'قوالب طباعة الكروت الجاهزة',
@@ -114,9 +115,9 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
           // Top Action Button
           Container(
             padding: const EdgeInsets.all(14),
-            decoration: const BoxDecoration(
-              color: Color(0xFF1E293B),
-              border: Border(bottom: BorderSide(color: Color(0xFF334155))),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              border: Border(bottom: BorderSide(color: context.borderColor)),
             ),
             child: SizedBox(
               width: double.infinity,
@@ -195,10 +196,10 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                     return Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
+                        color: context.bgCard,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: tpl.isDefault ? const Color(0xFF10B981) : const Color(0xFF334155),
+                          color: tpl.isDefault ? const Color(0xFF10B981) : context.borderColor,
                           width: tpl.isDefault ? 1.5 : 1,
                         ),
                       ),
@@ -231,8 +232,8 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                           Flexible(
                                             child: Text(
                                               tpl.name,
-                                              style: const TextStyle(
-                                                color: Colors.white,
+                                              style: TextStyle(
+                                                color: context.textPrimary,
                                                 fontWeight: FontWeight.bold,
                                                 fontSize: 15,
                                               ),
@@ -259,7 +260,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                       const SizedBox(height: 4),
                                       Text(
                                         'الأبعاد: ${tpl.widthMm}x${tpl.heightMm} مم • الشبكة: ${tpl.networkName}',
-                                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                                        style: TextStyle(color: context.textSecondary, fontSize: 12),
                                       ),
                                     ],
                                   ),
@@ -268,7 +269,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                             ),
                           ),
 
-                          const Divider(color: Color(0xFF334155), height: 1),
+                          Divider(color: context.borderColor, height: 1),
 
                           // Actions Row
                           Padding(

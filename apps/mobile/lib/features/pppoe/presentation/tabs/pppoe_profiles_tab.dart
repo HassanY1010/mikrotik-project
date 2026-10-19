@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/providers.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../dialogs/create_edit_pppoe_profile_dialog.dart';
 
 class PppoeProfilesTab extends ConsumerStatefulWidget {
@@ -36,18 +37,18 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: ctx.bgCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('تعذر حذف البروفايل', style: TextStyle(color: Colors.white, fontSize: 16)),
+          title: Text('تعذر حذف البروفايل', style: TextStyle(color: ctx.textPrimary, fontSize: 16)),
           content: Text(
             'لا يمكن حذف البروفايل «${profile.name}» لوجود (${profile.accountsCount}) مشتركين مرتبطين به حالياً. يرجى نقل المشتركين أو حذفهم أولاً.',
-            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+            style: TextStyle(color: ctx.textSecondary, fontSize: 13),
           ),
           actions: [
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF334155)),
-              child: const Text('حسناً', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(backgroundColor: ctx.bgCardAlt),
+              child: Text('حسناً', style: TextStyle(color: ctx.textPrimary)),
             ),
           ],
         ),
@@ -58,17 +59,17 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: ctx.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تأكيد حذف البروفايل', style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: Text('تأكيد حذف البروفايل', style: TextStyle(color: ctx.textPrimary, fontSize: 16)),
         content: Text(
           'هل أنت متأكد من حذف بروفايل السرعة «${profile.name}»؟ سيتم حذفه من قاعدة البيانات.',
-          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          style: TextStyle(color: ctx.textSecondary, fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: Text('إلغاء', style: TextStyle(color: ctx.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -126,8 +127,8 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
                 const SizedBox(height: 12),
                 ElevatedButton(
                   onPressed: () => ref.read(pppoeProfilesProvider.notifier).refresh(),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF334155)),
-                  child: const Text('إعادة المحاولة', style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(backgroundColor: context.bgCardAlt),
+                  child: Text('إعادة المحاولة', style: TextStyle(color: context.textPrimary)),
                 ),
               ],
             ),
@@ -139,16 +140,16 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.layers_outlined, color: Color(0xFF475569), size: 48),
+                  Icon(Icons.layers_outlined, color: context.textSecondary, size: 48),
                   const SizedBox(height: 12),
-                  const Text(
+                  Text(
                     'لا توجد بروفايلات PPPoE مضافة',
-                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 15, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
+                  Text(
                     'انقر على "إضافة بروفايل" لإنشاء باقة سرعة ومزامنتها على الراوتر',
-                    style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                    style: TextStyle(color: context.textSecondary, fontSize: 12),
                   ),
                 ],
               ),
@@ -157,14 +158,14 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
 
           return RefreshIndicator(
             color: const Color(0xFF06B6D4),
-            backgroundColor: const Color(0xFF1E293B),
+            backgroundColor: context.bgCard,
             onRefresh: () => ref.read(pppoeProfilesProvider.notifier).refresh(),
             child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
               itemCount: profiles.length,
               itemBuilder: (context, index) {
                 final p = profiles[index];
-                return _buildProfileCard(p);
+                return _buildProfileCard(context, p);
               },
             ),
           );
@@ -173,13 +174,13 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
     );
   }
 
-  Widget _buildProfileCard(PppoeProfileModel p) {
+  Widget _buildProfileCard(BuildContext context, PppoeProfileModel p) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -204,8 +205,8 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
                     children: [
                       Text(
                         p.name,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: context.textPrimary,
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
@@ -213,7 +214,7 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
                       if (p.description != null && p.description!.isNotEmpty)
                         Text(
                           p.description!,
-                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                          style: TextStyle(color: context.textSecondary, fontSize: 12),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -225,7 +226,7 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF334155),
+                    color: context.bgCardAlt,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
@@ -235,7 +236,7 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
                       const SizedBox(width: 4),
                       Text(
                         '${p.accountsCount}',
-                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -245,11 +246,11 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
 
                 // Actions Menu
                 PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Color(0xFF94A3B8), size: 20),
-                  color: const Color(0xFF1E293B),
+                  icon: Icon(Icons.more_vert, color: context.textSecondary, size: 20),
+                  color: context.bgCard,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: Color(0xFF334155)),
+                    side: BorderSide(color: context.borderColor),
                   ),
                   onSelected: (val) {
                     if (val == 'edit') {
@@ -261,13 +262,13 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
                     }
                   },
                   itemBuilder: (ctx) => [
-                    const PopupMenuItem(
+                    PopupMenuItem(
                       value: 'edit',
                       child: Row(
                         children: [
-                          Icon(Icons.edit_outlined, color: Color(0xFF38BDF8), size: 18),
-                          SizedBox(width: 8),
-                          Text('تعديل الإعدادات', style: TextStyle(color: Colors.white, fontSize: 13)),
+                          const Icon(Icons.edit_outlined, color: Color(0xFF38BDF8), size: 18),
+                          const SizedBox(width: 8),
+                          Text('تعديل الإعدادات', style: TextStyle(color: ctx.textPrimary, fontSize: 13)),
                         ],
                       ),
                     ),
@@ -303,7 +304,7 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
             ),
 
             const SizedBox(height: 12),
-            const Divider(color: Color(0xFF334155), height: 1),
+            Divider(color: context.borderColor, height: 1),
             const SizedBox(height: 12),
 
             // Speed limit & Price
@@ -327,8 +328,8 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
                 ),
                 Text(
                   '${p.price.toStringAsFixed(0)} ج.س / شهر',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: context.textPrimary,
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                   ),
@@ -344,11 +345,11 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
               runSpacing: 4,
               children: [
                 if (p.localAddress != null && p.localAddress!.isNotEmpty)
-                  _buildTag('بوابة: ${p.localAddress}'),
+                  _buildTag(context, 'بوابة: ${p.localAddress}'),
                 if (p.remoteAddress != null && p.remoteAddress!.isNotEmpty)
-                  _buildTag('مسبح: ${p.remoteAddress}'),
+                  _buildTag(context, 'مسبح: ${p.remoteAddress}'),
                 if (p.onlyOne)
-                  _buildTag('جلسة أحادية (Only-One)'),
+                  _buildTag(context, 'جلسة أحادية (Only-One)'),
               ],
             ),
           ],
@@ -357,17 +358,17 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
     );
   }
 
-  Widget _buildTag(String text) {
+  Widget _buildTag(BuildContext context, String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
+        color: context.bgCardAlt,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFF334155)),
+        border: Border.all(color: context.borderColor),
       ),
       child: Text(
         text,
-        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11, fontFamily: 'monospace'),
+        style: TextStyle(color: context.textSecondary, fontSize: 11, fontFamily: 'monospace'),
       ),
     );
   }

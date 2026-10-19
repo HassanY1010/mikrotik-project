@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../dashboard/presentation/dashboard_screen.dart';
 import '../../inventory/presentation/cards_store_screen.dart';
 import '../../studio/presentation/card_studio_screen.dart';
@@ -47,11 +48,11 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       context: context,
       barrierDismissible: true,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 16,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
-          side: const BorderSide(color: Color(0xFF334155), width: 1.5),
+          side: BorderSide(color: context.borderColor, width: 1.5),
         ),
         titlePadding: const EdgeInsets.fromLTRB(20, 22, 20, 10),
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -75,11 +76,11 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            const Expanded(
+            Expanded(
               child: Text(
                 'تسجيل الخروج',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: context.textPrimary,
                   fontWeight: FontWeight.bold,
                   fontSize: 18,
                 ),
@@ -87,10 +88,10 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
           ],
         ),
-        content: const Text(
+        content: Text(
           'هل أنت متأكد من رغبتك في تسجيل الخروج؟ سيتم حفظ كافة العمليات المحلية غير المتزامنة بأمان على هذا الجهاز.',
           style: TextStyle(
-            color: Color(0xFF94A3B8),
+            color: context.textSecondary,
             fontSize: 13,
             height: 1.5,
           ),
@@ -102,16 +103,16 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                 child: OutlinedButton(
                   onPressed: () => Navigator.pop(ctx, false),
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFF475569)),
+                    side: BorderSide(color: context.borderColor),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'إلغاء',
                     style: TextStyle(
-                      color: Color(0xFFCBD5E1),
+                      color: context.textSecondary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -173,6 +174,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         onOpenPppoe: () => _pushScreen(const PppoeManagementScreen()),
         onOpenUserProfile: () => _pushScreen(const UserProfileScreen()),
         onOpenTenantUsers: () => _pushScreen(const TenantUsersScreen()),
+        onOpenPortalDesigner: () => _pushScreen(const HotspotPortalDesignerScreen()),
       ),
       const CardsStoreScreen(),
       CardStudioScreen(
@@ -184,9 +186,9 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       drawer: Drawer(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
@@ -198,23 +200,36 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               child: UserAccountsDrawerHeader(
                 accountName: Text(
                   user?.fullName ?? 'مدير المنظومة',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: context.textPrimary),
                 ),
                 accountEmail: Text(
                   user?.email ?? 'admin@sudafi.net',
-                  style: const TextStyle(color: Color(0xFF94A3B8)),
+                  style: TextStyle(color: context.textSecondary),
                 ),
                 currentAccountPicture: const CircleAvatar(
                   backgroundColor: Color(0xFF2563EB),
                   child: Icon(Icons.person, color: Colors.white, size: 36),
                 ),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF0F172A),
-                  border: Border(bottom: BorderSide(color: Color(0xFF334155))),
+                decoration: BoxDecoration(
+                  color: context.isDarkMode ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                  border: Border(bottom: BorderSide(color: context.borderColor)),
                 ),
                 otherAccountsPictures: [
                   IconButton(
-                    icon: const Icon(Icons.settings, color: Color(0xFF94A3B8), size: 20),
+                    icon: Icon(
+                      ref.watch(themeModeProvider) == ThemeMode.light
+                          ? Icons.dark_mode_outlined
+                          : Icons.light_mode_outlined,
+                      color: const Color(0xFFF59E0B),
+                      size: 20,
+                    ),
+                    tooltip: 'تبديل المظهر',
+                    onPressed: () {
+                      ref.read(themeModeProvider.notifier).toggleTheme();
+                    },
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.settings, color: context.textSecondary, size: 20),
                     tooltip: 'حسابي',
                     onPressed: () {
                       Navigator.pop(context);
@@ -224,9 +239,66 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                 ],
               ),
             ),
+
+            // Quick Theme Switcher Tile
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: context.isDarkMode
+                    ? const Color(0xFF0F172A).withValues(alpha: 0.6)
+                    : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: context.borderColor),
+              ),
+              child: ListTile(
+                dense: true,
+                leading: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: (ref.watch(themeModeProvider) == ThemeMode.light
+                            ? const Color(0xFFF59E0B)
+                            : const Color(0xFF38BDF8))
+                        .withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    ref.watch(themeModeProvider) == ThemeMode.light
+                        ? Icons.light_mode
+                        : Icons.dark_mode,
+                    color: ref.watch(themeModeProvider) == ThemeMode.light
+                        ? const Color(0xFFF59E0B)
+                        : const Color(0xFF38BDF8),
+                    size: 18,
+                  ),
+                ),
+                title: Text(
+                  ref.watch(themeModeProvider) == ThemeMode.light ? 'الوضع الفاتح' : 'الوضع الداكن',
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                subtitle: Text(
+                  'انقر للتبديل الفوري بين المظهرين',
+                  style: TextStyle(color: context.textSecondary, fontSize: 10),
+                ),
+                trailing: Switch(
+                  value: ref.watch(themeModeProvider) == ThemeMode.light,
+                  activeThumbColor: const Color(0xFF0D9488),
+                  onChanged: (_) {
+                    ref.read(themeModeProvider.notifier).toggleTheme();
+                  },
+                ),
+                onTap: () {
+                  ref.read(themeModeProvider.notifier).toggleTheme();
+                },
+              ),
+            ),
+            Divider(color: context.borderColor),
             ListTile(
               leading: const Icon(Icons.dashboard_outlined, color: Color(0xFF38BDF8)),
-              title: const Text('لوحة التحكم الرئيسية', style: TextStyle(color: Colors.white)),
+              title: Text('لوحة التحكم الرئيسية', style: TextStyle(color: context.textPrimary)),
               selected: _currentIndex == 0,
               onTap: () {
                 _navigateToTab(0);
@@ -235,7 +307,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.inventory_2_outlined, color: Color(0xFF60A5FA)),
-              title: const Text('الكروت', style: TextStyle(color: Colors.white)),
+              title: Text('الكروت', style: TextStyle(color: context.textPrimary)),
               selected: _currentIndex == 1,
               onTap: () {
                 _navigateToTab(1);
@@ -244,7 +316,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.auto_awesome_outlined, color: Color(0xFFA78BFA)),
-              title: const Text('إنشاء كروت', style: TextStyle(color: Colors.white)),
+              title: Text('إنشاء كروت', style: TextStyle(color: context.textPrimary)),
               selected: _currentIndex == 2,
               onTap: () {
                 _navigateToTab(2);
@@ -253,7 +325,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.radar_outlined, color: Color(0xFF22D3EE)),
-              title: const Text('رادار المستخدمين المتصلين', style: TextStyle(color: Colors.white)),
+              title: Text('رادار المستخدمين المتصلين', style: TextStyle(color: context.textPrimary)),
               selected: _currentIndex == 3,
               onTap: () {
                 _navigateToTab(3);
@@ -262,18 +334,18 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.bar_chart_outlined, color: Color(0xFFFBBF24)),
-              title: const Text('التقارير', style: TextStyle(color: Colors.white)),
+              title: Text('التقارير', style: TextStyle(color: context.textPrimary)),
               selected: _currentIndex == 4,
               onTap: () {
                 _navigateToTab(4);
                 Navigator.pop(context);
               },
             ),
-            const Divider(color: Color(0xFF334155)),
+            Divider(color: context.borderColor),
             // Offline tools
             ListTile(
               leading: const Icon(Icons.wallet, color: Color(0xFF14B8A6)),
-              title: const Text('محفظة الكروت غير المتصلة', style: TextStyle(color: Colors.white)),
+              title: Text('محفظة الكروت غير المتصلة', style: TextStyle(color: context.textPrimary)),
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const CardsWalletScreen());
@@ -281,7 +353,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.sync, color: Color(0xFFF97316)),
-              title: const Text('مركز المزامنة', style: TextStyle(color: Colors.white)),
+              title: Text('مركز المزامنة', style: TextStyle(color: context.textPrimary)),
               trailing: pendingCount > 0
                   ? Badge(label: Text('$pendingCount'))
                   : null,
@@ -292,16 +364,16 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.settings_input_antenna, color: Color(0xFF6366F1)),
-              title: const Text('إعداد وربط الراوتر', style: TextStyle(color: Colors.white)),
+              title: Text('إعداد وربط الراوتر', style: TextStyle(color: context.textPrimary)),
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const RouterSetupScreen());
               },
             ),
-            const Divider(color: Color(0xFF334155)),
+            Divider(color: context.borderColor),
             ListTile(
               leading: const Icon(Icons.palette_outlined, color: Color(0xFFA855F7)),
-              title: const Text('قوالب الطباعة وتصميم الكروت', style: TextStyle(color: Colors.white)),
+              title: Text('قوالب الطباعة وتصميم الكروت', style: TextStyle(color: context.textPrimary)),
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const CardTemplatesScreen());
@@ -309,7 +381,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.speed, color: Color(0xFFF59E0B)),
-              title: const Text('بروفايلات', style: TextStyle(color: Colors.white)),
+              title: Text('بروفايلات', style: TextStyle(color: context.textPrimary)),
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const HotspotProfilesScreen());
@@ -317,7 +389,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.palette, color: Color(0xFF0EA5E9)),
-              title: const Text('مصمم صفحات HotSpot', style: TextStyle(color: Colors.white)),
+              title: Text('مصمم صفحات HotSpot', style: TextStyle(color: context.textPrimary)),
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const HotspotPortalDesignerScreen());
@@ -325,7 +397,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.settings_ethernet, color: Color(0xFF06B6D4)),
-              title: const Text('اشتراكات النطاق العريض (PPPoE)', style: TextStyle(color: Colors.white)),
+              title: Text('اشتراكات النطاق العريض (PPPoE)', style: TextStyle(color: context.textPrimary)),
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const PppoeManagementScreen());
@@ -333,13 +405,13 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.person_pin_outlined, color: Color(0xFF38BDF8)),
-              title: const Text('حسابي وإعدادات الأمان', style: TextStyle(color: Colors.white)),
+              title: Text('حسابي وإعدادات الأمان', style: TextStyle(color: context.textPrimary)),
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const UserProfileScreen());
               },
             ),
-            const Divider(color: Color(0xFF334155)),
+            Divider(color: context.borderColor),
             const SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -420,58 +492,36 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         index: _currentIndex,
         children: screens,
       ),
-      bottomNavigationBar: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          backgroundColor: const Color(0xFF1E293B),
-          indicatorColor: const Color(0xFF2563EB).withValues(alpha: 0.3),
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return const TextStyle(
-                color: Color(0xFF38BDF8),
-                fontWeight: FontWeight.bold,
-                fontSize: 11,
-              );
-            }
-            return const TextStyle(color: Color(0xFF94A3B8), fontSize: 11);
-          }),
-          iconTheme: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return const IconThemeData(color: Color(0xFF38BDF8), size: 24);
-            }
-            return const IconThemeData(color: Color(0xFF94A3B8), size: 22);
-          }),
-        ),
-        child: NavigationBar(
-          selectedIndex: _currentIndex,
-          onDestinationSelected: _navigateToTab,
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined),
-              selectedIcon: Icon(Icons.dashboard),
-              label: 'الرئيسية',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.inventory_2_outlined),
-              selectedIcon: Icon(Icons.inventory_2),
-              label: 'الكروت',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.auto_awesome_outlined),
-              selectedIcon: Icon(Icons.auto_awesome),
-              label: 'إنشاء كروت',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.radar_outlined),
-              selectedIcon: Icon(Icons.radar),
-              label: 'الرادار',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.bar_chart_outlined),
-              selectedIcon: Icon(Icons.bar_chart),
-              label: 'تقارير',
-            ),
-          ],
-        ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: _navigateToTab,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: 'الرئيسية',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.inventory_2_outlined),
+            selectedIcon: Icon(Icons.inventory_2),
+            label: 'الكروت',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.auto_awesome_outlined),
+            selectedIcon: Icon(Icons.auto_awesome),
+            label: 'إنشاء كروت',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.radar_outlined),
+            selectedIcon: Icon(Icons.radar),
+            label: 'الرادار',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart),
+            label: 'تقارير',
+          ),
+        ],
       ),
     );
   }

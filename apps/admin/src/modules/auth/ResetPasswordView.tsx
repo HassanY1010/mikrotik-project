@@ -9,9 +9,12 @@ import {
   CheckCircle2,
   AlertCircle,
   Key,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { apiClient } from '../../core/api/api-client';
 import { useToast } from '../../core/context/ToastContext';
+import { useTheme } from '../../core/context/ThemeContext';
 
 interface ResetPasswordViewProps {
   onBackToLogin: () => void;
@@ -26,6 +29,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
   initialToken = '',
 }) => {
   const { showToast } = useToast();
+  const { isDark, toggleTheme } = useTheme();
   const [email, setEmail] = useState(initialEmail);
   const [token] = useState(initialToken);
   const [newPassword, setNewPassword] = useState('');
@@ -98,14 +102,31 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
   return (
     <div
       style={{
+        position: 'relative',
         minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '1.5rem',
-        background: 'radial-gradient(ellipse at top, #1e293b 0%, #0b1120 100%)',
+        background: 'var(--bg-auth-gradient)',
       }}
     >
+      {/* Theme Toggle Button */}
+      <div style={{ position: 'absolute', top: '1.5rem', left: '1.5rem', zIndex: 10 }}>
+        <button
+          type="button"
+          className="btn btn-outline btn-icon"
+          onClick={toggleTheme}
+          title={isDark ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'}
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            borderColor: 'var(--border)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          {isDark ? <Sun size={18} color="var(--accent)" /> : <Moon size={18} color="var(--primary)" />}
+        </button>
+      </div>
       <div
         className="card card-glass"
         style={{

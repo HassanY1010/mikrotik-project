@@ -142,8 +142,23 @@ class HotspotProfileModel {
   final String? deviceName;
   final double price;
   final String? validity;
+  final String? sessionTimeout;
   final String? rateLimit;
   final int availableCards;
+  final int? dataLimitBytes;
+  final double? dataLimitGb;
+
+  bool get isUnlimited =>
+      (dataLimitBytes == null || dataLimitBytes == 0) &&
+      (dataLimitGb == null || dataLimitGb == 0);
+
+  double? get quotaGb {
+    if (dataLimitGb != null && dataLimitGb! > 0) return dataLimitGb;
+    if (dataLimitBytes != null && dataLimitBytes! > 0) {
+      return dataLimitBytes! / (1024 * 1024 * 1024);
+    }
+    return null;
+  }
 
   HotspotProfileModel({
     required this.id,
@@ -153,8 +168,11 @@ class HotspotProfileModel {
     this.deviceName,
     required this.price,
     this.validity,
+    this.sessionTimeout,
     this.rateLimit,
     this.availableCards = 0,
+    this.dataLimitBytes,
+    this.dataLimitGb,
   });
 
   factory HotspotProfileModel.fromJson(Map<String, dynamic> json) {
@@ -179,6 +197,12 @@ class HotspotProfileModel {
       }
     }
 
+    final rawBytes = (json['dataLimitBytes'] as num?)?.toInt();
+    final rawGb = (json['dataLimitGb'] as num?)?.toDouble() ??
+        (rawBytes != null && rawBytes > 0
+            ? rawBytes / (1024 * 1024 * 1024)
+            : null);
+
     return HotspotProfileModel(
       id: json['id'] as String,
       name: rawName,
@@ -187,8 +211,11 @@ class HotspotProfileModel {
       deviceName: json['device']?['name'] as String?,
       price: rawPrice > 0 ? rawPrice : 200.0,
       validity: json['validity'] as String? ?? json['sessionTimeout'] as String?,
+      sessionTimeout: json['sessionTimeout'] as String? ?? json['validity'] as String?,
       rateLimit: json['rateLimit'] as String?,
       availableCards: (json['availableCards'] as num?)?.toInt() ?? 0,
+      dataLimitBytes: rawBytes,
+      dataLimitGb: rawGb,
     );
   }
 
@@ -200,8 +227,11 @@ class HotspotProfileModel {
     'deviceName': deviceName,
     'price': price,
     'validity': validity,
+    'sessionTimeout': sessionTimeout,
     'rateLimit': rateLimit,
     'availableCards': availableCards,
+    'dataLimitBytes': dataLimitBytes,
+    'dataLimitGb': dataLimitGb,
   };
 }
 
@@ -841,6 +871,28 @@ class RouterDeviceModel {
       antiTetheringEnabled: antiTetheringEnabled ?? this.antiTetheringEnabled,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'host': host,
+    'apiPort': apiPort,
+    'restPort': restPort,
+    'useSsl': useSsl,
+    'username': username,
+    'rosVersion': rosVersion,
+    'isOnline': isOnline,
+    'status': status,
+    'cpuLoad': cpuLoad,
+    'memoryFreeMb': memoryFreeMb,
+    'memoryTotalMb': memoryTotalMb,
+    'diskFreeMb': diskFreeMb,
+    'diskTotalMb': diskTotalMb,
+    'uptime': uptime,
+    'modelName': modelName,
+    'isLocked': isLocked,
+    'antiTetheringEnabled': antiTetheringEnabled,
+  };
 }
 
 /// Hotspot Active Session model (Radar)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' as intl;
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../cards/presentation/cards_wallet_screen.dart';
 
 class SyncScreen extends ConsumerStatefulWidget {
@@ -181,7 +182,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(14.0),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
+                          color: context.bgCard,
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: _isCheckingHealth
@@ -242,12 +243,12 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(14.0),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
+                          color: context.bgCard,
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: localReadyCount > 0
                                 ? const Color(0xFF0D9488).withValues(alpha: 0.4)
-                                : const Color(0xFF334155),
+                                : context.borderColor,
                           ),
                         ),
                         child: Column(
@@ -303,9 +304,9 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
               Container(
                 padding: const EdgeInsets.all(16.0),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: context.bgCard,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  border: Border.all(color: context.borderColor),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -367,7 +368,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF0F172A),
+                              color: context.bgCardAlt,
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Column(
@@ -379,7 +380,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                                   style: TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.bold,
-                                    color: pendingCount > 0 ? Colors.amber : Colors.white,
+                                    color: pendingCount > 0 ? Colors.amber : context.textPrimary,
                                   ),
                                 ),
                               ],
@@ -391,7 +392,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF0F172A),
+                              color: context.bgCardAlt,
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Column(
@@ -403,7 +404,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                                   style: TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.bold,
-                                    color: conflictCount > 0 ? Colors.redAccent : Colors.white,
+                                    color: conflictCount > 0 ? Colors.redAccent : context.textPrimary,
                                   ),
                                 ),
                               ],
@@ -415,7 +416,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF0F172A),
+                              color: context.bgCardAlt,
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Column(
@@ -424,7 +425,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                                 const SizedBox(height: 4),
                                 Text(
                                   '$totalCount',
-                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: context.textPrimary),
                                 ),
                               ],
                             ),
@@ -527,19 +528,19 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                 Container(
                   padding: const EdgeInsets.all(28.0),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
+                    color: context.bgCard,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFF334155)),
+                    border: Border.all(color: context.borderColor),
                   ),
                   child: Center(
                     child: Column(
-                      children: const [
-                        Icon(Icons.check_circle_outline, size: 48, color: Color(0xFF10B981)),
-                        SizedBox(height: 10),
+                      children: [
+                        const Icon(Icons.check_circle_outline, size: 48, color: Color(0xFF10B981)),
+                        const SizedBox(height: 10),
                         Text(
                           'جميع العمليات متزامنة بنجاح مع الخادم الرئيسي!',
                           textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70),
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
                         ),
                         SizedBox(height: 4),
                         Text(
@@ -564,14 +565,14 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
 
                     return Container(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
+                        color: context.bgCard,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: isConflict
                               ? Colors.redAccent.withValues(alpha: 0.4)
                               : isPending
                                   ? Colors.amber.withValues(alpha: 0.4)
-                                  : const Color(0xFF334155),
+                                  : context.borderColor,
                         ),
                       ),
                       child: ListTile(
@@ -675,10 +676,10 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
         decoration: BoxDecoration(
           color: isSelected
               ? const Color(0xFF0D9488).withValues(alpha: 0.3)
-              : const Color(0xFF1E293B),
+              : context.bgCard,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFF0D9488) : const Color(0xFF334155),
+            color: isSelected ? const Color(0xFF0D9488) : context.borderColor,
           ),
         ),
         child: Text(

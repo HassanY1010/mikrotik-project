@@ -67,6 +67,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final payload = (data is Map && data['data'] != null) ? data['data'] : data;
 
       final accessToken = payload['accessToken'] as String?;
+      final refreshToken = payload['refreshToken'] as String?;
       final userJson = payload['user'] as Map<String, dynamic>?;
 
       if (accessToken == null || userJson == null) {
@@ -74,13 +75,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
 
       await storage.setToken(accessToken);
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        await storage.setRefreshToken(refreshToken);
+      }
       final user = AuthUser.fromJson(userJson);
       await storage.setUser(user);
       ref.read(currentUserProvider.notifier).setUser(user);
 
-      // Pre-fetch profiles into cache safely without blocking login
+      // Pre-fetch profiles and routers into cache safely without blocking login
       try {
         await ref.read(profilesProvider.notifier).fetchProfiles();
+      } catch (_) {}
+      try {
+        await ref.read(routersProvider.notifier).refresh();
       } catch (_) {}
 
       if (mounted) {
@@ -160,6 +167,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       appBar: AppBar(
         title: const Text('سودافاي | SudaFi'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(
+              ref.watch(themeModeProvider) == ThemeMode.light
+                  ? Icons.dark_mode_outlined
+                  : Icons.light_mode_outlined,
+            ),
+            tooltip: 'تبديل المظهر (فاتح / داكن)',
+            onPressed: () {
+              ref.read(themeModeProvider.notifier).toggleTheme();
+            },
+          ),
+        ],
       ),
       body: Center(
         child: SingleChildScrollView(

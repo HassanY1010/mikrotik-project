@@ -28,13 +28,14 @@ class MikrotikPosApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider);
+    final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp(
       title: 'سودافاي | SudaFi',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.dark, // Sleek modern dark mode by default
+      themeMode: themeMode,
       locale: const Locale('ar'),
       builder: (context, child) {
         return Directionality(

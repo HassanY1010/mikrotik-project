@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -113,11 +114,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('تسجيل شبكة جديدة'),
+        title: Text('تسجيل شبكة جديدة', style: TextStyle(color: context.textPrimary)),
         centerTitle: true,
       ),
       body: SafeArea(
@@ -134,9 +135,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
+                        color: context.bgCard,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFF334155)),
+                        border: Border.all(color: context.borderColor),
                       ),
                       child: Column(
                         children: [
@@ -146,19 +147,19 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             color: Color(0xFF38BDF8),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
+                          Text(
                             'انضم لمنصة SudaFi',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
-                              color: Colors.white,
+                              color: context.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 4),
-                          const Text(
+                          Text(
                             'أنشئ حساب شبكتك وابدأ إدارة راوترات MikroTik و Starlink',
                             textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                            style: TextStyle(fontSize: 12, color: context.textSecondary),
                           ),
                         ],
                       ),
@@ -185,16 +186,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     // اسم الشبكة
                     TextFormField(
                       controller: _tenantNameController,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: context.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'اسم الشبكة أو المنشأة *',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                        labelStyle: TextStyle(color: context.textSecondary),
                         hintText: 'مثال: شبكة النور هوت سبوت',
-                        hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                        hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
                         prefixIcon: const Icon(Icons.business_rounded, color: Color(0xFF38BDF8)),
                         filled: true,
-                        fillColor: const Color(0xFF1E293B),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        fillColor: context.bgCard,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
                       ),
                       onChanged: _generateSlugFromName,
                       validator: (val) {
@@ -208,16 +211,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     // معرّف الشبكة (Slug)
                     TextFormField(
                       controller: _slugController,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: context.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'معرف الشبكة بالإنجليزية (Slug) *',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                        labelStyle: TextStyle(color: context.textSecondary),
                         hintText: 'مثال: al-noor-wifi',
-                        hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                        hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
                         prefixIcon: const Icon(Icons.link_rounded, color: Color(0xFF38BDF8)),
                         filled: true,
-                        fillColor: const Color(0xFF1E293B),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        fillColor: context.bgCard,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
                       ),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) return 'معرف الشبكة مطلوب';
@@ -233,16 +238,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     // الاسم الكامل للمالك
                     TextFormField(
                       controller: _fullNameController,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: context.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'اسم المسؤول الكامل *',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                        labelStyle: TextStyle(color: context.textSecondary),
                         hintText: 'مثال: أحمد محمد علي',
-                        hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                        hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
                         prefixIcon: const Icon(Icons.person_rounded, color: Color(0xFF38BDF8)),
                         filled: true,
-                        fillColor: const Color(0xFF1E293B),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        fillColor: context.bgCard,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
                       ),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) return 'اسم المسؤول مطلوب';
@@ -256,16 +263,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     TextFormField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: context.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'البريد الإلكتروني لتسجيل الدخول *',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                        labelStyle: TextStyle(color: context.textSecondary),
                         hintText: 'admin@example.com',
-                        hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                        hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
                         prefixIcon: const Icon(Icons.email_rounded, color: Color(0xFF38BDF8)),
                         filled: true,
-                        fillColor: const Color(0xFF1E293B),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        fillColor: context.bgCard,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
                       ),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) return 'البريد الإلكتروني مطلوب';
@@ -279,16 +288,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     TextFormField(
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: context.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'رقم الهاتف (اختياري)',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                        labelStyle: TextStyle(color: context.textSecondary),
                         hintText: '+249912345678',
-                        hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                        hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
                         prefixIcon: const Icon(Icons.phone_rounded, color: Color(0xFF38BDF8)),
                         filled: true,
-                        fillColor: const Color(0xFF1E293B),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        fillColor: context.bgCard,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -297,21 +308,23 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     TextFormField(
                       controller: _passwordController,
                       obscureText: _obscurePassword,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: context.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'كلمة المرور * (8 خانات على الأقل)',
-                        labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                        labelStyle: TextStyle(color: context.textSecondary),
                         prefixIcon: const Icon(Icons.lock_rounded, color: Color(0xFF38BDF8)),
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                            color: const Color(0xFF94A3B8),
+                            color: context.textSecondary,
                           ),
                           onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                         ),
                         filled: true,
-                        fillColor: const Color(0xFF1E293B),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        fillColor: context.bgCard,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
                       ),
                       validator: (val) {
                         if (val == null || val.isEmpty) return 'كلمة المرور مطلوبة';

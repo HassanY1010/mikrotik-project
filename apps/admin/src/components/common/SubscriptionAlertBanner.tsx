@@ -51,7 +51,7 @@ export const SubscriptionAlertBanner: React.FC<SubscriptionAlertBannerProps> = (
             <ShieldAlert size={20} />
           </div>
           <div>
-            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#f87171' }}>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--danger)' }}>
               تم تعليق اشتراك هذه الشبكة مؤقتاً
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -112,7 +112,7 @@ export const SubscriptionAlertBanner: React.FC<SubscriptionAlertBannerProps> = (
             <AlertTriangle size={20} />
           </div>
           <div>
-            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#fbbf24' }}>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--warning)' }}>
               تنبيه: انتهت صلاحية اشتراك الشبكة {expiryText ? `بتاريخ ${expiryText}` : ''}
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -133,7 +133,7 @@ export const SubscriptionAlertBanner: React.FC<SubscriptionAlertBannerProps> = (
               className="btn btn-outline"
               style={{
                 borderColor: 'rgba(245, 158, 11, 0.4)',
-                color: '#fbbf24',
+                color: 'var(--warning)',
                 fontSize: '0.825rem',
                 padding: '0.45rem 0.9rem',
                 display: 'flex',

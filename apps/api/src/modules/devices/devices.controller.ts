@@ -6,15 +6,18 @@ import {
   Delete,
   Param,
   Body,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { DevicesService, DeviceResponse } from './devices.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
+import { CreateBackupDto } from './dto/create-backup.dto';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
@@ -32,14 +35,7 @@ export class DevicesController {
   constructor(private readonly devicesService: DevicesService) {}
 
   @Get()
-  @Roles(
-    RoleName.SUPER_ADMIN,
-    RoleName.OWNER,
-    RoleName.TENANT_ADMIN,
-    RoleName.ADMIN,
-    RoleName.MANAGER,
-    RoleName.CASHIER,
-  )
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({ summary: 'List all MikroTik routers belonging to the current tenant' })
   @ApiResponse({ status: 200, description: 'List of devices' })
   async findAll(@CurrentUser('tenantId') tenantId?: string): Promise<DeviceResponse[]> {
@@ -47,13 +43,7 @@ export class DevicesController {
   }
 
   @Post('test-connection')
-  @Roles(
-    RoleName.SUPER_ADMIN,
-    RoleName.OWNER,
-    RoleName.TENANT_ADMIN,
-    RoleName.ADMIN,
-    RoleName.MANAGER,
-  )
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Test direct live connectivity to a MikroTik router before saving' })
   @ApiResponse({ status: 200, description: 'Test result with detailed stages and latency' })
   async testDirectConnection(
@@ -80,13 +70,7 @@ export class DevicesController {
   }
 
   @Post()
-  @Roles(
-    RoleName.SUPER_ADMIN,
-    RoleName.OWNER,
-    RoleName.TENANT_ADMIN,
-    RoleName.ADMIN,
-    RoleName.MANAGER,
-  )
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a new MikroTik router (enforces subscription maxRouters limit)' })
   @ApiResponse({ status: 201, description: 'Device created and credentials encrypted' })
@@ -100,13 +84,7 @@ export class DevicesController {
   }
 
   @Patch(':id')
-  @Roles(
-    RoleName.SUPER_ADMIN,
-    RoleName.OWNER,
-    RoleName.TENANT_ADMIN,
-    RoleName.ADMIN,
-    RoleName.MANAGER,
-  )
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Update MikroTik router settings or credentials' })
   @ApiResponse({ status: 200, description: 'Device updated' })
   @ApiResponse({ status: 404, description: 'Device not found' })
@@ -119,13 +97,7 @@ export class DevicesController {
   }
 
   @Delete(':id')
-  @Roles(
-    RoleName.SUPER_ADMIN,
-    RoleName.OWNER,
-    RoleName.TENANT_ADMIN,
-    RoleName.ADMIN,
-    RoleName.MANAGER,
-  )
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Soft delete a MikroTik router' })
   @ApiResponse({ status: 200, description: 'Device deleted' })
   @ApiResponse({ status: 404, description: 'Device not found' })
@@ -137,13 +109,7 @@ export class DevicesController {
   }
 
   @Post(':id/test-connection')
-  @Roles(
-    RoleName.SUPER_ADMIN,
-    RoleName.OWNER,
-    RoleName.TENANT_ADMIN,
-    RoleName.ADMIN,
-    RoleName.MANAGER,
-  )
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Test live connectivity to MikroTik router and sync status' })
   @ApiResponse({ status: 200, description: 'Test result with latency and router resource metrics' })
   async testConnection(
@@ -216,5 +182,54 @@ export class DevicesController {
   ) {
     const enabled = body?.enabled !== undefined ? Boolean(body.enabled) : Boolean(body?.enable);
     return this.devicesService.toggleAntiTethering(tenantId, id, enabled, userId);
+  }
+
+  @Post(':id/backup')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Create a live system backup on the MikroTik router' })
+  @ApiResponse({ status: 201, description: 'Backup created successfully on router' })
+  async createBackup(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: CreateBackupDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.devicesService.createBackup(tenantId, id, dto?.name, dto?.password, userId);
+  }
+
+  @Get(':id/backups')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'List backup files stored on the MikroTik router' })
+  @ApiResponse({ status: 200, description: 'List of backup files' })
+  async listBackups(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.devicesService.listBackups(tenantId, id);
+  }
+
+  @Get(':id/backups/:filename/download')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Securely download a backup file from the MikroTik router' })
+  @ApiResponse({ status: 200, description: 'Binary backup file stream' })
+  async downloadBackup(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Param('filename') filename: string,
+    @CurrentUser('id') userId: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename: safeFilename, size } = await this.devicesService.downloadBackup(
+      tenantId,
+      id,
+      filename,
+      userId,
+    );
+
+    res.set({
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${safeFilename}"`,
+      'Content-Length': size.toString(),
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    });
+
+    res.end(buffer);
   }
 }

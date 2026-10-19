@@ -18,9 +18,12 @@ describe('AuthService', () => {
       user: {
         findUnique: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn(),
+        count: jest.fn(),
       },
       tenant: {
         findUnique: jest.fn(),
+        delete: jest.fn(),
       },
       subscriptionPlan: {
         findUnique: jest.fn(),
@@ -33,6 +36,7 @@ describe('AuthService', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
+        deleteMany: jest.fn(),
       },
       passwordResetToken: {
         count: jest.fn().mockResolvedValue(0),
@@ -40,11 +44,32 @@ describe('AuthService', () => {
         create: jest.fn().mockResolvedValue({ id: 'prt-1' }),
         findFirst: jest.fn(),
         update: jest.fn(),
+        deleteMany: jest.fn(),
+      },
+      cardBatch: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+      saleTransaction: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+      printJob: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+      mikroTikDevice: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+      card: {
+        count: jest.fn().mockResolvedValue(0),
       },
       auditLog: {
         create: jest.fn(),
       },
-      $transaction: jest.fn(),
+      $transaction: jest.fn().mockImplementation((cbOrArr) => {
+        if (typeof cbOrArr === 'function') {
+          return cbOrArr(prisma);
+        }
+        return Promise.all(cbOrArr);
+      }),
     };
 
     jwtService = {
@@ -500,6 +525,170 @@ describe('AuthService', () => {
       expect(result.message).toContain('تم تغيير كلمة المرور بنجاح');
       expect(hashingService.hashPassword).toHaveBeenCalledWith('BrandNewPassword@2026');
       expect(prisma.$transaction).toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteAccount', () => {
+    it('should throw NotFoundException if user is not found', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        authService.deleteAccount('non-existent', { password: 'Pass' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException if current password verification fails', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        passwordHash: 'hash-abc',
+        role: { name: 'CASHIER' },
+      });
+      (hashingService.verifyPassword as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        authService.deleteAccount('user-1', { password: 'WrongPassword' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if sole SUPER_ADMIN attempts to delete account', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'super-admin-1',
+        passwordHash: 'valid-hash',
+        role: { name: 'SUPER_ADMIN' },
+      });
+      (hashingService.verifyPassword as jest.Mock).mockResolvedValue(true);
+      (prisma.user.count as jest.Mock).mockResolvedValue(1); // Only 1 super admin
+
+      await expect(
+        authService.deleteAccount('super-admin-1', { password: 'ValidPassword' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should successfully delete SUPER_ADMIN if other active super admins exist', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'super-admin-1',
+        passwordHash: 'valid-hash',
+        role: { name: 'SUPER_ADMIN' },
+      });
+      (hashingService.verifyPassword as jest.Mock).mockResolvedValue(true);
+      (prisma.user.count as jest.Mock).mockResolvedValue(2); // 2 super admins exist
+      (prisma.refreshToken.deleteMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (prisma.passwordResetToken.deleteMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (prisma.user.delete as jest.Mock).mockResolvedValue({ id: 'super-admin-1' });
+
+      const res = await authService.deleteAccount('super-admin-1', { password: 'ValidPassword' });
+
+      expect(res.success).toBe(true);
+      expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'super-admin-1' } });
+    });
+
+    it('should throw ConflictException if TENANT_ADMIN attempts deletion while other users exist in tenant', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'tenant-admin-1',
+        tenantId: 'tenant-100',
+        passwordHash: 'valid-hash',
+        role: { name: 'TENANT_ADMIN' },
+      });
+      (hashingService.verifyPassword as jest.Mock).mockResolvedValue(true);
+      (prisma.user.count as jest.Mock).mockResolvedValue(3); // 3 other users in tenant
+
+      await expect(
+        authService.deleteAccount('tenant-admin-1', { password: 'ValidPassword' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should throw BadRequestException if sole TENANT_ADMIN has operational assets and did not confirm organization deletion', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'sole-admin-with-routers',
+        tenantId: 'tenant-active-100',
+        passwordHash: 'valid-hash',
+        role: { name: 'TENANT_ADMIN' },
+      });
+      (hashingService.verifyPassword as jest.Mock).mockResolvedValue(true);
+      (prisma.user.count as jest.Mock).mockResolvedValue(0); // 0 other users
+      (prisma.mikroTikDevice.count as jest.Mock).mockResolvedValue(2); // Has 2 MikroTik routers!
+
+      await expect(
+        authService.deleteAccount('sole-admin-with-routers', {
+          password: 'ValidPassword',
+          confirmDeleteOrganization: false,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should successfully delete sole TENANT_ADMIN and cascade delete tenant when confirmDeleteOrganization is true or tenant has no assets', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'sole-admin-1',
+        tenantId: 'tenant-sole-100',
+        passwordHash: 'valid-hash',
+        role: { name: 'TENANT_ADMIN' },
+      });
+      (hashingService.verifyPassword as jest.Mock).mockResolvedValue(true);
+      (prisma.user.count as jest.Mock).mockResolvedValue(0); // 0 other users
+      (prisma.mikroTikDevice.count as jest.Mock).mockResolvedValue(2);
+      (prisma.refreshToken.deleteMany as jest.Mock).mockResolvedValue({ count: 2 });
+      (prisma.passwordResetToken.deleteMany as jest.Mock).mockResolvedValue({ count: 0 });
+      (prisma.tenant.delete as jest.Mock).mockResolvedValue({ id: 'tenant-sole-100' });
+
+      const res = await authService.deleteAccount('sole-admin-1', {
+        password: 'ValidPassword',
+        confirmDeleteOrganization: true,
+      });
+
+      expect(res.success).toBe(true);
+      expect(prisma.tenant.delete).toHaveBeenCalledWith({ where: { id: 'tenant-sole-100' } });
+      expect(prisma.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: 'sole-admin-1' } });
+    });
+
+    it('should permanently hard delete sub-user if no financial or batch references exist', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'cashier-clean-1',
+        tenantId: 'tenant-100',
+        passwordHash: 'valid-hash',
+        role: { name: 'CASHIER' },
+      });
+      (hashingService.verifyPassword as jest.Mock).mockResolvedValue(true);
+      (prisma.cardBatch.count as jest.Mock).mockResolvedValue(0);
+      (prisma.saleTransaction.count as jest.Mock).mockResolvedValue(0);
+      (prisma.printJob.count as jest.Mock).mockResolvedValue(0);
+      (prisma.user.delete as jest.Mock).mockResolvedValue({ id: 'cashier-clean-1' });
+
+      const res = await authService.deleteAccount('cashier-clean-1', { password: 'ValidPassword' });
+
+      expect(res.success).toBe(true);
+      expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'cashier-clean-1' } });
+      expect(prisma.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: 'cashier-clean-1' } });
+    });
+
+    it('should anonymize PII and permanently deactivate sub-user if financial sales records exist', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'cashier-sales-1',
+        tenantId: 'tenant-100',
+        passwordHash: 'valid-hash',
+        role: { name: 'CASHIER' },
+      });
+      (hashingService.verifyPassword as jest.Mock).mockResolvedValue(true);
+      (prisma.cardBatch.count as jest.Mock).mockResolvedValue(0);
+      (prisma.saleTransaction.count as jest.Mock).mockResolvedValue(45); // Has 45 sales!
+      (prisma.printJob.count as jest.Mock).mockResolvedValue(0);
+      (prisma.user.update as jest.Mock).mockResolvedValue({ id: 'cashier-sales-1' });
+
+      const res = await authService.deleteAccount('cashier-sales-1', { password: 'ValidPassword' });
+
+      expect(res.success).toBe(true);
+      expect(prisma.user.delete).not.toHaveBeenCalled();
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'cashier-sales-1' },
+        data: expect.objectContaining({
+          fullName: 'مستخدم محذوف',
+          email: 'deleted_cashier-sales-1@deleted.local',
+          phone: null,
+          passwordHash: '',
+          status: UserStatus.INACTIVE,
+          deletedAt: expect.any(Date),
+        }),
+      });
+      expect(prisma.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: 'cashier-sales-1' } });
     });
   });
 });

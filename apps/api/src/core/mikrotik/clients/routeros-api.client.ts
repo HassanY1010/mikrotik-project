@@ -8,6 +8,7 @@ import type {
   HotspotProfileItem,
   HotspotUserItem,
   HotspotActiveSessionItem,
+  RouterBackupItem,
 } from '../interfaces/mikrotik-client.interface';
 
 export interface RouterOsApiConfig {
@@ -362,6 +363,9 @@ export class RouterOsApiClient implements IMikrotikClient {
     if (user.profile) words.push(`=profile=${user.profile}`);
     if (user.limitUptime) words.push(`=limit-uptime=${user.limitUptime}`);
     if (user.comment) words.push(`=comment=${user.comment}`);
+    if (user.limitBytesTotal !== undefined) {
+      words.push(`=limit-bytes-total=${user.limitBytesTotal || 0}`);
+    }
 
     await this.executeCommand(words);
   }
@@ -498,4 +502,176 @@ export class RouterOsApiClient implements IMikrotikClient {
       }
     }
   }
+
+  async createBackup(
+    name?: string,
+    password?: string,
+  ): Promise<{ filename: string; size?: number; creationTime?: string }> {
+    await this.connect();
+    const safeName = (name || `sudafi_backup_${Date.now()}`)
+      .replace(/\.backup$/i, '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    let words: string[];
+    if (password && password.trim().length > 0) {
+      words = ['/system/backup/save', `=name=${safeName}`, `=password=${password.trim()}`];
+    } else {
+      words = ['/system/backup/save', `=name=${safeName}`, '=dont-encrypt=yes'];
+    }
+
+    try {
+      await this.executeCommand(words);
+    } catch (saveErr) {
+      const errMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+      // Fallback for older ROS 6 versions where dont-encrypt is not recognized
+      if (!password && errMsg.toLowerCase().includes('dont-encrypt')) {
+        await this.executeCommand(['/system/backup/save', `=name=${safeName}`]);
+      } else {
+        throw saveErr;
+      }
+    }
+
+    const expectedFilename = `${safeName}.backup`;
+    let fileRecord: CommandResponse | undefined;
+
+    // Verify actual file creation on router flash (retry up to 4 attempts)
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      try {
+        const files = await this.executeCommand(['/file/print']);
+        fileRecord = files
+          .filter((r) => r.type === '!re')
+          .find(
+            (r) =>
+              r.attributes['name'] === expectedFilename ||
+              r.attributes['name'] === safeName,
+          );
+        if (fileRecord) {
+          break;
+        }
+      } catch {
+        // Retry
+      }
+    }
+
+    if (!fileRecord) {
+      throw new Error(
+        `فشل التحقق من إنشاء ملف النسخة الاحتياطية (${expectedFilename}) على ذاكرة الراوتر. تحقق من مساحة القرص وصلاحية المستخدم.`,
+      );
+    }
+
+    const size = fileRecord.attributes['size']
+      ? parseInt(fileRecord.attributes['size'], 10)
+      : undefined;
+    const creationTime = fileRecord.attributes['creation-time'] || new Date().toISOString();
+
+    return {
+      filename: expectedFilename,
+      size,
+      creationTime,
+    };
+  }
+
+  async listBackups(): Promise<RouterBackupItem[]> {
+    await this.connect();
+    const files = await this.executeCommand(['/file/print']);
+    return files
+      .filter((r) => r.type === '!re')
+      .map((r) => r.attributes)
+      .filter(
+        (attr) =>
+          attr['type'] === 'backup' ||
+          (attr['name'] && attr['name'].toLowerCase().endsWith('.backup')),
+      )
+      .map((attr) => ({
+        name: attr['name'] ?? '',
+        size: attr['size'] ? parseInt(attr['size'], 10) : undefined,
+        type: attr['type'] ?? 'backup',
+        creationTime: attr['creation-time'] ?? '',
+      }));
+  }
+
+  async downloadBackup(filename: string): Promise<Buffer> {
+    const safeFilename = filename.replace(/[^a-zA-Z0-9_.-]/g, '');
+
+    // Disallow cleartext HTTP credential transmission over non-loopback connections
+    const isLoopback =
+      this.config.host === 'localhost' ||
+      this.config.host === '127.0.0.1' ||
+      this.config.host === '::1';
+
+    if (!this.config.useSsl && !isLoopback) {
+      throw new Error(
+        `لا يُسمح بإرسال بيانات اعتماد الراوتر عبر بروتوكول HTTP غير مشفر (${this.config.host}). يلزم تفعيل الاتصال المشفر (useSsl: true / HTTPS) لحماية بيانات الاعتماد من التنصت.`,
+      );
+    }
+
+    const protocol = this.config.useSsl ? 'https' : 'http';
+    const port = this.config.useSsl ? 443 : 80;
+    const baseHttpUrl = `${protocol}://${this.config.host}:${port}`;
+    const url = `${baseHttpUrl}/${encodeURIComponent(safeFilename)}`;
+
+    const authHeader =
+      'Basic ' +
+      Buffer.from(`${this.config.username}:${this.config.password ?? ''}`).toString('base64');
+
+    try {
+      let response = await fetch(url, {
+        headers: { Authorization: authHeader },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      // If file is stored under flash/ directory on some RouterBOARD models
+      if (response.status === 404 && !safeFilename.startsWith('flash')) {
+        const flashUrl = `${baseHttpUrl}/flash/${encodeURIComponent(safeFilename)}`;
+        const flashResponse = await fetch(flashUrl, {
+          headers: { Authorization: authHeader },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (flashResponse.ok) {
+          response = flashResponse;
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          `HTTP ${response.status} ${response.statusText} from RouterOS web server`,
+        );
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType.includes('text/html') || contentType.includes('application/json')) {
+        throw new Error(`استجاب الراوتر بنوع محتوى غير متوقع (${contentType}) بدلاً من ملف ثنائي.`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const contentLengthHeader = response.headers.get('content-length');
+      if (contentLengthHeader) {
+        const expectedLen = parseInt(contentLengthHeader, 10);
+        if (!isNaN(expectedLen) && expectedLen > 0 && buffer.length !== expectedLen) {
+          throw new Error(
+            `حجم بايتات الملف المستلم (${buffer.length}) لا يطابق Content-Length (${expectedLen}). انقطع الاتصال أثناء النقل.`,
+          );
+        }
+      }
+
+      // Verify the buffer is binary and not an HTML error page or JSON error
+      const headerSample = buffer.subarray(0, 50).toString('utf8').toLowerCase();
+      if (headerSample.includes('<!doctype') || headerSample.includes('<html') || headerSample.startsWith('{')) {
+        throw new Error('Router returned an HTML error page or JSON instead of a binary backup file');
+      }
+
+      return buffer;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `تعذر تنزيل ملف النسخة الاحتياطية (${safeFilename}) من الراوتر (${this.config.host}): ${errMsg}. النسخة محفوظة داخل ذاكرة الراوتر في Files.`,
+      );
+    }
+  }
 }
+

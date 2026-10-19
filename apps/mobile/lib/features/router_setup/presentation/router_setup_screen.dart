@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/whatsapp_button.dart';
 import '../../../core/utils/whatsapp_helper.dart';
 
@@ -152,15 +153,15 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: context.bgCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
-            children: const [
-              Icon(Icons.lock_outline_rounded, color: Color(0xFFF59E0B), size: 24),
-              SizedBox(width: 8),
+            children: [
+              const Icon(Icons.lock_outline_rounded, color: Color(0xFFF59E0B), size: 24),
+              const SizedBox(width: 8),
               Text(
                 'تفعيل الاشتراك مطلوب',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -202,15 +203,15 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: context.bgCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
-            children: const [
-              Icon(Icons.inventory_2_outlined, color: Color(0xFFF59E0B), size: 24),
-              SizedBox(width: 8),
+            children: [
+              const Icon(Icons.inventory_2_outlined, color: Color(0xFFF59E0B), size: 24),
+              const SizedBox(width: 8),
               Text(
                 'الوصول للحد الأقصى للأجهزة',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -306,13 +307,13 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     final isEditing = widget.router != null;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: context.bgScaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: context.bgCard,
         elevation: 0,
         title: Text(
           isEditing ? 'تعديل إعدادات راوتر MikroTik' : 'إعداد وربط راوتر MikroTik',
-          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
       body: SingleChildScrollView(
@@ -326,9 +327,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: context.bgCard,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.3)),
+                  border: Border.all(color: context.borderColor),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -491,21 +492,21 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         decoration: BoxDecoration(
-                          color: _rosVersion == 'V6' ? const Color(0xFFF59E0B) : const Color(0xFF1E293B),
+                          color: _rosVersion == 'V6' ? const Color(0xFFF59E0B) : context.bgCard,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: _rosVersion == 'V6' ? const Color(0xFFF59E0B) : const Color(0xFF334155),
+                            color: _rosVersion == 'V6' ? const Color(0xFFF59E0B) : context.borderColor,
                           ),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.cable, size: 16, color: _rosVersion == 'V6' ? Colors.black : Colors.white70),
+                            Icon(Icons.cable, size: 16, color: _rosVersion == 'V6' ? Colors.black : context.textSecondary),
                             const SizedBox(width: 6),
                             Text(
                               'RouterOS v6 (Socket)',
                               style: TextStyle(
-                                color: _rosVersion == 'V6' ? Colors.black : Colors.white,
+                                color: _rosVersion == 'V6' ? Colors.black : context.textPrimary,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,
                               ),
@@ -527,10 +528,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         decoration: BoxDecoration(
-                          color: _rosVersion == 'V7' ? const Color(0xFFF59E0B) : const Color(0xFF1E293B),
+                          color: _rosVersion == 'V7' ? const Color(0xFFF59E0B) : context.bgCard,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: _rosVersion == 'V7' ? const Color(0xFFF59E0B) : const Color(0xFF334155),
+                            color: _rosVersion == 'V7' ? const Color(0xFFF59E0B) : context.borderColor,
                           ),
                         ),
                         child: Row(
@@ -595,9 +596,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: context.bgCard,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  border: Border.all(color: context.borderColor),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -605,10 +606,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text('استخدام اتصال آمن ومشفر (SSL / HTTPS)', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                          SizedBox(height: 2),
-                          Text('تفعيل تشفير TLS لمنفذ REST (443) أو API-SSL (8729)', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10)),
+                        children: [
+                          Text('استخدام اتصال آمن ومشفر (SSL / HTTPS)', style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 2),
+                          Text('تفعيل تشفير TLS لمنفذ REST (443) أو API-SSL (8729)', style: TextStyle(color: context.textSecondary, fontSize: 10)),
                         ],
                       ),
                     ),
@@ -710,7 +711,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                       ),
                       if (_routerMetrics != null) ...[
                         const SizedBox(height: 10),
-                        const Divider(color: Color(0xFF334155), height: 1),
+                        Divider(color: context.borderColor, height: 1),
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 12,
@@ -772,22 +773,22 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+        Text(label, style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
         TextFormField(
           controller: controller,
           obscureText: obscureText,
           keyboardType: keyboardType,
           validator: validator,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+          style: TextStyle(color: context.textPrimary, fontSize: 13),
           decoration: InputDecoration(
             prefixIcon: Icon(icon, color: const Color(0xFF64748B), size: 18),
             suffixIcon: suffixIcon,
             filled: true,
-            fillColor: const Color(0xFF1E293B),
+            fillColor: context.bgCard,
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF334155))),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF334155))),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
             focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF38BDF8))),
             errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 10),
           ),

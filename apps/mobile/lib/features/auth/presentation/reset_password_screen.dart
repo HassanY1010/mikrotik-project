@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 
 class ResetPasswordScreen extends ConsumerStatefulWidget {
   final String? initialEmail;
@@ -206,7 +207,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                           labelText: 'البريد الإلكتروني',
                           prefixIcon: const Icon(Icons.email_outlined),
                           filled: widget.initialEmail != null && widget.initialEmail!.isNotEmpty,
-                          fillColor: const Color(0xFF0F172A).withValues(alpha: 0.3),
+                          fillColor: context.bgCardAlt,
                         ),
                         validator: (val) {
                           if (val == null || val.trim().isEmpty) {

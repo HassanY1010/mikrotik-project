@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../core/context/AuthContext';
-import { LogOut, User as UserIcon, Building2, Wifi, Menu } from 'lucide-react';
+import { LogOut, User as UserIcon, Building2, Wifi, Menu, Sun, Moon } from 'lucide-react';
 import { apiClient } from '../../core/api/api-client';
 import { WhatsAppButton } from '../common/WhatsAppButton';
+import { useTheme } from '../../core/context/ThemeContext';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -10,6 +11,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
   const { user, logout, activeTenantId, switchTenant } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [tenants, setTenants] = useState<{ id: string; name: string }[]>([]);
 
@@ -128,6 +130,25 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
           size="sm"
           showNumber={false}
         />
+
+        {/* Theme Toggle Button */}
+        <button
+          type="button"
+          className="btn btn-outline btn-icon"
+          onClick={toggleTheme}
+          title={isDark ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'}
+          aria-label="تبديل مظهر النظام"
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            borderColor: 'var(--border)',
+            color: isDark ? 'var(--accent)' : 'var(--primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {isDark ? <Sun size={17} /> : <Moon size={17} />}
+        </button>
 
         {/* User Profile Badge */}
         <div className="navbar-user-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>

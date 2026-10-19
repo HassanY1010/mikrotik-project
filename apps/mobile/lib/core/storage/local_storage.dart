@@ -5,13 +5,17 @@ import '../constants/api_endpoints.dart';
 
 class LocalStorage {
   static const String _tokenKey = 'auth_token';
+  static const String _refreshTokenKey = 'auth_refresh_token';
   static const String _userKey = 'auth_user';
   static const String _baseUrlKey = 'server_base_url';
   static const String _cardsKey = 'offline_cards';
   static const String _mutationsKey = 'offline_mutations';
   static const String _profilesKey = 'cached_profiles';
+  static const String _routersKey = 'cached_routers';
+  static const String _selectedRouterIdKey = 'selected_router_id';
   static const String _salesHistoryKey = 'local_sales_history';
   static const String _serverAvailableCardsKey = 'server_available_cards';
+  static const String _themeModeKey = 'app_theme_mode';
 
   final SharedPreferences _prefs;
 
@@ -56,7 +60,7 @@ class LocalStorage {
     }
   }
 
-  // --- Auth Token ---
+  // --- Auth Token & Refresh Token ---
   String? getToken() {
     return _prefs.getString(_tokenKey);
   }
@@ -65,9 +69,19 @@ class LocalStorage {
     await _prefs.setString(_tokenKey, token);
   }
 
+  String? getRefreshToken() {
+    return _prefs.getString(_refreshTokenKey);
+  }
+
+  Future<void> setRefreshToken(String token) async {
+    await _prefs.setString(_refreshTokenKey, token);
+  }
+
   Future<void> clearAuth() async {
     await _prefs.remove(_tokenKey);
+    await _prefs.remove(_refreshTokenKey);
     await _prefs.remove(_userKey);
+    await clearRoutersCache();
     await clearTenantQuota();
   }
 
@@ -174,6 +188,77 @@ class LocalStorage {
     await _prefs.setStringList(_profilesKey, raw);
   }
 
+  // --- Cached Routers & Active Selection (Tenant-Isolated) ---
+  String _getRoutersKey([String? tenantId]) {
+    final effective = tenantId ?? getUser()?.tenantId;
+    return (effective != null && effective.isNotEmpty) ? '${_routersKey}_$effective' : _routersKey;
+  }
+
+  String _getSelectedRouterKey([String? tenantId]) {
+    final effective = tenantId ?? getUser()?.tenantId;
+    return (effective != null && effective.isNotEmpty) ? '${_selectedRouterIdKey}_$effective' : _selectedRouterIdKey;
+  }
+
+  List<RouterDeviceModel> getCachedRouters([String? expectedTenantId]) {
+    final effectiveTenant = expectedTenantId ?? getUser()?.tenantId;
+    final key = _getRoutersKey(effectiveTenant);
+    // When tenant is known, strictly query that tenant's key without falling back to global/other tenant cache
+    final raw = _prefs.getStringList(key) ?? (effectiveTenant == null ? _prefs.getStringList(_routersKey) : null) ?? [];
+    return raw
+        .map((str) {
+          try {
+            return RouterDeviceModel.fromJson(jsonDecode(str) as Map<String, dynamic>);
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<RouterDeviceModel>()
+        .toList();
+  }
+
+  Future<void> saveCachedRouters(List<RouterDeviceModel> routers, [String? tenantId]) async {
+    final effectiveTenant = tenantId ?? getUser()?.tenantId;
+    final key = _getRoutersKey(effectiveTenant);
+    final raw = routers.map((r) => jsonEncode(r.toJson())).toList();
+    await _prefs.setStringList(key, raw);
+    if (effectiveTenant == null) {
+      await _prefs.setStringList(_routersKey, raw);
+    }
+  }
+
+  String? getSelectedRouterId([String? expectedTenantId]) {
+    final effectiveTenant = expectedTenantId ?? getUser()?.tenantId;
+    final key = _getSelectedRouterKey(effectiveTenant);
+    return _prefs.getString(key) ?? (effectiveTenant == null ? _prefs.getString(_selectedRouterIdKey) : null);
+  }
+
+  Future<void> setSelectedRouterId(String? id, [String? tenantId]) async {
+    final effectiveTenant = tenantId ?? getUser()?.tenantId;
+    final key = _getSelectedRouterKey(effectiveTenant);
+    if (id == null || id.isEmpty) {
+      await _prefs.remove(key);
+      if (effectiveTenant == null) {
+        await _prefs.remove(_selectedRouterIdKey);
+      }
+    } else {
+      await _prefs.setString(key, id);
+      if (effectiveTenant == null) {
+        await _prefs.setString(_selectedRouterIdKey, id);
+      }
+    }
+  }
+
+  Future<void> clearRoutersCache([String? tenantId]) async {
+    if (tenantId != null && tenantId.isNotEmpty) {
+      await _prefs.remove(_getRoutersKey(tenantId));
+      await _prefs.remove(_getSelectedRouterKey(tenantId));
+    }
+    final allKeys = _prefs.getKeys().where((k) => k.startsWith(_routersKey) || k.startsWith(_selectedRouterIdKey)).toList();
+    for (final k in allKeys) {
+      await _prefs.remove(k);
+    }
+  }
+
   // --- Local Sales History ---
   List<SaleReceiptModel> getSalesHistory() {
     final raw = _prefs.getStringList(_salesHistoryKey) ?? [];
@@ -260,5 +345,14 @@ class LocalStorage {
     for (final k in keys) {
       await _prefs.remove(k);
     }
+  }
+
+  // --- Theme Mode Persistence ---
+  String getThemeMode() {
+    return _prefs.getString(_themeModeKey) ?? 'dark';
+  }
+
+  Future<void> setThemeMode(String mode) async {
+    await _prefs.setString(_themeModeKey, mode);
   }
 }

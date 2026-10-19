@@ -43,6 +43,13 @@ export interface HotspotActiveSessionItem {
   sessionId?: string;
 }
 
+export interface RouterBackupItem {
+  name: string;
+  size?: number;
+  type?: string;
+  creationTime?: string;
+}
+
 export interface IMikrotikClient {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
@@ -64,4 +71,11 @@ export interface IMikrotikClient {
   reboot?(): Promise<void>;
   setAntiTethering?(enabled: boolean): Promise<void>;
   setEmergencyLock?(locked: boolean): Promise<void>;
+  createBackup?(
+    name?: string,
+    password?: string,
+  ): Promise<{ filename: string; size?: number; creationTime?: string }>;
+  listBackups?(): Promise<RouterBackupItem[]>;
+  downloadBackup?(filename: string): Promise<Buffer>;
 }
+

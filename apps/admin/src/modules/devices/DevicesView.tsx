@@ -622,9 +622,9 @@ export const DevicesView: React.FC = () => {
             style={{
               marginTop: '0.75rem',
               padding: '0.75rem 1rem',
-              backgroundColor: '#162032',
+              backgroundColor: 'var(--bg-card-alt)',
               borderRadius: '6px',
-              border: '1px solid #293548',
+              border: '1px solid var(--border)',
             }}
           >
             <label
@@ -634,7 +634,7 @@ export const DevicesView: React.FC = () => {
                 gap: '0.6rem',
                 cursor: 'pointer',
                 fontSize: '0.875rem',
-                color: '#f8fafc',
+                color: 'var(--text-primary)',
                 userSelect: 'none',
               }}
             >
@@ -796,9 +796,9 @@ export const DevicesView: React.FC = () => {
             style={{
               marginTop: '0.75rem',
               padding: '0.75rem 1rem',
-              backgroundColor: '#162032',
+              backgroundColor: 'var(--bg-card-alt)',
               borderRadius: '6px',
-              border: '1px solid #293548',
+              border: '1px solid var(--border)',
             }}
           >
             <label
@@ -808,7 +808,7 @@ export const DevicesView: React.FC = () => {
                 gap: '0.6rem',
                 cursor: 'pointer',
                 fontSize: '0.875rem',
-                color: '#f8fafc',
+                color: 'var(--text-primary)',
                 userSelect: 'none',
               }}
             >
