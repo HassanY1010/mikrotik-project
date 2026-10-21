@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { CardStatus, DeviceStatus, PaymentMethod, Prisma } from '@prisma/client';
+import { CardStatus, DeviceStatus, PaymentMethod, ExpenseCategory, Prisma } from '@prisma/client';
+import { EXPENSE_CATEGORY_ARABIC_LABELS } from '../expenses/expenses.service';
 
 export interface DashboardOverview {
   revenue: {
@@ -81,6 +82,43 @@ export interface NetworkAnalytics {
   hourlyDistribution: Array<{ hour: number; sessionCount: number }>;
 }
 
+export interface FinancialPeriodMetrics {
+  key: string;
+  label: string;
+  startDate: string;
+  endDate: string;
+  grossSales: number;
+  discounts: number;
+  netSales: number;
+  cashCollected: number;
+  remainingReceivables: number;
+  operatingExpenses: number;
+  cogs: number;
+  grossProfit: number;
+  netProfit: number;
+  netCashFlow: number;
+  profitMarginPercent: number;
+  salesCount: number;
+  cardsCount: number;
+  refundsAmount: number;
+  refundsCount: number;
+  hasCostData: boolean;
+  hasExpenseData: boolean;
+  accountingNotes: string;
+}
+
+export interface CardInventoryMetrics {
+  totalCardsGenerated: number;
+  totalCardsPrinted: number;
+  totalCardsAvailable: number;
+  totalCardsSold: number;
+  totalCardsActive: number;
+  totalCardsExpired: number;
+  totalCardsDisabled: number;
+  stockEstimatedValue: number;
+  stockCostValue: number;
+}
+
 export interface FinancialReport {
   summary: {
     todayRevenue: number;
@@ -102,7 +140,22 @@ export interface FinancialReport {
     profitNotes: string;
     hasCostData: boolean;
     currency: string;
+    totalOperatingExpenses?: number;
+    netOperatingProfit?: number;
+    totalGrossSales?: number;
+    totalDiscounts?: number;
+    totalReceivables?: number;
+    netCashFlow?: number;
   };
+  selectedPeriod: FinancialPeriodMetrics;
+  inventory: CardInventoryMetrics;
+  expensesBreakdown: Array<{
+    category: string;
+    categoryLabelAr: string;
+    totalAmount: number;
+    count: number;
+    percentage: number;
+  }>;
   forecast: {
     isAvailable: boolean;
     message: string;
@@ -135,6 +188,7 @@ export interface FinancialReport {
     dayName: string;
     amount: number;
     count: number;
+    expenses?: number;
   }>;
 }
 
@@ -527,7 +581,15 @@ export class AnalyticsService {
     };
   }
 
-  async getFinancialReport(tenantId: string): Promise<FinancialReport> {
+  async getFinancialReport(
+    tenantId: string,
+    options?: {
+      period?: string;
+      startDate?: string;
+      endDate?: string;
+      deviceId?: string;
+    },
+  ): Promise<FinancialReport> {
     let resolvedTenantId = tenantId;
     if (!resolvedTenantId) {
       const first = await this.prisma.tenant.findFirst({
@@ -553,22 +615,56 @@ export class AnalyticsService {
 
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
 
-    // Fetch all sale transactions with card, profile, device, and cashier
-    const allTransactions = await this.prisma.saleTransaction.findMany({
-      where: { tenantId: resolvedTenantId },
-      include: {
-        card: {
-          select: {
-            id: true,
-            status: true,
-            profile: { select: { id: true, name: true } },
+    // 1. Fetch transactions, expenses, and inventory metrics in parallel
+    const txWhere: Prisma.SaleTransactionWhereInput = { tenantId: resolvedTenantId };
+    if (options?.deviceId) {
+      txWhere.deviceId = options.deviceId;
+    }
+
+    const [
+      allTransactions,
+      allExpenses,
+      totalCardsGenerated,
+      totalCardsPrinted,
+      totalCardsAvailable,
+      totalCardsSold,
+      totalCardsActive,
+      totalCardsExpired,
+      totalCardsDisabled,
+      availableStockAgg,
+    ] = await Promise.all([
+      this.prisma.saleTransaction.findMany({
+        where: txWhere,
+        include: {
+          card: {
+            select: {
+              id: true,
+              status: true,
+              unitCost: true,
+              profile: { select: { id: true, name: true } },
+            },
           },
+          device: { select: { id: true, name: true } },
+          cashier: { select: { id: true, fullName: true } },
         },
-        device: { select: { id: true, name: true } },
-        cashier: { select: { id: true, fullName: true } },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.expense.findMany({
+        where: { tenantId: resolvedTenantId },
+        orderBy: { expenseDate: 'asc' },
+      }),
+      this.prisma.card.count({ where: { tenantId: resolvedTenantId } }),
+      this.prisma.card.count({ where: { tenantId: resolvedTenantId, isPrinted: true } }),
+      this.prisma.card.count({ where: { tenantId: resolvedTenantId, status: CardStatus.AVAILABLE } }),
+      this.prisma.card.count({ where: { tenantId: resolvedTenantId, status: CardStatus.SOLD } }),
+      this.prisma.card.count({ where: { tenantId: resolvedTenantId, status: CardStatus.ACTIVE } }),
+      this.prisma.card.count({ where: { tenantId: resolvedTenantId, status: CardStatus.EXPIRED } }),
+      this.prisma.card.count({ where: { tenantId: resolvedTenantId, status: CardStatus.DISABLED } }),
+      this.prisma.card.aggregate({
+        where: { tenantId: resolvedTenantId, status: CardStatus.AVAILABLE },
+        _sum: { price: true, unitCost: true },
+      }),
+    ]);
 
     // Distinguish completed vs refunded transactions
     const completedTransactions = allTransactions.filter(
@@ -578,10 +674,183 @@ export class AnalyticsService {
       (t) => t.card?.status === CardStatus.DISABLED,
     );
 
-    // All Time
+    // 2. Compute date boundaries for selected period filter
+    const period = options?.period || 'all_time';
+    let pStart: Date = new Date(0);
+    let pEnd: Date = new Date();
+    let pLabel = 'الإجمالي الكلي (كافة الفترات)';
+
+    if (period === 'today') {
+      pStart = startOfToday;
+      pEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      pLabel = 'اليوم';
+    } else if (period === 'yesterday') {
+      pStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+      pEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+      pLabel = 'أمس';
+    } else if (period === 'last_7_days') {
+      pStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      pStart.setHours(0, 0, 0, 0);
+      pEnd = new Date();
+      pLabel = 'آخر 7 أيام';
+    } else if (period === 'this_month') {
+      pStart = startOfMonth;
+      pEnd = new Date();
+      pLabel = 'هذا الشهر';
+    } else if (period === 'last_month') {
+      pStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+      pEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      pLabel = 'الشهر السابق';
+    } else if (period === 'this_year') {
+      pStart = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      pEnd = new Date();
+      pLabel = 'هذا العام';
+    } else if (period === 'custom' && options?.startDate) {
+      pStart = new Date(options.startDate);
+      pEnd = options?.endDate ? new Date(options.endDate) : new Date();
+      if (options?.endDate && options.endDate.length <= 10) {
+        pEnd.setHours(23, 59, 59, 999);
+      }
+      const sStr = pStart.toISOString().split('T')[0];
+      const eStr = pEnd.toISOString().split('T')[0];
+      pLabel = `فترة مخصصة (${sStr} إلى ${eStr})`;
+    }
+
+    // 3. Calculate selected period transactions and metrics
+    const periodCompleted = completedTransactions.filter(
+      (t) => t.createdAt >= pStart && t.createdAt <= pEnd,
+    );
+    const periodRefunded = refundedTransactions.filter(
+      (t) => t.createdAt >= pStart && t.createdAt <= pEnd,
+    );
+
+    const periodGrossSales = periodCompleted.reduce((acc, t) => acc + Number(t.amount), 0);
+    const periodDiscounts = periodCompleted.reduce(
+      (acc, t) => acc + Number(t.discountAmount ?? 0),
+      0,
+    );
+    const periodNetSales = Math.max(0, periodGrossSales - periodDiscounts);
+
+    const periodCashCollected = periodCompleted.reduce((acc, t) => {
+      const paid = (t as any).paidAmount !== undefined && (t as any).paidAmount !== null
+        ? Number((t as any).paidAmount)
+        : Number(t.amount);
+      return acc + paid;
+    }, 0);
+
+    const periodReceivables = Math.max(0, periodNetSales - periodCashCollected);
+
+    const periodRefundsAmount = periodRefunded.reduce((acc, t) => acc + Number(t.amount), 0);
+    const periodRefundsCount = periodRefunded.length;
+
+    // COGS for sold cards in the period
+    const periodCogs = periodCompleted.reduce(
+      (acc, t) => acc + Number(t.card?.unitCost ?? 0),
+      0,
+    );
+    const hasCostData = periodCogs > 0;
+    const periodGrossProfit = Math.max(0, periodNetSales - periodCogs);
+
+    // Filter expenses in selected period
+    const periodExpenses = allExpenses.filter(
+      (e) => e.expenseDate >= pStart && e.expenseDate <= pEnd,
+    );
+    const periodOperatingExpenses = periodExpenses.reduce(
+      (acc, e) => acc + Number(e.amount),
+      0,
+    );
+    const hasExpenseData = periodOperatingExpenses > 0;
+
+    const periodNetProfit = periodGrossProfit - periodOperatingExpenses;
+    const periodNetCashFlow = periodCashCollected - periodOperatingExpenses;
+
+    const profitMarginPercent =
+      periodNetSales > 0 ? Math.round((periodNetProfit / periodNetSales) * 100) : 0;
+
+    // Detailed accounting notes
+    let accountingNotes = '';
+    if (!hasCostData && !hasExpenseData) {
+      accountingNotes =
+        'لم تُسجل تكلفة طباعة كروت أو مصروفات تشغيلية لهذه الفترة. المبيعات تمثل الأرباح المبدئية حتى يتم إدخال بنود المصروفات الفعلية.';
+    } else if (!hasCostData && hasExpenseData) {
+      accountingNotes = `صافي الربح التشغيلي محسوب بخصم المصروفات التشغيلية الفعلية (${periodOperatingExpenses} ${currency}). تكلفة وحدة الكرت غير مسجلة (0).`;
+    } else if (hasCostData && !hasExpenseData) {
+      accountingNotes = `الربح محسوب بعد خصم تكلفة البضاعة المباعة COGS (${periodCogs} ${currency}). لا توجد مصروفات تشغيلية مسجلة للفترة.`;
+    } else {
+      accountingNotes = `صافي الربح التشغيلي محسوب بدقة: صافي المبيعات (${periodNetSales}) - تكلفة الكروت (${periodCogs}) - المصروفات التشغيلية (${periodOperatingExpenses}) = ${periodNetProfit} ${currency}.`;
+    }
+
+    const selectedPeriod: FinancialPeriodMetrics = {
+      key: period,
+      label: pLabel,
+      startDate: pStart.toISOString(),
+      endDate: pEnd.toISOString(),
+      grossSales: periodGrossSales,
+      discounts: periodDiscounts,
+      netSales: periodNetSales,
+      cashCollected: periodCashCollected,
+      remainingReceivables: periodReceivables,
+      operatingExpenses: periodOperatingExpenses,
+      cogs: periodCogs,
+      grossProfit: periodGrossProfit,
+      netProfit: periodNetProfit,
+      netCashFlow: periodNetCashFlow,
+      profitMarginPercent,
+      salesCount: periodCompleted.length,
+      cardsCount: periodCompleted.length,
+      refundsAmount: periodRefundsAmount,
+      refundsCount: periodRefundsCount,
+      hasCostData,
+      hasExpenseData,
+      accountingNotes,
+    };
+
+    // 4. Card inventory and stock valuation
+    const stockEstimatedValue = Number(availableStockAgg._sum.price ?? 0);
+    const stockCostValue = Number(availableStockAgg._sum.unitCost ?? 0);
+
+    const inventory: CardInventoryMetrics = {
+      totalCardsGenerated,
+      totalCardsPrinted,
+      totalCardsAvailable,
+      totalCardsSold,
+      totalCardsActive,
+      totalCardsExpired,
+      totalCardsDisabled,
+      stockEstimatedValue,
+      stockCostValue,
+    };
+
+    // 5. Expenses breakdown by category for the selected period
+    const catMap = new Map<string, { total: number; count: number }>();
+    for (const e of periodExpenses) {
+      const cur = catMap.get(e.category) ?? { total: 0, count: 0 };
+      cur.total += Number(e.amount);
+      cur.count += 1;
+      catMap.set(e.category, cur);
+    }
+    const expensesBreakdown = Array.from(catMap.entries())
+      .map(([cat, data]) => ({
+        category: cat,
+        categoryLabelAr: EXPENSE_CATEGORY_ARABIC_LABELS[cat as ExpenseCategory] || cat,
+        totalAmount: data.total,
+        count: data.count,
+        percentage:
+          periodOperatingExpenses > 0
+            ? Math.round((data.total / periodOperatingExpenses) * 100)
+            : 0,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    // 6. All Time / Month / Week / Today aggregates for the legacy summary
     const allTimeRevenue = completedTransactions.reduce((acc, t) => acc + Number(t.amount), 0);
     const allTimeSalesCount = completedTransactions.length;
-    const allTimeCollected = allTimeRevenue;
+    const allTimeCollected = completedTransactions.reduce((acc, t) => {
+      const paid = (t as any).paidAmount !== undefined && (t as any).paidAmount !== null
+        ? Number((t as any).paidAmount)
+        : Number(t.amount);
+      return acc + paid;
+    }, 0);
     const totalRefunds = refundedTransactions.reduce((acc, t) => acc + Number(t.amount), 0);
     const refundedCount = refundedTransactions.length;
 
@@ -589,46 +858,77 @@ export class AnalyticsService {
     const monthCompleted = completedTransactions.filter((t) => t.createdAt >= startOfMonth);
     const monthRevenue = monthCompleted.reduce((acc, t) => acc + Number(t.amount), 0);
     const monthSalesCount = monthCompleted.length;
-    const monthCollected = monthRevenue;
+    const monthCollected = monthCompleted.reduce((acc, t) => {
+      const paid = (t as any).paidAmount !== undefined && (t as any).paidAmount !== null
+        ? Number((t as any).paidAmount)
+        : Number(t.amount);
+      return acc + paid;
+    }, 0);
 
     // Week
     const weekCompleted = completedTransactions.filter((t) => t.createdAt >= startOfWeek);
     const weekRevenue = weekCompleted.reduce((acc, t) => acc + Number(t.amount), 0);
     const weekSalesCount = weekCompleted.length;
-    const weekCollected = weekRevenue;
+    const weekCollected = weekCompleted.reduce((acc, t) => {
+      const paid = (t as any).paidAmount !== undefined && (t as any).paidAmount !== null
+        ? Number((t as any).paidAmount)
+        : Number(t.amount);
+      return acc + paid;
+    }, 0);
 
     // Today
     const todayCompleted = completedTransactions.filter((t) => t.createdAt >= startOfToday);
     const todayRevenue = todayCompleted.reduce((acc, t) => acc + Number(t.amount), 0);
     const todaySalesCount = todayCompleted.length;
-    const todayCollected = todayRevenue;
+    const todayCollected = todayCompleted.reduce((acc, t) => {
+      const paid = (t as any).paidAmount !== undefined && (t as any).paidAmount !== null
+        ? Number((t as any).paidAmount)
+        : Number(t.amount);
+      return acc + paid;
+    }, 0);
 
-    // Net Profit: calculate operational deductions / cost
-    const walletDeductions = await this.prisma.tenantWalletTransaction.aggregate({
-      where: {
-        tenantId: resolvedTenantId,
-        type: { in: ['DEDUCTION', 'USAGE'] },
-      },
-      _sum: { amount: true },
-    });
-    const totalExpenses = Math.abs(Number(walletDeductions._sum.amount ?? 0));
-    const hasCostData = totalExpenses > 0;
-    const estimatedProfit = hasCostData
-      ? Math.max(0, allTimeCollected - totalExpenses)
-      : allTimeCollected;
-    const profitMarginPercent =
-      allTimeCollected > 0 ? Math.round((estimatedProfit / allTimeCollected) * 100) : 100;
-    const profitNotes = hasCostData
-      ? `صافي الأرباح محسوب بعد خصم التكاليف والرسوم التشغيلية المسجلة (${totalExpenses} ${currency})`
-      : 'لا توجد تكاليف تشغيلية مدخلة في النظام حالياً؛ صافي الربح يساوي إجمالي المبالغ المحصلة';
+    // All time operating expenses
+    const totalAllTimeExpenses = allExpenses.reduce((acc, e) => acc + Number(e.amount), 0);
+    const allTimeEstimatedProfit = Math.max(0, allTimeRevenue - totalAllTimeExpenses);
 
-    // 30-Day Daily Movement
+    const summary = {
+      todayRevenue,
+      todaySalesCount,
+      todayCollected,
+      weekRevenue,
+      weekSalesCount,
+      weekCollected,
+      monthRevenue,
+      monthSalesCount,
+      monthCollected,
+      allTimeRevenue,
+      allTimeSalesCount,
+      allTimeCollected,
+      totalRefunds,
+      refundedCount,
+      profitMarginPercent: allTimeRevenue > 0 ? Math.round((allTimeEstimatedProfit / allTimeRevenue) * 100) : 100,
+      estimatedProfit: allTimeEstimatedProfit,
+      profitNotes: totalAllTimeExpenses > 0
+        ? `صافي الأرباح محسوب بعد خصم المصروفات التشغيلية الفعلية المسجلة (${totalAllTimeExpenses} ${currency})`
+        : 'لا توجد تكاليف تشغيلية مدخلة في النظام حالياً؛ صافي الربح يساوي إجمالي المبالغ المحصلة',
+      hasCostData: totalAllTimeExpenses > 0,
+      currency,
+      totalOperatingExpenses: totalAllTimeExpenses,
+      netOperatingProfit: allTimeEstimatedProfit,
+      totalGrossSales: allTimeRevenue,
+      totalDiscounts: completedTransactions.reduce((acc, t) => acc + Number(t.discountAmount ?? 0), 0),
+      totalReceivables: Math.max(0, allTimeRevenue - allTimeCollected),
+      netCashFlow: allTimeCollected - totalAllTimeExpenses,
+    };
+
+    // 7. 30-Day Daily Movement
     const dayNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
     const dailyRevenueLast30Days: Array<{
       date: string;
       dayName: string;
       amount: number;
       count: number;
+      expenses?: number;
     }> = [];
 
     for (let i = 29; i >= 0; i--) {
@@ -644,6 +944,7 @@ export class AnalyticsService {
         dayName,
         amount: 0,
         count: 0,
+        expenses: 0,
       });
     }
 
@@ -661,7 +962,20 @@ export class AnalyticsService {
       }
     }
 
-    // Smart Forecast
+    for (const e of allExpenses) {
+      const exDate = e.expenseDate;
+      const yyyy = exDate.getFullYear();
+      const mm = String(exDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(exDate.getDate()).padStart(2, '0');
+      const exDateStr = `${yyyy}-${mm}-${dd}`;
+
+      const bucket = dailyRevenueLast30Days.find((b) => b.date === exDateStr);
+      if (bucket) {
+        bucket.expenses = (bucket.expenses ?? 0) + Number(e.amount);
+      }
+    }
+
+    // 8. Smart Forecast
     const daysWithSales = dailyRevenueLast30Days.filter((b) => b.count > 0).length;
     const isForecastAvailable = daysWithSales >= 3 && completedTransactions.length >= 5;
 
@@ -698,7 +1012,7 @@ export class AnalyticsService {
       forecastNote = 'تقدير إحصائي استرشادي مبني على متوسط استهلاك الفترة السابقة، وليس ربحاً مضموناً.';
     }
 
-    // Best Selling Profiles (Top 5)
+    // 9. Best Selling Profiles (Top 5)
     const profileMap = new Map<string, { count: number; revenue: number }>();
     for (const t of completedTransactions) {
       const name = t.card?.profile?.name || 'باقة هوتسبوت';
@@ -717,7 +1031,7 @@ export class AnalyticsService {
       .sort((a, b) => b.salesCount - a.salesCount)
       .slice(0, 5);
 
-    // Sales by Router (Top 5)
+    // 10. Sales by Router (Top 5)
     const routerMap = new Map<string, { count: number; revenue: number }>();
     for (const t of completedTransactions) {
       const name = t.device?.name || 'مبيعات عامة (بدون راوتر)';
@@ -736,7 +1050,7 @@ export class AnalyticsService {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
 
-    // Sales by Cashier
+    // 11. Sales by Cashier
     const cashierMap = new Map<string, { count: number; revenue: number }>();
     for (const t of completedTransactions) {
       const name = t.cashier?.fullName || 'كاشير';
@@ -754,27 +1068,10 @@ export class AnalyticsService {
       .sort((a, b) => b.revenue - a.revenue);
 
     return {
-      summary: {
-        todayRevenue,
-        todaySalesCount,
-        todayCollected,
-        weekRevenue,
-        weekSalesCount,
-        weekCollected,
-        monthRevenue,
-        monthSalesCount,
-        monthCollected,
-        allTimeRevenue,
-        allTimeSalesCount,
-        allTimeCollected,
-        totalRefunds,
-        refundedCount,
-        profitMarginPercent,
-        estimatedProfit,
-        profitNotes,
-        hasCostData,
-        currency,
-      },
+      summary,
+      selectedPeriod,
+      inventory,
+      expensesBreakdown,
       forecast: {
         isAvailable: isForecastAvailable,
         message: forecastMessage,

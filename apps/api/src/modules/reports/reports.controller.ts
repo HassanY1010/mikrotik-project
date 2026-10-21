@@ -51,4 +51,25 @@ export class ReportsController {
     res.setHeader('Content-Disposition', `attachment; filename=cards-report-${Date.now()}.csv`);
     res.status(200).send(csv);
   }
+
+  @Get('expenses/csv')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Export operational expenses to Excel-compatible CSV with UTF-8 BOM' })
+  @ApiQuery({ name: 'startDate', required: false, type: String })
+  @ApiQuery({ name: 'endDate', required: false, type: String })
+  @ApiQuery({ name: 'category', required: false, type: String })
+  @ApiResponse({ status: 200, description: 'CSV file download' })
+  async exportExpensesCsv(
+    @TenantId() tenantId: string,
+    @Res() res: Response,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('category') category?: string,
+  ): Promise<void> {
+    const csv = await this.reportsService.exportExpensesCsv(tenantId, startDate, endDate, category);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=expenses-report-${Date.now()}.csv`);
+    res.status(200).send(csv);
+  }
 }

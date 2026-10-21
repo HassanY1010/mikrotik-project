@@ -1202,6 +1202,197 @@ class WalletDataModel {
 }
 
 /// Comprehensive Financial & Analytics Report model
+class FinancialPeriodModel {
+  final String key;
+  final String label;
+  final String startDate;
+  final String endDate;
+  final double grossSales;
+  final double discounts;
+  final double netSales;
+  final double cashCollected;
+  final double remainingReceivables;
+  final double operatingExpenses;
+  final double cogs;
+  final double grossProfit;
+  final double netProfit;
+  final double netCashFlow;
+  final double profitMarginPercent;
+  final int salesCount;
+  final int cardsCount;
+  final double refundsAmount;
+  final int refundsCount;
+  final bool hasCostData;
+  final bool hasExpenseData;
+  final String accountingNotes;
+
+  FinancialPeriodModel({
+    required this.key,
+    required this.label,
+    required this.startDate,
+    required this.endDate,
+    required this.grossSales,
+    this.discounts = 0.0,
+    required this.netSales,
+    required this.cashCollected,
+    required this.remainingReceivables,
+    required this.operatingExpenses,
+    required this.cogs,
+    required this.grossProfit,
+    required this.netProfit,
+    required this.netCashFlow,
+    required this.profitMarginPercent,
+    required this.salesCount,
+    required this.cardsCount,
+    this.refundsAmount = 0.0,
+    this.refundsCount = 0,
+    this.hasCostData = false,
+    this.hasExpenseData = false,
+    this.accountingNotes = '',
+  });
+
+  factory FinancialPeriodModel.fromJson(Map<String, dynamic> json) {
+    return FinancialPeriodModel(
+      key: json['key'] as String? ?? 'all_time',
+      label: json['label'] as String? ?? 'الإجمالي الكلي',
+      startDate: json['startDate'] as String? ?? '',
+      endDate: json['endDate'] as String? ?? '',
+      grossSales: double.tryParse(json['grossSales']?.toString() ?? '0') ?? 0.0,
+      discounts: double.tryParse(json['discounts']?.toString() ?? '0') ?? 0.0,
+      netSales: double.tryParse(json['netSales']?.toString() ?? '0') ?? 0.0,
+      cashCollected: double.tryParse(json['cashCollected']?.toString() ?? '0') ?? 0.0,
+      remainingReceivables: double.tryParse(json['remainingReceivables']?.toString() ?? '0') ?? 0.0,
+      operatingExpenses: double.tryParse(json['operatingExpenses']?.toString() ?? '0') ?? 0.0,
+      cogs: double.tryParse(json['cogs']?.toString() ?? '0') ?? 0.0,
+      grossProfit: double.tryParse(json['grossProfit']?.toString() ?? '0') ?? 0.0,
+      netProfit: double.tryParse(json['netProfit']?.toString() ?? '0') ?? 0.0,
+      netCashFlow: double.tryParse(json['netCashFlow']?.toString() ?? '0') ?? 0.0,
+      profitMarginPercent: double.tryParse(json['profitMarginPercent']?.toString() ?? '0') ?? 0.0,
+      salesCount: json['salesCount'] as int? ?? 0,
+      cardsCount: json['cardsCount'] as int? ?? 0,
+      refundsAmount: double.tryParse(json['refundsAmount']?.toString() ?? '0') ?? 0.0,
+      refundsCount: json['refundsCount'] as int? ?? 0,
+      hasCostData: json['hasCostData'] as bool? ?? false,
+      hasExpenseData: json['hasExpenseData'] as bool? ?? false,
+      accountingNotes: json['accountingNotes'] as String? ?? '',
+    );
+  }
+}
+
+class CardInventoryMetricsModel {
+  final int totalCardsGenerated;
+  final int totalCardsPrinted;
+  final int totalCardsAvailable;
+  final int totalCardsSold;
+  final int totalCardsActive;
+  final int totalCardsExpired;
+  final int totalCardsDisabled;
+  final double stockEstimatedValue;
+  final double stockCostValue;
+
+  CardInventoryMetricsModel({
+    this.totalCardsGenerated = 0,
+    this.totalCardsPrinted = 0,
+    this.totalCardsAvailable = 0,
+    this.totalCardsSold = 0,
+    this.totalCardsActive = 0,
+    this.totalCardsExpired = 0,
+    this.totalCardsDisabled = 0,
+    this.stockEstimatedValue = 0.0,
+    this.stockCostValue = 0.0,
+  });
+
+  factory CardInventoryMetricsModel.fromJson(Map<String, dynamic> json) {
+    return CardInventoryMetricsModel(
+      totalCardsGenerated: json['totalCardsGenerated'] as int? ?? 0,
+      totalCardsPrinted: json['totalCardsPrinted'] as int? ?? 0,
+      totalCardsAvailable: json['totalCardsAvailable'] as int? ?? 0,
+      totalCardsSold: json['totalCardsSold'] as int? ?? 0,
+      totalCardsActive: json['totalCardsActive'] as int? ?? 0,
+      totalCardsExpired: json['totalCardsExpired'] as int? ?? 0,
+      totalCardsDisabled: json['totalCardsDisabled'] as int? ?? 0,
+      stockEstimatedValue: double.tryParse(json['stockEstimatedValue']?.toString() ?? '0') ?? 0.0,
+      stockCostValue: double.tryParse(json['stockCostValue']?.toString() ?? '0') ?? 0.0,
+    );
+  }
+}
+
+class ExpenseCategoryBreakdownModel {
+  final String category;
+  final String categoryLabelAr;
+  final double totalAmount;
+  final int count;
+  final int percentage;
+
+  ExpenseCategoryBreakdownModel({
+    required this.category,
+    required this.categoryLabelAr,
+    required this.totalAmount,
+    this.count = 0,
+    this.percentage = 0,
+  });
+
+  factory ExpenseCategoryBreakdownModel.fromJson(Map<String, dynamic> json) {
+    return ExpenseCategoryBreakdownModel(
+      category: json['category'] as String? ?? 'OTHER',
+      categoryLabelAr: json['categoryLabelAr'] as String? ?? 'أخرى',
+      totalAmount: double.tryParse(json['totalAmount']?.toString() ?? '0') ?? 0.0,
+      count: json['count'] as int? ?? 0,
+      percentage: json['percentage'] as int? ?? 0,
+    );
+  }
+}
+
+class ExpenseItemModel {
+  final String id;
+  final String title;
+  final String category;
+  final String categoryLabelAr;
+  final double amount;
+  final String currency;
+  final DateTime expenseDate;
+  final String paymentMethod;
+  final String? vendor;
+  final String? description;
+  final String? receiptUrl;
+  final String? createdByName;
+  final DateTime createdAt;
+
+  ExpenseItemModel({
+    required this.id,
+    required this.title,
+    required this.category,
+    required this.categoryLabelAr,
+    required this.amount,
+    this.currency = 'SDG',
+    required this.expenseDate,
+    this.paymentMethod = 'CASH',
+    this.vendor,
+    this.description,
+    this.receiptUrl,
+    this.createdByName,
+    required this.createdAt,
+  });
+
+  factory ExpenseItemModel.fromJson(Map<String, dynamic> json) {
+    return ExpenseItemModel(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      category: json['category'] as String? ?? 'OTHER',
+      categoryLabelAr: json['categoryLabelAr'] as String? ?? 'مصروف',
+      amount: double.tryParse(json['amount']?.toString() ?? '0') ?? 0.0,
+      currency: json['currency'] as String? ?? 'SDG',
+      expenseDate: json['expenseDate'] != null ? DateTime.parse(json['expenseDate'].toString()) : DateTime.now(),
+      paymentMethod: json['paymentMethod'] as String? ?? 'CASH',
+      vendor: json['vendor'] as String?,
+      description: json['description'] as String?,
+      receiptUrl: json['receiptUrl'] as String?,
+      createdByName: json['createdBy'] != null ? json['createdBy']['fullName'] as String? : null,
+      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt'].toString()) : DateTime.now(),
+    );
+  }
+}
+
 class FinancialReportModel {
   final double todayRevenue;
   final int todaySalesCount;
@@ -1222,6 +1413,17 @@ class FinancialReportModel {
   final String profitNotes;
   final bool hasCostData;
   final String currency;
+  final double totalOperatingExpenses;
+  final double netOperatingProfit;
+  final double totalGrossSales;
+  final double totalDiscounts;
+  final double totalReceivables;
+  final double netCashFlow;
+
+  final FinancialPeriodModel selectedPeriod;
+  final CardInventoryMetricsModel inventory;
+  final List<ExpenseCategoryBreakdownModel> expensesBreakdown;
+
   final bool isForecastAvailable;
   final String forecastMessage;
   final String forecastNote;
@@ -1255,6 +1457,15 @@ class FinancialReportModel {
     this.profitNotes = '',
     this.hasCostData = false,
     required this.currency,
+    this.totalOperatingExpenses = 0.0,
+    this.netOperatingProfit = 0.0,
+    this.totalGrossSales = 0.0,
+    this.totalDiscounts = 0.0,
+    this.totalReceivables = 0.0,
+    this.netCashFlow = 0.0,
+    required this.selectedPeriod,
+    required this.inventory,
+    this.expensesBreakdown = const [],
     this.isForecastAvailable = true,
     this.forecastMessage = '',
     this.forecastNote = '',
@@ -1272,11 +1483,44 @@ class FinancialReportModel {
   factory FinancialReportModel.fromJson(Map<String, dynamic> json) {
     final summary = json['summary'] as Map<String, dynamic>? ?? {};
     final forecast = json['forecast'] as Map<String, dynamic>? ?? {};
+    final selectedPeriodRaw = json['selectedPeriod'] as Map<String, dynamic>?;
+    final inventoryRaw = json['inventory'] as Map<String, dynamic>?;
+    final expensesBreakdownRaw = json['expensesBreakdown'] as List?;
 
     final todayRev = double.tryParse(summary['todayRevenue']?.toString() ?? '0') ?? 0.0;
     final weekRev = double.tryParse(summary['weekRevenue']?.toString() ?? '0') ?? 0.0;
     final monthRev = double.tryParse(summary['monthRevenue']?.toString() ?? '0') ?? 0.0;
     final allTimeRev = double.tryParse(summary['allTimeRevenue']?.toString() ?? '0') ?? 0.0;
+
+    final selectedPeriod = selectedPeriodRaw != null
+        ? FinancialPeriodModel.fromJson(selectedPeriodRaw)
+        : FinancialPeriodModel(
+            key: 'all_time',
+            label: 'الإجمالي الكلي',
+            startDate: '',
+            endDate: '',
+            grossSales: allTimeRev,
+            discounts: 0.0,
+            netSales: allTimeRev,
+            cashCollected: double.tryParse(summary['allTimeCollected']?.toString() ?? '') ?? allTimeRev,
+            remainingReceivables: 0.0,
+            operatingExpenses: double.tryParse(summary['totalOperatingExpenses']?.toString() ?? '0') ?? 0.0,
+            cogs: 0.0,
+            grossProfit: allTimeRev,
+            netProfit: double.tryParse(summary['estimatedProfit']?.toString() ?? '') ?? allTimeRev,
+            netCashFlow: double.tryParse(summary['netCashFlow']?.toString() ?? '') ?? allTimeRev,
+            profitMarginPercent: double.tryParse(summary['profitMarginPercent']?.toString() ?? '100') ?? 100.0,
+            salesCount: summary['allTimeSalesCount'] as int? ?? 0,
+            cardsCount: summary['allTimeSalesCount'] as int? ?? 0,
+          );
+
+    final inventory = inventoryRaw != null
+        ? CardInventoryMetricsModel.fromJson(inventoryRaw)
+        : CardInventoryMetricsModel();
+
+    final expensesBreakdown = expensesBreakdownRaw != null
+        ? expensesBreakdownRaw.map((e) => ExpenseCategoryBreakdownModel.fromJson(e as Map<String, dynamic>)).toList()
+        : <ExpenseCategoryBreakdownModel>[];
 
     return FinancialReportModel(
       todayRevenue: todayRev,
@@ -1298,6 +1542,15 @@ class FinancialReportModel {
       profitNotes: summary['profitNotes'] as String? ?? '',
       hasCostData: summary['hasCostData'] as bool? ?? false,
       currency: summary['currency'] as String? ?? 'SDG',
+      totalOperatingExpenses: double.tryParse(summary['totalOperatingExpenses']?.toString() ?? '0') ?? 0.0,
+      netOperatingProfit: double.tryParse(summary['netOperatingProfit']?.toString() ?? '') ?? (double.tryParse(summary['estimatedProfit']?.toString() ?? '') ?? allTimeRev),
+      totalGrossSales: double.tryParse(summary['totalGrossSales']?.toString() ?? '') ?? allTimeRev,
+      totalDiscounts: double.tryParse(summary['totalDiscounts']?.toString() ?? '0') ?? 0.0,
+      totalReceivables: double.tryParse(summary['totalReceivables']?.toString() ?? '0') ?? 0.0,
+      netCashFlow: double.tryParse(summary['netCashFlow']?.toString() ?? '') ?? allTimeRev,
+      selectedPeriod: selectedPeriod,
+      inventory: inventory,
+      expensesBreakdown: expensesBreakdown,
       isForecastAvailable: forecast['isAvailable'] as bool? ?? true,
       forecastMessage: forecast['message'] as String? ?? '',
       forecastNote: forecast['note'] as String? ?? '',

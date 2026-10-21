@@ -1,4 +1,11 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+  BadGatewayException,
+  Logger,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
@@ -19,10 +26,10 @@ export class HotspotService {
     private readonly mikrotikClientFactory: MikrotikClientFactory,
   ) {}
 
-  private async getValidDevice(tenantId: string, deviceId: string) {
-    const device = await this.prisma.mikroTikDevice.findFirst({
-      where: { id: deviceId, tenantId, deletedAt: null },
-    });
+  private async getValidDevice(tenantId: string | undefined, deviceId: string) {
+    const where: any = { id: deviceId, deletedAt: null };
+    if (tenantId) where.tenantId = tenantId;
+    const device = await this.prisma.mikroTikDevice.findFirst({ where });
 
     if (!device) {
       throw new NotFoundException({
@@ -190,9 +197,10 @@ export class HotspotService {
 
   async createProfile(tenantId: string, deviceId: string, dto: CreateProfileDto) {
     const device = await this.getValidDevice(tenantId, deviceId);
+    const effectiveTenantId = tenantId || device.tenantId;
 
     const existing = await this.prisma.hotspotProfile.findFirst({
-      where: { tenantId, deviceId, name: dto.name },
+      where: { tenantId: effectiveTenantId, deviceId, name: dto.name },
     });
 
     if (existing) {
@@ -208,6 +216,7 @@ export class HotspotService {
     // Provision on MikroTik router (only if router is online to prevent freezing HTTP request)
     let routerProvisioned = false;
     if (device.isOnline) {
+      const connectionType = device.rosVersion === 'V7' && device.restPort ? 'REST' : 'API';
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: device.id,
@@ -233,11 +242,54 @@ export class HotspotService {
           addressPool: dto.addressPool,
         });
         routerProvisioned = true;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.logger.warn(
-          `Could not provision profile "${dto.name}" on physical router (${device.host}): ${msg}. Profile will still be saved in database.`,
-        );
+      } catch (err: unknown) {
+        const rawErrMsg = err instanceof Error ? err.message : String(err);
+        const sanitizedErrMsg = rawErrMsg.replace(/password=\S+/gi, 'password=***');
+
+        // Detailed technical logging according to Section 5 without leaking secrets
+        this.logger.error({
+          operation: 'CREATE_HOTSPOT_PROFILE',
+          stage: 'ROUTEROS_PROVISIONING',
+          routerId: device.id,
+          routerHost: device.host,
+          rosVersion: device.rosVersion,
+          connectionType,
+          routerPath: '/ip/hotspot/user/profile',
+          safePayload: {
+            name: dto.name,
+            rateLimit: dto.rateLimit ?? null,
+            sessionTimeout: normalizedValidity,
+            sharedUsers: dto.sharedUsers ?? 1,
+          },
+          originalError: sanitizedErrMsg,
+        });
+
+        let userMessage = 'فشل إنشاء البروفايل على الراوتر';
+        if (/permission|not enough permissions|action not permitted|read-only/i.test(rawErrMsg)) {
+          userMessage = 'فشل إنشاء البروفايل: حساب الاتصال بالراوتر لا يمتلك صلاحيات الكتابة';
+        } else if (/timeout|timed out|ETIMEDOUT/i.test(rawErrMsg)) {
+          userMessage = 'فشل إنشاء البروفايل: انتهت مهلة الاتصال بالراوتر (Timeout)';
+        } else if (/ECONNREFUSED|ENETUNREACH|EHOSTUNREACH/i.test(rawErrMsg)) {
+          userMessage = 'فشل إنشاء البروفايل: تعذر الاتصال بعنوان الراوتر';
+        } else if (/already have profile/i.test(rawErrMsg)) {
+          userMessage = `فشل إنشاء البروفايل: يوجد بروفايل بنفس الاسم (${dto.name}) على الراوتر`;
+        } else if (/invalid/i.test(rawErrMsg)) {
+          userMessage = `فشل إنشاء البروفايل على الراوتر: قيمة غير صالحة (${sanitizedErrMsg})`;
+        } else {
+          userMessage = `فشل إنشاء البروفايل على الراوتر: ${sanitizedErrMsg}`;
+        }
+
+        throw new BadGatewayException({
+          code: 'ROUTER_PROVISIONING_FAILED',
+          message: userMessage,
+          details: {
+            routerId: device.id,
+            routerName: device.name,
+            connectionType,
+            stage: 'ROUTEROS_PROVISIONING',
+            originalError: sanitizedErrMsg,
+          },
+        });
       }
     } else {
       this.logger.log(
@@ -265,7 +317,7 @@ export class HotspotService {
     // Save in DB
     const profile = await this.prisma.hotspotProfile.create({
       data: {
-        tenantId,
+        tenantId: effectiveTenantId,
         deviceId,
         name: dto.name,
         sessionTimeout: normalizedValidity,
@@ -286,11 +338,13 @@ export class HotspotService {
     };
   }
 
-  async createTenantProfile(tenantId: string, dto: CreateProfileDto) {
+  async createTenantProfile(tenantId: string | undefined, dto: CreateProfileDto) {
     let deviceId = dto.deviceId;
     if (!deviceId) {
+      const where: any = { deletedAt: null };
+      if (tenantId) where.tenantId = tenantId;
       const firstDevice = await this.prisma.mikroTikDevice.findFirst({
-        where: { tenantId, deletedAt: null },
+        where,
       });
       if (!firstDevice) {
         throw new NotFoundException({
@@ -300,7 +354,7 @@ export class HotspotService {
       }
       deviceId = firstDevice.id;
     }
-    return this.createProfile(tenantId, deviceId, dto);
+    return this.createProfile(tenantId || '', deviceId, dto);
   }
 
   async deleteProfile(tenantId: string, deviceId: string, profileId: string) {

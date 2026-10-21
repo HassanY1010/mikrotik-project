@@ -90,6 +90,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
   }
 
   Future<void> _handleSubmit(List<RouterDeviceModel> routers) async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
 
     if (widget.editProfile == null && (_selectedDeviceId == null || _selectedDeviceId!.isEmpty)) {
@@ -175,16 +176,18 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
     final routersAsync = ref.watch(routersProvider);
     final isEdit = widget.editProfile != null;
 
-    return Scaffold(
-      backgroundColor: context.bgScaffold,
-      appBar: AppBar(
-        backgroundColor: context.bgCard,
-        elevation: 0,
-        title: Text(
-          isEdit ? 'تعديل باقة الهوتسبوت' : 'إنشاء باقة هوتسبوت جديدة',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+    return PopScope(
+      canPop: !_isSubmitting,
+      child: Scaffold(
+        backgroundColor: context.bgScaffold,
+        appBar: AppBar(
+          backgroundColor: context.bgCard,
+          elevation: 0,
+          title: Text(
+            isEdit ? 'تعديل باقة الهوتسبوت' : 'إنشاء باقة هوتسبوت جديدة',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+          ),
         ),
-      ),
       body: routersAsync.when(
         loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8))),
         error: (err, _) => Center(
@@ -653,6 +656,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
           );
         },
       ),
+    ),
     );
   }
 

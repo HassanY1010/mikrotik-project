@@ -9,6 +9,16 @@ import type {
   HotspotUserItem,
   HotspotActiveSessionItem,
   RouterBackupItem,
+  RouterInterfaceItem,
+  RouterBridgeItem,
+  RouterBridgePortItem,
+  RouterIpAddressItem,
+  RouterDhcpClientItem,
+  RouterDhcpServerItem,
+  RouterNatRuleItem,
+  RouterRouteItem,
+  RouterHotspotServerItem,
+  RouterPingResult,
 } from '../interfaces/mikrotik-client.interface';
 
 export interface RouterOsApiConfig {
@@ -288,11 +298,22 @@ export class RouterOsApiClient implements IMikrotikClient {
     if (profile.rateLimit) words.push(`=rate-limit=${profile.rateLimit}`);
     if (profile.sessionTimeout) words.push(`=session-timeout=${profile.sessionTimeout}`);
     if (profile.idleTimeout) words.push(`=idle-timeout=${profile.idleTimeout}`);
+    if (profile.keepaliveTimeout) words.push(`=keepalive-timeout=${profile.keepaliveTimeout}`);
     if (profile.sharedUsers !== undefined) words.push(`=shared-users=${profile.sharedUsers}`);
+    if (profile.addressPool) words.push(`=address-pool=${profile.addressPool}`);
 
-    const res = await this.executeCommand(words);
-    const done = res.find((r) => r.type === '!done');
-    return done?.attributes['ret'] ?? profile.name;
+    try {
+      const res = await this.executeCommand(words);
+      const done = res.find((r) => r.type === '!done');
+      return done?.attributes['ret'] ?? profile.name;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/already have profile with (such|this) name/i.test(msg)) {
+        await this.updateHotspotProfile(profile.name, profile);
+        return profile.name;
+      }
+      throw err;
+    }
   }
 
   async updateHotspotProfile(name: string, profile: Partial<HotspotProfileItem>): Promise<void> {
@@ -302,11 +323,15 @@ export class RouterOsApiClient implements IMikrotikClient {
     const target = profiles.find((p) => p.name === name);
     if (!target?.id) throw new Error(`Profile '${name}' not found on router`);
 
-    const words = ['/ip/hotspot/user/profile/set', `numbers=${target.id}`];
+    const words = ['/ip/hotspot/user/profile/set', `=.id=${target.id}`];
     if (profile.rateLimit !== undefined) words.push(`=rate-limit=${profile.rateLimit}`);
     if (profile.sessionTimeout !== undefined)
       words.push(`=session-timeout=${profile.sessionTimeout}`);
+    if (profile.idleTimeout !== undefined) words.push(`=idle-timeout=${profile.idleTimeout}`);
+    if (profile.keepaliveTimeout !== undefined)
+      words.push(`=keepalive-timeout=${profile.keepaliveTimeout}`);
     if (profile.sharedUsers !== undefined) words.push(`=shared-users=${profile.sharedUsers}`);
+    if (profile.addressPool !== undefined) words.push(`=address-pool=${profile.addressPool}`);
 
     await this.executeCommand(words);
   }
@@ -317,7 +342,7 @@ export class RouterOsApiClient implements IMikrotikClient {
     const target = profiles.find((p) => p.name === name);
     if (!target?.id) return;
 
-    await this.executeCommand(['/ip/hotspot/user/profile/remove', `numbers=${target.id}`]);
+    await this.executeCommand(['/ip/hotspot/user/profile/remove', `=.id=${target.id}`]);
   }
 
   async listHotspotUsers(): Promise<HotspotUserItem[]> {
@@ -672,6 +697,176 @@ export class RouterOsApiClient implements IMikrotikClient {
         `تعذر تنزيل ملف النسخة الاحتياطية (${safeFilename}) من الراوتر (${this.config.host}): ${errMsg}. النسخة محفوظة داخل ذاكرة الراوتر في Files.`,
       );
     }
+  }
+
+  async listInterfaces(): Promise<RouterInterfaceItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/interface/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        type: r.attributes['type'] ?? 'unknown',
+        running: r.attributes['running'] === 'true',
+        disabled: r.attributes['disabled'] === 'true',
+        macAddress: r.attributes['mac-address'],
+        comment: r.attributes['comment'],
+        mtu: r.attributes['mtu'] ? parseInt(r.attributes['mtu'], 10) : undefined,
+      }));
+  }
+
+  async listBridges(): Promise<RouterBridgeItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/interface/bridge/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        disabled: r.attributes['disabled'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listBridgePorts(): Promise<RouterBridgePortItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/interface/bridge/port/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        bridge: r.attributes['bridge'] ?? '',
+        interface: r.attributes['interface'] ?? '',
+        disabled: r.attributes['disabled'] === 'true',
+      }));
+  }
+
+  async listIpAddresses(): Promise<RouterIpAddressItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/address/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        address: r.attributes['address'] ?? '',
+        network: r.attributes['network'] ?? '',
+        interface: r.attributes['interface'] ?? '',
+        disabled: r.attributes['disabled'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listDhcpClients(): Promise<RouterDhcpClientItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/dhcp-client/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        interface: r.attributes['interface'] ?? '',
+        status: r.attributes['status'],
+        address: r.attributes['address'],
+        disabled: r.attributes['disabled'] === 'true',
+        addDefaultRoute: r.attributes['add-default-route'] === 'yes',
+        usePeerDns: r.attributes['use-peer-dns'] === 'yes',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listDhcpServers(): Promise<RouterDhcpServerItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/dhcp-server/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        interface: r.attributes['interface'] ?? '',
+        addressPool: r.attributes['address-pool'],
+        disabled: r.attributes['disabled'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listNatRules(): Promise<RouterNatRuleItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/firewall/nat/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        chain: r.attributes['chain'] ?? '',
+        action: r.attributes['action'] ?? '',
+        outInterface: r.attributes['out-interface'],
+        disabled: r.attributes['disabled'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listRoutes(): Promise<RouterRouteItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/route/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        dstAddress: r.attributes['dst-address'] ?? '',
+        gateway: r.attributes['gateway'],
+        active: r.attributes['active'] === 'true',
+        disabled: r.attributes['disabled'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listHotspotServers(): Promise<RouterHotspotServerItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/hotspot/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        interface: r.attributes['interface'] ?? '',
+        profile: r.attributes['profile'],
+        addressPool: r.attributes['address-pool'],
+        disabled: r.attributes['disabled'] === 'true',
+        invalid: r.attributes['invalid'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async pingHost(host: string, count = 3): Promise<RouterPingResult> {
+    await this.connect();
+    const responses = await this.executeCommand([
+      '/ping',
+      `=address=${host}`,
+      `=count=${count}`,
+    ]);
+    const reResponses = responses.filter((r) => r.type === '!re');
+    const received = reResponses.filter((r) => {
+      const rec = parseInt(r.attributes['received'] ?? '0', 10);
+      return rec > 0 || r.attributes['status'] === undefined;
+    }).length;
+    const loss = count > 0 ? Math.round(((count - received) / count) * 100) : 100;
+    const rtts = reResponses
+      .map((r) => parseFloat(r.attributes['avg-rtt'] ?? r.attributes['time'] ?? '0'))
+      .filter((t) => t > 0);
+    const avgRtt = rtts.length > 0 ? rtts.reduce((a, b) => a + b, 0) / rtts.length : undefined;
+
+    return {
+      host,
+      packetsSent: count,
+      packetsReceived: received,
+      packetLossPercent: loss,
+      avgRttMs: avgRtt,
+      isReachable: received > 0,
+    };
+  }
+
+  async runRawCommand(words: string[]): Promise<any> {
+    await this.connect();
+    return this.executeCommand(words);
   }
 }
 

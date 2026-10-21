@@ -46,6 +46,9 @@ class ApiEndpoints {
   static String deviceBackups(String id) => '/devices/$id/backups';
   static String deviceBackupDownload(String id, String filename) =>
       '/devices/$id/backups/$filename/download';
+  static String deviceProvisionDiscover(String id) => '/devices/$id/provision/discover';
+  static String deviceProvisionPreview(String id) => '/devices/$id/provision/preview';
+  static String deviceProvisionApply(String id) => '/devices/$id/provision/apply';
 
   // Hotspot
   static String hotspotKick(String sessionId) => '/hotspot/sessions/$sessionId/kick';
@@ -62,6 +65,13 @@ class ApiEndpoints {
   // Analytics & Reports
   static const String analyticsDashboard = '/analytics/dashboard';
   static const String financialReport = '/analytics/financial-report';
+  static const String salesTransactions = '/sales/transactions';
+  static const String expenses = '/expenses';
+  static const String expensesSummary = '/expenses/summary';
+  static String expenseItem(String id) => '/expenses/$id';
+  static const String reportsSalesCsv = '/reports/sales/csv';
+  static const String reportsCardsCsv = '/reports/cards/csv';
+  static const String reportsExpensesCsv = '/reports/expenses/csv';
 
   // Cloud Wallet
   static const String currentTenant = '/tenants/current';

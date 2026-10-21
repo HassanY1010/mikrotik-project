@@ -18,6 +18,9 @@ import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
 import { CreateBackupDto } from './dto/create-backup.dto';
+import { ProvisionPreviewDto } from './dto/provision-preview.dto';
+import { ProvisionApplyDto } from './dto/provision-apply.dto';
+import { RouterProvisioningService } from './services/router-provisioning.service';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
@@ -32,7 +35,10 @@ import { RouterResource } from '../../core/mikrotik/interfaces/mikrotik-client.i
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 @Controller('devices')
 export class DevicesController {
-  constructor(private readonly devicesService: DevicesService) {}
+  constructor(
+    private readonly devicesService: DevicesService,
+    private readonly provisioningService: RouterProvisioningService,
+  ) {}
 
   @Get()
   @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
@@ -231,5 +237,45 @@ export class DevicesController {
     });
 
     res.end(buffer);
+  }
+
+  // ===========================================================================
+  // Router Provisioning & Setup Wizard Endpoints
+  // ===========================================================================
+
+  @Get(':id/provision/discover')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Discover live network interfaces, bridges, IPs and hotspot services on router' })
+  @ApiResponse({ status: 200, description: 'Live router network discovery snapshot' })
+  async discoverNetwork(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+  ) {
+    return this.provisioningService.discover(tenantId, id);
+  }
+
+  @Post(':id/provision/preview')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Generate a non-destructive preview with conflict checks and RouterOS commands' })
+  @ApiResponse({ status: 200, description: 'Provisioning preview plan with commands and warnings' })
+  async previewProvisioning(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: ProvisionPreviewDto,
+  ) {
+    return this.provisioningService.preview(tenantId, id, dto);
+  }
+
+  @Post(':id/provision/apply')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Safely execute router provisioning with backup and multi-point verification' })
+  @ApiResponse({ status: 200, description: 'Provisioning execution results with step logs and diagnostics' })
+  async applyProvisioning(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: ProvisionApplyDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.provisioningService.apply(tenantId, id, dto, userId);
   }
 }

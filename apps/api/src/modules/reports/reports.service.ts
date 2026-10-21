@@ -39,11 +39,16 @@ export class ReportsService {
     const headers = [
       'رقم الفاتورة',
       'اسم الكاشير',
+      'الموزع / نقطة البيع',
       'اسم الراوتر',
       'الرقم التسلسلي',
       'اسم المستخدم',
       'الباقة',
-      'المبلغ',
+      'إجمالي المبلغ',
+      'الخصم',
+      'المبلغ المدفوع',
+      'المبلغ المتبقي',
+      'حالة الدفع',
       'العملة',
       'طريقة الدفع',
       'تاريخ البيع',
@@ -52,17 +57,75 @@ export class ReportsService {
     const rows = transactions.map((t) => [
       `"${t.invoiceNumber}"`,
       `"${t.cashier.fullName}"`,
+      `"${t.distributorName ?? ''}"`,
       `"${t.device.name}"`,
       `"${t.card.serialNumber}"`,
       `"${t.card.username}"`,
       `"${t.card.profile.name}"`,
       `"${t.amount}"`,
+      `"${t.discountAmount}"`,
+      `"${t.paidAmount}"`,
+      `"${t.remainingAmount}"`,
+      `"${t.paymentStatus}"`,
       `"${t.currency}"`,
       `"${t.paymentMethod}"`,
       `"${t.createdAt.toISOString()}"`,
     ]);
 
     // Prepend UTF-8 BOM (\uFEFF) for Arabic Excel compatibility
+    return '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  }
+
+  async exportExpensesCsv(
+    tenantId: string,
+    startDate?: string,
+    endDate?: string,
+    category?: string,
+  ): Promise<string> {
+    const where: Prisma.ExpenseWhereInput = { tenantId };
+    if (category) where.category = category as any;
+    if (startDate || endDate) {
+      where.expenseDate = {};
+      if (startDate) where.expenseDate.gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        if (endDate.length <= 10) end.setHours(23, 59, 59, 999);
+        where.expenseDate.lte = end;
+      }
+    }
+
+    const expenses = await this.prisma.expense.findMany({
+      where,
+      orderBy: { expenseDate: 'desc' },
+      include: { createdBy: { select: { fullName: true } } },
+    });
+
+    const headers = [
+      'تاريخ المصروف',
+      'التصنيف',
+      'البند / العنوان',
+      'المبلغ',
+      'العملة',
+      'طريقة الدفع',
+      'المورد / المستفيد',
+      'الوصف',
+      'المسؤول',
+      'تاريخ التسجيل',
+    ];
+
+    const rows = expenses.map((e) => [
+      `"${e.expenseDate.toISOString().split('T')[0]}"`,
+      `"${e.category}"`,
+      `"${e.title}"`,
+      `"${e.amount}"`,
+      `"${e.currency}"`,
+      `"${e.paymentMethod}"`,
+      `"${e.vendor ?? ''}"`,
+      `"${e.description ?? ''}"`,
+      `"${e.createdBy?.fullName ?? ''}"`,
+      `"${e.createdAt.toISOString()}"`,
+    ]);
+
     return '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
   }
 

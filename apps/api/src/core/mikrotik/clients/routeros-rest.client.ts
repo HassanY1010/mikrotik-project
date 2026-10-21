@@ -5,6 +5,16 @@ import type {
   HotspotUserItem,
   HotspotActiveSessionItem,
   RouterBackupItem,
+  RouterInterfaceItem,
+  RouterBridgeItem,
+  RouterBridgePortItem,
+  RouterIpAddressItem,
+  RouterDhcpClientItem,
+  RouterDhcpServerItem,
+  RouterNatRuleItem,
+  RouterRouteItem,
+  RouterHotspotServerItem,
+  RouterPingResult,
 } from '../interfaces/mikrotik-client.interface';
 
 export interface RouterOsRestConfig {
@@ -154,21 +164,35 @@ export class RouterOsRestClient implements IMikrotikClient {
     if (profile.rateLimit) payload['rate-limit'] = profile.rateLimit;
     if (profile.sessionTimeout) payload['session-timeout'] = profile.sessionTimeout;
     if (profile.idleTimeout) payload['idle-timeout'] = profile.idleTimeout;
-    if (profile.sharedUsers !== undefined) payload['shared-users'] = String(profile.sharedUsers);
+    if (profile.keepaliveTimeout) payload['keepalive-timeout'] = profile.keepaliveTimeout;
+    if (profile.sharedUsers !== undefined) payload['shared-users'] = Number(profile.sharedUsers);
+    if (profile.addressPool) payload['address-pool'] = profile.addressPool;
 
-    const res = await this.request<Record<string, string>>('/ip/hotspot/user/profile', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    });
+    try {
+      const res = await this.request<Record<string, string>>('/ip/hotspot/user/profile', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
 
-    return res['ret'] ?? profile.name;
+      return (res && res['ret']) ? res['ret'] : profile.name;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/already have profile with (such|this) name/i.test(msg) || /409|already exists/i.test(msg)) {
+        await this.updateHotspotProfile(profile.name, profile);
+        return profile.name;
+      }
+      throw err;
+    }
   }
 
   async updateHotspotProfile(name: string, profile: Partial<HotspotProfileItem>): Promise<void> {
     const payload: Record<string, unknown> = {};
     if (profile.rateLimit !== undefined) payload['rate-limit'] = profile.rateLimit;
     if (profile.sessionTimeout !== undefined) payload['session-timeout'] = profile.sessionTimeout;
-    if (profile.sharedUsers !== undefined) payload['shared-users'] = String(profile.sharedUsers);
+    if (profile.idleTimeout !== undefined) payload['idle-timeout'] = profile.idleTimeout;
+    if (profile.keepaliveTimeout !== undefined) payload['keepalive-timeout'] = profile.keepaliveTimeout;
+    if (profile.sharedUsers !== undefined) payload['shared-users'] = Number(profile.sharedUsers);
+    if (profile.addressPool !== undefined) payload['address-pool'] = profile.addressPool;
 
     await this.request(`/ip/hotspot/user/profile/${encodeURIComponent(name)}`, {
       method: 'PATCH',
@@ -525,6 +549,186 @@ export class RouterOsRestClient implements IMikrotikClient {
         `تعذر تنزيل ملف النسخة الاحتياطية (${safeFilename}) من الراوتر (${this.config.host}): ${errMsg}. النسخة محفوظة في قائمة Files على الراوتر.`,
       );
     }
+  }
+
+  async listInterfaces(): Promise<RouterInterfaceItem[]> {
+    await this.connect();
+    const items = await this.request<any[]>('/interface');
+    if (!Array.isArray(items)) return [];
+    return items.map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      type: r['type'] ?? 'unknown',
+      running: r['running'] === 'true' || r['running'] === true,
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      macAddress: r['mac-address'],
+      comment: r['comment'],
+      mtu: r['mtu'] ? parseInt(String(r['mtu']), 10) : undefined,
+    }));
+  }
+
+  async listBridges(): Promise<RouterBridgeItem[]> {
+    await this.connect();
+    const items = await this.request<any[]>('/interface/bridge');
+    if (!Array.isArray(items)) return [];
+    return items.map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async listBridgePorts(): Promise<RouterBridgePortItem[]> {
+    await this.connect();
+    const items = await this.request<any[]>('/interface/bridge/port');
+    if (!Array.isArray(items)) return [];
+    return items.map((r) => ({
+      id: r['.id'],
+      bridge: r['bridge'] ?? '',
+      interface: r['interface'] ?? '',
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+    }));
+  }
+
+  async listIpAddresses(): Promise<RouterIpAddressItem[]> {
+    await this.connect();
+    const items = await this.request<any[]>('/ip/address');
+    if (!Array.isArray(items)) return [];
+    return items.map((r) => ({
+      id: r['.id'],
+      address: r['address'] ?? '',
+      network: r['network'] ?? '',
+      interface: r['interface'] ?? '',
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async listDhcpClients(): Promise<RouterDhcpClientItem[]> {
+    await this.connect();
+    const items = await this.request<any[]>('/ip/dhcp-client');
+    if (!Array.isArray(items)) return [];
+    return items.map((r) => ({
+      id: r['.id'],
+      interface: r['interface'] ?? '',
+      status: r['status'],
+      address: r['address'],
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      addDefaultRoute: r['add-default-route'] === 'yes' || r['add-default-route'] === true,
+      usePeerDns: r['use-peer-dns'] === 'yes' || r['use-peer-dns'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async listDhcpServers(): Promise<RouterDhcpServerItem[]> {
+    await this.connect();
+    const items = await this.request<any[]>('/ip/dhcp-server');
+    if (!Array.isArray(items)) return [];
+    return items.map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      interface: r['interface'] ?? '',
+      addressPool: r['address-pool'],
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async listNatRules(): Promise<RouterNatRuleItem[]> {
+    await this.connect();
+    const items = await this.request<any[]>('/ip/firewall/nat');
+    if (!Array.isArray(items)) return [];
+    return items.map((r) => ({
+      id: r['.id'],
+      chain: r['chain'] ?? '',
+      action: r['action'] ?? '',
+      outInterface: r['out-interface'],
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async listRoutes(): Promise<RouterRouteItem[]> {
+    await this.connect();
+    const items = await this.request<any[]>('/ip/route');
+    if (!Array.isArray(items)) return [];
+    return items.map((r) => ({
+      id: r['.id'],
+      dstAddress: r['dst-address'] ?? '',
+      gateway: r['gateway'],
+      active: r['active'] === 'true' || r['active'] === true,
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async listHotspotServers(): Promise<RouterHotspotServerItem[]> {
+    await this.connect();
+    const items = await this.request<any[]>('/ip/hotspot');
+    if (!Array.isArray(items)) return [];
+    return items.map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      interface: r['interface'] ?? '',
+      profile: r['profile'],
+      addressPool: r['address-pool'],
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      invalid: r['invalid'] === 'true' || r['invalid'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async pingHost(host: string, count = 3): Promise<RouterPingResult> {
+    await this.connect();
+    try {
+      const res = await this.request<any>('/ping', {
+        method: 'POST',
+        body: JSON.stringify({ address: host, count }),
+      });
+      const results = Array.isArray(res) ? res : [res];
+      const received = results.filter((r) => {
+        const rec = parseInt(r?.['received'] ?? '0', 10);
+        return rec > 0 || r?.['status'] === undefined;
+      }).length;
+      const loss = count > 0 ? Math.round(((count - received) / count) * 100) : 100;
+      return {
+        host,
+        packetsSent: count,
+        packetsReceived: received,
+        packetLossPercent: loss,
+        isReachable: received > 0,
+      };
+    } catch {
+      return {
+        host,
+        packetsSent: count,
+        packetsReceived: 0,
+        packetLossPercent: 100,
+        isReachable: false,
+      };
+    }
+  }
+
+  async runRawCommand(words: string[]): Promise<any> {
+    await this.connect();
+    // Maps raw words into REST path & payload if applicable
+    const cmd = words[0];
+    const path = cmd.startsWith('/') ? cmd : `/${cmd}`;
+    const payload: Record<string, any> = {};
+    for (let i = 1; i < words.length; i++) {
+      const w = words[i];
+      if (w.startsWith('=')) {
+        const parts = w.substring(1).split('=');
+        const k = parts[0];
+        const v = parts.slice(1).join('=');
+        payload[k] = v;
+      }
+    }
+    return this.request(path, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
   }
 }
 

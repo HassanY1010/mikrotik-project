@@ -39,7 +39,13 @@ export class HotspotController {
   }
 
   @Post('profiles')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new Hotspot user profile on the router and platform' })
   @ApiResponse({ status: 201, description: 'Profile created' })
@@ -53,7 +59,13 @@ export class HotspotController {
   }
 
   @Post('profiles/sync')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({
     summary: 'Sync profiles directly from the physical MikroTik router into database',
   })
@@ -138,7 +150,13 @@ export class TenantHotspotController {
   }
 
   @Post('profiles')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new Hotspot user profile for tenant' })
   @ApiResponse({ status: 201, description: 'Profile created' })
@@ -147,7 +165,13 @@ export class TenantHotspotController {
   }
 
   @Patch('profiles/:profileId')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Update a Hotspot user profile' })
   @ApiResponse({ status: 200, description: 'Profile updated' })
   async updateProfile(
@@ -159,7 +183,13 @@ export class TenantHotspotController {
   }
 
   @Delete('profiles/:profileId')
-  @Roles(RoleName.TENANT_ADMIN)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Delete a Hotspot user profile' })
   @ApiResponse({ status: 200, description: 'Profile deleted' })
   async deleteProfile(

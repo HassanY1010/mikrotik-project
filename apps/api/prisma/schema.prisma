@@ -104,6 +104,24 @@ enum PppoeAccountStatus {
   SUSPENDED
 }
 
+enum ExpenseCategory {
+  INTERNET_UPSTREAM
+  ELECTRICITY
+  PAPER_AND_INK
+  HARDWARE_MAINTENANCE
+  SALARIES
+  COMMISSIONS
+  RENT
+  OTHER
+}
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  UNPAID
+  REFUNDED
+}
+
 // =============================================================================
 // PLATFORM & MULTI-TENANCY CORE
 // =============================================================================
@@ -146,6 +164,7 @@ model Tenant {
   pppoeProfiles      PppoeProfile[]
   pppoeAccounts      PppoeAccount[]
   pppoeActiveSessions PppoeActiveSession[]
+  expenses           Expense[]
 
   @@index([status])
   @@index([createdAt])
@@ -222,6 +241,7 @@ model User {
   cardsSold          Card[]            @relation("SoldBy")
   saleTransactions   SaleTransaction[]
   printJobs          PrintJob[]
+  expensesCreated    Expense[]
 
   @@index([tenantId])
   @@index([roleId])
@@ -472,6 +492,7 @@ model CardBatch {
   length         Int             @default(8)
   pattern        String          @default("NUMERIC") // NUMERIC, ALPHANUMERIC
   price          Decimal         @db.Decimal(10, 2)
+  unitCost       Decimal?        @default(0) @db.Decimal(10, 2)
   validityDays   Int?
   timeLimit      String?
   dataLimitBytes BigInt?
@@ -509,10 +530,13 @@ model Card {
   pinCode           String?
   serialNumber      String     @unique
   price             Decimal    @db.Decimal(10, 2)
+  unitCost          Decimal?   @default(0) @db.Decimal(10, 2)
   validityDays      Int?
   timeLimit         String?
   dataLimitBytes    BigInt?
   status            CardStatus @default(AVAILABLE)
+  isPrinted         Boolean    @default(false)
+  printedAt         DateTime?
   soldAt            DateTime?
   soldById          String?
   activatedAt       DateTime?
@@ -535,6 +559,7 @@ model Card {
   @@index([batchId])
   @@index([deviceId])
   @@index([status])
+  @@index([isPrinted])
   @@index([syncStatus])
   @@index([soldAt])
   @@index([tenantId, status])
@@ -549,20 +574,26 @@ model Card {
 // =============================================================================
 
 model SaleTransaction {
-  id            String        @id @default(uuid())
-  tenantId      String
-  cardId        String
-  cashierId     String
-  deviceId      String
-  amount        Decimal       @db.Decimal(10, 2)
-  currency      String        @default("SDG")
-  paymentMethod PaymentMethod @default(CASH)
-  customerPhone String?
-  customerName  String?
-  invoiceNumber String        @unique
-  printedCount  Int           @default(0)
-  lastPrintedAt DateTime?
-  createdAt     DateTime      @default(now())
+  id              String        @id @default(uuid())
+  tenantId        String
+  cardId          String
+  cashierId       String
+  deviceId        String
+  amount          Decimal       @db.Decimal(10, 2)
+  discountAmount  Decimal       @default(0) @db.Decimal(10, 2)
+  paidAmount      Decimal       @default(0) @db.Decimal(10, 2)
+  remainingAmount Decimal       @default(0) @db.Decimal(10, 2)
+  currency        String        @default("SDG")
+  paymentMethod   PaymentMethod @default(CASH)
+  paymentStatus   PaymentStatus @default(PAID)
+  customerPhone   String?
+  customerName    String?
+  distributorName String?
+  notes           String?
+  invoiceNumber   String        @unique
+  printedCount    Int           @default(0)
+  lastPrintedAt   DateTime?
+  createdAt       DateTime      @default(now())
 
   tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   card    Card           @relation(fields: [cardId], references: [id], onDelete: Cascade)
@@ -573,6 +604,7 @@ model SaleTransaction {
   @@index([cashierId])
   @@index([deviceId])
   @@index([cardId])
+  @@index([paymentStatus])
   @@index([createdAt])
   @@index([tenantId, createdAt])
   @@index([tenantId, cashierId, createdAt])
@@ -601,6 +633,31 @@ model PrintJob {
   @@index([tenantId])
   @@index([status])
   @@map("print_jobs")
+}
+
+model Expense {
+  id            String          @id @default(uuid())
+  tenantId      String
+  title         String
+  category      ExpenseCategory @default(OTHER)
+  amount        Decimal         @db.Decimal(10, 2)
+  currency      String          @default("SDG")
+  expenseDate   DateTime        @default(now())
+  paymentMethod PaymentMethod   @default(CASH)
+  vendor        String?
+  description   String?
+  receiptUrl    String?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, expenseDate])
+  @@index([tenantId, category])
+  @@map("expenses")
 }
 
 model TenantWalletTransaction {

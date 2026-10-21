@@ -306,6 +306,21 @@ export class SalesService {
 
       for (const card of cardsToSell) {
         const invoiceNumber = this.generateInvoiceNumber();
+        const cardPrice = Number(card.price);
+        const discount = dto.discountAmount ? Number(dto.discountAmount) / cardsToSell.length : 0;
+        const netAmount = Math.max(0, cardPrice - discount);
+        const paid = dto.paidAmount !== undefined && dto.paidAmount !== null
+          ? Number(dto.paidAmount) / cardsToSell.length
+          : netAmount;
+        const remaining = Math.max(0, netAmount - paid);
+
+        let paymentStatus: any = 'PAID';
+        if (remaining > 0 && paid > 0) {
+          paymentStatus = 'PARTIAL';
+        } else if (paid === 0 && netAmount > 0) {
+          paymentStatus = 'UNPAID';
+        }
+
         const transaction = await tx.saleTransaction.create({
           data: {
             tenantId,
@@ -313,10 +328,16 @@ export class SalesService {
             cashierId,
             deviceId: effectiveDeviceId,
             amount: card.price,
+            discountAmount: discount,
+            paidAmount: paid,
+            remainingAmount: remaining,
+            paymentStatus,
             currency: tenant.currency ?? 'SDG',
             paymentMethod,
             customerPhone: dto.customerPhone ?? null,
             customerName: dto.customerName ?? null,
+            distributorName: dto.distributorName ?? null,
+            notes: dto.notes ?? null,
             invoiceNumber,
             printedCount: 1,
             lastPrintedAt: new Date(),

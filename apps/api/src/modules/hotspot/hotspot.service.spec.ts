@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HotspotService } from './hotspot.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException, ConflictException, BadGatewayException } from '@nestjs/common';
 import { RouterOsVersion } from '@prisma/client';
 
 describe('HotspotService', () => {
@@ -77,10 +77,13 @@ describe('HotspotService', () => {
 
     it('should return profiles list from database', async () => {
       const mockProfiles = [
+        { id: 'prof-1', name: '1hour', rateLimit: '2M/2M', dataLimitBytes: null, dataLimitGb: null },
+        { id: 'prof-2', name: 'default', rateLimit: null, dataLimitBytes: null, dataLimitGb: null },
+      ];
+      prisma.hotspotProfile.findMany.mockResolvedValue([
         { id: 'prof-1', name: '1hour', rateLimit: '2M/2M' },
         { id: 'prof-2', name: 'default', rateLimit: null },
-      ];
-      prisma.hotspotProfile.findMany.mockResolvedValue(mockProfiles);
+      ]);
 
       const result = await service.listProfiles(mockTenantId, mockDeviceId);
       expect(result).toEqual(mockProfiles);
@@ -124,6 +127,58 @@ describe('HotspotService', () => {
       );
       expect(prisma.hotspotProfile.create).toHaveBeenCalled();
       expect(res.name).toBe('3hours');
+    });
+
+    it('should throw BadGatewayException and NOT save to database when online router rejects command', async () => {
+      prisma.hotspotProfile.findFirst.mockResolvedValue(null);
+      mockClient.createHotspotProfile.mockRejectedValue(new Error('failure: syntax error in rate-limit'));
+
+      await expect(
+        service.createProfile(mockTenantId, mockDeviceId, {
+          name: 'invalid-profile',
+          rateLimit: 'invalid-syntax',
+        }),
+      ).rejects.toThrow(BadGatewayException);
+
+      expect(prisma.hotspotProfile.create).not.toHaveBeenCalled();
+    });
+
+    it('should handle permission denied from router with user-friendly Arabic error message', async () => {
+      prisma.hotspotProfile.findFirst.mockResolvedValue(null);
+      mockClient.createHotspotProfile.mockRejectedValue(new Error('action not permitted: user has read-only access'));
+
+      try {
+        await service.createProfile(mockTenantId, mockDeviceId, {
+          name: 'readonly-test',
+        });
+        fail('Should have thrown BadGatewayException');
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(502);
+        const res = err.getResponse();
+        expect(res.message).toContain('صلاحيات الكتابة');
+      }
+      expect(prisma.hotspotProfile.create).not.toHaveBeenCalled();
+    });
+
+    it('should handle router timeout with appropriate message and redact secrets', async () => {
+      prisma.hotspotProfile.findFirst.mockResolvedValue(null);
+      mockClient.createHotspotProfile.mockRejectedValue(
+        new Error('Connection timed out after 3000ms with password=SecretPassword123'),
+      );
+
+      try {
+        await service.createProfile(mockTenantId, mockDeviceId, {
+          name: 'timeout-test',
+        });
+        fail('Should have thrown BadGatewayException');
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(502);
+        const res = err.getResponse();
+        expect(res.message).toContain('انتهت مهلة الاتصال بالراوتر');
+        expect(JSON.stringify(res)).not.toContain('SecretPassword123');
+        expect(JSON.stringify(res)).toContain('password=***');
+      }
+      expect(prisma.hotspotProfile.create).not.toHaveBeenCalled();
     });
   });
 

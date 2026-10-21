@@ -90,13 +90,26 @@ export class AnalyticsController {
   @ApiOperation({
     summary: 'Get comprehensive financial report, revenue history, profit margin and 7/30-day forecast',
   })
+  @ApiQuery({ name: 'period', required: false, enum: ['today', 'yesterday', 'last_7_days', 'this_month', 'last_month', 'this_year', 'all_time', 'custom'] })
+  @ApiQuery({ name: 'startDate', required: false, type: String })
+  @ApiQuery({ name: 'endDate', required: false, type: String })
+  @ApiQuery({ name: 'deviceId', required: false, type: String })
   @ApiResponse({ status: 200, description: 'Comprehensive financial report' })
   async getFinancialReport(
     @TenantId() headerTenantId?: string,
     @CurrentUser('tenantId') userTenantId?: string,
+    @Query('period') period?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('deviceId') deviceId?: string,
   ) {
     const tenantId = headerTenantId || userTenantId || '';
-    return this.analyticsService.getFinancialReport(tenantId);
+    return this.analyticsService.getFinancialReport(tenantId, {
+      period,
+      startDate,
+      endDate,
+      deviceId,
+    });
   }
 }
 

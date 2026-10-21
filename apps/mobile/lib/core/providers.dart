@@ -355,9 +355,12 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     } catch (e) {
       if (e is DioException && e.response?.data is Map) {
         final err = Map<String, dynamic>.from(e.response!.data as Map);
+        final rawMsg = err['message'] ??
+            (err['error'] is Map ? (err['error'] as Map)['message'] : null) ??
+            err['error'];
         return {
           'success': false,
-          'message': err['message']?.toString() ?? 'فشل إنشاء البروفايل على الراوتر',
+          'message': rawMsg?.toString() ?? 'فشل إنشاء البروفايل على الراوتر',
         };
       }
       return {
@@ -401,9 +404,12 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     } catch (e) {
       if (e is DioException && e.response?.data is Map) {
         final err = Map<String, dynamic>.from(e.response!.data as Map);
+        final rawMsg = err['message'] ??
+            (err['error'] is Map ? (err['error'] as Map)['message'] : null) ??
+            err['error'];
         return {
           'success': false,
-          'message': err['message']?.toString() ?? 'فشل تعديل البروفايل',
+          'message': rawMsg?.toString() ?? 'فشل تعديل البروفايل',
         };
       }
       return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
@@ -421,9 +427,12 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     } catch (e) {
       if (e is DioException && e.response?.data is Map) {
         final err = Map<String, dynamic>.from(e.response!.data as Map);
+        final rawMsg = err['message'] ??
+            (err['error'] is Map ? (err['error'] as Map)['message'] : null) ??
+            err['error'];
         return {
           'success': false,
-          'message': err['message']?.toString() ?? 'فشل حذف البروفايل',
+          'message': rawMsg?.toString() ?? 'فشل حذف البروفايل',
         };
       }
       return {'success': false, 'message': 'تعذر الاتصال بالخادم لحذف البروفايل'};
@@ -868,16 +877,51 @@ final activeSessionsProvider = AsyncNotifierProvider<ActiveSessionsNotifier, Lis
   ActiveSessionsNotifier.new,
 );
 
+// Reports Period Filter
+class ReportsPeriodFilterNotifier extends Notifier<String> {
+  @override
+  String build() => 'all_time';
+
+  void setPeriod(String period) => state = period;
+}
+
+final reportsPeriodFilterProvider = NotifierProvider<ReportsPeriodFilterNotifier, String>(
+  ReportsPeriodFilterNotifier.new,
+);
+
+class ReportsCustomDateRangeNotifier extends Notifier<DateTimeRange?> {
+  @override
+  DateTimeRange? build() => null;
+
+  void setRange(DateTimeRange? range) => state = range;
+}
+
+final reportsCustomDateRangeProvider = NotifierProvider<ReportsCustomDateRangeNotifier, DateTimeRange?>(
+  ReportsCustomDateRangeNotifier.new,
+);
+
 // Financial Report AsyncNotifier
 class FinancialReportNotifier extends AsyncNotifier<FinancialReportModel> {
   @override
   Future<FinancialReportModel> build() async {
-    return _fetch();
+    final period = ref.watch(reportsPeriodFilterProvider);
+    final customRange = ref.watch(reportsCustomDateRangeProvider);
+    return _fetch(period: period, customRange: customRange);
   }
 
-  Future<FinancialReportModel> _fetch() async {
+  Future<FinancialReportModel> _fetch({String? period, DateTimeRange? customRange}) async {
     final apiClient = ref.read(apiClientProvider);
-    final res = await apiClient.get(ApiEndpoints.financialReport);
+    final p = period ?? ref.read(reportsPeriodFilterProvider);
+    final range = customRange ?? ref.read(reportsCustomDateRangeProvider);
+
+    String url = '${ApiEndpoints.financialReport}?period=$p';
+    if (p == 'custom' && range != null) {
+      final s = range.start.toIso8601String().split('T')[0];
+      final e = range.end.toIso8601String().split('T')[0];
+      url += '&startDate=$s&endDate=$e';
+    }
+
+    final res = await apiClient.get(url);
     final raw = res.data;
     final data = (raw is Map && raw['data'] != null)
         ? raw['data'] as Map<String, dynamic>
@@ -893,6 +937,114 @@ class FinancialReportNotifier extends AsyncNotifier<FinancialReportModel> {
 
 final financialReportProvider = AsyncNotifierProvider<FinancialReportNotifier, FinancialReportModel>(
   FinancialReportNotifier.new,
+);
+
+// Expenses AsyncNotifier
+class ExpensesNotifier extends AsyncNotifier<List<ExpenseItemModel>> {
+  @override
+  Future<List<ExpenseItemModel>> build() async {
+    return _fetch();
+  }
+
+  Future<List<ExpenseItemModel>> _fetch() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get('${ApiEndpoints.expenses}?limit=100');
+      final raw = res.data;
+      final list = (raw is Map && raw['data'] != null)
+          ? (raw['data'] is Map && raw['data']['data'] != null
+              ? raw['data']['data'] as List
+              : raw['data'] as List)
+          : (raw is List ? raw : []);
+      return list.map((e) => ExpenseItemModel.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<bool> createExpense({
+    required String title,
+    required String category,
+    required double amount,
+    String? currency,
+    String? vendor,
+    String? description,
+    String? expenseDate,
+    String? paymentMethod,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.post(ApiEndpoints.expenses, data: {
+        'title': title,
+        'category': category,
+        'amount': amount,
+        if (currency != null) 'currency': currency,
+        if (vendor != null) 'vendor': vendor,
+        if (description != null) 'description': description,
+        if (expenseDate != null) 'expenseDate': expenseDate,
+        if (paymentMethod != null) 'paymentMethod': paymentMethod,
+      });
+      await ref.read(financialReportProvider.notifier).refresh();
+      state = await AsyncValue.guard(() => _fetch());
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> deleteExpense(String id) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.delete(ApiEndpoints.expenseItem(id));
+      await ref.read(financialReportProvider.notifier).refresh();
+      state = await AsyncValue.guard(() => _fetch());
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch());
+  }
+}
+
+final expensesProvider = AsyncNotifierProvider<ExpensesNotifier, List<ExpenseItemModel>>(
+  ExpensesNotifier.new,
+);
+
+// Sales Transactions AsyncNotifier
+class SalesTransactionsNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
+  @override
+  Future<List<Map<String, dynamic>>> build() async {
+    return _fetch();
+  }
+
+  Future<List<Map<String, dynamic>>> _fetch() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get('${ApiEndpoints.salesTransactions}?limit=50');
+      final raw = res.data;
+      final list = (raw is Map && raw['data'] != null)
+          ? (raw['data'] is Map && raw['data']['data'] != null
+              ? raw['data']['data'] as List
+              : raw['data'] as List)
+          : (raw is List ? raw : []);
+      return List<Map<String, dynamic>>.from(list);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch());
+  }
+}
+
+final salesTransactionsProvider = AsyncNotifierProvider<SalesTransactionsNotifier, List<Map<String, dynamic>>>(
+  SalesTransactionsNotifier.new,
 );
 
 // Card Templates AsyncNotifier

@@ -277,6 +277,19 @@ export class CardTemplatesService {
       },
     });
 
+    // Mark rendered cards as printed in inventory
+    try {
+      await this.prisma.card.updateMany({
+        where: { id: { in: renderedCards.map((c) => c.id) } },
+        data: {
+          isPrinted: true,
+          printedAt: new Date(),
+        },
+      });
+    } catch (err) {
+      this.logger.warn(`Could not update isPrinted on cards: ${err}`);
+    }
+
     this.logger.log(
       `Rendered batch ${batch.batchNumber} (${renderedCards.length} cards) for print job ${printJob.id}`,
     );

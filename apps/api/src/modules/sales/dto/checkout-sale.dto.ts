@@ -44,6 +44,24 @@ export class CheckoutSaleDto {
   @IsOptional()
   quantity?: number;
 
+  @ApiPropertyOptional({ description: 'Discount applied to the sale transaction', default: 0 })
+  @IsOptional()
+  discountAmount?: number;
+
+  @ApiPropertyOptional({ description: 'Actual amount paid by customer/distributor' })
+  @IsOptional()
+  paidAmount?: number;
+
+  @ApiPropertyOptional({ description: 'Name of distributor or point of sale' })
+  @IsString()
+  @IsOptional()
+  distributorName?: string;
+
+  @ApiPropertyOptional({ description: 'Additional sales transaction notes' })
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
   @ApiPropertyOptional({ description: 'Unique idempotency key to prevent duplicate sales on network retries' })
   @IsString()
   @IsOptional()
