@@ -20,7 +20,7 @@ import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { TenantId } from '../../core/decorators/tenant-id.decorator';
-import { CurrentUser } from '../../core/decorators/current-user.decorator';
+import { CurrentUser, RequestUser } from '../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
 
 @ApiTags('hotspot')
@@ -34,8 +34,12 @@ export class HotspotController {
   @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({ summary: 'List all Hotspot user profiles for this router' })
   @ApiResponse({ status: 200, description: 'List of profiles' })
-  async listProfiles(@TenantId() tenantId: string, @Param('deviceId') deviceId: string) {
-    return this.hotspotService.listProfiles(tenantId, deviceId);
+  async listProfiles(
+    @TenantId() tenantId: string,
+    @Param('deviceId') deviceId: string,
+    @CurrentUser() currentUser: RequestUser,
+  ) {
+    return this.hotspotService.listProfiles(tenantId, deviceId, currentUser);
   }
 
   @Post('profiles')
@@ -54,8 +58,9 @@ export class HotspotController {
     @TenantId() tenantId: string,
     @Param('deviceId') deviceId: string,
     @Body() dto: CreateProfileDto,
+    @CurrentUser() currentUser: RequestUser,
   ) {
-    return this.hotspotService.createProfile(tenantId, deviceId, dto);
+    return this.hotspotService.createProfile(tenantId, deviceId, dto, currentUser);
   }
 
   @Post('profiles/sync')
@@ -70,8 +75,12 @@ export class HotspotController {
     summary: 'Sync profiles directly from the physical MikroTik router into database',
   })
   @ApiResponse({ status: 200, description: 'Profiles synced' })
-  async syncProfiles(@TenantId() tenantId: string, @Param('deviceId') deviceId: string) {
-    return this.hotspotService.syncProfiles(tenantId, deviceId);
+  async syncProfiles(
+    @TenantId() tenantId: string,
+    @Param('deviceId') deviceId: string,
+    @CurrentUser() currentUser: RequestUser,
+  ) {
+    return this.hotspotService.syncProfiles(tenantId, deviceId, currentUser);
   }
 
   @Delete('profiles/:profileId')
@@ -82,8 +91,9 @@ export class HotspotController {
     @TenantId() tenantId: string,
     @Param('deviceId') deviceId: string,
     @Param('profileId') profileId: string,
+    @CurrentUser() currentUser: RequestUser,
   ) {
-    return this.hotspotService.deleteProfile(tenantId, deviceId, profileId);
+    return this.hotspotService.deleteProfile(tenantId, deviceId, profileId, currentUser);
   }
 
   @Get('sessions')
@@ -101,8 +111,9 @@ export class HotspotController {
     @CurrentUser('tenantId') tenantId: string,
     @Param('deviceId') deviceId: string,
     @Query('search') search?: string,
+    @CurrentUser() currentUser?: RequestUser,
   ) {
-    return this.hotspotService.listAllActiveSessions(tenantId, deviceId, search);
+    return this.hotspotService.listAllActiveSessions(tenantId, deviceId, search, currentUser);
   }
 
   @Post('sessions/:sessionId/kick')
@@ -122,8 +133,9 @@ export class HotspotController {
     @Param('sessionId') sessionId: string,
     @Body('username') username?: string,
     @Body('ipAddress') ipAddress?: string,
+    @CurrentUser() currentUser?: RequestUser,
   ) {
-    return this.hotspotService.kickSession(tenantId ?? '', deviceId, sessionId, username, ipAddress, userId);
+    return this.hotspotService.kickSession(tenantId ?? '', deviceId, sessionId, username, ipAddress, userId, currentUser);
   }
 }
 
@@ -145,8 +157,11 @@ export class TenantHotspotController {
   )
   @ApiOperation({ summary: 'List all Hotspot user profiles for the current tenant' })
   @ApiResponse({ status: 200, description: 'List of tenant profiles' })
-  async listAllProfiles(@CurrentUser('tenantId') tenantId?: string) {
-    return this.hotspotService.listAllProfiles(tenantId);
+  async listAllProfiles(
+    @CurrentUser('tenantId') tenantId?: string,
+    @CurrentUser() currentUser?: RequestUser,
+  ) {
+    return this.hotspotService.listAllProfiles(tenantId, currentUser);
   }
 
   @Post('profiles')

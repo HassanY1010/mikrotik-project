@@ -10,14 +10,16 @@ import {
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
+import { PermissionsGuard } from '../../core/guards/permissions.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
+import { RequirePermissions } from '../../core/decorators/permissions.decorator';
 import { TenantId } from '../../core/decorators/tenant-id.decorator';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
 
 @ApiTags('analytics')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard, PermissionsGuard)
 @Controller('analytics')
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
@@ -51,6 +53,7 @@ export class AnalyticsController {
   }
 
   @Get('revenue')
+  @RequirePermissions('finance:view')
   @Roles(RoleName.SUPER_ADMIN, 'OWNER' as any, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({
     summary: 'Get revenue time-series and breakdown by profile, payment method, and router',
@@ -70,6 +73,7 @@ export class AnalyticsController {
   }
 
   @Get('network')
+  @RequirePermissions('reports:view')
   @Roles(RoleName.SUPER_ADMIN, 'OWNER' as any, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({
     summary: 'Get network traffic telemetry, top consumers, and peak hours distribution',
@@ -86,6 +90,7 @@ export class AnalyticsController {
   }
 
   @Get('financial-report')
+  @RequirePermissions('finance:view')
   @Roles(RoleName.SUPER_ADMIN, 'OWNER' as any, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({
     summary: 'Get comprehensive financial report, revenue history, profit margin and 7/30-day forecast',

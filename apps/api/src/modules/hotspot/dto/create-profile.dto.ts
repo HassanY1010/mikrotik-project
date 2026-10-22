@@ -94,6 +94,16 @@ export class CreateProfileDto {
   dataLimitGb?: number | null;
 
   @ApiPropertyOptional({
+    description: 'Data limit in Megabytes (e.g. 500, 1024). If omitted or null, package is unlimited',
+    example: 500,
+  })
+  @IsOptional()
+  @ValidateIf((o) => o.dataLimitMb !== null && o.dataLimitMb !== undefined)
+  @IsNumber({}, { message: 'حجم البيانات يجب أن يكون رقماً' })
+  @IsPositive({ message: 'حجم البيانات بالميجابايت يجب أن يكون رقماً موجباً أكبر من الصفر' })
+  dataLimitMb?: number | null;
+
+  @ApiPropertyOptional({
     description: 'Data limit in raw bytes. If null or 0, package is unlimited',
     example: 5368709120,
   })

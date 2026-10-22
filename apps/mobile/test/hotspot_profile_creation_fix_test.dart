@@ -39,6 +39,7 @@ class MockNotifier extends CachedProfilesNotifier {
     double? price,
     int? sharedUsers,
     double? dataLimitGb,
+    double? dataLimitMb,
   }) async {
     callCount++;
     lastCreatedPayload = {
@@ -51,6 +52,7 @@ class MockNotifier extends CachedProfilesNotifier {
       'price': price,
       'sharedUsers': sharedUsers,
       'dataLimitGb': dataLimitGb,
+      'dataLimitMb': dataLimitMb,
     };
 
     if (shouldFailWithNestedError) {

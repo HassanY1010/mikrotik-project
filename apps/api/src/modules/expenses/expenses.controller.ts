@@ -19,19 +19,22 @@ import { ExpenseQueryDto } from './dto/expense-query.dto';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
+import { PermissionsGuard } from '../../core/guards/permissions.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
+import { RequirePermissions } from '../../core/decorators/permissions.decorator';
 import { TenantId } from '../../core/decorators/tenant-id.decorator';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
 
 @ApiTags('expenses')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard, PermissionsGuard)
 @Controller('expenses')
 export class ExpensesController {
   constructor(private readonly expensesService: ExpensesService) {}
 
   @Post()
+  @RequirePermissions('expenses:manage')
   @Roles(RoleName.SUPER_ADMIN, 'OWNER' as any, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new operational network expense' })
@@ -45,6 +48,7 @@ export class ExpensesController {
   }
 
   @Get()
+  @RequirePermissions('finance:view')
   @Roles(RoleName.SUPER_ADMIN, 'OWNER' as any, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({ summary: 'List operational expenses with pagination, search, and date filters' })
   @ApiResponse({ status: 200, description: 'Paginated expenses' })
@@ -53,6 +57,7 @@ export class ExpensesController {
   }
 
   @Get('summary')
+  @RequirePermissions('finance:view')
   @Roles(RoleName.SUPER_ADMIN, 'OWNER' as any, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Get aggregated expenses summary categorized by operational purpose' })
   @ApiQuery({ name: 'startDate', required: false, type: String })
@@ -67,6 +72,7 @@ export class ExpensesController {
   }
 
   @Get(':id')
+  @RequirePermissions('finance:view')
   @Roles(RoleName.SUPER_ADMIN, 'OWNER' as any, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Get single expense details by ID' })
   @ApiResponse({ status: 200, description: 'Expense details' })
@@ -75,6 +81,7 @@ export class ExpensesController {
   }
 
   @Patch(':id')
+  @RequirePermissions('expenses:manage')
   @Roles(RoleName.SUPER_ADMIN, 'OWNER' as any, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Update an existing operational expense' })
   @ApiResponse({ status: 200, description: 'Expense updated' })
@@ -87,6 +94,7 @@ export class ExpensesController {
   }
 
   @Delete(':id')
+  @RequirePermissions('expenses:manage')
   @Roles(RoleName.SUPER_ADMIN, 'OWNER' as any, RoleName.TENANT_ADMIN)
   @ApiOperation({ summary: 'Delete an operational expense record' })
   @ApiResponse({ status: 200, description: 'Expense deleted' })

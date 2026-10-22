@@ -17,6 +17,11 @@ class ApiEndpoints {
   // User management endpoints
   static const String users = '/users';
   static String userItem(String id) => '/users/$id';
+  static String userDevices(String id) => '/users/$id/devices';
+  static String userPermissions(String id) => '/users/$id/permissions';
+  static const String userInvitations = '/users/invitations';
+  static String userInvitationResend(String id) => '/users/invitations/$id/resend';
+  static String userInvitationItem(String id) => '/users/invitations/$id';
 
   // Sync endpoints
   static const String syncPush = '/sync/push';

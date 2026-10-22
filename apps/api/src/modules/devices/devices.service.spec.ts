@@ -10,6 +10,7 @@ import {
   BadGatewayException,
 } from '@nestjs/common';
 import { RouterOsVersion } from '@prisma/client';
+import { RoleName } from '@mikrotik-saas/shared-types';
 
 describe('DevicesService', () => {
   let service: DevicesService;
@@ -34,6 +35,13 @@ describe('DevicesService', () => {
       },
       auditLog: {
         create: jest.fn(),
+      },
+      userDeviceAccess: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+      },
+      tenant: {
+        findFirst: jest.fn(),
       },
       $transaction: jest.fn((cb) => (typeof cb === 'function' ? cb(prisma) : Promise.all(cb))),
     };
@@ -335,6 +343,140 @@ describe('DevicesService', () => {
       expect(typeof res.memoryFree).toBe('number');
       expect(res.memoryFree).toBe(64000000);
       expect((res as any).passwordEncrypted).toBeUndefined();
+    });
+  });
+
+  describe('assertUserDeviceAccess', () => {
+    const mockDevice = {
+      id: mockDeviceId,
+      tenantId: mockTenantId,
+      name: 'Router 1',
+    };
+
+    it('should allow TENANT_ADMIN full access even without userDeviceAccess entry', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+
+      const user = {
+        id: 'admin-user',
+        tenantId: mockTenantId,
+        role: RoleName.TENANT_ADMIN,
+        email: 'admin@sudafi.com',
+      } as any;
+
+      const device = await service.assertUserDeviceAccess(mockTenantId, mockDeviceId, user);
+      expect(device.id).toBe(mockDeviceId);
+      expect(prisma.userDeviceAccess.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('should allow staff with explicit device assignment', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+      prisma.userDeviceAccess.findUnique.mockResolvedValue({
+        userId: 'cashier-user',
+        deviceId: mockDeviceId,
+      });
+
+      const user = {
+        id: 'cashier-user',
+        tenantId: mockTenantId,
+        role: RoleName.CASHIER,
+        email: 'cashier@sudafi.com',
+      } as any;
+
+      const device = await service.assertUserDeviceAccess(mockTenantId, mockDeviceId, user);
+      expect(device.id).toBe(mockDeviceId);
+      expect(prisma.userDeviceAccess.findUnique).toHaveBeenCalledWith({
+        where: {
+          userId_deviceId: {
+            userId: 'cashier-user',
+            deviceId: mockDeviceId,
+          },
+        },
+      });
+    });
+
+    it('should throw ForbiddenException if staff has no access to this specific device', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(mockDevice);
+      prisma.userDeviceAccess.findUnique.mockResolvedValue(null);
+
+      const user = {
+        id: 'cashier-user',
+        tenantId: mockTenantId,
+        role: RoleName.CASHIER,
+        email: 'cashier@sudafi.com',
+      } as any;
+
+      await expect(
+        service.assertUserDeviceAccess(mockTenantId, mockDeviceId, user),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw NotFoundException if device does not exist', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.assertUserDeviceAccess(mockTenantId, 'missing-device', undefined),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findAll', () => {
+    it('should return all devices for TENANT_ADMIN without device filtering', async () => {
+      const mockDevices = [
+        { id: 'd-1', tenantId: mockTenantId, name: 'R1', createdAt: new Date() },
+        { id: 'd-2', tenantId: mockTenantId, name: 'R2', createdAt: new Date() },
+      ];
+      prisma.mikroTikDevice.findMany.mockResolvedValue(mockDevices);
+
+      const user = {
+        id: 'admin-user',
+        tenantId: mockTenantId,
+        role: RoleName.TENANT_ADMIN,
+        email: 'admin@sudafi.com',
+      } as any;
+
+      const results = await service.findAll(mockTenantId, user);
+      expect(results.length).toBe(2);
+      expect(prisma.userDeviceAccess.findMany).not.toHaveBeenCalled();
+    });
+
+    it('should return only assigned devices for staff when assignments exist', async () => {
+      prisma.userDeviceAccess.findMany.mockResolvedValue([{ deviceId: 'd-1' }]);
+      prisma.mikroTikDevice.findMany.mockResolvedValue([
+        { id: 'd-1', tenantId: mockTenantId, name: 'R1', createdAt: new Date() },
+      ]);
+
+      const user = {
+        id: 'staff-user',
+        tenantId: mockTenantId,
+        role: RoleName.CASHIER,
+        email: 'cashier@sudafi.com',
+      } as any;
+
+      const results = await service.findAll(mockTenantId, user);
+      expect(results.length).toBe(1);
+      expect(results[0].id).toBe('d-1');
+      expect(prisma.mikroTikDevice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: { in: ['d-1'] },
+          }),
+        }),
+      );
+    });
+
+    it('should return empty list (safe default) for staff with zero assigned devices', async () => {
+      prisma.userDeviceAccess.findMany.mockResolvedValue([]);
+
+      const user = {
+        id: 'staff-user',
+        tenantId: mockTenantId,
+        role: RoleName.CASHIER,
+        email: 'cashier@sudafi.com',
+      } as any;
+
+      const results = await service.findAll(mockTenantId, user);
+      expect(results).toEqual([]);
+      expect(prisma.mikroTikDevice.findMany).not.toHaveBeenCalled();
     });
   });
 

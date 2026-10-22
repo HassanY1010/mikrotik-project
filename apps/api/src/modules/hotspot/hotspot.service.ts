@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   BadGatewayException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -16,6 +17,8 @@ import {
   formatValidityDurationArabic,
   normalizeValidityDuration,
 } from '../../common/utils/validity-duration.util';
+import { RoleName } from '@mikrotik-saas/shared-types';
+import type { RequestUser } from '../../core/decorators/current-user.decorator';
 
 @Injectable()
 export class HotspotService {
@@ -26,7 +29,11 @@ export class HotspotService {
     private readonly mikrotikClientFactory: MikrotikClientFactory,
   ) {}
 
-  private async getValidDevice(tenantId: string | undefined, deviceId: string) {
+  private async getValidDevice(
+    tenantId: string | undefined,
+    deviceId: string,
+    currentUser?: RequestUser,
+  ) {
     const where: any = { id: deviceId, deletedAt: null };
     if (tenantId) where.tenantId = tenantId;
     const device = await this.prisma.mikroTikDevice.findFirst({ where });
@@ -38,11 +45,35 @@ export class HotspotService {
       });
     }
 
+    if (
+      currentUser &&
+      currentUser.role !== RoleName.SUPER_ADMIN &&
+      currentUser.role !== RoleName.TENANT_ADMIN &&
+      (currentUser.role as any) !== 'OWNER' &&
+      (currentUser.role as any) !== 'ADMIN'
+    ) {
+      const access = await this.prisma.userDeviceAccess.findUnique({
+        where: {
+          userId_deviceId: {
+            userId: currentUser.id,
+            deviceId,
+          },
+        },
+      });
+
+      if (!access) {
+        throw new ForbiddenException({
+          code: 'DEVICE_ACCESS_DENIED',
+          message: 'ليس لديك صلاحية للوصول إلى هذا الراوتر',
+        });
+      }
+    }
+
     return device;
   }
 
-  async listProfiles(tenantId: string, deviceId: string) {
-    await this.getValidDevice(tenantId, deviceId);
+  async listProfiles(tenantId: string, deviceId: string, currentUser?: RequestUser) {
+    await this.getValidDevice(tenantId, deviceId, currentUser);
 
     const profiles = await this.prisma.hotspotProfile.findMany({
       where: { tenantId, deviceId },
@@ -58,7 +89,7 @@ export class HotspotService {
     }));
   }
 
-  async listAllProfiles(tenantId?: string | null) {
+  async listAllProfiles(tenantId?: string | null, currentUser?: RequestUser) {
     let resolvedTenantId = tenantId;
     if (!resolvedTenantId) {
       const first = await this.prisma.tenant.findFirst({
@@ -71,6 +102,24 @@ export class HotspotService {
     const where: Prisma.HotspotProfileWhereInput = {};
     if (resolvedTenantId) {
       where.tenantId = resolvedTenantId;
+    }
+
+    if (
+      currentUser &&
+      currentUser.role !== RoleName.SUPER_ADMIN &&
+      currentUser.role !== RoleName.TENANT_ADMIN &&
+      (currentUser.role as any) !== 'OWNER' &&
+      (currentUser.role as any) !== 'ADMIN'
+    ) {
+      const assigned = await this.prisma.userDeviceAccess.findMany({
+        where: { userId: currentUser.id },
+        select: { deviceId: true },
+      });
+      const assignedIds = assigned.map((a) => a.deviceId);
+      if (assignedIds.length === 0) {
+        return [];
+      }
+      where.deviceId = { in: assignedIds };
     }
 
     const profiles = await this.prisma.hotspotProfile.findMany({
@@ -133,8 +182,8 @@ export class HotspotService {
     });
   }
 
-  async syncProfiles(tenantId: string, deviceId: string) {
-    const device = await this.getValidDevice(tenantId, deviceId);
+  async syncProfiles(tenantId: string, deviceId: string, currentUser?: RequestUser) {
+    const device = await this.getValidDevice(tenantId, deviceId, currentUser);
 
     const client = await this.mikrotikClientFactory.getClient({
       id: device.id,
@@ -195,8 +244,13 @@ export class HotspotService {
     return synced;
   }
 
-  async createProfile(tenantId: string, deviceId: string, dto: CreateProfileDto) {
-    const device = await this.getValidDevice(tenantId, deviceId);
+  async createProfile(
+    tenantId: string,
+    deviceId: string,
+    dto: CreateProfileDto,
+    currentUser?: RequestUser,
+  ) {
+    const device = await this.getValidDevice(tenantId, deviceId, currentUser);
     const effectiveTenantId = tenantId || device.tenantId;
 
     const existing = await this.prisma.hotspotProfile.findFirst({
@@ -299,7 +353,14 @@ export class HotspotService {
 
     // Calculate quota limit in bytes if provided
     let calculatedDataLimitBytes: bigint | null = null;
-    if (dto.dataLimitGb !== undefined && dto.dataLimitGb !== null) {
+    if (dto.dataLimitMb !== undefined && dto.dataLimitMb !== null) {
+      const val = Number(dto.dataLimitMb);
+      if (Number.isNaN(val) || val <= 0) {
+        throw new BadRequestException('حجم البيانات بالميجابايت يجب أن يكون رقماً موجباً أكبر من الصفر');
+      }
+      // 1 MB = 1024 * 1024 bytes = 1,048,576 bytes
+      calculatedDataLimitBytes = BigInt(Math.round(val * 1024 * 1024));
+    } else if (dto.dataLimitGb !== undefined && dto.dataLimitGb !== null) {
       const val = Number(dto.dataLimitGb);
       if (Number.isNaN(val) || val <= 0) {
         throw new BadRequestException('حجم البيانات بالجيجابايت يجب أن يكون رقماً موجباً أكبر من الصفر');
@@ -357,8 +418,13 @@ export class HotspotService {
     return this.createProfile(tenantId || '', deviceId, dto);
   }
 
-  async deleteProfile(tenantId: string, deviceId: string, profileId: string) {
-    const device = await this.getValidDevice(tenantId, deviceId);
+  async deleteProfile(
+    tenantId: string,
+    deviceId: string,
+    profileId: string,
+    currentUser?: RequestUser,
+  ) {
+    const device = await this.getValidDevice(tenantId, deviceId, currentUser);
 
     const profile = await this.prisma.hotspotProfile.findFirst({
       where: { id: profileId, tenantId, deviceId },
@@ -460,7 +526,17 @@ export class HotspotService {
     }
 
     let newDataLimitBytes: bigint | null | undefined = undefined;
-    if (dto.dataLimitGb !== undefined) {
+    if (dto.dataLimitMb !== undefined) {
+      if (dto.dataLimitMb === null) {
+        newDataLimitBytes = null;
+      } else {
+        const val = Number(dto.dataLimitMb);
+        if (Number.isNaN(val) || val <= 0) {
+          throw new BadRequestException('حجم البيانات بالميجابايت يجب أن يكون رقماً موجباً أكبر من الصفر');
+        }
+        newDataLimitBytes = BigInt(Math.round(val * 1024 * 1024));
+      }
+    } else if (dto.dataLimitGb !== undefined) {
       if (dto.dataLimitGb === null) {
         newDataLimitBytes = null;
       } else {
@@ -551,8 +627,9 @@ export class HotspotService {
   async listActiveSessions(
     tenantId: string,
     deviceId: string,
+    currentUser?: RequestUser,
   ): Promise<HotspotActiveSessionItem[]> {
-    const device = await this.getValidDevice(tenantId, deviceId);
+    const device = await this.getValidDevice(tenantId, deviceId, currentUser);
 
     const client = await this.mikrotikClientFactory.getClient({
       id: device.id,
@@ -571,8 +648,16 @@ export class HotspotService {
     return client.listActiveSessions();
   }
 
-  async kickSession(tenantId: string, deviceId: string, sessionId: string, username?: string, ipAddress?: string, userId?: string) {
-    const device = await this.getValidDevice(tenantId, deviceId);
+  async kickSession(
+    tenantId: string,
+    deviceId: string,
+    sessionId: string,
+    username?: string,
+    ipAddress?: string,
+    userId?: string,
+    currentUser?: RequestUser,
+  ) {
+    const device = await this.getValidDevice(tenantId, deviceId, currentUser);
 
     const client = await this.mikrotikClientFactory.getClient({
       id: device.id,
@@ -633,6 +718,7 @@ export class HotspotService {
     tenantId?: string | null,
     deviceId?: string,
     search?: string,
+    currentUser?: RequestUser,
   ): Promise<{ data: (HotspotActiveSessionItem & { deviceId: string; deviceName: string })[]; total: number }> {
     let resolvedTenantId = tenantId;
     if (!resolvedTenantId) {
@@ -652,7 +738,25 @@ export class HotspotService {
       deletedAt: null,
     };
     if (deviceId) {
+      // Assert user access for specific device
+      await this.getValidDevice(resolvedTenantId, deviceId, currentUser);
       deviceWhere.id = deviceId;
+    } else if (
+      currentUser &&
+      currentUser.role !== RoleName.SUPER_ADMIN &&
+      currentUser.role !== RoleName.TENANT_ADMIN &&
+      (currentUser.role as any) !== 'OWNER' &&
+      (currentUser.role as any) !== 'ADMIN'
+    ) {
+      const assigned = await this.prisma.userDeviceAccess.findMany({
+        where: { userId: currentUser.id },
+        select: { deviceId: true },
+      });
+      const assignedIds = assigned.map((a) => a.deviceId);
+      if (assignedIds.length === 0) {
+        return { data: [], total: 0 };
+      }
+      deviceWhere.id = { in: assignedIds };
     }
 
     const devices = await this.prisma.mikroTikDevice.findMany({

@@ -26,7 +26,7 @@ import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { TenantId } from '../../core/decorators/tenant-id.decorator';
-import { CurrentUser } from '../../core/decorators/current-user.decorator';
+import { CurrentUser, RequestUser } from '../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
 import { RouterResource } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
 
@@ -44,8 +44,11 @@ export class DevicesController {
   @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
   @ApiOperation({ summary: 'List all MikroTik routers belonging to the current tenant' })
   @ApiResponse({ status: 200, description: 'List of devices' })
-  async findAll(@CurrentUser('tenantId') tenantId?: string): Promise<DeviceResponse[]> {
-    return this.devicesService.findAll(tenantId);
+  async findAll(
+    @CurrentUser('tenantId') tenantId?: string,
+    @CurrentUser() currentUser?: RequestUser,
+  ): Promise<DeviceResponse[]> {
+    return this.devicesService.findAll(tenantId, currentUser);
   }
 
   @Post('test-connection')
@@ -71,8 +74,12 @@ export class DevicesController {
   @ApiOperation({ summary: 'Get details of a specific MikroTik router' })
   @ApiResponse({ status: 200, description: 'Device details' })
   @ApiResponse({ status: 404, description: 'Device not found' })
-  async findById(@Param('id') id: string, @CurrentUser('tenantId') tenantId?: string): Promise<DeviceResponse> {
-    return this.devicesService.findById(tenantId, id);
+  async findById(
+    @Param('id') id: string,
+    @CurrentUser('tenantId') tenantId?: string,
+    @CurrentUser() currentUser?: RequestUser,
+  ): Promise<DeviceResponse> {
+    return this.devicesService.findById(tenantId, id, currentUser);
   }
 
   @Post()

@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Delete,
+  Param,
   Body,
   Req,
   Res,
@@ -221,4 +222,43 @@ export class AuthController {
   ): Promise<{ success: boolean; message: string }> {
     return this.authService.resetPassword(dto, ip, userAgent);
   }
+
+  @Public()
+  @Get('invitations/:token')
+  @ApiOperation({ summary: 'Get invitation details by token' })
+  @ApiResponse({ status: 200, description: 'Invitation details' })
+  @ApiResponse({ status: 404, description: 'Invitation not found or expired' })
+  async getInvitation(@Param('token') token: string): Promise<Record<string, unknown>> {
+    return this.authService.getInvitationDetails(token);
+  }
+
+  @Public()
+  @Post('invitations/:token/accept')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Accept invitation and set password' })
+  @ApiResponse({ status: 200, description: 'Invitation accepted and logged in' })
+  async acceptInvitation(
+    @Param('token') token: string,
+    @Body() dto: { password: string },
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Record<string, unknown>> {
+    const result = await this.authService.acceptInvitation(
+      { token, password: dto.password },
+      ip,
+      userAgent,
+    );
+
+    res.cookie('refresh_token', result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.COOKIE_SECURE === 'true',
+      sameSite: (process.env.COOKIE_SAME_SITE as 'lax' | 'strict' | 'none') || 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/api/v1/auth',
+    });
+
+    return result;
+  }
 }
+

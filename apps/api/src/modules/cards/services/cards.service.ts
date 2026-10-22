@@ -1,4 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/security/encryption.service';
@@ -10,6 +17,7 @@ import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
 import { CardStatus, CardBatchStatus, SyncStatus, PrintJobStatus, Prisma } from '@prisma/client';
 import { QuotasService } from './quotas.service';
 import { normalizeValidityDuration } from '../../../common/utils/validity-duration.util';
+import { RoleName } from '@mikrotik-saas/shared-types';
 
 export interface BulkDeleteResult {
   success: boolean;
@@ -228,6 +236,35 @@ export class CardsService {
         code: 'DEVICE_NOT_FOUND',
         message: `Device with ID ${effectiveDeviceId} was not found for this tenant`,
       });
+    }
+
+    if (userId && userId !== 'system') {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true },
+      });
+      if (
+        user &&
+        user.role.name !== RoleName.SUPER_ADMIN &&
+        user.role.name !== RoleName.TENANT_ADMIN &&
+        (user.role.name as any) !== 'OWNER' &&
+        (user.role.name as any) !== 'ADMIN'
+      ) {
+        const access = await this.prisma.userDeviceAccess.findUnique({
+          where: {
+            userId_deviceId: {
+              userId,
+              deviceId: effectiveDeviceId,
+            },
+          },
+        });
+        if (!access) {
+          throw new ForbiddenException({
+            code: 'DEVICE_ACCESS_DENIED',
+            message: 'ليس لديك صلاحية لتوليد كروت على هذا الراوتر',
+          });
+        }
+      }
     }
 
     if (!profile) {

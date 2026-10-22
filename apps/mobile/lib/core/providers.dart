@@ -329,6 +329,7 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     double? price,
     int? sharedUsers,
     double? dataLimitGb,
+    double? dataLimitMb,
   }) async {
     final apiClient = ref.read(apiClientProvider);
     try {
@@ -339,11 +340,13 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
           'deviceId': deviceId,
           if (displayName != null && displayName.isNotEmpty) 'displayName': displayName.trim(),
           if (rateLimit != null && rateLimit.isNotEmpty) 'rateLimit': rateLimit.trim(),
-          if (sessionTimeout != null && sessionTimeout.isNotEmpty) 'sessionTimeout': sessionTimeout.trim(),
-          if (validity != null && validity.isNotEmpty) 'validity': validity.trim(),
+          'sessionTimeout': sessionTimeout != null && sessionTimeout.isNotEmpty ? sessionTimeout.trim() : null,
+          'validity': validity != null && validity.isNotEmpty ? validity.trim() : null,
           if (price != null) 'price': price,
           if (sharedUsers != null) 'sharedUsers': sharedUsers,
-          'dataLimitGb': dataLimitGb,
+          if (dataLimitMb != null) 'dataLimitMb': dataLimitMb,
+          if (dataLimitMb == null && dataLimitGb != null) 'dataLimitGb': dataLimitGb,
+          if (dataLimitMb == null && dataLimitGb == null) 'dataLimitGb': null,
         },
       );
       await fetchProfiles();
@@ -380,6 +383,7 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     double? price,
     int? sharedUsers,
     double? dataLimitGb,
+    double? dataLimitMb,
     bool updateDataLimit = false,
   }) async {
     final apiClient = ref.read(apiClientProvider);
@@ -390,11 +394,14 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
           'name': name.trim(),
           if (displayName != null) 'displayName': displayName.trim(),
           if (rateLimit != null) 'rateLimit': rateLimit.trim(),
-          if (sessionTimeout != null) 'sessionTimeout': sessionTimeout.trim(),
-          if (validity != null) 'validity': validity.trim(),
+          'sessionTimeout': sessionTimeout != null && sessionTimeout.isNotEmpty ? sessionTimeout.trim() : null,
+          'validity': validity != null && validity.isNotEmpty ? validity.trim() : null,
           if (price != null) 'price': price,
           if (sharedUsers != null) 'sharedUsers': sharedUsers,
-          if (updateDataLimit) 'dataLimitGb': dataLimitGb,
+          if (updateDataLimit) ...{
+            if (dataLimitMb != null) 'dataLimitMb': dataLimitMb,
+            if (dataLimitMb == null) 'dataLimitGb': dataLimitGb,
+          },
         },
       );
       await fetchProfiles();
@@ -1308,6 +1315,8 @@ class TenantUsersNotifier extends AsyncNotifier<List<UserModel>> {
     required String password,
     String? phone,
     required String role,
+    List<String>? assignedDeviceIds,
+    List<String>? permissionCodes,
   }) async {
     final apiClient = ref.read(apiClientProvider);
     try {
@@ -1319,6 +1328,8 @@ class TenantUsersNotifier extends AsyncNotifier<List<UserModel>> {
           'password': password,
           if (phone != null && phone.isNotEmpty) 'phone': phone.trim(),
           'roleName': role,
+          if (assignedDeviceIds != null) 'assignedDeviceIds': assignedDeviceIds,
+          if (permissionCodes != null) 'permissionCodes': permissionCodes,
         },
       );
       await refresh();
@@ -1334,6 +1345,116 @@ class TenantUsersNotifier extends AsyncNotifier<List<UserModel>> {
         };
       }
       return {'success': false, 'message': 'تعذر الاتصال بالخادم لإنشاء المستخدم'};
+    }
+  }
+
+  Future<Map<String, dynamic>> toggleUserStatus(String id, String currentStatus) async {
+    final newStatus = currentStatus.toUpperCase() == 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.patch(
+        ApiEndpoints.userItem(id),
+        data: {'status': newStatus},
+      );
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {
+        'success': true,
+        'message': newStatus == 'ACTIVE' ? 'تم تنشيط حساب الموظف' : 'تم تعطيل حساب الموظف وإبطال جلساته',
+      };
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل تعديل حالة الموظف',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+    }
+  }
+
+  Future<Map<String, dynamic>> assignDevices(String id, List<String> deviceIds) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.put(
+        ApiEndpoints.userDevices(id),
+        data: {'deviceIds': deviceIds},
+      );
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم تحديث الأجهزة المخصصة للموظف بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل تخصيص الأجهزة للموظف',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+    }
+  }
+
+  Future<Map<String, dynamic>> assignPermissions(String id, List<String> permissionCodes) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.put(
+        ApiEndpoints.userPermissions(id),
+        data: {'permissionCodes': permissionCodes},
+      );
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم تحديث صلاحيات الموظف بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل تخصيص الصلاحيات للموظف',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+    }
+  }
+
+  Future<Map<String, dynamic>> createInvitation({
+    required String fullName,
+    required String email,
+    String? phone,
+    required String role,
+    List<String>? assignedDeviceIds,
+    List<String>? permissionCodes,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.userInvitations,
+        data: {
+          'fullName': fullName.trim(),
+          'email': email.trim().toLowerCase(),
+          if (phone != null && phone.isNotEmpty) 'phone': phone.trim(),
+          'roleName': role,
+          if (assignedDeviceIds != null) 'assignedDeviceIds': assignedDeviceIds,
+          if (permissionCodes != null) 'permissionCodes': permissionCodes,
+        },
+      );
+      ref.invalidate(staffInvitationsProvider);
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم إنشاء دعوة الانضمام بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل إنشاء الدعوة',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
     }
   }
 
@@ -1360,6 +1481,75 @@ class TenantUsersNotifier extends AsyncNotifier<List<UserModel>> {
 
 final tenantUsersProvider = AsyncNotifierProvider<TenantUsersNotifier, List<UserModel>>(
   TenantUsersNotifier.new,
+);
+
+class StaffInvitationsNotifier extends AsyncNotifier<List<StaffInvitationModel>> {
+  @override
+  Future<List<StaffInvitationModel>> build() async {
+    return _fetch();
+  }
+
+  Future<List<StaffInvitationModel>> _fetch() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.userInvitations);
+      final raw = res.data;
+      final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
+      if (list is List) {
+        return list.map((i) => StaffInvitationModel.fromJson(i as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch());
+  }
+
+  Future<Map<String, dynamic>> resend(String id) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(ApiEndpoints.userInvitationResend(id));
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تمت إعادة إرسال الدعوة بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل إعادة إرسال الدعوة',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+    }
+  }
+
+  Future<Map<String, dynamic>> cancel(String id) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.delete(ApiEndpoints.userInvitationItem(id));
+      await refresh();
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
+      return {'success': true, 'message': 'تم إلغاء الدعوة بنجاح'};
+    } catch (e) {
+      if (e is DioException && e.response?.data is Map) {
+        final err = Map<String, dynamic>.from(e.response!.data as Map);
+        return {
+          'success': false,
+          'message': err['message']?.toString() ?? 'فشل إلغاء الدعوة',
+        };
+      }
+      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+    }
+  }
+}
+
+final staffInvitationsProvider = AsyncNotifierProvider<StaffInvitationsNotifier, List<StaffInvitationModel>>(
+  StaffInvitationsNotifier.new,
 );
 
 // Cloud Wallet AsyncNotifier

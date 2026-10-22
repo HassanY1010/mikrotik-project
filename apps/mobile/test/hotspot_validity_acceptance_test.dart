@@ -40,6 +40,7 @@ class MockProfilesNotifier extends CachedProfilesNotifier {
     double? price,
     int? sharedUsers,
     double? dataLimitGb,
+    double? dataLimitMb,
   }) async {
     lastCreatedPayload = {
       'name': name,
@@ -51,6 +52,7 @@ class MockProfilesNotifier extends CachedProfilesNotifier {
       'price': price,
       'sharedUsers': sharedUsers,
       'dataLimitGb': dataLimitGb,
+      'dataLimitMb': dataLimitMb,
     };
     return {'success': true};
   }
@@ -66,6 +68,7 @@ class MockProfilesNotifier extends CachedProfilesNotifier {
     double? price,
     int? sharedUsers,
     double? dataLimitGb,
+    double? dataLimitMb,
     bool updateDataLimit = false,
   }) async {
     lastUpdatedPayload = {

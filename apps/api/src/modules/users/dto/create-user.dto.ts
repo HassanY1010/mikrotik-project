@@ -43,4 +43,21 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @ApiPropertyOptional({
+    description: 'List of MikroTik device IDs assigned to the user',
+    type: [String],
+  })
+  @IsOptional()
+  @IsString({ each: true })
+  assignedDeviceIds?: string[];
+
+  @ApiPropertyOptional({
+    description: 'List of specific permission codes granted to the user',
+    type: [String],
+  })
+  @IsOptional()
+  @IsString({ each: true })
+  permissionCodes?: string[];
 }
+

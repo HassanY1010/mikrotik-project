@@ -137,6 +137,12 @@ async function main(): Promise<void> {
       description: 'تعطيل أو إلغاء تفعيل الكروت في الراوتر',
       module: 'cards',
     },
+    {
+      code: 'cards:delete',
+      name: 'حذف الكروت',
+      description: 'حذف الكروت المنتهية أو غير المستخدمة',
+      module: 'cards',
+    },
 
     // Sales module
     {
@@ -180,12 +186,24 @@ async function main(): Promise<void> {
       module: 'users',
     },
 
-    // Reports & Analytics
+    // Reports & Analytics (Separating operational from financial)
     {
       code: 'reports:view',
-      name: 'عرض التقارير',
-      description: 'الاطلاع على التقارير المالية والتحليلية',
+      name: 'عرض التقارير التشغيلية',
+      description: 'الاطلاع على تقارير الجلسات والاستخدام والنشاط التشغيلي',
       module: 'reports',
+    },
+    {
+      code: 'finance:view',
+      name: 'عرض التقارير المالية',
+      description: 'الاطلاع على الأرباح والمصروفات والتدفقات النقدية والأرصدة',
+      module: 'finance',
+    },
+    {
+      code: 'expenses:manage',
+      name: 'إدارة المصروفات',
+      description: 'تسجيل وتعديل وحذف بنود المصروفات التشغيلية',
+      module: 'finance',
     },
 
     // Audit logs
@@ -236,6 +254,7 @@ async function main(): Promise<void> {
         'cards:generate',
         'cards:export',
         'cards:disable',
+        'cards:delete',
         'sales:read',
         'sales:create',
         'printing:execute',
@@ -243,6 +262,8 @@ async function main(): Promise<void> {
         'users:read',
         'users:write',
         'reports:view',
+        'finance:view',
+        'expenses:manage',
         'audit:view',
       ],
     },

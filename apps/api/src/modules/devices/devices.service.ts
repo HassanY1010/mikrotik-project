@@ -16,6 +16,8 @@ import { UpdateDeviceDto } from './dto/update-device.dto';
 import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
 import { DeviceStatus, RouterOsVersion, MikroTikDevice, Prisma } from '@prisma/client';
 import { RouterResource, RouterBackupItem } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
+import { RoleName } from '@mikrotik-saas/shared-types';
+import type { RequestUser } from '../../core/decorators/current-user.decorator';
 
 export interface DeviceResponse {
   id: string;
@@ -260,34 +262,13 @@ export class DevicesService {
   }
 }
 
-  async findAll(tenantId?: string | null): Promise<DeviceResponse[]> {
-    let resolvedTenantId = tenantId;
-    if (!resolvedTenantId) {
-      const first = await this.prisma.tenant.findFirst({
-        where: { deletedAt: null },
-        orderBy: { createdAt: 'asc' },
-      });
-      if (first) {
-        resolvedTenantId = first.id;
-      }
-    }
-
-    const where: Prisma.MikroTikDeviceWhereInput = { deletedAt: null };
-    if (resolvedTenantId) {
-      where.tenantId = resolvedTenantId;
-    }
-
-    const devices = await this.prisma.mikroTikDevice.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return devices.map((d) => this.transformDevice(d));
-  }
-
-  async findById(tenantId: string | undefined | null, id: string): Promise<DeviceResponse> {
+  async assertUserDeviceAccess(
+    tenantId: string | undefined | null,
+    deviceId: string,
+    currentUser?: RequestUser,
+  ): Promise<MikroTikDevice> {
     const where: Prisma.MikroTikDeviceWhereInput = {
-      id,
+      id: deviceId,
       deletedAt: null,
     };
     if (tenantId) {
@@ -299,10 +280,92 @@ export class DevicesService {
     if (!device) {
       throw new NotFoundException({
         code: 'DEVICE_NOT_FOUND',
-        message: `Device with ID ${id} was not found`,
+        message: `Device with ID ${deviceId} was not found`,
       });
     }
 
+    if (
+      currentUser &&
+      currentUser.role !== RoleName.SUPER_ADMIN &&
+      currentUser.role !== RoleName.TENANT_ADMIN &&
+      (currentUser.role as any) !== 'OWNER' &&
+      (currentUser.role as any) !== 'ADMIN'
+    ) {
+      const access = await this.prisma.userDeviceAccess.findUnique({
+        where: {
+          userId_deviceId: {
+            userId: currentUser.id,
+            deviceId,
+          },
+        },
+      });
+
+      if (!access) {
+        throw new ForbiddenException({
+          code: 'DEVICE_ACCESS_DENIED',
+          message: 'ليس لديك صلاحية للوصول إلى هذا الراوتر',
+        });
+      }
+    }
+
+    return device;
+  }
+
+  async findAll(tenantId?: string | null, currentUser?: RequestUser): Promise<DeviceResponse[]> {
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId && (!currentUser || currentUser.role === RoleName.SUPER_ADMIN)) {
+      const first = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (first) {
+        resolvedTenantId = first.id;
+      }
+    } else if (!resolvedTenantId && currentUser?.tenantId) {
+      resolvedTenantId = currentUser.tenantId;
+    }
+
+    const where: Prisma.MikroTikDeviceWhereInput = { deletedAt: null };
+    if (resolvedTenantId) {
+      where.tenantId = resolvedTenantId;
+    }
+
+    // Role-based device restriction for non-admin staff
+    if (
+      currentUser &&
+      currentUser.role !== RoleName.SUPER_ADMIN &&
+      currentUser.role !== RoleName.TENANT_ADMIN &&
+      (currentUser.role as any) !== 'OWNER' &&
+      (currentUser.role as any) !== 'ADMIN'
+    ) {
+      const assigned = await this.prisma.userDeviceAccess.findMany({
+        where: { userId: currentUser.id },
+        select: { deviceId: true },
+      });
+
+      const assignedIds = assigned.map((a) => a.deviceId);
+      // Safe default: if no devices explicitly assigned, return empty list
+      if (assignedIds.length === 0) {
+        return [];
+      }
+
+      where.id = { in: assignedIds };
+    }
+
+    const devices = await this.prisma.mikroTikDevice.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return devices.map((d) => this.transformDevice(d));
+  }
+
+  async findById(
+    tenantId: string | undefined | null,
+    id: string,
+    currentUser?: RequestUser,
+  ): Promise<DeviceResponse> {
+    const device = await this.assertUserDeviceAccess(tenantId, id, currentUser);
     return this.transformDevice(device);
   }
 

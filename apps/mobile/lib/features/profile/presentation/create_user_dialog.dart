@@ -30,6 +30,9 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
   bool _obscurePassword = true;
   bool _isSubmitting = false;
 
+  final Set<String> _selectedDeviceIds = {};
+  final Set<String> _selectedPermissionCodes = {};
+
   final List<Map<String, String>> _roles = [
     {'value': 'CASHIER', 'label': 'كاشير نقطة بيع (CASHIER)'},
     {'value': 'MANAGER', 'label': 'مدير فرع / شبكة (MANAGER)'},
@@ -55,6 +58,8 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
       password: _passwordController.text,
       phone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
       role: _selectedRole,
+      assignedDeviceIds: _selectedDeviceIds.isNotEmpty ? _selectedDeviceIds.toList() : null,
+      permissionCodes: _selectedPermissionCodes.isNotEmpty ? _selectedPermissionCodes.toList() : null,
     );
 
     setState(() => _isSubmitting = false);
@@ -64,7 +69,7 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
     if (res['success'] == true) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('تم إنشاء حساب المستخدم بنجاح! يمكنه الآن تسجيل الدخول.'),
+          content: Text('تم إنشاء حساب الموظف بنجاح!'),
           backgroundColor: Color(0xFF10B981),
         ),
       );
@@ -81,6 +86,9 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final routersAsync = ref.watch(routersProvider);
+    final routers = routersAsync.value ?? [];
+
     return AlertDialog(
       backgroundColor: context.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -100,14 +108,14 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'إنشاء مستخدم جديد',
+              'إضافة موظف جديد',
               style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 17),
             ),
           ),
         ],
       ),
       content: SizedBox(
-        width: 380,
+        width: 400,
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -116,7 +124,7 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'أدخل بيانات الموظف لمنحه صلاحية الدخول للنظام:',
+                  'أدخل بيانات الموظف وحدد الأجهزة والصلاحيات المسموح بها:',
                   style: TextStyle(color: context.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 14),
@@ -212,6 +220,94 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
                     if (v == null || v.isEmpty) return 'الرجاء إدخال كلمة المرور';
                     if (v.length < 8) return 'يجب أن تتكون كلمة المرور من 8 خانات على الأقل';
                     return null;
+                  },
+                ),
+
+                // Pre-assign Routers Section
+                if (routers.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    'تخصيص أجهزة الراوتر (اختياري):',
+                    style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: routers.map((r) {
+                      final isSelected = _selectedDeviceIds.contains(r.id);
+                      return FilterChip(
+                        label: Text(r.name, style: const TextStyle(fontSize: 11)),
+                        selected: isSelected,
+                        selectedColor: const Color(0xFF38BDF8).withValues(alpha: 0.25),
+                        checkmarkColor: const Color(0xFF38BDF8),
+                        onSelected: (sel) {
+                          setState(() {
+                            if (sel) {
+                              _selectedDeviceIds.add(r.id);
+                            } else {
+                              _selectedDeviceIds.remove(r.id);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
+
+                // Pre-assign Granular Permissions Section
+                const SizedBox(height: 14),
+                Text(
+                  'صلاحيات إضافية اختيارية:',
+                  style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: _selectedPermissionCodes.contains('finance:view'),
+                  title: const Text('عرض التقارير المالية والأرباح', style: TextStyle(fontSize: 12)),
+                  activeColor: const Color(0xFF10B981),
+                  onChanged: (val) {
+                    setState(() {
+                      if (val == true) {
+                        _selectedPermissionCodes.add('finance:view');
+                      } else {
+                        _selectedPermissionCodes.remove('finance:view');
+                      }
+                    });
+                  },
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: _selectedPermissionCodes.contains('expenses:manage'),
+                  title: const Text('إدارة وتسجيل المصروفات', style: TextStyle(fontSize: 12)),
+                  activeColor: const Color(0xFF10B981),
+                  onChanged: (val) {
+                    setState(() {
+                      if (val == true) {
+                        _selectedPermissionCodes.add('expenses:manage');
+                      } else {
+                        _selectedPermissionCodes.remove('expenses:manage');
+                      }
+                    });
+                  },
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: _selectedPermissionCodes.contains('cards:delete'),
+                  title: const Text('حذف وإتلاف الكروت', style: TextStyle(fontSize: 12)),
+                  activeColor: const Color(0xFF10B981),
+                  onChanged: (val) {
+                    setState(() {
+                      if (val == true) {
+                        _selectedPermissionCodes.add('cards:delete');
+                      } else {
+                        _selectedPermissionCodes.remove('cards:delete');
+                      }
+                    });
                   },
                 ),
               ],

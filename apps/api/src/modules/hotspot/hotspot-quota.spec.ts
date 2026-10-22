@@ -532,5 +532,56 @@ describe('Hotspot Profile Quota Type & MikroTik Enforcement (Unlimited vs Limite
       expect(res.dataLimitGb).toBe(1000);
       expect(Number.isSafeInteger(res.dataLimitBytes)).toBe(true);
     });
+
+    it('should convert dataLimitMb (e.g. 500 MB) accurately to 524288000 bytes', async () => {
+      mockPrisma.mikroTikDevice.findFirst.mockResolvedValue(sampleDevice);
+      mockPrisma.hotspotProfile.findFirst.mockResolvedValue(null);
+      mockPrisma.hotspotProfile.create.mockImplementation((args: any) => ({
+        id: 'prof-mb',
+        ...args.data,
+      }));
+
+      const res = await hotspotService.createProfile('t1', 'dev-001', {
+        name: 'bundle-500mb',
+        rateLimit: '2M/2M',
+        dataLimitMb: 500,
+      });
+
+      // 500 * 1024 * 1024 = 524,288,000 bytes
+      expect(mockPrisma.hotspotProfile.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          name: 'bundle-500mb',
+          dataLimitBytes: 524288000n,
+        }),
+      });
+      expect(res.dataLimitBytes).toBe(524288000);
+    });
+
+    it('should create completely open profile (null validity & null dataLimitBytes)', async () => {
+      mockPrisma.mikroTikDevice.findFirst.mockResolvedValue(sampleDevice);
+      mockPrisma.hotspotProfile.findFirst.mockResolvedValue(null);
+      mockPrisma.hotspotProfile.create.mockImplementation((args: any) => ({
+        id: 'prof-open-all',
+        ...args.data,
+      }));
+
+      const res = await hotspotService.createProfile('t1', 'dev-001', {
+        name: 'vip-open-unlimited',
+        rateLimit: '10M/10M',
+        validity: undefined,
+        sessionTimeout: undefined,
+        dataLimitGb: null,
+      });
+
+      expect(mockPrisma.hotspotProfile.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          name: 'vip-open-unlimited',
+          sessionTimeout: null,
+          dataLimitBytes: null,
+        }),
+      });
+      expect(res.sessionTimeout).toBeNull();
+      expect(res.dataLimitBytes).toBeNull();
+    });
   });
 });

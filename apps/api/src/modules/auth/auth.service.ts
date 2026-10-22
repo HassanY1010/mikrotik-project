@@ -1269,4 +1269,151 @@ export class AuthService {
       },
     });
   }
+
+  async getInvitationDetails(rawToken: string): Promise<Record<string, unknown>> {
+    const tokenHash = this.hashToken(rawToken);
+    const invitation = await this.prisma.staffInvitation.findUnique({
+      where: { tokenHash },
+      include: {
+        tenant: {
+          select: { id: true, name: true, slug: true, logoUrl: true },
+        },
+        role: {
+          select: { id: true, name: true, description: true },
+        },
+      },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('رابط الدعوة غير صالح');
+    }
+    if (invitation.acceptedAt !== null) {
+      throw new BadRequestException('تم قبول هذه الدعوة مسبقاً');
+    }
+    if (new Date(invitation.expiresAt).getTime() <= Date.now()) {
+      throw new BadRequestException('عذراً، انتهت صلاحية رابط الدعوة هذا');
+    }
+
+    return {
+      id: invitation.id,
+      email: invitation.email,
+      fullName: invitation.fullName,
+      role: invitation.role.name,
+      tenantName: invitation.tenant.name,
+      tenantLogo: invitation.tenant.logoUrl,
+      expiresAt: invitation.expiresAt,
+    };
+  }
+
+  async acceptInvitation(
+    dto: { token: string; password: string },
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<Record<string, unknown>> {
+    const tokenHash = this.hashToken(dto.token);
+    const invitation = await this.prisma.staffInvitation.findUnique({
+      where: { tokenHash },
+      include: {
+        tenant: {
+          include: {
+            subscriptions: {
+              where: {
+                status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+                expiresAt: { gt: new Date() },
+              },
+              include: { plan: true },
+              orderBy: { expiresAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
+        role: {
+          include: {
+            rolePermissions: {
+              include: { permission: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('رابط الدعوة غير صالح');
+    }
+    if (invitation.acceptedAt !== null) {
+      throw new BadRequestException('تم قبول هذه الدعوة مسبقاً');
+    }
+    if (new Date(invitation.expiresAt).getTime() <= Date.now()) {
+      throw new BadRequestException('عذراً، انتهت صلاحية رابط الدعوة هذا');
+    }
+
+    const email = invitation.email.toLowerCase().trim();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new ConflictException('يوجد حساب مسجل بهذا البريد مسبقاً');
+    }
+
+    const passwordHash = await this.hashingService.hashPassword(dto.password);
+
+    const newUser = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.user.create({
+        data: {
+          tenantId: invitation.tenantId,
+          email,
+          fullName: invitation.fullName,
+          phone: invitation.phone,
+          passwordHash,
+          roleId: invitation.roleId,
+          status: UserStatus.ACTIVE,
+        },
+      });
+
+      await tx.staffInvitation.update({
+        where: { id: invitation.id },
+        data: { acceptedAt: new Date() },
+      });
+
+      return u;
+    });
+
+    // Auto-login newly accepted staff
+    const tokens = await this.generateTokens({
+      sub: newUser.id,
+      email: newUser.email,
+      tenantId: newUser.tenantId,
+      role: invitation.role.name,
+    });
+
+    await this.storeRefreshToken(newUser.id, tokens.refreshToken, ipAddress, userAgent);
+
+    const permissions = invitation.role.rolePermissions.map((rp) => rp.permission.code);
+    const activeSub = invitation.tenant.subscriptions?.[0];
+
+    return {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        fullName: newUser.fullName,
+        role: invitation.role.name,
+        permissions,
+        tenant: {
+          id: invitation.tenant.id,
+          name: invitation.tenant.name,
+          slug: invitation.tenant.slug,
+          status: invitation.tenant.status,
+          subscription: activeSub
+            ? {
+                planName: activeSub.plan.name,
+                planNameAr: activeSub.plan.nameAr,
+                maxRouters: activeSub.maxRouters,
+                expiresAt: activeSub.expiresAt,
+                billingCycle: activeSub.billingCycle,
+              }
+            : null,
+        },
+      },
+    };
+  }
 }

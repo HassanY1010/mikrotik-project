@@ -26,14 +26,16 @@ import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../../core/guards/roles.guard';
+import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Roles } from '../../../core/decorators/roles.decorator';
+import { RequirePermissions } from '../../../core/decorators/permissions.decorator';
 import { TenantId } from '../../../core/decorators/tenant-id.decorator';
 import { CurrentUser } from '../../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
 
 @ApiTags('cards')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard, PermissionsGuard)
 @Controller('cards')
 export class CardsController {
   constructor(private readonly cardsService: CardsService) {}
@@ -100,6 +102,7 @@ export class CardsController {
   }
 
   @Post('batches')
+  @RequirePermissions('cards:generate')
   @Roles(
     RoleName.SUPER_ADMIN,
     RoleName.OWNER,
@@ -198,6 +201,7 @@ export class CardsController {
   }
 
   @Patch(':id/status')
+  @RequirePermissions('cards:disable')
   @Roles(
     RoleName.SUPER_ADMIN,
     RoleName.OWNER,
@@ -220,6 +224,7 @@ export class CardsController {
   }
 
   @Post('bulk-delete')
+  @RequirePermissions('cards:delete')
   @Roles(
     RoleName.SUPER_ADMIN,
     RoleName.OWNER,
@@ -242,6 +247,7 @@ export class CardsController {
   }
 
   @Post('retry-pending-deletions')
+  @RequirePermissions('cards:delete')
   @Roles(
     RoleName.SUPER_ADMIN,
     RoleName.OWNER,

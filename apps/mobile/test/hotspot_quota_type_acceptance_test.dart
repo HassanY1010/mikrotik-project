@@ -26,6 +26,7 @@ class MockProfilesQuotaNotifier extends CachedProfilesNotifier {
     double? price,
     int? sharedUsers,
     double? dataLimitGb,
+    double? dataLimitMb,
   }) async {
     lastCreatedPayload = {
       'name': name,
@@ -37,6 +38,7 @@ class MockProfilesQuotaNotifier extends CachedProfilesNotifier {
       'price': price,
       'sharedUsers': sharedUsers,
       'dataLimitGb': dataLimitGb,
+      'dataLimitMb': dataLimitMb,
     };
     return {'success': true};
   }
@@ -52,6 +54,7 @@ class MockProfilesQuotaNotifier extends CachedProfilesNotifier {
     double? price,
     int? sharedUsers,
     double? dataLimitGb,
+    double? dataLimitMb,
     bool updateDataLimit = false,
   }) async {
     lastUpdatedPayload = {
@@ -64,6 +67,7 @@ class MockProfilesQuotaNotifier extends CachedProfilesNotifier {
       'price': price,
       'sharedUsers': sharedUsers,
       'dataLimitGb': dataLimitGb,
+      'dataLimitMb': dataLimitMb,
       'updateDataLimit': updateDataLimit,
     };
     return {'success': true};
@@ -139,8 +143,8 @@ void main() {
       expect(find.byKey(const Key('quota_type_unlimited')), findsOneWidget);
       expect(find.byKey(const Key('quota_type_limited')), findsOneWidget);
 
-      // Verify GB input field is hidden
-      expect(find.byKey(const Key('data_limit_gb_input')), findsNothing);
+      // Verify data limit input field is hidden
+      expect(find.byKey(const Key('data_limit_input')), findsNothing);
       expect(find.textContaining('باقة مفتوحة: تمنح المستخدم إمكانية استخدام الإنترنت دون فرض حد أقصى'), findsOneWidget);
 
       // Submit form
@@ -165,21 +169,21 @@ void main() {
       await tester.tap(find.byKey(const Key('quota_type_limited')));
       await tester.pumpAndSettle();
 
-      // Verify GB input field is now visible
-      expect(find.byKey(const Key('data_limit_gb_input')), findsOneWidget);
+      // Verify data limit input field is now visible
+      expect(find.byKey(const Key('data_limit_input')), findsOneWidget);
       expect(find.byKey(const Key('gb_preset_5')), findsOneWidget);
 
       // Test validation: clear input and attempt submit
-      await tester.enterText(find.byKey(const Key('data_limit_gb_input')), '');
+      await tester.enterText(find.byKey(const Key('data_limit_input')), '');
       await tester.tap(find.text('إنشاء الباقة والمزامنة الآن'));
       await tester.pumpAndSettle();
       expect(find.text('الرجاء إدخال حجم البيانات بالجيجابايت'), findsOneWidget);
 
       // Test validation: enter 0
-      await tester.enterText(find.byKey(const Key('data_limit_gb_input')), '0');
+      await tester.enterText(find.byKey(const Key('data_limit_input')), '0');
       await tester.tap(find.text('إنشاء الباقة والمزامنة الآن'));
       await tester.pumpAndSettle();
-      expect(find.text('يجب أن يكون حجم البيانات أكبر من صفر'), findsOneWidget);
+      expect(find.text('يجب أن يكون حجم البيانات رقماً موجباً أكبر من صفر'), findsOneWidget);
 
       // Enter 5 GB (or click 5 GB preset)
       await tester.tap(find.byKey(const Key('gb_preset_5')));
@@ -221,7 +225,7 @@ void main() {
       );
 
       // Confirm starts in Unlimited mode
-      expect(find.byKey(const Key('data_limit_gb_input')), findsNothing);
+      expect(find.byKey(const Key('data_limit_input')), findsNothing);
 
       // Switch to Limited
       await tester.tap(find.byKey(const Key('quota_type_limited')));

@@ -47,6 +47,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             },
           },
         },
+        userPermissions: {
+          include: {
+            permission: true,
+          },
+        },
       },
     });
 
@@ -58,7 +63,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User account is suspended or inactive');
     }
 
-    const permissions = user.role.rolePermissions.map((rp) => rp.permission.code);
+    const rolePermissions = user.role.rolePermissions.map((rp) => rp.permission.code);
+    const customPermissions = (user.userPermissions ?? []).map((up) => up.permission.code);
+    const permissions = Array.from(new Set([...rolePermissions, ...customPermissions]));
 
     return {
       id: user.id,

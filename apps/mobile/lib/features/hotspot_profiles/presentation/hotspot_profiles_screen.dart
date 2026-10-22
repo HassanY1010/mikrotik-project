@@ -322,16 +322,18 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                                           spacing: 6,
                                           runSpacing: 6,
                                           children: [
-                                            if (p.isUnlimited)
-                                              _buildBadge('🌐 باقة مفتوحة', const Color(0xFF10B981))
+                                            if (p.isOpenCard)
+                                              _buildBadge('♾️ كرت مفتوح (بدون حد/مدة)', const Color(0xFF10B981))
+                                            else if (p.isUnlimited)
+                                              _buildBadge('🌐 باقة مفتوحة البيانات', const Color(0xFF10B981))
                                             else
                                               _buildBadge(
-                                                '📦 ${p.quotaGb != null ? (p.quotaGb! % 1 == 0 ? p.quotaGb!.toInt() : p.quotaGb!.toStringAsFixed(1)) : ''} GB',
+                                                '📦 ${p.formattedDataLimit}',
                                                 const Color(0xFFEC4899),
                                               ),
                                             if (p.rateLimit != null)
                                               _buildBadge('⚡ ${p.rateLimit}', const Color(0xFF38BDF8)),
-                                            if (p.validity != null)
+                                            if (p.validity != null && !p.isOpenCard)
                                               _buildBadge('⏳ ${formatValidityArabic(p.validity)}', const Color(0xFF10B981)),
                                             _buildBadge('🎟️ كروت جاهزة: ${p.availableCards}', const Color(0xFFA78BFA)),
                                             if (p.deviceName != null)

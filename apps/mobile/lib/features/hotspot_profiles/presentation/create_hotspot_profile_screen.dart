@@ -39,9 +39,12 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
     '20M/20M',
   ];
 
+  bool _isOpenCard = false; // خيار مستقل: كرت مفتوح (بدون حد بيانات أو مدة زمنية)
   bool _isQuotaLimited = false;
-  late TextEditingController _dataLimitGbController;
+  String _dataUnit = 'GB'; // 'GB' or 'MB'
+  late TextEditingController _dataAmountController;
   final List<int> _gbPresets = [1, 3, 5, 10, 20];
+  final List<int> _mbPresets = [250, 500, 750, 1000, 2048];
 
   @override
   void initState() {
@@ -61,13 +64,35 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
       if (mounted) setState(() {});
     });
 
-    // Initialize quota limit state
-    _isQuotaLimited = p != null && !p.isUnlimited;
-    final initialGb = p?.quotaGb != null
-        ? (p!.quotaGb! % 1 == 0 ? p.quotaGb!.toInt().toString() : p.quotaGb!.toStringAsFixed(2))
-        : '5';
-    _dataLimitGbController = TextEditingController(text: initialGb);
-    _dataLimitGbController.addListener(() {
+    // Check if editing an existing profile that is completely open
+    final bool isAlreadyOpen = p != null && p.isOpenCard;
+    _isOpenCard = isAlreadyOpen;
+
+    // Initialize quota limit state and unit
+    _isQuotaLimited = p != null && !p.isUnlimited && !_isOpenCard;
+    if (p != null && !p.isUnlimited) {
+      final mb = p.quotaMb;
+      if (mb != null && mb < 1024) {
+        _dataUnit = 'MB';
+        _dataAmountController = TextEditingController(
+          text: mb % 1 == 0 ? mb.toInt().toString() : mb.toStringAsFixed(1),
+        );
+      } else if (p.quotaGb != null) {
+        _dataUnit = 'GB';
+        final gb = p.quotaGb!;
+        _dataAmountController = TextEditingController(
+          text: gb % 1 == 0 ? gb.toInt().toString() : gb.toStringAsFixed(2),
+        );
+      } else {
+        _dataUnit = 'GB';
+        _dataAmountController = TextEditingController(text: '5');
+      }
+    } else {
+      _dataUnit = 'GB';
+      _dataAmountController = TextEditingController(text: '5');
+    }
+
+    _dataAmountController.addListener(() {
       if (mounted) setState(() {});
     });
 
@@ -83,7 +108,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
     _displayNameController.dispose();
     _rateLimitController.dispose();
     _validityAmountController.dispose();
-    _dataLimitGbController.dispose();
+    _dataAmountController.dispose();
     _priceController.dispose();
     _sharedUsersController.dispose();
     super.dispose();
@@ -108,13 +133,26 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
     final notifier = ref.read(profilesProvider.notifier);
     Map<String, dynamic> result;
 
-    final amountText = _validityAmountController.text.trim();
-    final amount = int.tryParse(amountText) ?? 1;
-    final validDuration = '$amount${_validityUnit.toLowerCase()}';
+    // In open card mode, no validity or quota is enforced
+    String? validDuration;
+    if (!_isOpenCard) {
+      final amountText = _validityAmountController.text.trim();
+      final amount = int.tryParse(amountText) ?? 1;
+      validDuration = '$amount${_validityUnit.toLowerCase()}';
+    }
 
-    final double? dataLimitGb = _isQuotaLimited
-        ? double.tryParse(_dataLimitGbController.text.trim())
-        : null;
+    double? dataLimitGb;
+    double? dataLimitMb;
+    if (!_isOpenCard && _isQuotaLimited) {
+      final rawVal = double.tryParse(_dataAmountController.text.trim());
+      if (rawVal != null && rawVal > 0) {
+        if (_dataUnit == 'MB') {
+          dataLimitMb = rawVal;
+        } else {
+          dataLimitGb = rawVal;
+        }
+      }
+    }
 
     if (widget.editProfile != null) {
       result = await notifier.updateProfile(
@@ -127,6 +165,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
         price: double.tryParse(_priceController.text.trim()) ?? 0,
         sharedUsers: int.tryParse(_sharedUsersController.text.trim()) ?? 1,
         dataLimitGb: dataLimitGb,
+        dataLimitMb: dataLimitMb,
         updateDataLimit: true,
       );
     } else {
@@ -140,6 +179,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
         price: double.tryParse(_priceController.text.trim()) ?? 0,
         sharedUsers: int.tryParse(_sharedUsersController.text.trim()) ?? 1,
         dataLimitGb: dataLimitGb,
+        dataLimitMb: dataLimitMb,
       );
     }
 
@@ -320,267 +360,479 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                 ),
                 const SizedBox(height: 20),
 
-                // Validity / Session Timeout Section
-                _buildSectionTitle('مدة الصلاحية / الجلسة (Validity):', Icons.timer_outlined),
-                const SizedBox(height: 8),
-
-                // أولاً: اختيار وحدة المدة (دقيقة M، ساعة H، يوم D)
-                Row(
-                  children: [
-                    _buildUnitOption(
-                      unitKey: 'm',
-                      label: 'دقيقة',
-                      symbol: 'M',
-                    ),
-                    const SizedBox(width: 8),
-                    _buildUnitOption(
-                      unitKey: 'h',
-                      label: 'ساعة',
-                      symbol: 'H',
-                    ),
-                    const SizedBox(width: 8),
-                    _buildUnitOption(
-                      unitKey: 'd',
-                      label: 'يوم',
-                      symbol: 'D',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // ثانياً: إدخال العدد مع مؤشر الوحدة والتحقق من صحته
-                TextFormField(
-                  key: const Key('validity_amount_input'),
-                  controller: _validityAmountController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  style: TextStyle(
-                    color: context.textPrimary,
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                  decoration: _inputDecoration(
-                    'أدخل العدد المطلوب',
-                    _validityUnit == 'm'
-                        ? 'مثال: 15 أو 30 أو 50'
-                        : _validityUnit == 'h'
-                            ? 'مثال: 1 أو 5 أو 70'
-                            : 'مثال: 1 أو 7 أو 30',
-                  ).copyWith(
-                    prefixIcon: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
-                      ),
-                      child: Text(
-                        _getUnitBadge(_validityUnit),
-                        style: const TextStyle(
-                          color: Color(0xFF10B981),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  ),
-                  validator: (v) {
-                    final trimmed = v?.trim() ?? '';
-                    if (trimmed.isEmpty) return 'الرجاء إدخال عدد مدة الصلاحية';
-                    final n = int.tryParse(trimmed);
-                    if (n == null || n <= 0) return 'يجب إدخال عدد صحيح موجب أكبر من الصفر';
-                    if (n > 10000) return 'الحد الأقصى المسموح به هو 10000';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 8),
-
-                // معاينة القيمة الناتجة تلقائياً
+                // Option: Open Card (بدون حد بيانات أو مدة زمنية)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: context.bgCard,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: context.borderColor.withValues(alpha: 0.6)),
+                    color: _isOpenCard
+                        ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                        : context.bgCard,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _isOpenCard
+                          ? const Color(0xFF10B981)
+                          : context.borderColor.withValues(alpha: 0.6),
+                      width: _isOpenCard ? 1.5 : 1.0,
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline, size: 16, color: Color(0xFF38BDF8)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _getComputedValidityPreview(),
-                          style: TextStyle(
-                            color: context.textSecondary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _isOpenCard
+                              ? const Color(0xFF10B981).withValues(alpha: 0.2)
+                              : context.bgScaffold,
+                          borderRadius: BorderRadius.circular(10),
                         ),
+                        child: Icon(
+                          Icons.all_inclusive_rounded,
+                          color: _isOpenCard ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'كرت مفتوح (بدون حد بيانات أو مدة زمنية)',
+                              style: TextStyle(
+                                color: _isOpenCard ? const Color(0xFF10B981) : context.textPrimary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'إنشاء بروفايل مفتوح بالكامل لا يفرض مدة صلاحية أو حداً أقصى لاستهلاك البيانات على MikroTik.',
+                              style: TextStyle(
+                                color: _isOpenCard
+                                    ? const Color(0xFF10B981).withValues(alpha: 0.8)
+                                    : context.textSecondary,
+                                fontSize: 11,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch.adaptive(
+                        key: const Key('open_card_switch'),
+                        value: _isOpenCard,
+                        activeColor: const Color(0xFF10B981),
+                        onChanged: (val) {
+                          setState(() {
+                            _isOpenCard = val;
+                            if (val) {
+                              _isQuotaLimited = false;
+                            }
+                          });
+                        },
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 20),
 
-                // Quota / Data Package Type Section
-                _buildSectionTitle('نوع باقة الإنترنت (حجم البيانات):', Icons.data_usage_rounded),
-                const SizedBox(height: 8),
-
-                Row(
-                  children: [
-                    _buildQuotaTypeOption(
-                      optionKey: 'quota_type_unlimited',
-                      title: 'باقة مفتوحة',
-                      subtitle: 'بدون تحديد حجم بيانات',
-                      icon: Icons.all_inclusive_rounded,
-                      isSelected: !_isQuotaLimited,
-                      onTap: () => setState(() => _isQuotaLimited = false),
-                    ),
-                    const SizedBox(width: 10),
-                    _buildQuotaTypeOption(
-                      optionKey: 'quota_type_limited',
-                      title: 'باقة محددة (GB)',
-                      subtitle: 'تحديد سعة بالجيجابايت',
-                      icon: Icons.pie_chart_outline_rounded,
-                      isSelected: _isQuotaLimited,
-                      onTap: () => setState(() => _isQuotaLimited = true),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                if (!_isQuotaLimited)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.check_circle_outline, size: 18, color: Color(0xFF10B981)),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'باقة مفتوحة: تمنح المستخدم إمكانية استخدام الإنترنت دون فرض حد أقصى لاستهلاك البيانات بالجيجابايت، مع تطبيق قيود الصلاحية والسرعة المحددة.',
-                            style: TextStyle(color: Color(0xFF10B981), fontSize: 12, height: 1.4),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                else ...[
-                  // Presets chips for GB
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _gbPresets.map((gb) {
-                      final isSel = _dataLimitGbController.text.trim() == gb.toString();
-                      return ChoiceChip(
-                        key: Key('gb_preset_$gb'),
-                        label: Text('$gb GB'),
-                        selected: isSel,
-                        selectedColor: const Color(0xFF0284C7),
-                        backgroundColor: context.bgCard,
-                        labelStyle: TextStyle(
-                          color: isSel ? Colors.white : const Color(0xFF94A3B8),
-                          fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
-                        ),
-                        onSelected: (_) => setState(() => _dataLimitGbController.text = gb.toString()),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // GB Input
-                  TextFormField(
-                    key: const Key('data_limit_gb_input'),
-                    controller: _dataLimitGbController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
-                    style: TextStyle(
-                      color: context.textPrimary,
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                    decoration: _inputDecoration(
-                      'حجم البيانات المسموح بها بالجيجابايت (GB)',
-                      'مثال: 1 أو 5 أو 10',
-                    ).copyWith(
-                      prefixIcon: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0284C7).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.4)),
-                        ),
-                        child: const Text(
-                          'GB جيجابايت',
-                          style: TextStyle(
-                            color: Color(0xFF38BDF8),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ),
-                    validator: (v) {
-                      if (!_isQuotaLimited) return null;
-                      final trimmed = v?.trim() ?? '';
-                      if (trimmed.isEmpty) return 'الرجاء إدخال حجم البيانات بالجيجابايت';
-                      final n = double.tryParse(trimmed);
-                      if (n == null || n <= 0) return 'يجب أن يكون حجم البيانات أكبر من صفر';
-                      if (n > 100000) return 'الحد الأقصى المسموح به هو 100000 GB';
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Calculated Mikrotik enforcement note
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: context.bgCard,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: context.borderColor.withValues(alpha: 0.6)),
-                    ),
+                // Validity / Session Timeout Section (Disabled when Open Card is active)
+                Opacity(
+                  opacity: _isOpenCard ? 0.4 : 1.0,
+                  child: IgnorePointer(
+                    ignoring: _isOpenCard,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        _buildSectionTitle('مدة الصلاحية / الجلسة (Validity):', Icons.timer_outlined),
+                        if (_isOpenCard) ...[
+                          const SizedBox(height: 4),
+                          const Text(
+                            'معطل: تم اختيار كرت مفتوح بدون مدة صلاحية.',
+                            style: TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+
+                        // أولاً: اختيار وحدة المدة (دقيقة M، ساعة H، يوم D)
                         Row(
                           children: [
-                            const Icon(Icons.bolt, size: 16, color: Color(0xFFF59E0B)),
+                            _buildUnitOption(
+                              unitKey: 'm',
+                              label: 'دقيقة',
+                              symbol: 'M',
+                            ),
                             const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _getComputedQuotaPreview(),
-                                style: TextStyle(
-                                  color: context.textPrimary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                            _buildUnitOption(
+                              unitKey: 'h',
+                              label: 'ساعة',
+                              symbol: 'H',
+                            ),
+                            const SizedBox(width: 8),
+                            _buildUnitOption(
+                              unitKey: 'd',
+                              label: 'يوم',
+                              symbol: 'D',
                             ),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'يتم تطبيق هذا الحد فعلياً على حساب المستخدم في MikroTik (limit-bytes-total). عند استهلاك كامل البيانات، يتم قطع الاتصال وتعطيل الحساب فوراً.',
+                        const SizedBox(height: 12),
+
+                        // ثانياً: إدخال العدد مع مؤشر الوحدة والتحقق من صحته
+                        TextFormField(
+                          key: const Key('validity_amount_input'),
+                          controller: _validityAmountController,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                           style: TextStyle(
-                            color: context.textSecondary,
-                            fontSize: 11,
-                            height: 1.3,
+                            color: context.textPrimary,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                          decoration: _inputDecoration(
+                            'أدخل العدد المطلوب',
+                            _validityUnit == 'm'
+                                ? 'مثال: 15 أو 30 أو 50'
+                                : _validityUnit == 'h'
+                                    ? 'مثال: 1 أو 5 أو 70'
+                                    : 'مثال: 1 أو 7 أو 30',
+                          ).copyWith(
+                            prefixIcon: Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                              ),
+                              child: Text(
+                                _getUnitBadge(_validityUnit),
+                                style: const TextStyle(
+                                  color: Color(0xFF10B981),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ),
+                          validator: (v) {
+                            if (_isOpenCard) return null;
+                            final trimmed = v?.trim() ?? '';
+                            if (trimmed.isEmpty) return 'الرجاء إدخال عدد مدة الصلاحية';
+                            final n = int.tryParse(trimmed);
+                            if (n == null || n <= 0) return 'يجب إدخال عدد صحيح موجب أكبر من الصفر';
+                            if (n > 10000) return 'الحد الأقصى المسموح به هو 10000';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 8),
+
+                        // معاينة القيمة الناتجة تلقائياً
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: context.bgCard,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: context.borderColor.withValues(alpha: 0.6)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.info_outline, size: 16, color: Color(0xFF38BDF8)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _isOpenCard
+                                      ? 'المدة في MikroTik: بدون مدة محددة (غير محدودة)'
+                                      : _getComputedValidityPreview(),
+                                  style: TextStyle(
+                                    color: context.textSecondary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
+                ),
+                const SizedBox(height: 20),
+
+                // Quota / Data Package Type Section (Disabled when Open Card is active)
+                Opacity(
+                  opacity: _isOpenCard ? 0.4 : 1.0,
+                  child: IgnorePointer(
+                    ignoring: _isOpenCard,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSectionTitle('نوع باقة الإنترنت (حجم البيانات):', Icons.data_usage_rounded),
+                        if (_isOpenCard) ...[
+                          const SizedBox(height: 4),
+                          const Text(
+                            'معطل: تم اختيار كرت مفتوح بدون حد بيانات.',
+                            style: TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+
+                        Row(
+                          children: [
+                            _buildQuotaTypeOption(
+                              optionKey: 'quota_type_unlimited',
+                              title: 'باقة مفتوحة البيانات',
+                              subtitle: 'استخدام دون سقف بيانات محدد',
+                              icon: Icons.all_inclusive_rounded,
+                              isSelected: !_isQuotaLimited,
+                              onTap: () => setState(() => _isQuotaLimited = false),
+                            ),
+                            const SizedBox(width: 10),
+                            _buildQuotaTypeOption(
+                              optionKey: 'quota_type_limited',
+                              title: 'باقة محددة (GB / MB)',
+                              subtitle: 'تحديد سعة بالجيجا أو الميجا',
+                              icon: Icons.pie_chart_outline_rounded,
+                              isSelected: _isQuotaLimited,
+                              onTap: () => setState(() => _isQuotaLimited = true),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        if (!_isQuotaLimited)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.check_circle_outline, size: 18, color: Color(0xFF10B981)),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'باقة مفتوحة: تمنح المستخدم إمكانية استخدام الإنترنت دون فرض حد أقصى لاستهلاك البيانات، مع تطبيق قيود الصلاحية والسرعة المحددة.',
+                                    style: TextStyle(color: Color(0xFF10B981), fontSize: 12, height: 1.4),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else ...[
+                          // Data Unit Selector: GB vs MB
+                          Row(
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  key: const Key('unit_selector_gb'),
+                                  onTap: () {
+                                    if (_dataUnit != 'GB') {
+                                      setState(() {
+                                        _dataUnit = 'GB';
+                                        _dataAmountController.text = '5';
+                                      });
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: _dataUnit == 'GB'
+                                          ? const Color(0xFF0284C7).withValues(alpha: 0.2)
+                                          : context.bgCard,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: _dataUnit == 'GB'
+                                            ? const Color(0xFF0284C7)
+                                            : context.borderColor,
+                                        width: _dataUnit == 'GB' ? 1.5 : 1.0,
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        'جيجابايت (GB)',
+                                        style: TextStyle(
+                                          color: _dataUnit == 'GB'
+                                              ? const Color(0xFF38BDF8)
+                                              : context.textSecondary,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: InkWell(
+                                  key: const Key('unit_selector_mb'),
+                                  onTap: () {
+                                    if (_dataUnit != 'MB') {
+                                      setState(() {
+                                        _dataUnit = 'MB';
+                                        _dataAmountController.text = '500';
+                                      });
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: _dataUnit == 'MB'
+                                          ? const Color(0xFF0284C7).withValues(alpha: 0.2)
+                                          : context.bgCard,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: _dataUnit == 'MB'
+                                            ? const Color(0xFF0284C7)
+                                            : context.borderColor,
+                                        width: _dataUnit == 'MB' ? 1.5 : 1.0,
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        'ميجابايت (MB)',
+                                        style: TextStyle(
+                                          color: _dataUnit == 'MB'
+                                              ? const Color(0xFF38BDF8)
+                                              : context.textSecondary,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Presets chips for GB / MB
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: (_dataUnit == 'GB' ? _gbPresets : _mbPresets).map((val) {
+                              final isSel = _dataAmountController.text.trim() == val.toString();
+                              return ChoiceChip(
+                                key: Key('${_dataUnit.toLowerCase()}_preset_$val'),
+                                label: Text('$val $_dataUnit'),
+                                selected: isSel,
+                                selectedColor: const Color(0xFF0284C7),
+                                backgroundColor: context.bgCard,
+                                labelStyle: TextStyle(
+                                  color: isSel ? Colors.white : const Color(0xFF94A3B8),
+                                  fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                                ),
+                                onSelected: (_) => setState(() => _dataAmountController.text = val.toString()),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Data Amount Input
+                          TextFormField(
+                            key: const Key('data_limit_input'),
+                            controller: _dataAmountController,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+                            style: TextStyle(
+                              color: context.textPrimary,
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                            decoration: _inputDecoration(
+                              _dataUnit == 'GB'
+                                  ? 'حجم البيانات المسموح بها بالجيجابايت (GB)'
+                                  : 'حجم البيانات المسموح بها بالميجابايت (MB)',
+                              _dataUnit == 'GB' ? 'مثال: 1 أو 5 أو 10' : 'مثال: 500 أو 1024 أو 2048',
+                            ).copyWith(
+                              prefixIcon: Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.4)),
+                                ),
+                                child: Text(
+                                  _dataUnit == 'GB' ? 'GB جيجابايت' : 'MB ميجابايت',
+                                  style: const TextStyle(
+                                    color: Color(0xFF38BDF8),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            validator: (v) {
+                              if (_isOpenCard || !_isQuotaLimited) return null;
+                              final trimmed = v?.trim() ?? '';
+                              if (trimmed.isEmpty) {
+                                return _dataUnit == 'GB'
+                                    ? 'الرجاء إدخال حجم البيانات بالجيجابايت'
+                                    : 'الرجاء إدخال حجم البيانات بالميجابايت';
+                              }
+                              final n = double.tryParse(trimmed);
+                              if (n == null || n <= 0) return 'يجب أن يكون حجم البيانات رقماً موجباً أكبر من صفر';
+                              if (_dataUnit == 'GB' && n > 100000) return 'الحد الأقصى المسموح به هو 100000 GB';
+                              if (_dataUnit == 'MB' && n > 100000000) return 'الحد الأقصى المسموح به هو 100000000 MB';
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Calculated Mikrotik enforcement note
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: context.bgCard,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: context.borderColor.withValues(alpha: 0.6)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.bolt, size: 16, color: Color(0xFFF59E0B)),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _getComputedQuotaPreview(),
+                                        style: TextStyle(
+                                          color: context.textPrimary,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'يتم تطبيق هذا الحد فعلياً على حساب المستخدم في MikroTik (limit-bytes-total). عند استهلاك كامل البيانات، يتم قطع الاتصال وتعطيل الحساب فوراً.',
+                                  style: TextStyle(
+                                    color: context.textSecondary,
+                                    fontSize: 11,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 20),
 
                 // Price & Shared Users
@@ -859,12 +1111,16 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
   }
 
   String _getComputedQuotaPreview() {
-    final text = _dataLimitGbController.text.trim();
-    final gb = double.tryParse(text);
-    if (gb == null || gb <= 0) {
-      return 'الحد الفعلي: أدخل قيمة جيجابايت أكبر من صفر';
+    final text = _dataAmountController.text.trim();
+    final val = double.tryParse(text);
+    if (val == null || val <= 0) {
+      return _dataUnit == 'GB'
+          ? 'الحد الفعلي: أدخل قيمة جيجابايت أكبر من صفر'
+          : 'الحد الفعلي: أدخل قيمة ميجابايت أكبر من صفر';
     }
-    final bytes = (gb * 1024 * 1024 * 1024).round();
-    return 'الحد الفعلي في MikroTik: $bytes بايت ($gb GB)';
+    final int bytes = _dataUnit == 'GB'
+        ? (val * 1024 * 1024 * 1024).round()
+        : (val * 1024 * 1024).round();
+    return 'الحد الفعلي في MikroTik: $bytes بايت ($val $_dataUnit)';
   }
 }

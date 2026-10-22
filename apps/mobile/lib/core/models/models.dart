@@ -152,12 +152,40 @@ class HotspotProfileModel {
       (dataLimitBytes == null || dataLimitBytes == 0) &&
       (dataLimitGb == null || dataLimitGb == 0);
 
+  /// True if the profile is completely open (no data limit and no validity duration)
+  bool get isOpenCard =>
+      isUnlimited &&
+      (validity == null || validity!.trim().isEmpty || validity == '0' || validity == 'none') &&
+      (sessionTimeout == null || sessionTimeout!.trim().isEmpty || sessionTimeout == '0' || sessionTimeout == 'none');
+
   double? get quotaGb {
     if (dataLimitGb != null && dataLimitGb! > 0) return dataLimitGb;
     if (dataLimitBytes != null && dataLimitBytes! > 0) {
       return dataLimitBytes! / (1024 * 1024 * 1024);
     }
     return null;
+  }
+
+  double? get quotaMb {
+    if (dataLimitBytes != null && dataLimitBytes! > 0) {
+      return dataLimitBytes! / (1024 * 1024);
+    }
+    if (dataLimitGb != null && dataLimitGb! > 0) {
+      return dataLimitGb! * 1024;
+    }
+    return null;
+  }
+
+  /// Formatted string showing data limit in MB or GB appropriately
+  String get formattedDataLimit {
+    if (isUnlimited) return 'مفتوح';
+    final mb = quotaMb;
+    if (mb == null) return 'مفتوح';
+    if (mb >= 1024 && (mb % 1024 == 0 || mb >= 10240)) {
+      final gb = mb / 1024;
+      return '${gb % 1 == 0 ? gb.toInt() : gb.toStringAsFixed(1)} GB';
+    }
+    return '${mb % 1 == 0 ? mb.toInt() : mb.toStringAsFixed(1)} MB';
   }
 
   HotspotProfileModel({
@@ -1055,6 +1083,33 @@ class CardTemplateModel {
   }
 }
 
+/// Assigned MikroTik device summary for a user
+class AssignedDeviceSummary {
+  final String id;
+  final String name;
+  final String? host;
+
+  const AssignedDeviceSummary({
+    required this.id,
+    required this.name,
+    this.host,
+  });
+
+  factory AssignedDeviceSummary.fromJson(Map<String, dynamic> json) {
+    return AssignedDeviceSummary(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      host: json['host'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'host': host,
+  };
+}
+
 /// Tenant User representation
 class UserModel {
   final String id;
@@ -1065,6 +1120,8 @@ class UserModel {
   final String status;
   final DateTime? createdAt;
   final DateTime? lastLoginAt;
+  final List<AssignedDeviceSummary> assignedDevices;
+  final List<String> customPermissions;
 
   UserModel({
     required this.id,
@@ -1075,15 +1132,69 @@ class UserModel {
     this.status = 'ACTIVE',
     this.createdAt,
     this.lastLoginAt,
+    this.assignedDevices = const [],
+    this.customPermissions = const [],
   });
 
+  bool get isActive => status.toUpperCase() == 'ACTIVE';
+  bool get isSuspended => status.toUpperCase() == 'SUSPENDED';
+  bool get isTenantAdmin =>
+      role == 'TENANT_ADMIN' || role == 'OWNER' || role == 'ADMIN';
+  bool get isManager => role == 'MANAGER';
+  bool get isCashier => role == 'CASHIER';
+
+  String get roleDisplayName {
+    switch (role) {
+      case 'TENANT_ADMIN':
+      case 'OWNER':
+      case 'ADMIN':
+        return 'مدير الشبكة (المالك)';
+      case 'MANAGER':
+        return 'مدير فرعي';
+      case 'CASHIER':
+        return 'كاشير';
+      default:
+        return role;
+    }
+  }
+
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    String roleStr;
+    final roleRaw = json['role'];
+    if (roleRaw is Map<String, dynamic>) {
+      roleStr = roleRaw['name'] as String? ?? 'CASHIER';
+    } else if (roleRaw is String && roleRaw.isNotEmpty) {
+      roleStr = roleRaw;
+    } else {
+      roleStr = json['roleName'] as String? ?? 'CASHIER';
+    }
+
+    final devicesRaw = json['assignedDevices'];
+    final List<AssignedDeviceSummary> devicesList = [];
+    if (devicesRaw is List) {
+      for (final item in devicesRaw) {
+        if (item is Map<String, dynamic>) {
+          devicesList.add(AssignedDeviceSummary.fromJson(item));
+        }
+      }
+    }
+
+    final permsRaw = json['customPermissions'];
+    final List<String> permsList = [];
+    if (permsRaw is List) {
+      for (final p in permsRaw) {
+        if (p is String) {
+          permsList.add(p);
+        }
+      }
+    }
+
     return UserModel(
       id: json['id'] as String? ?? '',
       email: json['email'] as String? ?? '',
       fullName: json['fullName'] as String? ?? json['name'] as String? ?? '',
       phone: json['phone'] as String?,
-      role: json['role'] as String? ?? json['roleName'] as String? ?? 'CASHIER',
+      role: roleStr,
       status: json['status'] as String? ?? 'ACTIVE',
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString())
@@ -1091,6 +1202,8 @@ class UserModel {
       lastLoginAt: json['lastLoginAt'] != null
           ? DateTime.tryParse(json['lastLoginAt'].toString())
           : null,
+      assignedDevices: devicesList,
+      customPermissions: permsList,
     );
   }
 
@@ -1103,7 +1216,62 @@ class UserModel {
     'status': status,
     'createdAt': createdAt?.toIso8601String(),
     'lastLoginAt': lastLoginAt?.toIso8601String(),
+    'assignedDevices': assignedDevices.map((d) => d.toJson()).toList(),
+    'customPermissions': customPermissions,
   };
+}
+
+/// Staff invitation representation
+class StaffInvitationModel {
+  final String id;
+  final String email;
+  final String fullName;
+  final String? phone;
+  final String? roleName;
+  final DateTime? expiresAt;
+  final DateTime? acceptedAt;
+  final String? invitationUrl;
+  final String? token;
+
+  StaffInvitationModel({
+    required this.id,
+    required this.email,
+    required this.fullName,
+    this.phone,
+    this.roleName,
+    this.expiresAt,
+    this.acceptedAt,
+    this.invitationUrl,
+    this.token,
+  });
+
+  bool get isExpired => expiresAt != null && expiresAt!.isBefore(DateTime.now());
+  bool get isAccepted => acceptedAt != null;
+
+  factory StaffInvitationModel.fromJson(Map<String, dynamic> json) {
+    String? roleStr;
+    final roleRaw = json['role'];
+    if (roleRaw is Map<String, dynamic>) {
+      roleStr = roleRaw['name'] as String?;
+    } else if (roleRaw is String) {
+      roleStr = roleRaw;
+    }
+    return StaffInvitationModel(
+      id: json['id'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      fullName: json['fullName'] as String? ?? '',
+      phone: json['phone'] as String?,
+      roleName: roleStr,
+      expiresAt: json['expiresAt'] != null
+          ? DateTime.tryParse(json['expiresAt'].toString())
+          : null,
+      acceptedAt: json['acceptedAt'] != null
+          ? DateTime.tryParse(json['acceptedAt'].toString())
+          : null,
+      invitationUrl: json['invitationUrl'] as String?,
+      token: json['token'] as String?,
+    );
+  }
 }
 
 /// Cloud wallet transaction record
