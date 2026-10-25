@@ -7,6 +7,8 @@ import '../../../core/widgets/whatsapp_button.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../radar/presentation/radar_screen.dart';
 import '../../portal/presentation/hotspot_portal_designer_screen.dart';
+import '../../devices/presentation/connected_devices_screen.dart';
+import '../../router_setup/presentation/router_setup_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   final Function(int tabIndex)? onNavigateTab;
@@ -24,6 +26,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
   final VoidCallback? onOpenUserProfile;
   final VoidCallback? onOpenTenantUsers;
   final VoidCallback? onOpenPortalDesigner;
+  final VoidCallback? onOpenRouterProvisioning;
 
   const DashboardScreen({
     super.key,
@@ -42,6 +45,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
     this.onOpenUserProfile,
     this.onOpenTenantUsers,
     this.onOpenPortalDesigner,
+    this.onOpenRouterProvisioning,
   });
 
   @override
@@ -206,6 +210,41 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         MaterialPageRoute(builder: (_) => const HotspotPortalDesignerScreen()),
       );
     }
+  }
+
+  void _navigateToConnectedDevices() {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ConnectedDevicesScreen(initialRouterId: selectedId),
+      ),
+    );
+  }
+
+  void _navigateToRouterProvisioning() {
+    if (widget.onOpenRouterProvisioning != null) {
+      widget.onOpenRouterProvisioning!();
+      return;
+    }
+    final selectedId = ref.read(selectedRouterIdProvider);
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    RouterDeviceModel? selectedRouter;
+    if (selectedId != null && routers.isNotEmpty) {
+      for (final r in routers) {
+        if (r.id == selectedId) {
+          selectedRouter = r;
+          break;
+        }
+      }
+    }
+    selectedRouter ??= routers.isNotEmpty ? routers.first : null;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RouterSetupScreen(router: selectedRouter),
+      ),
+    );
   }
 
   Future<void> _handleRouterBackup() async {
@@ -617,6 +656,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                                         ),
                                       ),
                                       IconButton(
+                                        icon: const Icon(Icons.restore_page_outlined,
+                                            size: 18, color: Color(0xFFF59E0B)),
+                                        tooltip: 'استعادة هذه النسخة على الراوتر',
+                                        onPressed: () {
+                                          Navigator.pop(dialogContext);
+                                          _showRestoreBackupConfirmationDialog(
+                                            currentRouter: currentRouter,
+                                            filename: bName,
+                                          );
+                                        },
+                                      ),
+                                      IconButton(
                                         icon: const Icon(Icons.download_rounded,
                                             size: 18, color: Color(0xFF38BDF8)),
                                         tooltip: 'تنزيل وحفظ النسخة',
@@ -892,6 +943,333 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRestoreBackupConfirmationDialog({
+    required RouterDeviceModel currentRouter,
+    required String filename,
+  }) {
+    final passController = TextEditingController();
+    bool confirmed = false;
+    bool isRestoring = false;
+    String? localError;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: context.bgCard,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+              ),
+              title: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 28),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'تأكيد استعادة النسخة الاحتياطية',
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'تحذير شديد الأهمية:',
+                            style: TextStyle(
+                              color: Color(0xFFEF4444),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '• استعادة نسخة كاملة (.backup) ستستبدل جميع إعدادات الراوتر الحالية فوراً.\n'
+                            '• سيعاد تشغيل الراوتر تلقائياً وينقطع الاتصال بالشبكة لعدة دقائق.\n'
+                            '• إذا كانت النسخة تحتوي على عناوين IP أو كلمات مرور مختلفة، فقد يتعذر الوصول للراوتر عن بُعد وستحتاج إلى اتصال محلي عبر كابل WinBox.',
+                            style: TextStyle(
+                              color: context.textPrimary,
+                              fontSize: 11,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildSuccessRow('الجهاز المستهدف:', '${currentRouter.name} (${currentRouter.host})'),
+                    const SizedBox(height: 6),
+                    _buildSuccessRow('ملف النسخة:', filename, isBold: true),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: passController,
+                      obscureText: true,
+                      style: TextStyle(color: context.textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        labelText: 'كلمة مرور النسخة (إن وجدت)',
+                        labelStyle: TextStyle(color: context.textSecondary, fontSize: 12),
+                        hintText: 'اتركه فارغاً إذا لم تكن النسخة مشفرة',
+                        hintStyle: TextStyle(color: context.textSecondary.withOpacity(0.6), fontSize: 11),
+                        prefixIcon: const Icon(Icons.lock_outline, size: 18, color: Color(0xFFF59E0B)),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: context.borderColor),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    InkWell(
+                      onTap: isRestoring
+                          ? null
+                          : () {
+                              setDialogState(() {
+                                confirmed = !confirmed;
+                              });
+                            },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Row(
+                        children: [
+                          Checkbox(
+                            value: confirmed,
+                            activeColor: const Color(0xFFEF4444),
+                            onChanged: isRestoring
+                                ? null
+                                : (v) {
+                                    setDialogState(() {
+                                      confirmed = v ?? false;
+                                    });
+                                  },
+                          ),
+                          Expanded(
+                            child: Text(
+                              'أقر بأنني على دراية بأن الراوتر سيعيد التشغيل وقد يستبدل العناوين الحالية.',
+                              style: TextStyle(
+                                color: context.textPrimary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (localError != null) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          localError!,
+                          style: const TextStyle(color: Colors.redAccent, fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              actions: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: isRestoring ? null : () => Navigator.pop(dialogCtx),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: context.borderColor),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: Text('إلغاء', style: TextStyle(color: context.textSecondary)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton.icon(
+                        onPressed: (!confirmed || isRestoring)
+                            ? null
+                            : () async {
+                                final passVal = passController.text.trim();
+                                setDialogState(() {
+                                  isRestoring = true;
+                                  localError = null;
+                                });
+
+                                final res = await ref.read(routersProvider.notifier).restoreBackup(
+                                      currentRouter.id,
+                                      filename,
+                                      password: passVal.isNotEmpty ? passVal : null,
+                                      confirmed: true,
+                                    );
+
+                                if (!dialogCtx.mounted) return;
+
+                                if (res['success'] == true) {
+                                  Navigator.pop(dialogCtx);
+                                  _showRestoreSuccessDialog(
+                                    currentRouter: currentRouter,
+                                    filename: filename,
+                                    message: res['message']?.toString() ??
+                                        'تم إرسال أمر الاستعادة بنجاح، جاري إعادة تشغيل الراوتر',
+                                  );
+                                } else {
+                                  setDialogState(() {
+                                    isRestoring = false;
+                                    localError = res['message']?.toString() ??
+                                        'فشلت عملية استعادة النسخة الاحتياطية';
+                                  });
+                                }
+                              },
+                        icon: isRestoring
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.restore, size: 18, color: Colors.white),
+                        label: Text(
+                          isRestoring ? 'جارٍ الاستعادة...' : 'تأكيد واستعادة الآن',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEF4444),
+                          disabledBackgroundColor: Colors.grey.withOpacity(0.3),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showRestoreSuccessDialog({
+    required RouterDeviceModel currentRouter,
+    required String filename,
+    required String message,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: Color(0xFFF59E0B), width: 1.5),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.published_with_changes, color: Color(0xFFF59E0B), size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'بدء استعادة النسخة الاحتياطية',
+                style: TextStyle(
+                  color: context.textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message,
+              style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: context.bgCardAlt,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: context.borderColor),
+              ),
+              child: Column(
+                children: [
+                  _buildSuccessRow('الجهاز:', '${currentRouter.name} (${currentRouter.host})'),
+                  const SizedBox(height: 6),
+                  _buildSuccessRow('النسخة المستعادة:', filename, isBold: true),
+                  const SizedBox(height: 6),
+                  _buildSuccessRow('حالة الراوتر:', 'جاري إعادة التشغيل (Rebooting)'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.info_outline, color: Color(0xFFF59E0B), size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'تم قطع الاتصال بالراوتر تمهيداً لإعادة تشغيله وتطبيق النسخة. انتظر دقيقة ثم قم باختبار الاتصال مجدداً.',
+                    style: TextStyle(color: context.textSecondary, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(routersProvider.notifier).refresh();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF59E0B),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            ),
+            child: const Text('حسناً، فهمت',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1197,11 +1575,126 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                   final isSuperAdmin = currentUser?.role.toUpperCase() == 'SUPER_ADMIN';
                   if (isSuperAdmin) return const SizedBox.shrink();
 
-                  final status = quota?.status ?? 'NONE';
-                  if (status == 'ACTIVE' || status == 'TRIAL') return const SizedBox.shrink();
+                  final status = quota?.status ?? currentUser?.subscriptionStatus ?? 'NONE';
+                  final isTrial = status == 'TRIAL';
+                  final expiresAt = quota?.expiresAt ?? currentUser?.subscriptionExpiresAt;
+                  final isTrialExpired = isTrial && expiresAt != null && DateTime.now().isAfter(expiresAt);
 
-                  final isExpired = status == 'EXPIRED';
+                  // If active paid subscription (ACTIVE and not TRIAL), do not show banner
+                  if (status == 'ACTIVE' && !isTrial) return const SizedBox.shrink();
+
+                  final isExpired = status == 'EXPIRED' || isTrialExpired;
                   final isSuspended = status == 'SUSPENDED';
+                  final wasTrial = isTrial || quota?.planName == 'TRIAL' || currentUser?.subscriptionPlan == 'TRIAL';
+
+                  // If active 48-Hour Free Trial
+                  if (isTrial && !isTrialExpired) {
+                    final remaining = expiresAt?.difference(DateTime.now());
+                    final remainingHours = remaining != null ? remaining.inHours : 0;
+                    final remainingMinutes = remaining != null ? (remaining.inMinutes % 60) : 0;
+                    final remainingText = remaining != null
+                        ? (remainingHours > 0
+                            ? '$remainingHours ساعة و $remainingMinutes دقيقة'
+                            : '$remainingMinutes دقيقة')
+                        : '48 ساعة';
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF0F766E).withValues(alpha: 0.25),
+                            const Color(0xFF0369A1).withValues(alpha: 0.20),
+                          ],
+                          begin: Alignment.topRight,
+                          end: Alignment.bottomLeft,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: const Color(0xFF0D9488).withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0D9488).withValues(alpha: 0.3),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.verified_rounded,
+                              color: Color(0xFF2DD4BF),
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'الباقة التجريبية المجانية',
+                                      style: TextStyle(
+                                        color: Color(0xFF5EEAD4),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF2DD4BF).withValues(alpha: 0.2),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: const Color(0xFF2DD4BF).withValues(alpha: 0.4)),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.timer_outlined, size: 12, color: Color(0xFF2DD4BF)),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'متبقي $remainingText',
+                                            style: const TextStyle(
+                                              color: Color(0xFFCCFBF1),
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'جميع ميزات النظام والصلاحيات مفعلة بالكامل لتجربة الخدمة (توليد الكروت، إدارة الرواتر، والتقارير).',
+                                  style: TextStyle(
+                                    color: context.textSecondary,
+                                    fontSize: 11,
+                                    height: 1.35,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                WhatsAppButton(
+                                  type: WhatsAppActionType.subscription,
+                                  label: 'الترقية للباقات المدفوعة عبر واتساب',
+                                  planName: 'PRO',
+                                  fontSize: 11,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 16),
@@ -1241,7 +1734,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                             children: [
                               Text(
                                 isExpired
-                                    ? 'انتهت صلاحية باقة الاشتراك'
+                                    ? (wasTrial ? 'انتهت الفترة التجريبية المجانية (48 ساعة)' : 'انتهت صلاحية باقة الاشتراك')
                                     : (isSuspended ? 'الحساب معلق مؤقتاً' : 'تفعيل باقة الاشتراك مطلوب'),
                                 style: TextStyle(
                                   color: isExpired || isSuspended ? const Color(0xFFFCA5A5) : const Color(0xFF5EEAD4),
@@ -1252,7 +1745,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                               const SizedBox(height: 4),
                               Text(
                                 isExpired
-                                    ? 'انتهت صلاحية باقتك السابقة؛ يرجى التواصل لتجديد الاشتراك واستئناف العمليات.'
+                                    ? (wasTrial
+                                        ? 'انتهت فترة الـ 48 ساعة التجريبية لحسابك. للاستمرار في استخدام ميزات النظام وربط الموجهات وتوليد الكروت، يرجى اختيار إحدى الباقات المدفوعة.'
+                                        : 'انتهت صلاحية باقتك السابقة؛ يرجى التواصل لتجديد الاشتراك واستئناف العمليات.')
                                     : (isSuspended
                                         ? 'تم تعليق هذا الحساب مؤقتاً؛ يرجى التواصل مع إدارة المنصة.'
                                         : 'يمكنك استعراض النظام؛ ولتفعيل ربط موجهات ميكروتك وتوليد الكروت، يرجى تفعيل باقة الاشتراك.'),
@@ -1266,9 +1761,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                               WhatsAppButton(
                                 type: isSuspended ? WhatsAppActionType.support : WhatsAppActionType.subscription,
                                 label: isExpired
-                                    ? 'تجديد الاشتراك عبر واتساب'
+                                    ? (wasTrial ? 'اختيار باقة مدفوعة والاشتراك' : 'تجديد الاشتراك عبر واتساب')
                                     : (isSuspended ? 'تواصل مع الدعم الفني' : 'طلب تفعيل الاشتراك عبر واتساب'),
-                                planName: quota?.planNameAr ?? quota?.planName,
+                                planName: wasTrial ? 'BASIC' : (quota?.planNameAr ?? quota?.planName),
                                 fontSize: 11,
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               ),
@@ -2232,6 +2727,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         Icons.settings_input_antenna,
         const Color(0xFF6366F1),
         widget.onOpenRouterSetup,
+      ),
+      _ActionItem(
+        'برمجة المايكروتيك',
+        Icons.settings_suggest_rounded,
+        const Color(0xFF8B5CF6),
+        _navigateToRouterProvisioning,
+      ),
+      _ActionItem(
+        'الأجهزة المتصلة',
+        Icons.devices_other_rounded,
+        const Color(0xFF0284C7),
+        _navigateToConnectedDevices,
       ),
       _ActionItem(
         'النسخ الاحتياطي للمايكروتك',

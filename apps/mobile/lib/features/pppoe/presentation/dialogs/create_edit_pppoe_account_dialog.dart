@@ -320,7 +320,8 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                     Expanded(
                       child: TextFormField(
                         controller: _customerNameController,
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        cursorColor: context.textPrimary,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14),
                         decoration: _buildInputDecoration(
                           label: 'اسم المشترك الثلاثي',
                           hint: 'أحمد إبراهيم علي',
@@ -333,7 +334,8 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                       child: TextFormField(
                         controller: _customerPhoneController,
                         keyboardType: TextInputType.phone,
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        cursorColor: context.textPrimary,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14),
                         decoration: _buildInputDecoration(
                           label: 'رقم هاتف المشترك',
                           hint: '0912345678',
@@ -351,7 +353,8 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                     Expanded(
                       child: TextFormField(
                         controller: _staticIpController,
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'monospace'),
+                        cursorColor: context.textPrimary,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14, fontFamily: 'monospace'),
                         decoration: _buildInputDecoration(
                           label: 'عنوان IP ثابت (اختياري)',
                           hint: '10.100.1.50',
@@ -363,7 +366,8 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                     Expanded(
                       child: TextFormField(
                         controller: _callerIdController,
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'monospace'),
+                        cursorColor: context.textPrimary,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14, fontFamily: 'monospace'),
                         decoration: _buildInputDecoration(
                           label: 'قفل MAC / المتصل (Caller ID)',
                           hint: 'AA:BB:CC:11:22:33',

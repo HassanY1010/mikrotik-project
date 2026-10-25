@@ -177,6 +177,21 @@ export class PppoeService {
     });
 
     if (!subscription) {
+      const expiredSub = await this.prisma.subscription.findFirst({
+        where: { tenantId },
+        orderBy: { expiresAt: 'desc' },
+      });
+      if (
+        expiredSub &&
+        (expiredSub.status === 'EXPIRED' ||
+          new Date(expiredSub.expiresAt).getTime() <= Date.now())
+      ) {
+        throw new ForbiddenException({
+          code: 'SUBSCRIPTION_EXPIRED',
+          message: 'انتهت صلاحية اشتراك الشبكة. يرجى تجديد الباقة للاستمرار في استخدام خدمات PPPoE.',
+        });
+      }
+
       throw new ForbiddenException({
         code: 'SUBSCRIPTION_REQUIRED',
         message: 'يلزم وجود اشتراك نشط أو فترة تجريبية لإدارة وإنشاء خدمات PPPoE.',

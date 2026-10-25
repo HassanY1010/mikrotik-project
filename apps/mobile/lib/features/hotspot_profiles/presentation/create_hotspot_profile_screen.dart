@@ -304,7 +304,8 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                 TextFormField(
                   key: const Key('profile_name_input'),
                   controller: _nameController,
-                  style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+                  cursorColor: context.textPrimary,
+                  style: TextStyle(color: context.textPrimary, fontFamily: 'monospace'),
                   decoration: _inputDecoration(
                     'الاسم الإنجليزي (بدون مسافات)',
                     'مثال: 1hour-2m أو daily-5m',
@@ -322,7 +323,8 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _displayNameController,
-                  style: const TextStyle(color: Colors.white),
+                  cursorColor: context.textPrimary,
+                  style: TextStyle(color: context.textPrimary),
                   decoration: _inputDecoration(
                     'الاسم الظاهر في نقطة البيع والكروت',
                     'مثال: باقة ساعة واحدة - سرعة 2 ميجا',
@@ -421,7 +423,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                       Switch.adaptive(
                         key: const Key('open_card_switch'),
                         value: _isOpenCard,
-                        activeColor: const Color(0xFF10B981),
+                        activeTrackColor: const Color(0xFF10B981),
                         onChanged: (val) {
                           setState(() {
                             _isOpenCard = val;
@@ -847,7 +849,8 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                           TextFormField(
                             controller: _priceController,
                             keyboardType: TextInputType.number,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            cursorColor: context.textPrimary,
+                            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
                             decoration: _inputDecoration('السعر', '500'),
                             validator: (v) => v == null || double.tryParse(v) == null ? 'أدخل سعراً صحيحاً' : null,
                           ),
@@ -864,7 +867,8 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                           TextFormField(
                             controller: _sharedUsersController,
                             keyboardType: TextInputType.number,
-                            style: const TextStyle(color: Colors.white),
+                            cursorColor: context.textPrimary,
+                            style: TextStyle(color: context.textPrimary),
                             decoration: _inputDecoration('Shared Users', '1'),
                             validator: (v) {
                               final n = int.tryParse(v ?? '');

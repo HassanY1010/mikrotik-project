@@ -158,7 +158,7 @@ describe('TenantsService - Super Admin & Subscriptions', () => {
       expect(mockPrisma.subscription.updateMany).toHaveBeenCalledWith({
         where: {
           tenantId: 'tenant-1',
-          status: SubscriptionStatus.ACTIVE,
+          status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
         },
         data: {
           status: SubscriptionStatus.CANCELLED,

@@ -173,7 +173,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: selectedCategory,
+                  initialValue: selectedCategory,
                   decoration: const InputDecoration(labelText: 'تصنيف المصروف'),
                   items: categories.map((c) {
                     return DropdownMenuItem(
@@ -187,7 +187,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: paymentMethod,
+                  initialValue: paymentMethod,
                   decoration: const InputDecoration(labelText: 'طريقة الدفع'),
                   items: const [
                     DropdownMenuItem(value: 'CASH', child: Text('نقداً (كاش)')),
@@ -1021,7 +1021,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: filtered.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
                 itemBuilder: (context, idx) {
                   final t = filtered[idx];
                   final invoiceNum = t['invoiceNumber']?.toString() ?? 'إيصال';
@@ -1475,7 +1475,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
                 itemBuilder: (context, idx) {
                   final exp = items[idx];
                   return Container(

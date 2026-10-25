@@ -16,8 +16,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { DevicesService, DeviceResponse } from './devices.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
-import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
 import { CreateBackupDto } from './dto/create-backup.dto';
+import { RestoreBackupDto } from './dto/restore-backup.dto';
 import { ProvisionPreviewDto } from './dto/provision-preview.dto';
 import { ProvisionApplyDto } from './dto/provision-apply.dto';
 import { RouterProvisioningService } from './services/router-provisioning.service';
@@ -28,7 +28,7 @@ import { Roles } from '../../core/decorators/roles.decorator';
 import { TenantId } from '../../core/decorators/tenant-id.decorator';
 import { CurrentUser, RequestUser } from '../../core/decorators/current-user.decorator';
 import { RoleName } from '@mikrotik-saas/shared-types';
-import { RouterResource } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
+import { RouterResource, ConnectedDeviceItem } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
 
 @ApiTags('devices')
 @ApiBearerAuth('access-token')
@@ -244,6 +244,43 @@ export class DevicesController {
     });
 
     res.end(buffer);
+  }
+
+  @Post(':id/backups/restore')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN)
+  @ApiOperation({ summary: 'Restore a backup file on the MikroTik router and reboot it' })
+  @ApiResponse({ status: 200, description: 'Backup restore initiated, router rebooting' })
+  async restoreBackup(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: RestoreBackupDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.devicesService.restoreBackup(
+      tenantId,
+      id,
+      dto.filename,
+      dto.password,
+      dto.confirmed,
+      userId,
+    );
+  }
+
+  @Get(':id/connected-devices')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @ApiOperation({
+    summary: 'List all connected devices (DHCP leases, ARP entries, Neighbors) for a specific router',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of connected devices with active status and classification',
+  })
+  async getConnectedDevices(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() currentUser?: RequestUser,
+  ): Promise<ConnectedDeviceItem[]> {
+    return this.devicesService.getConnectedDevices(tenantId, id, currentUser);
   }
 
   // ===========================================================================

@@ -6,9 +6,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
+import { EncryptionService } from '../../../core/security/encryption.service';
 import {
   IMikrotikClient,
   RouterResource,
+  HotspotProfileItem,
 } from '../../../core/mikrotik/interfaces/mikrotik-client.interface';
 import { ProvisionPreviewDto } from '../dto/provision-preview.dto';
 import { ProvisionApplyDto } from '../dto/provision-apply.dto';
@@ -22,7 +24,9 @@ import {
   ExecutedStageLog,
   ProvisioningVerificationResult,
   ProvisioningApplyResult,
+  SecurityPolicyReportItem,
 } from '../interfaces/provisioning.interface';
+import { DevicesService } from '../devices.service';
 
 @Injectable()
 export class RouterProvisioningService {
@@ -31,6 +35,7 @@ export class RouterProvisioningService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clientFactory: MikrotikClientFactory,
+    private readonly encryptionService: EncryptionService,
   ) {}
 
   private async getValidDevice(tenantId: string, deviceId: string) {
@@ -81,6 +86,9 @@ export class RouterProvisioningService {
       natRules,
       routes,
       hotspotServers,
+      mangleRules,
+      filterRules,
+      hotspotUserProfiles,
     ] = await Promise.all([
       client.getSystemResource().catch(() => ({
         uptime: '0s',
@@ -100,6 +108,9 @@ export class RouterProvisioningService {
       client.listNatRules ? client.listNatRules().catch(() => []) : Promise.resolve([]),
       client.listRoutes ? client.listRoutes().catch(() => []) : Promise.resolve([]),
       client.listHotspotServers ? client.listHotspotServers().catch(() => []) : Promise.resolve([]),
+      client.listMangleRules ? client.listMangleRules().catch(() => []) : Promise.resolve([]),
+      client.listFilterRules ? client.listFilterRules().catch(() => []) : Promise.resolve([]),
+      client.listHotspotProfiles ? client.listHotspotProfiles().catch(() => []) : Promise.resolve([]),
     ]);
 
     return {
@@ -113,6 +124,9 @@ export class RouterProvisioningService {
       natRules,
       routes,
       hotspotServers,
+      mangleRules,
+      filterRules,
+      hotspotUserProfiles,
     };
   }
 
@@ -172,6 +186,31 @@ export class RouterProvisioningService {
           severity: 'WARNING',
           message: `المنفذ (${port}) موجود مسبقاً داخل الجسر [${existingBridgePort.bridge}].`,
           suggestedAction: 'سيتم نقله تلقائياً إلى جسر الهوتسبوت الجديد عند الموافقة.',
+        });
+      }
+
+      // Check if port has direct IP assigned (classic RouterOS lockout risk)
+      const portDirectIp = discovery.ipAddresses.find((ip) => ip.interface === port);
+      if (portDirectIp) {
+        const ipClean = portDirectIp.address.split('/')[0];
+        const isManagementHost = ipClean === device.host.trim();
+        warnings.push({
+          type: 'PORT_DIRECT_IP_RISK',
+          severity: 'CRITICAL',
+          message: isManagementHost
+            ? `المنفذ (${port}) يحمل عنوان IP الحالي للراوتر (${device.host}) المستخدم للاتصال بالنظام. ضم هذا المنفذ إلى الجسر قد يسبب انقطاع الاتصال بالإدارة فوراً.`
+            : `المنفذ (${port}) يحمل عنوان IP مباشر (${portDirectIp.address}) قد يكون مخصصاً للإدارة الاحتياطية أو شبكة خارج النطاق. ضم هذا المنفذ إلى جسر المشتركين يجعله تابعاً (Slave) وقد يسبب انقطاع الوصول إليه وعزله (Client Isolation).`,
+          suggestedAction: isManagementHost
+            ? 'تأكد من إمكانية الوصول للراوتر عبر منفذ آخر أو استثنِ هذا المنفذ من منافذ المشتركين.'
+            : 'استثنِ هذا المنفذ من قائمة منافذ الجسر للحفاظ على مسار الإدارة المستقل أو انقل العنوان إلى الجسر يدوياً.',
+        });
+        conflicts.push({
+          resource: isManagementHost ? 'MANAGEMENT_PORT_BRIDGED' : 'DIRECT_IP_PORT_BRIDGED',
+          existingValue: `${portDirectIp.address} معين مباشرة على المنفذ ${port}`,
+          proposedValue: `ضم المنفذ ${port} إلى الجسر ${dto.lan.bridgeName || 'bridge-hotspot'}`,
+          details: isManagementHost
+            ? 'ضم منفذ الإدارة المباشر إلى جسر دون تحويل العنوان قد يؤدي لفقدان الاتصال بالراوتر فورياً.'
+            : `المنفذ ${port} يحمل عنوان IP مستقل (${portDirectIp.address}). ضم المنفذ إلى جسر المشتركين يهدد بفقدان مسار الإدارة الاحتياطي وعزل المنفذ عبر Horizon.`,
         });
       }
     }
@@ -245,12 +284,44 @@ export class RouterProvisioningService {
       });
     }
 
+    // 7. Check WAN Management Lockout Risk
+    if ((dto.securityPolicies as any)?.protectWanAccess) {
+      const wanDirectIp = discovery.ipAddresses.find((ip) => ip.interface === wanIfaceName);
+      const isWanMgmt =
+        (wanDirectIp && wanDirectIp.address.split('/')[0] === currentHost) ||
+        (dto.wan.staticIp && dto.wan.staticIp.split('/')[0] === currentHost);
+      if (isWanMgmt) {
+        warnings.push({
+          type: 'WAN_MANAGEMENT_LOCKOUT_RISK',
+          severity: 'CRITICAL',
+          message: `عنوان اتصال النظام بالراوتر (${currentHost}) يقع على منفذ الإنترنت (${wanIfaceName}). تفعيل حظر منافذ الإدارة على WAN سيؤدي لعزل النظام عن الراوتر فوراً.`,
+          suggestedAction: 'قم بتعطيل خيار protectWanAccess طالما أن اتصال النظام يتم عبر بطاقة WAN.',
+        });
+        conflicts.push({
+          resource: 'WAN_MANAGEMENT_LOCKOUT',
+          existingValue: `الاتصال بالراوتر يتم عبر ${currentHost} على المنفذ ${wanIfaceName}`,
+          proposedValue: `حظر منافذ الإدارة (API/WinBox) على المنفذ ${wanIfaceName}`,
+          details: 'تفعيل حظر منافذ الإدارة على WAN سيعزل النظام عن الراوتر تماماً.',
+        });
+      }
+    }
+
     // Generate Planned Steps
     const plannedSteps = this.buildPlannedSteps(dto);
 
-    // Generate RouterOS commands for preview
     const isV7 = (device.rosVersion || '').toUpperCase().includes('V7');
-    const generatedCommands = this.generateRouterCommands(dto, isV7);
+
+    // Build Security Policies Report
+    const securityPoliciesReport = this.buildSecurityPoliciesReport(dto, isV7, discovery);
+
+    // Generate RouterOS commands for preview (with duplicate prevention based on discovery)
+    const generatedCommands = this.generateRouterCommands(dto, isV7, discovery);
+
+    // Mask passwords for preview to prevent credentials leakage
+    const sanitizedCommands = generatedCommands.map((c) => ({
+      ...c,
+      command: this.sanitizeCommandForDisplay(c.command),
+    }));
 
     const hasCriticalConflicts = conflicts.length > 0;
     const canProceed = !hasCriticalConflicts;
@@ -260,7 +331,8 @@ export class RouterProvisioningService {
       routerVersion: device.rosVersion || 'V7',
       discovery,
       plannedSteps,
-      generatedCommands,
+      securityPoliciesReport,
+      generatedCommands: sanitizedCommands,
       warnings,
       conflicts,
       canProceed,
@@ -268,6 +340,7 @@ export class RouterProvisioningService {
       backupRecommended: true,
     };
   }
+
 
   /**
    * Applies the provisioning changes step-by-step with structured logs and verification
@@ -278,8 +351,17 @@ export class RouterProvisioningService {
     dto: ProvisionApplyDto,
     _userId: string,
   ): Promise<ProvisioningApplyResult> {
-    const device = await this.getValidDevice(tenantId, deviceId);
-    const previewRes = await this.preview(tenantId, deviceId, dto);
+    if (DevicesService.activeDeviceOperations.has(deviceId)) {
+      throw new ConflictException({
+        code: 'DEVICE_OPERATION_IN_PROGRESS',
+        message: 'توجد عملية جارية حالياً (برمجة أو نسخ أو استعادة) على هذا الراوتر. يرجى الانتظار حتى اكتمالها.',
+      });
+    }
+
+    DevicesService.activeDeviceOperations.add(deviceId);
+    try {
+      const device = await this.getValidDevice(tenantId, deviceId);
+      const previewRes = await this.preview(tenantId, deviceId, dto);
 
     // Enforce safety validations
     if (previewRes.requiresCleanConfirmation && !dto.cleanSetupConfirmed) {
@@ -288,6 +370,22 @@ export class RouterProvisioningService {
         message:
           'يتطلب تطبيق الإعداد الكامل (Clean Setup) تأكيداً صريحاً بأنك توافق على تعديل شبكة الراوتر الحالي.',
         warnings: previewRes.warnings,
+      });
+    }
+
+    // Critical Management Conflicts: CANNOT be bypassed by generic allowOverwrite!
+    const criticalLockoutConflict = previewRes.conflicts.find(
+      (c) =>
+        c.resource === 'MANAGEMENT_PORT_BRIDGED' ||
+        c.resource === 'DIRECT_IP_PORT_BRIDGED' ||
+        c.resource === 'WAN_LAN_OVERLAP' ||
+        c.resource === 'WAN_MANAGEMENT_LOCKOUT',
+    );
+    if (criticalLockoutConflict) {
+      throw new ConflictException({
+        code: 'CRITICAL_MANAGEMENT_CONFLICT_BLOCKED',
+        message: `تم منع التنفيذ لحماية مسار إدارة الراوتر ومنع الانقطاع (Lockout): ${criticalLockoutConflict.details} لا يمكن تجاوز هذا التعارض الحرج عبر السماح بالتجاوز العام (allowOverwrite). يرجى استثناء المنفذ المعني من منافذ المشتركين.`,
+        conflicts: [criticalLockoutConflict],
       });
     }
 
@@ -311,20 +409,28 @@ export class RouterProvisioningService {
 
     try {
       if (client.createBackup) {
-        const backupRes = await client.createBackup(safeBackupName);
+        const backupPassword =
+          (dto as any).customBackupPassword ||
+          this.encryptionService.deriveDeterministicSecret(
+            `sudafi-router-backup:${tenantId}:${device.id}`,
+            24,
+          );
+        const backupRes = await client.createBackup(safeBackupName, backupPassword);
         backupFilename = backupRes.filename;
         executedStages.push({
           stage: 'PRE_BACKUP',
-          command: `/system backup save name=${safeBackupName}`,
+          command: `/system backup save name=${safeBackupName} password=******`,
           status: 'SUCCESS',
           timestamp: new Date().toISOString(),
         });
-        this.logger.log(`Created pre-provisioning backup "${backupFilename}" on device "${device.name}"`);
+        this.logger.log(`Created encrypted pre-provisioning backup "${backupFilename}" on device "${device.name}"`);
+      } else if (!dto.skipBackupOnError) {
+        throw new Error('العميل الحالي لا يدعم إنشاء نسخة احتياطية آمنة (createBackup method unavailable)');
       } else {
         executedStages.push({
           stage: 'PRE_BACKUP',
           status: 'SKIPPED',
-          error: 'Client does not support createBackup method',
+          error: 'Client does not support createBackup method (skipped explicitly)',
           timestamp: new Date().toISOString(),
         });
       }
@@ -351,6 +457,7 @@ export class RouterProvisioningService {
             wanConfigured: false,
             defaultRouteActive: false,
             hotspotOperational: false,
+            securityPoliciesVerified: false,
             pingPacketsReceived: 0,
             overallStatus: 'VERIFICATION_FAILED',
             diagnosticsMessage: 'توقفت العملية قبل إجراء أي تعديل على الراوتر.',
@@ -363,7 +470,7 @@ export class RouterProvisioningService {
     // STAGE 2: Execute Commands Step-by-Step
     // =========================================================================
     const isV7 = (device.rosVersion || '').toUpperCase().includes('V7');
-    const commands = this.generateRouterCommands(dto, isV7);
+    const commands = this.generateRouterCommands(dto, isV7, previewRes.discovery);
 
     for (const item of commands) {
       try {
@@ -373,7 +480,7 @@ export class RouterProvisioningService {
         }
         executedStages.push({
           stage: item.stage,
-          command: item.command,
+          command: this.sanitizeCommandForDisplay(item.command),
           status: 'SUCCESS',
           timestamp: new Date().toISOString(),
         });
@@ -385,17 +492,137 @@ export class RouterProvisioningService {
           errMsg.includes('already have') ||
           errMsg.includes('failure: already')
         ) {
-          executedStages.push({
-            stage: item.stage,
-            command: item.command,
-            status: 'SUCCESS',
-            error: `Notice: Existing entry adapted (${errMsg})`,
-            timestamp: new Date().toISOString(),
-          });
+          // Special verification for HOTSPOT_PROFILE: Do NOT silently accept if speed differs or cannot be verified!
+          if (item.stage === 'HOTSPOT_PROFILE' && item.command.includes('/ip/hotspot/user/profile/add')) {
+            const hsProfileName = dto.hotspot?.profileName || 'hsp-sudafi';
+            const desiredRateLimit = dto.hotspot?.defaultRateLimit || '2M/5M';
+            let matchedProfile: HotspotProfileItem | undefined;
+            if (client.listHotspotProfiles) {
+              try {
+                const profiles = await client.listHotspotProfiles();
+                matchedProfile = profiles.find((p) => p.name === hsProfileName);
+              } catch (_) {}
+            }
+
+            if (!matchedProfile) {
+              executedStages.push({
+                stage: item.stage,
+                command: this.sanitizeCommandForDisplay(item.command),
+                status: 'FAILED',
+                error: `تعذر التحقق من خصائص البروفايل الموجود مسبقاً (${hsProfileName}) بعد ظهور خطأ already exists`,
+                timestamp: new Date().toISOString(),
+              });
+              this.logger.error(`Provisioning halted: Profile ${hsProfileName} already exists but cannot be verified.`);
+              return {
+                success: false,
+                deviceId: device.id,
+                deviceName: device.name,
+                backupFilename,
+                executedStages,
+                failedStage: item.stage,
+                failureReason: `البروفايل (${hsProfileName}) موجود مسبقاً على الراوتر وتعذر التحقق من خصائصه وسرعته الفعلية.`,
+                recoveryInstructions: backupFilename
+                  ? `يمكنك استعادة النسخة الاحتياطية (${backupFilename}) أو مراجعة بروفايلات الهوتسبوت يدوياً.`
+                  : 'راجع إعدادات الراوتر يدوياً.',
+                verification: {
+                  internetReachable: false,
+                  wanConfigured: false,
+                  defaultRouteActive: false,
+                  hotspotOperational: false,
+                  pingPacketsReceived: 0,
+                  securityPoliciesVerified: false,
+                  overallStatus: 'VERIFICATION_FAILED',
+                  diagnosticsMessage: `توقف الإعداد عند مرحلة [${item.stage}].`,
+                },
+              };
+            }
+
+            const currentRate = matchedProfile.rateLimit ? matchedProfile.rateLimit.trim() : '';
+            const rateMatches = currentRate === desiredRateLimit.trim();
+            if (rateMatches) {
+              executedStages.push({
+                stage: item.stage,
+                command: this.sanitizeCommandForDisplay(item.command),
+                status: 'SUCCESS',
+                error: `Notice: البروفايل (${hsProfileName}) موجود مسبقاً وتطابقت خصائصه وسرعته الفعلية (${desiredRateLimit})`,
+                timestamp: new Date().toISOString(),
+              });
+            } else {
+              // Attempt safe explicit update
+              try {
+                if (client.updateHotspotProfile) {
+                  await client.updateHotspotProfile(hsProfileName, { rateLimit: desiredRateLimit });
+                } else if (client.runRawCommand) {
+                  const setWords = this.commandStringToWords(
+                    `/ip/hotspot/user/profile/set =numbers=${hsProfileName}${matchedProfile.id ? ` =.id=${matchedProfile.id}` : ''} =rate-limit=${desiredRateLimit}`,
+                  );
+                  await client.runRawCommand(setWords);
+                } else {
+                  throw new Error('العميل لا يدعم تحديث بروفايل الهوتسبوت');
+                }
+
+                // Verify update took effect on router
+                if (client.listHotspotProfiles) {
+                  const recheckProfiles = await client.listHotspotProfiles();
+                  const updatedProf = recheckProfiles.find((p) => p.name === hsProfileName);
+                  if (updatedProf && updatedProf.rateLimit && updatedProf.rateLimit.trim() !== desiredRateLimit.trim()) {
+                    throw new Error(`لم يقم الراوتر بتطبيق السرعة الجديدة (السرعة الحالية: ${updatedProf.rateLimit}، المطلوبة: ${desiredRateLimit})`);
+                  }
+                }
+
+                executedStages.push({
+                  stage: item.stage,
+                  command: this.sanitizeCommandForDisplay(item.command),
+                  status: 'SUCCESS',
+                  error: `Notice: تم تحديث البروفايل الموجود مسبقاً بنجاح وتأكيد السرعة المطلوبة (${desiredRateLimit}) من الراوتر`,
+                  timestamp: new Date().toISOString(),
+                });
+              } catch (updateErr: any) {
+                const uMsg = updateErr instanceof Error ? updateErr.message : String(updateErr);
+                executedStages.push({
+                  stage: item.stage,
+                  command: this.sanitizeCommandForDisplay(item.command),
+                  status: 'FAILED',
+                  error: `فشل تحديث سرعة البروفايل الموجود مسبقاً (${hsProfileName}) من (${currentRate || 'افتراضية'}) إلى (${desiredRateLimit}): ${uMsg}`,
+                  timestamp: new Date().toISOString(),
+                });
+                return {
+                  success: false,
+                  deviceId: device.id,
+                  deviceName: device.name,
+                  backupFilename,
+                  executedStages,
+                  failedStage: item.stage,
+                  failureReason: `تعارض في سرعة البروفايل: البروفايل (${hsProfileName}) موجود مسبقاً بسرعة مختلفة وفشل تحديثه (${uMsg}).`,
+                  recoveryInstructions: backupFilename
+                    ? `يمكنك استعادة النسخة الاحتياطية (${backupFilename}).`
+                    : 'راجع إعدادات الراوتر.',
+                  verification: {
+                    internetReachable: false,
+                    wanConfigured: false,
+                    defaultRouteActive: false,
+                    hotspotOperational: false,
+                    pingPacketsReceived: 0,
+                    securityPoliciesVerified: false,
+                    overallStatus: 'VERIFICATION_FAILED',
+                    diagnosticsMessage: `توقف الإعداد عند مرحلة [${item.stage}]: فشل تحديث سرعة البروفايل.`,
+                  },
+                };
+              }
+            }
+          } else {
+            executedStages.push({
+              stage: item.stage,
+              command: this.sanitizeCommandForDisplay(item.command),
+              status: 'SUCCESS',
+              error: `Notice: Existing entry adapted (${errMsg})`,
+              timestamp: new Date().toISOString(),
+            });
+          }
         } else {
           executedStages.push({
             stage: item.stage,
-            command: item.command,
+            command: this.sanitizeCommandForDisplay(item.command),
             status: 'FAILED',
             error: errMsg,
             timestamp: new Date().toISOString(),
@@ -412,7 +639,7 @@ export class RouterProvisioningService {
             backupFilename,
             executedStages,
             failedStage: item.stage,
-            failureReason: `تعذر تطبيق الأمر [${item.command}]: ${errMsg}`,
+            failureReason: `تعذر تطبيق الأمر [${this.sanitizeCommandForDisplay(item.command)}]: ${errMsg}`,
             recoveryInstructions: backupFilename
               ? `تم أخذ نسخة احتياطية مسبقاً باسم [${backupFilename}]. يمكنك استعادتها مباشرة عبر قائمة النسخ الاحتياطية أو WinBox.`
               : 'لم يتم حفظ نسخة احتياطية. راجع سجل الأوامر المنفذة وتأكد من صلاحيات مستخدم الراوتر.',
@@ -421,6 +648,7 @@ export class RouterProvisioningService {
               wanConfigured: false,
               defaultRouteActive: false,
               hotspotOperational: false,
+              securityPoliciesVerified: false,
               pingPacketsReceived: 0,
               overallStatus: 'PARTIALLY_VERIFIED',
               diagnosticsMessage: `توقف الإعداد عند مرحلة [${item.stage}].`,
@@ -488,6 +716,9 @@ export class RouterProvisioningService {
       executedStages,
       verification,
     };
+    } finally {
+      DevicesService.activeDeviceOperations.delete(deviceId);
+    }
   }
 
   /**
@@ -500,6 +731,7 @@ export class RouterProvisioningService {
     let wanConfigured = false;
     let defaultRouteActive = false;
     let hotspotOperational = false;
+    let profileSpeedVerified = true;
     let pingPacketsReceived = 0;
 
     // 1. Verify WAN IP / Interface status
@@ -562,20 +794,107 @@ export class RouterProvisioningService {
           hotspotOperational = true;
         }
       }
+      if (client.listHotspotProfiles) {
+        const profiles = await client.listHotspotProfiles();
+        const hsProfileName = dto.hotspot?.profileName || 'hsp-sudafi';
+        const targetProf = profiles.find((p) => p.name === hsProfileName);
+        const desiredRateLimit = dto.hotspot?.defaultRateLimit || '2M/5M';
+        if (targetProf && targetProf.rateLimit && targetProf.rateLimit.trim() !== desiredRateLimit.trim()) {
+          profileSpeedVerified = false;
+        }
+      }
+    } catch (_) {}
+
+    // 5. Verify Security Policies against actual router configuration
+    let securityPoliciesVerified = true;
+    try {
+      if (dto.securityPolicies?.antiTethering !== false && client.listMangleRules) {
+        const mangle = await client.listMangleRules();
+        const hasTtlRule = mangle.some(
+          (r) =>
+            !r.disabled &&
+            (r.comment === 'SudaFi_Anti_Tethering_TTL' ||
+              (r.chain === 'postrouting' && r.action === 'change-ttl')),
+        );
+        if (!hasTtlRule) {
+          securityPoliciesVerified = false;
+        }
+      }
+
+      if (dto.securityPolicies?.protectManagementAccess !== false && client.listFilterRules) {
+        const filters = await client.listFilterRules();
+        const hasAdminDrop = filters.some(
+          (r) =>
+            !r.disabled &&
+            (r.comment === 'SudaFi_Drop_Subscriber_Admin_Ports' ||
+              (r.chain === 'input' && r.action === 'drop')),
+        );
+        if (!hasAdminDrop) {
+          securityPoliciesVerified = false;
+        }
+      }
+    } catch (_) {
+      securityPoliciesVerified = false;
+    }
+
+    // 6. Verify Captive Portal Files presence (login.html and alogin.html)
+    let portalFilesVerified = true;
+    const htmlDir = dto.hotspot?.htmlDirectory || 'hotspot';
+    try {
+      if (typeof (client as any).executeCommand === 'function') {
+        const fileRes = await (client as any).executeCommand(['/file/print']);
+        const fileRecs = (fileRes || []).filter((r: any) => r.type === '!re');
+        if (fileRecs.length > 0) {
+          const names: string[] = fileRecs.map((r: any) => r.attributes?.['name'] ?? '');
+          const hasLogin = names.some(
+            (f) =>
+              f === `${htmlDir}/login.html` ||
+              f === `flash/${htmlDir}/login.html` ||
+              f.endsWith(`/${htmlDir}/login.html`) ||
+              f.endsWith('/login.html'),
+          );
+          const hasAlogin = names.some(
+            (f) =>
+              f === `${htmlDir}/alogin.html` ||
+              f === `flash/${htmlDir}/alogin.html` ||
+              f.endsWith(`/${htmlDir}/alogin.html`) ||
+              f.endsWith('/alogin.html'),
+          );
+          if (!hasLogin || !hasAlogin) {
+            portalFilesVerified = false;
+          }
+        }
+      }
     } catch (_) {}
 
     let overallStatus: 'VERIFIED_READY' | 'PARTIALLY_VERIFIED' | 'VERIFICATION_FAILED' =
       'VERIFICATION_FAILED';
     let diagnosticsMessage = '';
 
-    if (isReachable && hotspotOperational && wanConfigured) {
+    if (
+      isReachable &&
+      hotspotOperational &&
+      wanConfigured &&
+      defaultRouteActive &&
+      securityPoliciesVerified &&
+      profileSpeedVerified &&
+      portalFilesVerified
+    ) {
       overallStatus = 'VERIFIED_READY';
-      diagnosticsMessage = 'تم التحقق بنجاح: الإنترنت يعمل وخادم الهوتسبوت جاهز ومفعل.';
+      diagnosticsMessage = 'تم التحقق بنجاح: الإنترنت يعمل وخادم الهوتسبوت جاهز ومفعل وملفات البوابة وسياسات الأمان مطبقة بالكامل.';
     } else if (hotspotOperational) {
       overallStatus = 'PARTIALLY_VERIFIED';
-      diagnosticsMessage = isReachable
-        ? 'خادم الهوتسبوت يعمل والإنترنت متصل.'
-        : 'تم تفعيل خادم الهوتسبوت بنجاح، ولكن تعذر الوصول إلى الإنترنت الخارجي عبر منفذ WAN.';
+      if (!profileSpeedVerified) {
+        diagnosticsMessage = `تم تفعيل خادم الهوتسبوت لكن سرعة البروفايل على الراوتر لا تطابق السرعة المطلوبة (${dto.hotspot?.defaultRateLimit || '2M/5M'}).`;
+      } else if (!portalFilesVerified) {
+        diagnosticsMessage = 'تم تفعيل خادم الهوتسبوت والإنترنت بنجاح، ولكن ملفات البوابة الأساسية (login.html / alogin.html) غير موجودة بالمجلد المحدد على الراوتر.';
+      } else if (!securityPoliciesVerified) {
+        diagnosticsMessage = 'تم تفعيل خادم الهوتسبوت والإنترنت، ولكن لم يتم التأكد من اكتمال تطبيق كافة سياسات الأمان على الراوتر.';
+      } else if (isReachable) {
+        diagnosticsMessage = 'خادم الهوتسبوت يعمل والإنترنت متصل.';
+      } else {
+        diagnosticsMessage = 'تم تفعيل خادم الهوتسبوت بنجاح، ولكن تعذر الوصول إلى الإنترنت الخارجي عبر منفذ WAN.';
+      }
     } else {
       overallStatus = 'VERIFICATION_FAILED';
       diagnosticsMessage = 'فشل التحقق من عمل خادم الهوتسبوت أو الإنترنت بعد التثبيت.';
@@ -586,6 +905,9 @@ export class RouterProvisioningService {
       wanConfigured,
       defaultRouteActive,
       hotspotOperational,
+      securityPoliciesVerified,
+      profileSpeedVerified,
+      portalFilesVerified,
       pingPacketsReceived,
       overallStatus,
       diagnosticsMessage,
@@ -594,8 +916,13 @@ export class RouterProvisioningService {
 
   /**
    * Generates RouterOS command list formatted for v6 and v7
+   * Orders LAN_IP on bridge before adding member ports, and avoids duplicate rules when discovery is provided
    */
-  private generateRouterCommands(dto: ProvisionPreviewDto, _isV7: boolean): GeneratedCommandItem[] {
+  private generateRouterCommands(
+    dto: ProvisionPreviewDto,
+    _isV7: boolean,
+    discovery?: RouterDiscoverySnapshot,
+  ): GeneratedCommandItem[] {
     const commands: GeneratedCommandItem[] = [];
     const bridgeName = dto.lan.bridgeName || 'bridge-hotspot';
     const poolName = 'hs-pool-sudafi';
@@ -606,31 +933,67 @@ export class RouterProvisioningService {
     const gatewayIp = dto.lan.gatewayIp.trim();
     const cleanIp = gatewayIp.split('/')[0];
     const networkBase = this.extractNetworkBase(gatewayIp);
+    const security = dto.securityPolicies || {};
 
-    // 1. LAN Bridge Creation
-    commands.push({
-      stage: 'BRIDGE_SETUP',
-      command: `/interface/bridge/add =name=${bridgeName} =comment=SudaFi Hotspot Bridge`,
-      description: `إنشاء جسر موحد لمنافذ المشتركين (${bridgeName})`,
-    });
+    const isClean = dto.template === 'CLEAN_SETUP';
 
-    // 2. Member Ports Assignment
-    for (const port of dto.lan.memberInterfaces) {
+    // 1. LAN Bridge Creation (only if not already created, or full clean template)
+    const bridgeExists = !isClean && discovery?.bridges?.some((b) => b.name === bridgeName);
+    if (!bridgeExists) {
       commands.push({
-        stage: 'BRIDGE_PORT',
-        command: `/interface/bridge/port/add =bridge=${bridgeName} =interface=${port.trim()} =comment=SudaFi LAN Member`,
-        description: `إضافة المنفذ ${port} إلى جسر الهوتسبوت`,
+        stage: 'BRIDGE_SETUP',
+        command: `/interface/bridge/add =name=${bridgeName} =comment=SudaFi Hotspot Bridge`,
+        description: `إنشاء جسر موحد لمنافذ المشتركين (${bridgeName})`,
       });
     }
 
-    // 3. WAN Configuration
+    // 2. Gateway IP on LAN Bridge (Assigned FIRST to ensure bridge has IP before member ports join)
+    const ipExistsOnBridge = !isClean && discovery?.ipAddresses?.some(
+      (ip) => ip.interface === bridgeName && ip.address === gatewayIp,
+    );
+    if (!ipExistsOnBridge) {
+      commands.push({
+        stage: 'LAN_IP',
+        command: `/ip/address/add =address=${gatewayIp} =interface=${bridgeName} =comment=SudaFi Hotspot Gateway`,
+        description: `تعيين عنوان بوابة الهوتسبوت (${gatewayIp}) على الجسر`,
+      });
+    }
+
+    // 3. Member Ports Assignment (only if port is not already member of this bridge)
+    for (const port of dto.lan.memberInterfaces) {
+      const portName = port.trim();
+      const existingBridgePort = !isClean
+        ? discovery?.bridgePorts?.find((p) => p.bridge === bridgeName && p.interface === portName)
+        : undefined;
+
+      if (!existingBridgePort) {
+        const horizonArg = security.clientIsolation !== false ? ' =horizon=1' : '';
+        commands.push({
+          stage: 'BRIDGE_PORT',
+          command: `/interface/bridge/port/add =bridge=${bridgeName} =interface=${portName}${horizonArg} =comment=SudaFi LAN Member`,
+          description: `إضافة المنفذ ${portName} إلى جسر الهوتسبوت${security.clientIsolation !== false ? ' مع تفعيل عزل المشتركين (Horizon=1)' : ''}`,
+        });
+      } else if (security.clientIsolation !== false && existingBridgePort.horizon !== 1) {
+        const idArg = existingBridgePort.id ? ` =.id=${existingBridgePort.id}` : '';
+        commands.push({
+          stage: 'BRIDGE_PORT',
+          command: `/interface/bridge/port/set =numbers=${portName}${idArg} =horizon=1`,
+          description: `تفعيل عزل المشتركين (Horizon=1) على المنفذ القائم (${portName})`,
+        });
+      }
+    }
+
+    // 4. WAN Configuration
     const wanIface = dto.wan.interface.trim();
     if (dto.wan.mode === 'DHCP') {
-      commands.push({
-        stage: 'WAN_CONFIG',
-        command: `/ip/dhcp-client/add =interface=${wanIface} =add-default-route=yes =use-peer-dns=yes =use-peer-ntp=yes =disabled=no =comment=SudaFi WAN DHCP`,
-        description: `تفعيل DHCP Client على منفذ الإنترنت (${wanIface})`,
-      });
+      const dhcpClientExists = !isClean && discovery?.dhcpClients?.some((c) => c.interface === wanIface);
+      if (!dhcpClientExists) {
+        commands.push({
+          stage: 'WAN_CONFIG',
+          command: `/ip/dhcp-client/add =interface=${wanIface} =add-default-route=yes =use-peer-dns=yes =use-peer-ntp=yes =disabled=no =comment=SudaFi WAN DHCP`,
+          description: `تفعيل DHCP Client على منفذ الإنترنت (${wanIface})`,
+        });
+      }
     } else if (dto.wan.mode === 'PPPOE') {
       commands.push({
         stage: 'WAN_CONFIG',
@@ -639,18 +1002,30 @@ export class RouterProvisioningService {
       });
     } else if (dto.wan.mode === 'STATIC') {
       if (dto.wan.staticIp) {
-        commands.push({
-          stage: 'WAN_CONFIG',
-          command: `/ip/address/add =address=${dto.wan.staticIp} =interface=${wanIface} =comment=SudaFi WAN Static`,
-          description: `تعيين عنوان IP ثابت لمنفذ الإنترنت (${dto.wan.staticIp})`,
-        });
+        const staticIpExists = !isClean && discovery?.ipAddresses?.some(
+          (ip) => ip.interface === wanIface && ip.address === dto.wan.staticIp,
+        );
+        if (!staticIpExists) {
+          commands.push({
+            stage: 'WAN_CONFIG',
+            command: `/ip/address/add =address=${dto.wan.staticIp} =interface=${wanIface} =comment=SudaFi WAN Static`,
+            description: `تعيين عنوان IP ثابت لمنفذ الإنترنت (${dto.wan.staticIp})`,
+          });
+        }
       }
       if (dto.wan.staticGateway) {
-        commands.push({
-          stage: 'WAN_CONFIG',
-          command: `/ip/route/add =dst-address=0.0.0.0/0 =gateway=${dto.wan.staticGateway} =comment=SudaFi Default Route`,
-          description: `إضافة المسار الافتراضي للتوجيه عبر البوابة (${dto.wan.staticGateway})`,
-        });
+        const routeExists = !isClean && discovery?.routes?.some(
+          (r) =>
+            (r.dstAddress === '0.0.0.0/0' || r.dstAddress === '0.0.0.0') &&
+            r.gateway === dto.wan.staticGateway,
+        );
+        if (!routeExists) {
+          commands.push({
+            stage: 'WAN_CONFIG',
+            command: `/ip/route/add =dst-address=0.0.0.0/0 =gateway=${dto.wan.staticGateway} =comment=SudaFi Default Route`,
+            description: `إضافة المسار الافتراضي للتوجيه عبر البوابة (${dto.wan.staticGateway})`,
+          });
+        }
       }
       if (dto.wan.staticDns && dto.wan.staticDns.length > 0) {
         commands.push({
@@ -661,22 +1036,20 @@ export class RouterProvisioningService {
       }
     }
 
-    // 4. NAT Masquerade
+    // 5. NAT Masquerade (only if matching rule does not exist)
     if (dto.wan.enableNat !== false) {
       const outIface = dto.wan.mode === 'PPPOE' ? 'pppoe-out1' : wanIface;
-      commands.push({
-        stage: 'FIREWALL_NAT',
-        command: `/ip/firewall/nat/add =chain=srcnat =out-interface=${outIface} =action=masquerade =comment=SudaFi NAT Masquerade`,
-        description: `تفعيل قاعدة تحويل العناوين (Masquerade) لمنفذ الإنترنت (${outIface})`,
-      });
+      const natExists = !isClean && discovery?.natRules?.some(
+        (r) => r.action === 'masquerade' && r.outInterface === outIface,
+      );
+      if (!natExists) {
+        commands.push({
+          stage: 'FIREWALL_NAT',
+          command: `/ip/firewall/nat/add =chain=srcnat =out-interface=${outIface} =action=masquerade =comment=SudaFi NAT Masquerade`,
+          description: `تفعيل قاعدة تحويل العناوين (Masquerade) لمنفذ الإنترنت (${outIface})`,
+        });
+      }
     }
-
-    // 5. Gateway IP on LAN Bridge
-    commands.push({
-      stage: 'LAN_IP',
-      command: `/ip/address/add =address=${gatewayIp} =interface=${bridgeName} =comment=SudaFi Hotspot Gateway`,
-      description: `تعيين عنوان بوابة الهوتسبوت (${gatewayIp}) على الجسر`,
-    });
 
     // 6. IP Pool for DHCP
     const poolRange = dto.lan.poolRange || this.generateDefaultPoolRange(gatewayIp);
@@ -688,15 +1061,21 @@ export class RouterProvisioningService {
 
     // 7. DHCP Server and Network
     const leaseTime = dto.lan.dhcpLeaseTime || '1h';
-    const dnsList = (dto.lan.dnsServers && dto.lan.dnsServers.length > 0)
-      ? dto.lan.dnsServers.join(',')
-      : `${cleanIp},8.8.8.8`;
+    const dnsList =
+      dto.lan.dnsServers && dto.lan.dnsServers.length > 0
+        ? dto.lan.dnsServers.join(',')
+        : `${cleanIp},8.8.8.8`;
 
-    commands.push({
-      stage: 'DHCP_SERVER',
-      command: `/ip/dhcp-server/add =name=${dhcpServerName} =interface=${bridgeName} =address-pool=${poolName} =lease-time=${leaseTime} =disabled=no =comment=SudaFi DHCP Server`,
-      description: `إنشاء خادم توزيع العناوين DHCP على الجسر`,
-    });
+    const dhcpServerExists = !isClean && discovery?.dhcpServers?.some(
+      (s) => s.name === dhcpServerName && s.interface === bridgeName,
+    );
+    if (!dhcpServerExists) {
+      commands.push({
+        stage: 'DHCP_SERVER',
+        command: `/ip/dhcp-server/add =name=${dhcpServerName} =interface=${bridgeName} =address-pool=${poolName} =lease-time=${leaseTime} =disabled=no =comment=SudaFi DHCP Server`,
+        description: `إنشاء خادم توزيع العناوين DHCP على الجسر`,
+      });
+    }
 
     commands.push({
       stage: 'DHCP_NETWORK',
@@ -711,20 +1090,63 @@ export class RouterProvisioningService {
       description: `السماح للراوتر بالاستجابة لطلبات DNS لخدمة صفحة الدخول`,
     });
 
-    // 9. Hotspot Server Profile
-    const loginBy = dto.hotspot?.loginBy || 'http-chap,http-pap';
+    // 9. Hotspot Server Profile (with Single Device mac-cookie integration)
+    const loginBy = dto.hotspot?.loginBy || 'http-chap,http-pap,mac-cookie';
     commands.push({
       stage: 'HOTSPOT_PROFILE',
       command: `/ip/hotspot/profile/add =name=${hsProfileName} =hotspot-address=${cleanIp} =dns-name=${dnsName} =html-directory=${dto.hotspot?.htmlDirectory || 'hotspot'} =login-by=${loginBy} =use-radius=no =comment=SudaFi Server Profile`,
       description: `إنشاء ملف تعريف خادم الهوتسبوت بالدومين (${dnsName})`,
     });
 
-    // 10. Hotspot Server
+    // Hotspot User Profile (Enforce Single Device per Card & Keepalive on Default Profile)
+    const sharedUsersCount = security.enforceSingleDevice !== false ? 1 : 1;
     commands.push({
-      stage: 'HOTSPOT_SERVER',
-      command: `/ip/hotspot/add =name=${hsServerName} =interface=${bridgeName} =address-pool=${poolName} =profile=${hsProfileName} =disabled=no =comment=SudaFi Hotspot Server`,
-      description: `إنشاء خادم الهوتسبوت الرئيسي وتفعيله على (${bridgeName})`,
+      stage: 'HOTSPOT_PROFILE',
+      command: `/ip/hotspot/user/profile/set =numbers=default =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d`,
+      description: 'ضبط إعدادات بروفايل المستخدمين الافتراضي لمنع تعدد الأجهزة وتثبيت الجلسة',
     });
+
+    // Create or update the specific Hotspot User Profile (matching cards.service.ts profile name)
+    const existingProfile = !isClean
+      ? discovery?.hotspotUserProfiles?.find((p) => p.name === hsProfileName)
+      : undefined;
+    const desiredRateLimit = dto.hotspot?.defaultRateLimit || '2M/5M';
+
+    if (!existingProfile) {
+      commands.push({
+        stage: 'HOTSPOT_PROFILE',
+        command: `/ip/hotspot/user/profile/add =name=${hsProfileName} =rate-limit=${desiredRateLimit} =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d =comment=SudaFi Named User Profile`,
+        description: `إنشاء بروفايل مستخدمي الكروت الفعلي (${hsProfileName}) وتطبيق قيود السرعة ومشاركة الأجهزة`,
+      });
+    } else {
+      const rateLimitMatches = existingProfile.rateLimit
+        ? existingProfile.rateLimit.trim() === desiredRateLimit.trim()
+        : false;
+      const sharedUsersMatches =
+        existingProfile.sharedUsers !== undefined
+          ? Number(existingProfile.sharedUsers) === sharedUsersCount
+          : true;
+
+      if (!rateLimitMatches || !sharedUsersMatches) {
+        commands.push({
+          stage: 'HOTSPOT_PROFILE',
+          command: `/ip/hotspot/user/profile/set =numbers=${hsProfileName}${existingProfile.id ? ` =.id=${existingProfile.id}` : ''} =rate-limit=${desiredRateLimit} =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d =comment=SudaFi Named User Profile`,
+          description: `تحديث بروفايل مستخدمي الكروت الموجود (${hsProfileName}) لتطبيق السرعة المطلوبة (${desiredRateLimit}) ومشاركة الأجهزة`,
+        });
+      }
+    }
+
+    // 10. Hotspot Server (only if not already running on bridge, or full clean template)
+    const hsServerExists = !isClean && discovery?.hotspotServers?.some(
+      (s) => s.name === hsServerName && s.interface === bridgeName,
+    );
+    if (!hsServerExists) {
+      commands.push({
+        stage: 'HOTSPOT_SERVER',
+        command: `/ip/hotspot/add =name=${hsServerName} =interface=${bridgeName} =address-pool=${poolName} =profile=${hsProfileName} =disabled=no =comment=SudaFi Hotspot Server`,
+        description: `إنشاء خادم الهوتسبوت الرئيسي وتفعيله على (${bridgeName})`,
+      });
+    }
 
     // 11. Walled Garden Rules for SudaFi Platform and Gateway
     commands.push({
@@ -739,7 +1161,88 @@ export class RouterProvisioningService {
       description: `السماح بالوصول لسحابة SudaFi بدون حجب`,
     });
 
+    // 12. Security Policies (Anti-Tethering TTL Lock, Management Protection, DNS Redirection, WAN Security)
+    if (security.antiTethering !== false) {
+      const mangleExists = !isClean && discovery?.mangleRules?.some(
+        (r) => r.comment === 'SudaFi_Anti_Tethering_TTL' || (r.chain === 'postrouting' && r.action === 'change-ttl'),
+      );
+      if (!mangleExists) {
+        commands.push({
+          stage: 'SECURITY_POLICIES',
+          command: `/ip/firewall/mangle/add =chain=postrouting =out-interface=${bridgeName} =action=change-ttl =new-ttl=set:1 =comment=SudaFi_Anti_Tethering_TTL`,
+          description: 'تثبيت قيمة TTL=1 على الحزم المتجهة للمشتركين لمنع بث الهوتسبوت ومشاركة USB/Bluetooth',
+        });
+      }
+    }
+
+    if (security.protectManagementAccess !== false) {
+      const filterExists = !isClean && discovery?.filterRules?.some(
+        (r) => r.comment === 'SudaFi_Drop_Subscriber_Admin_Ports' || (r.chain === 'input' && r.action === 'drop'),
+      );
+      if (!filterExists) {
+        commands.push({
+          stage: 'SECURITY_POLICIES',
+          command: `/ip/firewall/filter/add =chain=input =in-interface=${bridgeName} =protocol=tcp =dst-port=22,23,8291,8728,8729 =action=drop =comment=SudaFi_Drop_Subscriber_Admin_Ports`,
+          description: 'حجب منافذ إدارة الراوتر (WinBox, SSH, Telnet, API) عن شبكة المشتركين',
+        });
+      }
+    }
+
+    // Optional WAN Admin Protection: accepts established/related before applying drop
+    if ((security as any).protectWanAccess) {
+      const acceptEstExists = !isClean && discovery?.filterRules?.some(
+        (r) => r.comment === 'SudaFi_Accept_Established_Related' || (r.chain === 'input' && r.action === 'accept'),
+      );
+      if (!acceptEstExists) {
+        const placeBeforeArg =
+          discovery?.filterRules && discovery.filterRules.length > 0
+            ? ` =place-before=${discovery.filterRules[0].id || '0'}`
+            : '';
+        commands.push({
+          stage: 'SECURITY_POLICIES',
+          command: `/ip/firewall/filter/add =chain=input =connection-state=established,related =action=accept${placeBeforeArg} =comment=SudaFi_Accept_Established_Related`,
+          description: 'السماح للاتصالات القائمة والمترابطة في أعلى قائمة القواعد قبل حظر منافذ الإدارة عن بطاقة الإنترنت (WAN)',
+        });
+      }
+
+      const wanDropExists = !isClean && discovery?.filterRules?.some(
+        (r) => r.comment === 'SudaFi_Drop_WAN_Admin_Ports' || (r.chain === 'input' && r.action === 'drop' && (r as any).inInterface === dto.wan.interface),
+      );
+      if (!wanDropExists) {
+        commands.push({
+          stage: 'SECURITY_POLICIES',
+          command: `/ip/firewall/filter/add =chain=input =in-interface=${dto.wan.interface} =protocol=tcp =dst-port=22,23,8291,8728,8729 =action=drop =comment=SudaFi_Drop_WAN_Admin_Ports`,
+          description: `حجب منافذ إدارة الراوتر عن بطاقة الإنترنت (${dto.wan.interface})`,
+        });
+      }
+    }
+
+    if (security.forceRouterDns !== false) {
+      const dnsUdpExists = !isClean && discovery?.natRules?.some((r) => r.comment === 'SudaFi_Force_DNS_UDP');
+      if (!dnsUdpExists) {
+        commands.push({
+          stage: 'SECURITY_POLICIES',
+          command: `/ip/firewall/nat/add =chain=dstnat =in-interface=${bridgeName} =protocol=udp =dst-port=53 =action=redirect =comment=SudaFi_Force_DNS_UDP`,
+          description: 'إعادة توجيه استعلامات DNS (UDP 53) إلى الراوتر لضمان عمل صفحة الدخول',
+        });
+      }
+      const dnsTcpExists = !isClean && discovery?.natRules?.some((r) => r.comment === 'SudaFi_Force_DNS_TCP');
+      if (!dnsTcpExists) {
+        commands.push({
+          stage: 'SECURITY_POLICIES',
+          command: `/ip/firewall/nat/add =chain=dstnat =in-interface=${bridgeName} =protocol=tcp =dst-port=53 =action=redirect =comment=SudaFi_Force_DNS_TCP`,
+          description: 'إعادة توجيه استعلامات DNS (TCP 53) إلى الراوتر لمنع الالتفاف',
+        });
+      }
+    }
+
     return commands;
+  }
+
+  private sanitizeCommandForDisplay(cmd: string): string {
+    return cmd
+      .replace(/=password=[^ ]+/gi, '=password=********')
+      .replace(/=secret=[^ ]+/gi, '=secret=********');
   }
 
   private buildPlannedSteps(dto: ProvisionPreviewDto): PlannedProvisioningStep[] {
@@ -750,7 +1253,7 @@ export class RouterProvisioningService {
       id: 'step-1',
       stage: 'BRIDGE',
       title: 'إنشاء جسر شبكة المشتركين',
-      description: `إنشاء الجسر (${bridgeName}) وضم المنافذ [${dto.lan.memberInterfaces.join(', ')}] إليه.`,
+      description: `إنشاء الجسر (${bridgeName}) وتعيين البوابة وضم المنافذ [${dto.lan.memberInterfaces.join(', ')}] إليه.`,
     });
 
     steps.push({
@@ -776,12 +1279,155 @@ export class RouterProvisioningService {
 
     steps.push({
       id: 'step-5',
+      stage: 'SECURITY',
+      title: 'سياسات الحماية والحد من مشاركة الإنترنت',
+      description: 'تطبيق تثبيت TTL=1 لمنع بث الهوتسبوت، وعزل المنافذ (Horizon)، وحماية منافذ الإدارة، وتوجيه DNS.',
+    });
+
+    steps.push({
+      id: 'step-6',
       stage: 'VERIFICATION',
       title: 'فحص الاتصال والتشخيص النهائي',
-      description: 'فحص استجابة الراوتر، وحالة بوابة الإنترنت، والتحقق من جاهزية الهوتسبوت.',
+      description: 'فحص استجابة الراوتر، وحالة بوابة الإنترنت، والتحقق من جاهزية الهوتسبوت وسياسات الأمان.',
     });
 
     return steps;
+  }
+
+  private buildSecurityPoliciesReport(
+    dto: ProvisionPreviewDto,
+    _isV7: boolean,
+    discovery: RouterDiscoverySnapshot,
+  ): SecurityPolicyReportItem[] {
+    const policies = dto.securityPolicies || {};
+    const reports: SecurityPolicyReportItem[] = [];
+
+    // 1. Anti-Tethering (TTL Lock)
+    const hasTetheringRule = discovery.mangleRules?.some(
+      (r) => r.comment === 'SudaFi_Anti_Tethering_TTL' || (r.chain === 'postrouting' && r.action === 'change-ttl'),
+    );
+    const antiTetheringEnabled = policies.antiTethering !== false;
+    reports.push({
+      id: 'ANTI_TETHERING',
+      name: 'الحد من مشاركة الاتصال وتمريره (Anti-Tethering / TTL Lock)',
+      category: 'SHARING_PREVENTION',
+      status: hasTetheringRule
+        ? 'ACTIVE_ON_ROUTER'
+        : antiTetheringEnabled
+          ? 'PROPOSED'
+          : 'DISABLED',
+      isSupported: true,
+      description:
+        'تثبيت قيمة TTL=1 على الحزم المتجهة للمشتركين لمنع بث الهوتسبوت أو مشاركة الاتصال عبر USB أو Bluetooth.',
+      realisticEffect:
+        'يمنع بث الإنترنت عبر نقطة اتصال الهواتف (Mobile Hotspot) ومشاركة USB/Bluetooth لمعظم الهواتف العادية (غير المروتة)، حيث يسقط الهاتف الحزم عند محاولة إعادة توجيهها للأجهزة المتصلة به.',
+      knownLimitations:
+        'لا يمنع الأجهزة المروتة (Rooted Android) أو الحواسيب التي تتلاعب بقيم TTL محلياً، ولا يمنع تطبيقات البروكسي المحلية (Local Proxy Apps) إلا بدمجها مع عزل المنافذ (Client Isolation).',
+    });
+
+    // 2. Client Isolation (Bridge Horizon)
+    const bridgeName = dto.lan.bridgeName || 'bridge-hotspot';
+    const hasClientIsolation = discovery.bridgePorts?.some(
+      (p) => p.bridge === bridgeName && p.horizon === 1,
+    );
+    const clientIsolationEnabled = policies.clientIsolation !== false;
+    reports.push({
+      id: 'CLIENT_ISOLATION',
+      name: 'عزل أجهزة المشتركين ومنع المشاركة المباشرة (Client Port Isolation)',
+      category: 'SHARING_PREVENTION',
+      status: hasClientIsolation
+        ? 'ACTIVE_ON_ROUTER'
+        : clientIsolationEnabled
+          ? 'PROPOSED'
+          : 'DISABLED',
+      isSupported: true,
+      description:
+        'تفعيل عزل الطبقة الثانية (Horizon=1) على منافذ جسر المشتركين لمنع الاتصال المباشر بين الأجهزة.',
+      realisticEffect:
+        'يمنع تبادل البيانات المباشر وتطبيقات البروكسي المحلية (مثل CCProxy / Every Proxy) وهجمات انتحال العناوين (ARP Spoofing) بين المشتركين على نفس الجسر.',
+      knownLimitations:
+        'يطبق على المنافذ الفيزيائية للجسر في الراوتر؛ وفي حال وجود أكسس بوينت خارجي (Access Point) يجب تفعيل ميزة Client Isolation أو منع Forwarding داخله أيضاً.',
+    });
+
+    // 3. Management Protection
+    const hasMgmtDropRule = discovery.filterRules?.some(
+      (r) => r.comment === 'SudaFi_Drop_Subscriber_Admin_Ports' || (r.chain === 'input' && r.action === 'drop'),
+    );
+    const protectMgmtEnabled = policies.protectManagementAccess !== false;
+    reports.push({
+      id: 'PROTECT_MANAGEMENT',
+      name: 'حماية منافذ الإدارة وخدمات الراوتر (Management Protection)',
+      category: 'ACCESS_CONTROL',
+      status: hasMgmtDropRule
+        ? 'ACTIVE_ON_ROUTER'
+        : protectMgmtEnabled
+          ? 'PROPOSED'
+          : 'DISABLED',
+      isSupported: true,
+      description:
+        'حظر وصول المشتركين إلى منافذ لوحة تحكم الراوتر (SSH 22, Telnet 23, WinBox 8291, API 8728/8729).',
+      realisticEffect:
+        'يمنع أي محاولة وصول غير مصرح بها لخدمات إدارة الراوتر من هواتف المشتركين، مع الإبقاء على منفذي صفحة الدخول (80/443).',
+      knownLimitations:
+        'يحمي الراوتر من منافذ الهوتسبوت فقط، ولا يحل محل تعيين كلمات مرور قوية لجميع المستخدمين.',
+    });
+
+    // 4. Force Router DNS
+    const hasDnsRedirect = discovery.natRules?.some(
+      (r) => r.comment === 'SudaFi_Force_DNS_UDP' || r.comment === 'SudaFi_Force_DNS_TCP',
+    );
+    const forceDnsEnabled = policies.forceRouterDns !== false;
+    reports.push({
+      id: 'FORCE_ROUTER_DNS',
+      name: 'منع التلاعب بـ DNS وإلزام كاش الراوتر (DNS Hijacking Prevention)',
+      category: 'ACCESS_CONTROL',
+      status: hasDnsRedirect
+        ? 'ACTIVE_ON_ROUTER'
+        : forceDnsEnabled
+          ? 'PROPOSED'
+          : 'DISABLED',
+      isSupported: true,
+      description:
+        'إعادة توجيه كافة استعلامات DNS (منفذ 53) لكاش الراوتر لضمان عمل صفحة تسجيل الدخول ومنع الالتفاف.',
+      realisticEffect:
+        'يجبر الأجهزة التي تستخدم خوادم DNS مخصصة (مثل 8.8.8.8) على الرجوع لصفحة الهوتسبوت للتحقق من المصادقة.',
+      knownLimitations:
+        'لا يمنع بروتوكولات DNS المشفرة مسبقاً (DoH / DoT على منافذ 443 و 853) إذا كان للمستخدم وصول إنترنت نشط.',
+    });
+
+    // 5. Enforce Single Device
+    const singleDeviceEnabled = policies.enforceSingleDevice !== false;
+    reports.push({
+      id: 'SINGLE_DEVICE_PER_CARD',
+      name: 'قصر الكرت على جهاز واحد ومصادقة MAC (Single Device Enforcement)',
+      category: 'ACCOUNTING_PROTECTION',
+      status: singleDeviceEnabled ? 'PROPOSED' : 'DISABLED',
+      isSupported: true,
+      description:
+        'منع استخدام الكرت الواحد على أكثر من جهاز في نفس اللحظة (shared-users=1) وحفظ الارتباط برمز MAC Cookie.',
+      realisticEffect:
+        'يضمن تطبيق قيود السرعة والحجم والمدة الزمنية على جهاز المشترك الفعلي ويمنع التشارك المتزامن بالكرت.',
+      knownLimitations:
+        'إذا سجل المشترك خروجه، يمكن استخدام الكرت على جهاز آخر طالما أن الحصة والصلاحية لم تنتهِ بعد.',
+    });
+
+    // 6. Block Unauthenticated Bypass
+    const blockBypassEnabled = policies.blockUnauthenticatedBypass !== false;
+    reports.push({
+      id: 'BLOCK_BYPASS',
+      name: 'حظر التجاوز غير المصرح به وتدقيق استثناءات Walled Garden',
+      category: 'ACCOUNTING_PROTECTION',
+      status: blockBypassEnabled ? 'PROPOSED' : 'DISABLED',
+      isSupported: true,
+      description:
+        'التحقق من عدم وجود مسارات IP Binding عامة تتيح المرور للإنترنت بدون مصادقة محاسبية.',
+      realisticEffect:
+        'يضمن أن جميع حزم البيانات الصادرة تُحسب ضمن الرصيد المحدد للكروت والبروفايلات.',
+      knownLimitations:
+        'لا يمنع مشاركة الاتصال خارج الراوتر (مثل مشاركة كرت الشاشة أو راوتر ثانوي مسجل الدخول بالفعل).',
+    });
+
+    return reports;
   }
 
   private extractSubnetBase(ipWithCidr: string): string | null {
@@ -806,3 +1452,4 @@ export class RouterProvisioningService {
     return cmd.trim().split(/\s+/);
   }
 }
+

@@ -121,4 +121,17 @@ export class EncryptionService {
 
     return null;
   }
+
+  /**
+   * Securely derives a deterministic secret token from a domain context string
+   * (e.g. for automatic router backup encryption passwords).
+   * Uses HMAC-SHA256 with the master encryption key.
+   */
+  deriveDeterministicSecret(context: string, length = 24): string {
+    return crypto
+      .createHmac('sha256', this.key)
+      .update(context)
+      .digest('hex')
+      .substring(0, length);
+  }
 }

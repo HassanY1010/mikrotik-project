@@ -1027,7 +1027,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     : (isSuspended
                         ? 'معلق مؤقتاً'
                         : (isTrial
-                            ? '${quota?.planNameAr ?? quota?.planName ?? "باقة تجريبية"} (تجريبية)'
+                            ? (quota?.planNameAr ?? user?.subscriptionPlanAr ?? 'الباقة التجريبية المجانية')
                             : (quota?.planNameAr ?? quota?.planName ?? user?.subscriptionPlanAr ?? user?.subscriptionPlan ?? 'الباقة النشطة')))));
 
         final isUnlimited = isSuperAdmin || (quota != null && isActive && quota.isUnlimited);
@@ -1218,11 +1218,24 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               if (expiresAt != null) ...[
                 Divider(color: context.borderColor, height: 16),
                 _buildInfoRow(
-                  'تاريخ انتهاء الاشتراك',
-                  '${expiresAt.day}/${expiresAt.month}/${expiresAt.year}',
+                  isTrial ? 'تاريخ ووقت انتهاء التجربة' : 'تاريخ انتهاء الاشتراك',
+                  '${expiresAt.day}/${expiresAt.month}/${expiresAt.year} - ${expiresAt.hour.toString().padLeft(2, '0')}:${expiresAt.minute.toString().padLeft(2, '0')}',
                   Icons.event_available_outlined,
                   valueColor: isExpired ? const Color(0xFFEF4444) : const Color(0xFF34D399),
                 ),
+                if (isTrial && !isExpired) ...[
+                  Divider(color: context.borderColor, height: 16),
+                  _buildInfoRow(
+                    'الوقت المتبقي للتجربة',
+                    expiresAt.isAfter(DateTime.now())
+                        ? (expiresAt.difference(DateTime.now()).inHours > 0
+                            ? '${expiresAt.difference(DateTime.now()).inHours} ساعة و ${expiresAt.difference(DateTime.now()).inMinutes % 60} دقيقة'
+                            : '${expiresAt.difference(DateTime.now()).inMinutes} دقيقة')
+                        : 'انتهت الفترة التجريبية',
+                    Icons.timer_outlined,
+                    valueColor: const Color(0xFF2DD4BF),
+                  ),
+                ],
               ],
               const SizedBox(height: 16),
               WhatsAppButton(

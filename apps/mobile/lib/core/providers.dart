@@ -7,6 +7,7 @@ import 'storage/local_storage.dart';
 import 'sync/offline_sync_manager.dart';
 import 'constants/api_endpoints.dart';
 import 'services/backup_downloader.dart';
+import 'services/card_template_import_service.dart';
 
 // Initialized at main startup
 final localStorageProvider = Provider<LocalStorage>((ref) {
@@ -802,6 +803,52 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
     }
   }
 
+  Future<Map<String, dynamic>> restoreBackup(
+    String deviceId,
+    String filename, {
+    String? password,
+    required bool confirmed,
+  }) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.deviceBackupRestore(deviceId),
+        data: {
+          'filename': filename,
+          if (password != null && password.isNotEmpty) 'password': password,
+          'confirmed': confirmed,
+        },
+      );
+      final data = res.data;
+      final payload = (data is Map && data['data'] is Map)
+          ? data['data'] as Map
+          : (data is Map ? data : {});
+      return {
+        'success': payload['success'] == true,
+        'message': payload['message']?.toString() ??
+            'تم إرسال أمر استعادة النسخة الاحتياطية بنجاح، جاري إعادة تشغيل الراوتر',
+        'rebootTriggered': payload['rebootTriggered'] == true,
+      };
+    } catch (e) {
+      String msg = 'تعذر استعادة النسخة الاحتياطية على الراوتر';
+      if (e is DioException) {
+        final d = e.response?.data;
+        if (d is Map && d['message'] != null) {
+          msg = d['message'].toString();
+        } else if (e.response?.statusCode == 409) {
+          msg = 'توجد عملية جارية حالياً على هذا الراوتر، يرجى الانتظار';
+        } else if (e.response?.statusCode == 400) {
+          msg = 'بيانات الاستعادة غير صالحة أو لم يتم تأكيد الاستبدال الصريح';
+        } else if (e.message != null && e.message!.isNotEmpty) {
+          msg = e.message!;
+        }
+      } else {
+        msg = e.toString().replaceFirst('Exception: ', '');
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
   Future<void> shareDownloadedBackup(String filePath, String filename) async {
     await shareBackupFile(filePath, filename);
   }
@@ -811,8 +858,31 @@ final routersProvider = AsyncNotifierProvider<RoutersNotifier, List<RouterDevice
   RoutersNotifier.new,
 );
 
+// Radar Last Updated and Router Status Providers
+class RadarLastUpdatedNotifier extends Notifier<DateTime?> {
+  @override
+  DateTime? build() => null;
+  void update(DateTime? dt) => state = dt;
+}
+
+final radarLastUpdatedProvider = NotifierProvider<RadarLastUpdatedNotifier, DateTime?>(
+  RadarLastUpdatedNotifier.new,
+);
+
+class RadarRouterStatusesNotifier extends Notifier<List<RouterConnectionStatus>> {
+  @override
+  List<RouterConnectionStatus> build() => [];
+  void update(List<RouterConnectionStatus> list) => state = list;
+}
+
+final radarRouterStatusesProvider = NotifierProvider<RadarRouterStatusesNotifier, List<RouterConnectionStatus>>(
+  RadarRouterStatusesNotifier.new,
+);
+
 // Active Sessions AsyncNotifier (Radar)
 class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
+  bool _isFetching = false;
+
   @override
   Future<List<ActiveSessionModel>> build() async {
     final selectedId = ref.watch(selectedRouterIdProvider);
@@ -820,20 +890,52 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
   }
 
   Future<List<ActiveSessionModel>> _fetch(String? deviceId) async {
-    final apiClient = ref.read(apiClientProvider);
-    final url = deviceId != null
-        ? '${ApiEndpoints.hotspotSessions}?deviceId=$deviceId'
-        : ApiEndpoints.hotspotSessions;
-    final res = await apiClient.get(url);
-    final raw = res.data;
-    final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
-    if (list is List) {
-      return list.map((s) => ActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
+    if (_isFetching) {
+      return state.value ?? [];
     }
-    return [];
+    _isFetching = true;
+
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final url = deviceId != null
+          ? '${ApiEndpoints.hotspotSessions}?deviceId=$deviceId'
+          : ApiEndpoints.hotspotSessions;
+      final res = await apiClient.get(url);
+      final raw = res.data;
+
+      // Extract metadata if available
+      if (raw is Map && raw['meta'] != null) {
+        final meta = raw['meta'];
+        if (meta is Map) {
+          if (meta['lastUpdated'] != null) {
+            final parsedDate = DateTime.tryParse(meta['lastUpdated'].toString());
+            if (parsedDate != null) {
+              ref.read(radarLastUpdatedProvider.notifier).update(parsedDate);
+            }
+          }
+          if (meta['routers'] is List) {
+            final routerList = (meta['routers'] as List)
+                .map((r) => RouterConnectionStatus.fromJson(r as Map<String, dynamic>))
+                .toList();
+            ref.read(radarRouterStatusesProvider.notifier).update(routerList);
+          }
+        }
+      } else {
+        ref.read(radarLastUpdatedProvider.notifier).update(DateTime.now());
+      }
+
+      final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
+      if (list is List) {
+        return list.map((s) => ActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
+      }
+      return [];
+    } finally {
+      _isFetching = false;
+    }
   }
 
   Future<void> refresh() async {
+    if (_isFetching) return;
     final selectedId = ref.read(selectedRouterIdProvider);
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() => _fetch(selectedId));
@@ -1062,130 +1164,52 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
   }
 
   Future<List<CardTemplateModel>> _fetch() async {
+    final storage = ref.read(localStorageProvider);
+    final localCustom = storage.getCustomTemplates();
+
+    final List<CardTemplateModel> templates = [];
     final apiClient = ref.read(apiClientProvider);
+
     try {
       final res = await apiClient.get(ApiEndpoints.cardTemplates);
       final raw = res.data;
       final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
       if (list is List && list.isNotEmpty) {
-        return list.map((t) => CardTemplateModel.fromJson(t as Map<String, dynamic>)).toList();
+        for (final t in list) {
+          if (t is Map<String, dynamic>) {
+            templates.add(CardTemplateModel.fromJson(t));
+          }
+        }
       }
     } catch (_) {}
 
-    return [
-      CardTemplateModel(
-        id: 'tpl-1',
-        name: 'ثيم كرة القدم الذهبي (85×54 مم)',
-        themePreset: 'FOOTBALL',
-        primaryColor: '#065F46',
-        accentColor: '#F59E0B',
-        widthMm: 85,
-        heightMm: 54,
-        orientation: 'landscape',
-        isDefault: true,
-        layoutConfig: {
-          'showQr': true,
-          'showPin': true,
-          'showPrice': true,
-          'showValidity': true,
-          'showSpeed': true,
-          'networkName': 'سودافاي هوتسبوت',
-          'headerTitle': 'كأس الذهب - فائق السرعة',
-          'instructions': 'امسح الرمز أو أدخل اسم المستخدم للدخول',
-        },
-      ),
-      CardTemplateModel(
-        id: 'tpl-2',
-        name: 'عيد مبارك الملكي (85×54 مم)',
-        themePreset: 'EID_MUBARAK',
-        primaryColor: '#1E3A8A',
-        accentColor: '#D97706',
-        widthMm: 85,
-        heightMm: 54,
-        orientation: 'landscape',
-        layoutConfig: {
-          'showQr': true,
-          'showPin': true,
-          'showPrice': true,
-          'showValidity': true,
-          'showSpeed': true,
-          'networkName': 'شبكة العيد الملكية',
-          'headerTitle': 'كل عام وأنتم بخير',
-        },
-      ),
-      CardTemplateModel(
-        id: 'tpl-3',
-        name: 'الفيروزي الحديث (85×54 مم)',
-        themePreset: 'TURQUOISE',
-        primaryColor: '#0F766E',
-        accentColor: '#06B6D4',
-        widthMm: 85,
-        heightMm: 54,
-        orientation: 'landscape',
-        layoutConfig: {
-          'showQr': true,
-          'showPin': true,
-          'showPrice': true,
-          'showValidity': true,
-          'showSpeed': true,
-          'networkName': 'شبكة المستقبل الرقمية',
-        },
-      ),
-      CardTemplateModel(
-        id: 'tpl-4',
-        name: 'تذكرة كلاسيكية (100×40 مم)',
-        themePreset: 'TICKET',
-        primaryColor: '#4338CA',
-        accentColor: '#EC4899',
-        widthMm: 100,
-        heightMm: 40,
-        orientation: 'landscape',
-        layoutConfig: {
-          'showQr': true,
-          'showPin': true,
-          'showPrice': true,
-          'showValidity': true,
-          'showSpeed': true,
-          'networkName': 'تذكرة إنترنت هوتسبوت',
-        },
-      ),
-      CardTemplateModel(
-        id: 'tpl-5',
-        name: 'مدمج أنيق (70×35 مم)',
-        themePreset: 'COMPACT',
-        primaryColor: '#334155',
-        accentColor: '#64748B',
-        widthMm: 70,
-        heightMm: 35,
-        orientation: 'landscape',
-        layoutConfig: {
-          'showQr': true,
-          'showPin': true,
-          'showPrice': true,
-          'showValidity': true,
-          'showSpeed': true,
-          'networkName': 'بطاقة الاتصال المدمجة',
-        },
-      ),
-      CardTemplateModel(
-        id: 'tpl-6',
-        name: 'شبكة مصغرة مكثفة (50×30 مم)',
-        themePreset: 'MINI',
-        primaryColor: '#4F46E5',
-        accentColor: '#06B6D4',
-        widthMm: 50,
-        heightMm: 30,
-        orientation: 'landscape',
-        layoutConfig: {
-          'showQr': true,
-          'showPin': true,
-          'showPrice': true,
-          'showValidity': true,
-          'showSpeed': false,
-          'networkName': 'سودافاي شبكة سريعة',
-        },
-      ),
-    ];
+    // If server returned no templates (or offline), load base built-in catalog
+    if (templates.isEmpty) {
+      templates.addAll(CardTemplateImportService.getBuiltInCatalog());
+    }
+
+    // Merge persistent local custom/imported templates without duplicates
+    for (final custom in localCustom) {
+      final idx = templates.indexWhere((t) => (custom.id.isNotEmpty && t.id == custom.id) || t.name == custom.name);
+      if (idx == -1) {
+        templates.add(custom);
+      } else {
+        // If the local template has a custom background and the server copy doesn't, preserve local background
+        if (custom.hasCustomBackground && !templates[idx].hasCustomBackground) {
+          final mergedLayout = Map<String, dynamic>.from(templates[idx].layoutConfig);
+          mergedLayout['backgroundImageBase64'] = custom.backgroundImageBase64;
+          mergedLayout['backgroundFit'] = custom.backgroundFit;
+          mergedLayout['isImageBackground'] = custom.isImageBackground;
+          mergedLayout['isPdfBackground'] = custom.isPdfBackground;
+          templates[idx] = templates[idx].copyWith(
+            layoutConfig: mergedLayout,
+            backgroundDesign: custom.backgroundDesign,
+          );
+        }
+      }
+    }
+
+    return templates;
   }
 
   Future<void> refresh() async {
@@ -1193,52 +1217,48 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
     state = await AsyncValue.guard(() => _fetch());
   }
 
-  String _extractApiError(DioException e, String fallback) {
-    final data = e.response?.data;
-    if (data is Map) {
-      final errObj = data['error'];
-      if (errObj is Map) {
-        final details = errObj['details'];
-        if (details is List && details.isNotEmpty) {
-          return details.map((d) => '• $d').join('\n');
-        }
-        if (errObj['message'] != null && errObj['message'].toString().isNotEmpty) {
-          return errObj['message'].toString();
-        }
-      }
-      if (data['message'] is List && (data['message'] as List).isNotEmpty) {
-        return (data['message'] as List).map((d) => '• $d').join('\n');
-      }
-      if (data['message'] != null && data['message'].toString().isNotEmpty) {
-        return data['message'].toString();
-      }
-    }
-    return e.message?.isNotEmpty == true ? e.message! : fallback;
-  }
 
   Future<Map<String, dynamic>> createTemplate(CardTemplateModel tpl) async {
+    final storage = ref.read(localStorageProvider);
+    final effectiveId = tpl.id.isNotEmpty ? tpl.id : 'tpl-${DateTime.now().millisecondsSinceEpoch}';
+    final savedTpl = tpl.copyWith(id: effectiveId);
+
+    // Save locally first for guaranteed persistence across app restarts
+    await storage.saveCustomTemplate(savedTpl);
+
     final apiClient = ref.read(apiClientProvider);
     try {
       final res = await apiClient.post(
         ApiEndpoints.cardTemplates,
-        data: tpl.toPayload(),
+        data: savedTpl.toPayload(),
       );
-      await refresh();
       final raw = res.data;
-      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
-      return {'success': true, 'message': 'تم حفظ القالب بنجاح'};
-    } catch (e) {
-      if (e is DioException) {
-        return {
-          'success': false,
-          'message': _extractApiError(e, 'فشل حفظ القالب في الخادم'),
-        };
+      if (raw is Map<String, dynamic>) {
+        final serverId = raw['id']?.toString() ??
+            (raw['data'] is Map ? raw['data']['id']?.toString() : null);
+        if (serverId != null && serverId.isNotEmpty) {
+          final syncedTpl = savedTpl.copyWith(id: serverId);
+          await storage.saveCustomTemplate(syncedTpl);
+        }
       }
-      return {'success': false, 'message': 'تعذر الاتصال بالخادم لحفظ القالب'};
+      await refresh();
+      final resMap = (raw is Map<String, dynamic>) ? raw : <String, dynamic>{};
+      return {'success': true, 'message': 'تم حفظ القالب بنجاح', ...resMap, 'template': savedTpl};
+    } catch (e) {
+      await refresh();
+      // Even if server request failed (offline / network error), the template is securely saved locally!
+      return {
+        'success': true,
+        'message': 'تم حفظ القالب محلياً بنجاح في جهازك',
+        'template': savedTpl,
+      };
     }
   }
 
   Future<Map<String, dynamic>> updateTemplate(CardTemplateModel tpl) async {
+    final storage = ref.read(localStorageProvider);
+    await storage.saveCustomTemplate(tpl);
+
     final apiClient = ref.read(apiClientProvider);
     try {
       final res = await apiClient.patch(
@@ -1250,17 +1270,15 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
       return {'success': true, 'message': 'تم تعديل القالب بنجاح'};
     } catch (e) {
-      if (e is DioException) {
-        return {
-          'success': false,
-          'message': _extractApiError(e, 'فشل تعديل القالب في الخادم'),
-        };
-      }
-      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+      await refresh();
+      return {'success': true, 'message': 'تم تعديل القالب محلياً بنجاح'};
     }
   }
 
   Future<Map<String, dynamic>> deleteTemplate(String id) async {
+    final storage = ref.read(localStorageProvider);
+    await storage.deleteCustomTemplate(id);
+
     final apiClient = ref.read(apiClientProvider);
     try {
       final res = await apiClient.delete(ApiEndpoints.cardTemplateItem(id));
@@ -1269,13 +1287,8 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
       return {'success': true, 'message': 'تم حذف القالب بنجاح'};
     } catch (e) {
-      if (e is DioException) {
-        return {
-          'success': false,
-          'message': _extractApiError(e, 'فشل حذف القالب من الخادم'),
-        };
-      }
-      return {'success': false, 'message': 'تعذر الاتصال بالخادم لحذف القالب'};
+      await refresh();
+      return {'success': true, 'message': 'تم حذف القالب بنجاح'};
     }
   }
 }
@@ -1860,6 +1873,44 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
 
   Future<Map<String, dynamic>> deleteCard(String cardId) async {
     return bulkDeleteCards([cardId]);
+  }
+
+  Future<Map<String, dynamic>> bulkActivateCards(List<String> cardIds) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.post(
+        ApiEndpoints.cardsBulkActivate,
+        data: {'cardIds': cardIds},
+      );
+      await loadInventory(isRefresh: true);
+      final raw = res.data;
+      if (raw is Map<String, dynamic>) {
+        return {'success': raw['success'] == true, ...raw};
+      }
+      return {'success': true, 'message': 'تم تفعيل الكروت المحددة بنجاح'};
+    } catch (e) {
+      String msg = 'فشل تفعيل الكروت المحددة';
+      if (e is DioException && e.response?.data is Map) {
+        final d = e.response!.data as Map;
+        msg = d['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<CardModel?> fetchCardDetails(String cardId) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final res = await apiClient.get(ApiEndpoints.cardItem(cardId));
+      final raw = res.data;
+      final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+      if (data is Map<String, dynamic>) {
+        return CardModel.fromJson(data);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> refresh() async {
@@ -2565,4 +2616,25 @@ final portalTemplatesProvider = FutureProvider.autoDispose<List<HotspotPortalCon
     return [];
   }
 });
+
+/// ============================================================================
+/// CONNECTED DEVICES PROVIDER (DHCP Leases, ARP, Neighbors)
+/// ============================================================================
+
+final connectedDevicesProvider =
+    FutureProvider.autoDispose.family<List<ConnectedDeviceModel>, String>((ref, routerId) async {
+  if (routerId.isEmpty) return [];
+  final apiClient = ref.watch(apiClientProvider);
+  final res = await apiClient.get(ApiEndpoints.deviceConnectedDevices(routerId));
+  final raw = res.data;
+  final list = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
+  if (list is List) {
+    return list
+        .whereType<Map>()
+        .map((item) => ConnectedDeviceModel.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+  return [];
+});
+
 

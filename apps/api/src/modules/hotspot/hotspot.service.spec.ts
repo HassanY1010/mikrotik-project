@@ -41,13 +41,21 @@ describe('HotspotService', () => {
     prisma = {
       mikroTikDevice: {
         findFirst: jest.fn().mockResolvedValue(mockDevice),
+        findMany: jest.fn().mockResolvedValue([mockDevice]),
       },
       hotspotProfile: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
         create: jest.fn(),
         upsert: jest.fn(),
         delete: jest.fn(),
+      },
+      card: {
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      tenant: {
+        findFirst: jest.fn().mockResolvedValue({ id: mockTenantId }),
       },
     };
 
@@ -200,6 +208,130 @@ describe('HotspotService', () => {
       const result = await service.listActiveSessions(mockTenantId, mockDeviceId);
       expect(result).toEqual(mockSessions);
       expect(mockClient.listActiveSessions).toHaveBeenCalled();
+    });
+  });
+
+  describe('listAllActiveSessions', () => {
+    it('should enrich live sessions with Card and Profile data from accounting database', async () => {
+      const mockSessions = [
+        {
+          id: '*1',
+          user: 'voucher-101',
+          address: '192.168.88.20',
+          macAddress: 'AA:BB:CC:DD:EE:01',
+          uptime: '30m',
+          bytesIn: 10 * 1024 * 1024,
+          bytesOut: 40 * 1024 * 1024,
+          sessionTimeLeft: '1h',
+        },
+      ];
+      mockClient.listActiveSessions.mockResolvedValue(mockSessions);
+
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-1',
+          username: 'voucher-101',
+          dataLimitBytes: BigInt(500 * 1024 * 1024), // 500 MB
+          validityDays: 7,
+          timeLimit: '2h',
+          activatedAt: new Date(),
+          expiresAt: new Date(Date.now() + 86400 * 5 * 1000),
+          profile: {
+            name: 'Speed_5M',
+            rateLimit: '2M/5M',
+            dataLimitBytes: BigInt(500 * 1024 * 1024),
+            sessionTimeout: '2h',
+          },
+        },
+      ]);
+
+      const result = await service.listAllActiveSessions(mockTenantId, mockDeviceId);
+      expect(result.total).toBe(1);
+      const session = result.data[0];
+
+      expect(session.user).toBe('voucher-101');
+      expect(session.profileName).toBe('Speed_5M');
+      expect(session.downloadSpeedLimit).toBe('5 Mbps');
+      expect(session.uploadSpeedLimit).toBe('2 Mbps');
+      expect(session.consumedBytes).toBe(50 * 1024 * 1024); // 10MB + 40MB
+      expect(session.totalQuotaBytes).toBe(500 * 1024 * 1024);
+      expect(session.remainingBytes).toBe(450 * 1024 * 1024);
+      expect(session.consumptionPercentage).toBe(10);
+      expect(session.isQuotaExhausted).toBe(false);
+      expect(session.isUnlimitedQuota).toBe(false);
+      expect(session.isUnknownQuota).toBe(false);
+      expect(session.connectionStatus).toBe('connected');
+      expect(session.routerStatus).toBe('online');
+      expect(result.meta.routers[0].status).toBe('online');
+    });
+
+    it('should accurately handle unlimited package with open quota', async () => {
+      mockClient.listActiveSessions.mockResolvedValue([
+        {
+          id: '*2',
+          user: 'open-user',
+          address: '192.168.88.21',
+          macAddress: 'AA:BB:CC:DD:EE:02',
+          uptime: '1h',
+          bytesIn: 100000000,
+          bytesOut: 400000000,
+        },
+      ]);
+
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'card-2',
+          username: 'open-user',
+          dataLimitBytes: null,
+          timeLimit: null,
+          profile: {
+            name: 'Unlimited_VIP',
+            rateLimit: null,
+            dataLimitBytes: null,
+          },
+        },
+      ]);
+
+      const result = await service.listAllActiveSessions(mockTenantId, mockDeviceId);
+      const session = result.data[0];
+      expect(session.isUnlimitedQuota).toBe(true);
+      expect(session.totalQuotaBytes).toBeNull();
+      expect(session.remainingBytes).toBeNull();
+      expect(session.consumptionPercentage).toBeNull();
+      expect(session.isUnlimitedSpeed).toBe(true);
+    });
+
+    it('should report unknown accounting data when subscriber is unlinked rather than assuming 0', async () => {
+      mockClient.listActiveSessions.mockResolvedValue([
+        {
+          id: '*3',
+          user: 'unknown-mac-user',
+          address: '192.168.88.25',
+          macAddress: '11:22:33:44:55:66',
+          uptime: '5m',
+          bytesIn: 1024,
+          bytesOut: 2048,
+        },
+      ]);
+      prisma.card.findMany.mockResolvedValue([]);
+      prisma.hotspotProfile.findMany.mockResolvedValue([]);
+
+      const result = await service.listAllActiveSessions(mockTenantId, mockDeviceId);
+      const session = result.data[0];
+      expect(session.isUnknownQuota).toBe(true);
+      expect(session.isUnlimitedQuota).toBe(false);
+      expect(session.totalQuotaBytes).toBeNull();
+      expect(session.remainingBytes).toBeNull();
+    });
+
+    it('should handle router connection errors gracefully and mark router as unreachable in metadata', async () => {
+      mockClient.listActiveSessions.mockRejectedValue(new Error('Connection timed out'));
+
+      const result = await service.listAllActiveSessions(mockTenantId, mockDeviceId);
+      expect(result.data).toEqual([]);
+      expect(result.total).toBe(0);
+      expect(result.meta.routers[0].status).toBe('unreachable');
+      expect(result.meta.routers[0].error).toContain('Connection timed out');
     });
   });
 

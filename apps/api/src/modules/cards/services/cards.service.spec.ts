@@ -19,6 +19,20 @@ describe('CardsService', () => {
   const mockTenantId = 'tenant-uuid-1';
   const mockUserId = 'user-uuid-1';
   const mockDeviceId = 'device-uuid-1';
+  const mockDevice = {
+    id: mockDeviceId,
+    name: 'Main Router',
+    host: '192.168.88.1',
+    apiPort: 8728,
+    restPort: 443,
+    useSsl: false,
+    username: 'admin',
+    passwordEncrypted: 'enc',
+    iv: 'iv',
+    authTag: 'tag',
+    rosVersion: 'V7',
+    isOnline: true,
+  };
   const mockProfileId = 'profile-uuid-1';
   const mockBatchId = 'batch-uuid-1';
 
@@ -28,6 +42,9 @@ describe('CardsService', () => {
       disableHotspotUser: jest.fn().mockResolvedValue(undefined),
       enableHotspotUser: jest.fn().mockResolvedValue(undefined),
       deleteHotspotUser: jest.fn().mockResolvedValue(undefined),
+      removeActiveSession: jest.fn().mockResolvedValue(undefined),
+      listActiveSessions: jest.fn().mockResolvedValue([]),
+      listHotspotUsers: jest.fn().mockResolvedValue([]),
     };
 
     prisma = {
@@ -56,9 +73,13 @@ describe('CardsService', () => {
       },
       hotspotActiveSession: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       cardTemplate: {
         findFirst: jest.fn(),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ id: mockUserId, role: { name: 'OWNER' } }),
       },
       printJob: {
         create: jest.fn(),
@@ -73,6 +94,7 @@ describe('CardsService', () => {
         authTag: 'tag_hex',
       }),
       decrypt: jest.fn().mockReturnValue('plain_secret'),
+      tryDecrypt: jest.fn().mockReturnValue('plain_secret'),
     };
 
     mikrotikClientFactory = {
@@ -853,6 +875,656 @@ describe('CardsService', () => {
       const res = await service.deleteSingleCard(mockTenantId, 'card-single');
       expect(res.success).toBe(true);
       expect(res.mikrotikRemoved).toBe(true);
+    });
+  });
+
+  describe('getCardById', () => {
+    it('should throw NotFoundException if card does not exist', async () => {
+      prisma.card.findFirst.mockResolvedValueOnce(null);
+      await expect(service.getCardById(mockTenantId, 'non-existent')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should return enriched card details for a new unactivated card', async () => {
+      const mockCard = {
+        id: 'card-101',
+        tenantId: mockTenantId,
+        batchId: 'batch-1',
+        deviceId: mockDeviceId,
+        profileId: 'prof-1',
+        username: 'user101',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        pinCode: '1234',
+        serialNumber: 'SN-101',
+        price: 50,
+        status: CardStatus.AVAILABLE,
+        validityDays: 7,
+        timeLimit: '2h',
+        dataLimitBytes: BigInt(500 * 1024 * 1024),
+        syncStatus: SyncStatus.SYNCED,
+        soldAt: null,
+        activatedAt: null,
+        expiresAt: null,
+        createdAt: new Date(),
+        batch: { batchNumber: 'BATCH-001' },
+        device: { ...mockDevice, isOnline: false },
+        profile: {
+          id: 'prof-1',
+          name: '1Hour-500MB',
+          rateLimit: '2M/4M',
+          sessionTimeout: '1h',
+          dataLimitBytes: BigInt(1024 * 1024 * 1024),
+        },
+        sales: [],
+      };
+
+      prisma.card.findFirst.mockResolvedValueOnce(mockCard);
+      encryptionService.tryDecrypt.mockReturnValueOnce('plain_pass');
+
+      const res = await service.getCardById(mockTenantId, 'card-101');
+
+      expect(res.id).toBe('card-101');
+      expect(res.lifecycleStatus).toBe('NEW');
+      expect(res.uploadSpeedLimit).toBe('2 Mbps');
+      expect(res.downloadSpeedLimit).toBe('4 Mbps');
+      expect(res.dataLimitBytes).toBe(500 * 1024 * 1024);
+      expect(res.effectiveDataLimitBytes).toBe(500 * 1024 * 1024); // Card overrides profile
+      expect(res.isCustomQuota).toBe(true);
+      expect(res.hasLiveAccounting).toBe(false); // Router is offline
+      expect(res.consumedBytes).toBeNull(); // No false zero!
+    });
+
+    it('should query live router and reconcile consumption for an online active card', async () => {
+      const pastDate = new Date(Date.now() - 3600 * 1000);
+      const futureDate = new Date(Date.now() + 86400 * 1000 * 6);
+      const mockCard = {
+        id: 'card-102',
+        tenantId: mockTenantId,
+        batchId: 'batch-1',
+        deviceId: mockDeviceId,
+        profileId: 'prof-1',
+        username: 'activeUser',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        pinCode: null,
+        serialNumber: 'SN-102',
+        price: 100,
+        status: CardStatus.ACTIVE,
+        validityDays: 7,
+        timeLimit: '24h',
+        dataLimitBytes: BigInt(1000 * 1024 * 1024),
+        syncStatus: SyncStatus.SYNCED,
+        soldAt: pastDate,
+        activatedAt: pastDate,
+        expiresAt: futureDate,
+        createdAt: pastDate,
+        batch: { batchNumber: 'BATCH-001' },
+        device: { ...mockDevice, isOnline: true },
+        profile: {
+          id: 'prof-1',
+          name: '7Days-1GB',
+          rateLimit: '1M/2M',
+          sessionTimeout: '24h',
+          dataLimitBytes: BigInt(1000 * 1024 * 1024),
+        },
+        sales: [],
+      };
+
+      prisma.card.findFirst.mockResolvedValueOnce(mockCard);
+      encryptionService.tryDecrypt.mockReturnValueOnce('user_pass');
+
+      // Mock router live data: user active session + cumulative closed sessions
+      mockClient.listActiveSessions.mockResolvedValueOnce([
+        {
+          id: '*1',
+          user: 'activeUser',
+          address: '192.168.88.20',
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+          uptime: '15m',
+          sessionTimeLeft: '23h45m',
+          bytesIn: 10 * 1024 * 1024,
+          bytesOut: 40 * 1024 * 1024, // 50MB current active
+        },
+      ]);
+      mockClient.listHotspotUsers.mockResolvedValueOnce([
+        {
+          id: '*u1',
+          name: 'activeUser',
+          bytesIn: 50 * 1024 * 1024,
+          bytesOut: 100 * 1024 * 1024, // 150MB previous closed sessions
+          limitBytesTotal: 1000 * 1024 * 1024,
+        },
+      ]);
+
+      const res = await service.getCardById(mockTenantId, 'card-102');
+
+      expect(res.lifecycleStatus).toBe('USED');
+      expect(res.isOnline).toBe(true);
+      expect(res.hasLiveAccounting).toBe(true);
+      // Total consumed = 150MB (closed) + 50MB (active) = 200MB
+      expect(res.consumedBytes).toBe(200 * 1024 * 1024);
+      expect(res.remainingBytes).toBe(800 * 1024 * 1024);
+      expect(res.consumptionPercentage).toBe(20);
+      expect(res.sessionUptime).toBe('15 د');
+    });
+
+    it('should mark card as EXPIRED if expiresAt is in the past', async () => {
+      const pastDate = new Date(Date.now() - 3600 * 1000);
+      const mockCard = {
+        id: 'card-103',
+        tenantId: mockTenantId,
+        username: 'expiredUser',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        serialNumber: 'SN-103',
+        price: 50,
+        status: CardStatus.ACTIVE,
+        expiresAt: pastDate,
+        createdAt: pastDate,
+        device: { ...mockDevice, isOnline: false },
+        profile: { id: 'p1', name: 'p', rateLimit: null },
+        sales: [],
+      };
+      prisma.card.findFirst.mockResolvedValueOnce(mockCard);
+      encryptionService.tryDecrypt.mockReturnValueOnce('pw');
+
+      const res = await service.getCardById(mockTenantId, 'card-103');
+      expect(res.lifecycleStatus).toBe('EXPIRED');
+    });
+
+    it('should reconcile usage from DB hotspotActiveSession if router counters were reset to 0 after reboot', async () => {
+      const pastDate = new Date(Date.now() - 3600 * 1000);
+      const mockCard = {
+        id: 'card-reset',
+        tenantId: mockTenantId,
+        username: 'resetUser',
+        passwordEncrypted: 'enc_pw',
+        iv: 'iv_val',
+        authTag: 'tag_val',
+        pinCode: null,
+        serialNumber: 'SN-RESET',
+        price: 100,
+        status: CardStatus.ACTIVE,
+        validityDays: 7,
+        dataLimitBytes: BigInt(500 * 1024 * 1024),
+        syncStatus: SyncStatus.SYNCED,
+        soldAt: pastDate,
+        activatedAt: pastDate,
+        expiresAt: new Date(Date.now() + 86400 * 1000),
+        createdAt: pastDate,
+        batch: { batchNumber: 'BATCH-001' },
+        device: { ...mockDevice, isOnline: true },
+        profile: {
+          id: 'prof-1',
+          name: 'ResetProfile',
+          dataLimitBytes: BigInt(500 * 1024 * 1024),
+        },
+        sales: [],
+      };
+
+      prisma.card.findFirst.mockResolvedValueOnce(mockCard);
+      encryptionService.tryDecrypt.mockReturnValueOnce('pw');
+
+      // Router rebooted: active session has 10MB, but /ip/hotspot/user counters are 0!
+      mockClient.listActiveSessions.mockResolvedValueOnce([
+        {
+          id: '*1',
+          user: 'resetUser',
+          bytesIn: 4 * 1024 * 1024,
+          bytesOut: 6 * 1024 * 1024, // 10MB
+        },
+      ]);
+      mockClient.listHotspotUsers.mockResolvedValueOnce([
+        {
+          id: '*u1',
+          name: 'resetUser',
+          bytesIn: 0,
+          bytesOut: 0, // Reset to 0 by reboot
+        },
+      ]);
+
+      // DB has historical sessions: 90MB closed
+      prisma.hotspotActiveSession.findMany.mockResolvedValueOnce([
+        { bytesIn: BigInt(40 * 1024 * 1024), bytesOut: BigInt(50 * 1024 * 1024) },
+      ]);
+
+      const res = await service.getCardById(mockTenantId, 'card-reset');
+
+      // Total consumed must be 90MB (DB historical) + 10MB (live session) = 100MB
+      expect(res.consumedBytes).toBe(100 * 1024 * 1024);
+      expect(res.remainingBytes).toBe(400 * 1024 * 1024);
+    });
+  });
+
+  describe('bulkActivateCards', () => {
+    it('should throw BadRequestException if cardIds is empty', async () => {
+      await expect(service.bulkActivateCards(mockTenantId, { cardIds: [] })).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should activate a disabled card by enabling on router and updating DB', async () => {
+      const card = {
+        id: 'card-disabled',
+        username: 'userDisabled',
+        status: CardStatus.DISABLED,
+        syncStatus: SyncStatus.SYNCED,
+        soldAt: null,
+        activatedAt: null,
+        expiresAt: null,
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+        profile: { name: 'def' },
+        batch: { batchNumber: 'B1' },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([card]);
+      prisma.card.updateMany.mockResolvedValueOnce({ count: 1 });
+
+      const res = await service.bulkActivateCards(mockTenantId, {
+        cardIds: ['card-disabled'],
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.activatedCount).toBe(1);
+      expect(res.failedCount).toBe(0);
+      expect(mockClient.enableHotspotUser).toHaveBeenCalledWith('userDisabled');
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: { id: 'card-disabled', tenantId: mockTenantId, status: CardStatus.DISABLED },
+        data: { status: CardStatus.AVAILABLE, syncStatus: SyncStatus.SYNCED, syncError: null },
+      });
+    });
+
+    it('should transition a disabled sold card back to SOLD (never to ACTIVE if not yet activated by end user)', async () => {
+      const card = {
+        id: 'card-sold-disabled',
+        username: 'userSoldDisabled',
+        status: CardStatus.DISABLED,
+        syncStatus: SyncStatus.SYNCED,
+        soldAt: new Date(),
+        activatedAt: null, // NOT YET USED OR ACTIVATED BY SUBSCRIBER
+        expiresAt: null,
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+        profile: { name: 'def' },
+        batch: { batchNumber: 'B1' },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([card]);
+      prisma.card.updateMany.mockResolvedValueOnce({ count: 1 });
+
+      const res = await service.bulkActivateCards(mockTenantId, {
+        cardIds: ['card-sold-disabled'],
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.activatedCount).toBe(1);
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: { id: 'card-sold-disabled', tenantId: mockTenantId, status: CardStatus.DISABLED },
+        data: { status: CardStatus.SOLD, syncStatus: SyncStatus.SYNCED, syncError: null }, // Strictly SOLD, never ACTIVE!
+      });
+      expect(res.details.activated[0].status).toBe(CardStatus.SOLD);
+    });
+
+    it('should reject concurrent activation attempts on the same card with CARDS_LOCKED ConflictException', async () => {
+      (service as any).activeCardLocks.add('card-locked-1');
+
+      try {
+        await expect(
+          service.bulkActivateCards(mockTenantId, {
+            cardIds: ['card-locked-1'],
+          }),
+        ).rejects.toThrow(ConflictException);
+      } finally {
+        (service as any).activeCardLocks.delete('card-locked-1');
+      }
+    });
+
+    it('should handle repeated activation requests idempotently without duplicating router users', async () => {
+      const alreadyActiveCard = {
+        id: 'card-already-synced',
+        username: 'userAlreadyActive',
+        status: CardStatus.AVAILABLE,
+        syncStatus: SyncStatus.SYNCED,
+        soldAt: null,
+        activatedAt: null,
+        expiresAt: null,
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+        profile: { name: 'def' },
+        batch: { batchNumber: 'B1' },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([alreadyActiveCard]);
+
+      const res = await service.bulkActivateCards(mockTenantId, {
+        cardIds: ['card-already-synced'],
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.activatedCount).toBe(0);
+      expect(res.alreadyActiveCount).toBe(1);
+      expect(mockClient.createHotspotUser).not.toHaveBeenCalled();
+      expect(res.details.alreadyActive[0].username).toBe('userAlreadyActive');
+    });
+
+    it('should reject activation of expired cards with clear reason', async () => {
+      const expiredCard = {
+        id: 'card-expired',
+        username: 'userExpired',
+        status: CardStatus.EXPIRED,
+        expiresAt: new Date(Date.now() - 1000),
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+        profile: { name: 'def' },
+        batch: { batchNumber: 'B1' },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([expiredCard]);
+
+      const res = await service.bulkActivateCards(mockTenantId, {
+        cardIds: ['card-expired'],
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.activatedCount).toBe(0);
+      expect(res.failedCount).toBe(1);
+      expect(res.details.failed[0].reason).toContain('لا يمكن تفعيل كرت منتهي الصلاحية');
+    });
+
+    it('should handle offline router gracefully and report OFFLINE reason', async () => {
+      const card = {
+        id: 'card-off',
+        username: 'userOff',
+        status: CardStatus.DISABLED,
+        syncStatus: SyncStatus.SYNCED,
+        expiresAt: null,
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: false }, // OFFLINE!
+        profile: { name: 'def' },
+        batch: { batchNumber: 'B1' },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([card]);
+
+      const res = await service.bulkActivateCards(mockTenantId, {
+        cardIds: ['card-off'],
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.failedCount).toBe(1);
+      expect(res.details.failed[0].reason).toContain('OFFLINE');
+    });
+
+    it('should provision unsynced cards on router and mark SYNCED', async () => {
+      const unsyncedCard = {
+        id: 'card-unsynced',
+        username: 'userUnsynced',
+        passwordEncrypted: 'enc',
+        iv: 'iv',
+        authTag: 'tag',
+        status: CardStatus.AVAILABLE,
+        syncStatus: SyncStatus.PENDING,
+        timeLimit: '2h',
+        dataLimitBytes: BigInt(500 * 1024 * 1024),
+        expiresAt: null,
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+        profile: { name: 'Profile1' },
+        batch: { batchNumber: 'B1' },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([unsyncedCard]);
+      encryptionService.decrypt.mockReturnValueOnce('decrypted_password');
+      mockClient.createHotspotUser.mockResolvedValueOnce('userUnsynced');
+      prisma.card.update.mockResolvedValueOnce({ ...unsyncedCard, syncStatus: SyncStatus.SYNCED });
+
+      const res = await service.bulkActivateCards(mockTenantId, {
+        cardIds: ['card-unsynced'],
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.activatedCount).toBe(1);
+      expect(mockClient.createHotspotUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'userUnsynced',
+          password: 'decrypted_password',
+          profile: 'Profile1',
+        }),
+      );
+      expect(prisma.card.update).toHaveBeenCalledWith({
+        where: { id: 'card-unsynced' },
+        data: expect.objectContaining({ syncStatus: SyncStatus.SYNCED }),
+      });
+    });
+
+    it('should rollback router state by disabling user if DB update fails after router command succeeds', async () => {
+      const card = {
+        id: 'card-rollback',
+        username: 'userRollback',
+        status: CardStatus.DISABLED,
+        syncStatus: SyncStatus.SYNCED,
+        soldAt: null,
+        activatedAt: null,
+        expiresAt: null,
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+        profile: { name: 'def' },
+        batch: { batchNumber: 'B1' },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([card]);
+      mockClient.enableHotspotUser.mockResolvedValueOnce(undefined);
+      // Simulate database failure during status update
+      prisma.card.updateMany.mockRejectedValueOnce(new Error('DB Connection Timeout'));
+
+      const res = await service.bulkActivateCards(mockTenantId, {
+        cardIds: ['card-rollback'],
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.failedCount).toBe(1);
+      // Router must be rolled back to disabled to prevent inconsistent state
+      expect(mockClient.disableHotspotUser).toHaveBeenCalledWith('userRollback');
+      expect(res.details.failed[0].reason).toContain('فشل تفعيل الكرت');
+    });
+
+    it('should rollback router user creation if DB update fails when activating unsynced card', async () => {
+      const unsyncedCard = {
+        id: 'card-unsynced-rollback',
+        username: 'userUnsyncedRollback',
+        passwordEncrypted: 'enc',
+        iv: 'iv',
+        authTag: 'tag',
+        status: CardStatus.AVAILABLE,
+        syncStatus: SyncStatus.PENDING,
+        timeLimit: '1h',
+        dataLimitBytes: null,
+        expiresAt: null,
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+        profile: { name: 'Profile1' },
+        batch: { batchNumber: 'B1' },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([unsyncedCard]);
+      encryptionService.decrypt.mockReturnValueOnce('pw');
+      mockClient.createHotspotUser.mockResolvedValueOnce(undefined);
+      // Simulate DB update failure
+      prisma.card.update.mockRejectedValueOnce(new Error('Prisma Transaction Aborted'));
+
+      const res = await service.bulkActivateCards(mockTenantId, {
+        cardIds: ['card-unsynced-rollback'],
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.failedCount).toBe(1);
+      // Created user must be deleted from router to prevent orphan accounts
+      expect(mockClient.deleteHotspotUser).toHaveBeenCalledWith('userUnsyncedRollback');
+    });
+
+    it('should skip cards that were sold in retryPendingDeletions to preserve financial records', async () => {
+      const soldPendingCard = {
+        id: 'card-sold-pending',
+        username: 'userSoldPending',
+        status: CardStatus.DISABLED,
+        syncError: 'PENDING_ROUTER_DELETION: router offline',
+        soldAt: new Date(), // SOLD!
+        sales: [{ id: 'sale-1' }],
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([soldPendingCard]);
+
+      const retryRes = await service.retryPendingDeletions(mockTenantId);
+
+      expect(retryRes.processedCount).toBe(1);
+      expect(retryRes.cleanedCount).toBe(0);
+      expect(retryRes.stillPendingCount).toBe(0);
+      // User must NOT be deleted from router or database
+      expect(mockClient.deleteHotspotUser).not.toHaveBeenCalled();
+      expect(prisma.card.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('checkAndExpireCards', () => {
+    it('should find expired cards, disable them on the router, kick active session, and update status to EXPIRED', async () => {
+      const pastDate = new Date(Date.now() - 3600000);
+      const expiredCard = {
+        id: 'card-exp-1',
+        username: 'userExp1',
+        status: CardStatus.ACTIVE,
+        expiresAt: pastDate,
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([expiredCard]);
+      mockClient.listActiveSessions.mockResolvedValueOnce([
+        { id: '*A1', user: 'userExp1', uptime: '1h' },
+      ]);
+      prisma.card.update.mockResolvedValueOnce({ ...expiredCard, status: CardStatus.EXPIRED });
+
+      const res = await service.checkAndExpireCards(mockTenantId, mockDeviceId);
+
+      expect(res.expiredFound).toBe(1);
+      expect(res.disabledOnRouterCount).toBe(1);
+      expect(res.markedExpiredInDbCount).toBe(1);
+      expect(mockClient.removeActiveSession).toHaveBeenCalledWith('*A1');
+      expect(mockClient.disableHotspotUser).toHaveBeenCalledWith('userExp1');
+      expect(prisma.card.update).toHaveBeenCalledWith({
+        where: { id: 'card-exp-1' },
+        data: { status: CardStatus.EXPIRED, syncError: null },
+      });
+    });
+
+    it('should mark card with PENDING_ROUTER_EXPIRATION in DB when router is unreachable so it can be retried', async () => {
+      const pastDate = new Date(Date.now() - 3600000);
+      const expiredCard = {
+        id: 'card-exp-2',
+        username: 'userExp2',
+        status: CardStatus.ACTIVE,
+        expiresAt: pastDate,
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: false },
+      };
+
+      prisma.card.findMany.mockResolvedValueOnce([expiredCard]);
+      prisma.card.update.mockResolvedValueOnce({ ...expiredCard, status: CardStatus.EXPIRED });
+
+      const res = await service.checkAndExpireCards(mockTenantId, mockDeviceId);
+
+      expect(res.expiredFound).toBe(1);
+      expect(res.disabledOnRouterCount).toBe(0);
+      expect(res.markedExpiredInDbCount).toBe(1);
+      expect(prisma.card.update).toHaveBeenCalledWith({
+        where: { id: 'card-exp-2' },
+        data: {
+          status: CardStatus.EXPIRED,
+          syncError: 'PENDING_ROUTER_EXPIRATION: router offline or unreachable',
+        },
+      });
+    });
+  });
+
+  describe('getCardById live activation and expiration', () => {
+    it('should record activatedAt and calculate expiresAt when unactivated card is detected online', async () => {
+      const freshCard = {
+        id: 'card-fresh-1',
+        username: 'userFresh',
+        status: CardStatus.AVAILABLE,
+        activatedAt: null,
+        expiresAt: null,
+        validityDays: 7,
+        passwordEncrypted: 'enc',
+        iv: 'iv',
+        authTag: 'tag',
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+        batch: { batchNumber: 'B1' },
+        profile: { name: 'default' },
+        sales: [],
+      };
+
+      prisma.card.findFirst.mockResolvedValueOnce(freshCard);
+      mockClient.listActiveSessions.mockResolvedValueOnce([
+        { id: '*S1', user: 'userFresh', uptime: '5m' },
+      ]);
+      mockClient.listHotspotUsers.mockResolvedValueOnce([]);
+      prisma.card.update.mockResolvedValueOnce({ ...freshCard, status: CardStatus.ACTIVE });
+
+      const res = await service.getCardById(mockTenantId, 'card-fresh-1');
+
+      expect(res.isOnline).toBe(true);
+      expect(prisma.card.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'card-fresh-1' },
+          data: expect.objectContaining({
+            status: CardStatus.ACTIVE,
+            activatedAt: expect.any(Date),
+            expiresAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
+    it('should kick session and disable user on router if card has reached expiration', async () => {
+      const pastDate = new Date(Date.now() - 7200000);
+      const expiredCard = {
+        id: 'card-expired-live',
+        username: 'userExpiredLive',
+        status: CardStatus.ACTIVE,
+        activatedAt: new Date(Date.now() - 86400000),
+        expiresAt: pastDate,
+        validityDays: 1,
+        passwordEncrypted: 'enc',
+        iv: 'iv',
+        authTag: 'tag',
+        deviceId: mockDeviceId,
+        device: { ...mockDevice, isOnline: true },
+        batch: { batchNumber: 'B1' },
+        profile: { name: 'default' },
+        sales: [],
+      };
+
+      prisma.card.findFirst.mockResolvedValueOnce(expiredCard);
+      mockClient.listActiveSessions.mockResolvedValueOnce([
+        { id: '*S99', user: 'userExpiredLive', uptime: '10h' },
+      ]);
+      mockClient.listHotspotUsers.mockResolvedValueOnce([]);
+      prisma.card.update.mockResolvedValueOnce({ ...expiredCard, status: CardStatus.EXPIRED });
+
+      const res = await service.getCardById(mockTenantId, 'card-expired-live');
+
+      expect(res.lifecycleStatus).toBe('EXPIRED');
+      expect(mockClient.removeActiveSession).toHaveBeenCalledWith('*S99');
+      expect(mockClient.disableHotspotUser).toHaveBeenCalledWith('userExpiredLive');
     });
   });
 });

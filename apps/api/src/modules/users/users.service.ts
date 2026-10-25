@@ -27,7 +27,7 @@ export class UsersService {
     const sub = await this.prisma.subscription.findFirst({
       where: {
         tenantId,
-        status: 'ACTIVE',
+        status: { in: ['ACTIVE', 'TRIAL'] },
       },
       include: {
         plan: true,
@@ -62,6 +62,17 @@ export class UsersService {
             message: `الباقة الحالية (${sub.plan.name}) لا تدعم إضافة أكثر من موظف/كاشير واحد. يرجى الترقية إلى باقة PRO أو BUSINESS.`,
           });
         }
+      }
+    } else {
+      const expiredSub = await this.prisma.subscription.findFirst({
+        where: { tenantId },
+        orderBy: { expiresAt: 'desc' },
+      });
+      if (expiredSub && (expiredSub.status === 'EXPIRED' || new Date(expiredSub.expiresAt).getTime() <= Date.now())) {
+        throw new ForbiddenException({
+          code: 'SUBSCRIPTION_EXPIRED',
+          message: 'انتهت صلاحية اشتراك الشبكة. يرجى تجديد الاشتراك لإدارة وإضافة الموظفين.',
+        });
       }
     }
   }

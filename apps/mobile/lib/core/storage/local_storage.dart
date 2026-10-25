@@ -16,6 +16,7 @@ class LocalStorage {
   static const String _salesHistoryKey = 'local_sales_history';
   static const String _serverAvailableCardsKey = 'server_available_cards';
   static const String _themeModeKey = 'app_theme_mode';
+  static const String _customTemplatesKey = 'custom_card_templates';
 
   final SharedPreferences _prefs;
 
@@ -354,5 +355,40 @@ class LocalStorage {
 
   Future<void> setThemeMode(String mode) async {
     await _prefs.setString(_themeModeKey, mode);
+  }
+
+  // --- Custom & Imported Card Templates Persistence ---
+  List<CardTemplateModel> getCustomTemplates() {
+    final raw = _prefs.getString(_customTemplatesKey);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw);
+      if (list is List) {
+        return list
+            .whereType<Map<String, dynamic>>()
+            .map((t) => CardTemplateModel.fromJson(t))
+            .toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<void> saveCustomTemplate(CardTemplateModel tpl) async {
+    final current = getCustomTemplates();
+    final idx = current.indexWhere((t) => (tpl.id.isNotEmpty && t.id == tpl.id) || t.name == tpl.name);
+    if (idx != -1) {
+      current[idx] = tpl;
+    } else {
+      current.add(tpl);
+    }
+    final raw = jsonEncode(current.map((t) => t.toJson()).toList());
+    await _prefs.setString(_customTemplatesKey, raw);
+  }
+
+  Future<void> deleteCustomTemplate(String id) async {
+    final current = getCustomTemplates();
+    current.removeWhere((t) => t.id == id);
+    final raw = jsonEncode(current.map((t) => t.toJson()).toList());
+    await _prefs.setString(_customTemplatesKey, raw);
   }
 }

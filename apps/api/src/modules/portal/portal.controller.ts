@@ -106,11 +106,22 @@ export class PortalController {
     return this.portalService.renderDraftPreview(dto);
   }
 
+  @Get('devices/:deviceId/inspect-hotspot')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER, RoleName.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Inspect router HotSpot configuration and existing directory files' })
+  @ApiResponse({ status: 200, description: 'Hotspot inspection details' })
+  async inspectHotspot(
+    @TenantId() tenantId: string,
+    @Param('deviceId') deviceId: string,
+  ) {
+    return this.portalService.inspectHotspot(tenantId, deviceId);
+  }
+
   @Post('devices/:deviceId/publish')
   @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.SUPER_ADMIN)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Compile and publish portal design to MikroTik router via Windows Agent' })
-  @ApiResponse({ status: 200, description: 'Portal publish command queued' })
+  @ApiOperation({ summary: 'Compile and publish portal design to MikroTik router with verification' })
+  @ApiResponse({ status: 200, description: 'Portal publish result' })
   async publishToRouter(
     @TenantId() tenantId: string,
     @Param('deviceId') deviceId: string,
@@ -118,4 +129,18 @@ export class PortalController {
   ) {
     return this.portalService.publishToRouter(tenantId, deviceId, dto);
   }
+
+  @Post('devices/:deviceId/rollback-profile')
+  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Rollback hotspot profile html-directory to previous configuration' })
+  @ApiResponse({ status: 200, description: 'Rollback result' })
+  async rollbackProfile(
+    @TenantId() tenantId: string,
+    @Param('deviceId') deviceId: string,
+    @Body() dto: { profileName: string; htmlDirectory: string },
+  ) {
+    return this.portalService.rollbackProfile(tenantId, deviceId, dto);
+  }
 }
+

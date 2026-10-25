@@ -59,6 +59,9 @@ describe('Hotspot Profile Quota Type & MikroTik Enforcement (Unlimited vs Limite
     tenant: {
       findFirst: jest.fn().mockResolvedValue({ id: 't1' }),
     },
+    user: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'u1', role: { name: 'OWNER' } }),
+    },
     $transaction: jest.fn((cb) => cb(mockPrisma)),
   };
 

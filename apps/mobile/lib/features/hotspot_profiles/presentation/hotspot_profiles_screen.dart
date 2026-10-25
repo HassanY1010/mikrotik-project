@@ -203,7 +203,8 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                 // Search Bar
                 TextField(
                   controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
+                  cursorColor: context.textPrimary,
+                  style: TextStyle(color: context.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'بحث عن باقة أو سرعة...',
                     hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),

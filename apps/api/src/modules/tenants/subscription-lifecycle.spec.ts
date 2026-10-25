@@ -175,7 +175,7 @@ describe('Subscription Lifecycle & Multi-Tenant Audit (Phase 2)', () => {
       expect(result).toBeDefined();
       expect(result.status).toBe(SubscriptionStatus.ACTIVE);
       expect(mockPrisma.subscription.updateMany).toHaveBeenCalledWith({
-        where: { tenantId: tenantAId, status: SubscriptionStatus.ACTIVE },
+        where: { tenantId: tenantAId, status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] } },
         data: { status: SubscriptionStatus.CANCELLED },
       });
       expect(mockPrisma.subscription.create).toHaveBeenCalled();
@@ -487,6 +487,161 @@ describe('Subscription Lifecycle & Multi-Tenant Audit (Phase 2)', () => {
       expect((tenantBData.subscription as any).status).toBe('NONE');
       expect((tenantBData.subscription as any).maxRouters).toBe(0);
       expect((tenantBData.subscription as any).maxCardsPerMonth).toBe(0);
+    });
+  });
+
+  describe('48-Hour Free Trial Lifecycle & Access Control', () => {
+    const trialTenantId = 'tenant-trial-999';
+    const mockTrialPlan = {
+      id: 'plan-trial-001',
+      name: 'TRIAL',
+      nameAr: 'الباقة التجريبية المجانية',
+      maxRouters: 5,
+      priceMonthly: 0,
+      priceYearly: 0,
+      features: {
+        isUnlimited: true,
+        maxRouters: 5,
+        cardGenerationLimit: null,
+        thermalPrinting: true,
+        a4Printing: true,
+        fullAnalytics: true,
+      },
+    };
+
+    it('should grant full feature access and unlimited quota during active 48-hour trial', async () => {
+      const now = new Date();
+      const startsAt = new Date(now.getTime() - 2 * 60 * 60 * 1000); // Activated 2 hours ago
+      const expiresAt = new Date(startsAt.getTime() + 48 * 60 * 60 * 1000); // 46 hours remaining
+
+      const activeTrialSub = {
+        id: 'sub-trial-active',
+        tenantId: trialTenantId,
+        planId: mockTrialPlan.id,
+        status: SubscriptionStatus.TRIAL,
+        billingCycle: BillingCycle.MONTHLY,
+        startsAt,
+        expiresAt,
+        maxRouters: 5,
+        price: 0,
+        plan: mockTrialPlan,
+      };
+
+      // 1. Quotas service allows card generation for active TRIAL
+      mockPrisma.tenant.findUnique.mockResolvedValueOnce({ status: TenantStatus.ACTIVE });
+      mockPrisma.subscription.findFirst.mockResolvedValueOnce(activeTrialSub);
+
+      const resolved = await quotasService.resolveTenantSubscription(trialTenantId, now);
+      expect(resolved).toBeDefined();
+      expect(resolved.status).toBe(SubscriptionStatus.TRIAL);
+      expect(resolved.plan.name).toBe('TRIAL');
+
+      // 2. Tenants service returns active trial info with full limits
+      mockPrisma.tenant.findUnique.mockResolvedValueOnce({
+        id: trialTenantId,
+        name: 'شبكة التجربة المجانية',
+        slug: 'trial-net',
+        deletedAt: null,
+        subscriptions: [activeTrialSub],
+      });
+      mockPrisma.card.count.mockResolvedValueOnce(150);
+
+      const tenantData = await tenantsService.getCurrentTenant(trialTenantId);
+      const subData = tenantData.subscription as any;
+      expect(subData.status).toBe(SubscriptionStatus.TRIAL);
+      expect(subData.plan).toBe('TRIAL');
+      expect(subData.planNameAr).toBe('الباقة التجريبية المجانية');
+      expect(subData.isUnlimited).toBe(true);
+      expect(subData.maxRouters).toBe(5);
+    });
+
+    it('should block access with SUBSCRIPTION_EXPIRED once 48 hours have elapsed', async () => {
+      const now = new Date();
+      const startsAt = new Date(now.getTime() - 49 * 60 * 60 * 1000); // Activated 49 hours ago
+      const expiresAt = new Date(startsAt.getTime() + 48 * 60 * 60 * 1000); // Expired 1 hour ago
+
+      const expiredTrialSub = {
+        id: 'sub-trial-expired',
+        tenantId: trialTenantId,
+        planId: mockTrialPlan.id,
+        status: SubscriptionStatus.TRIAL,
+        billingCycle: BillingCycle.MONTHLY,
+        startsAt,
+        expiresAt,
+        maxRouters: 5,
+        price: 0,
+        plan: mockTrialPlan,
+      };
+
+      // Active query returns null because expiresAt <= now
+      mockPrisma.tenant.findUnique.mockResolvedValueOnce({ status: TenantStatus.ACTIVE });
+      mockPrisma.subscription.findFirst
+        .mockResolvedValueOnce(null) // where status in [ACTIVE, TRIAL] and expiresAt > now
+        .mockResolvedValueOnce(expiredTrialSub); // fallback check for any subscription
+
+      await expect(
+        quotasService.resolveTenantSubscription(trialTenantId, now),
+      ).rejects.toThrow(ForbiddenException);
+
+      // Verify tenants service reports EXPIRED status
+      mockPrisma.tenant.findUnique.mockResolvedValueOnce({
+        id: trialTenantId,
+        name: 'شبكة التجربة المجانية',
+        slug: 'trial-net',
+        deletedAt: null,
+        subscriptions: [], // None active
+      });
+      mockPrisma.subscription.findFirst.mockResolvedValueOnce(expiredTrialSub);
+
+      const tenantData = await tenantsService.getCurrentTenant(trialTenantId);
+      const subData = tenantData.subscription as any;
+      expect(subData.status).toBe('EXPIRED');
+      expect(subData.maxCardsPerMonth).toBe(0);
+      expect(subData.remainingCards).toBe(0);
+    });
+
+    it('should allow user to upgrade to a paid plan after trial without losing any data', async () => {
+      mockPrisma.tenant.findUnique.mockResolvedValueOnce({
+        id: trialTenantId,
+        name: 'شبكة التجربة المجانية',
+        status: TenantStatus.ACTIVE,
+      });
+      mockPrisma.subscriptionPlan.findUnique.mockResolvedValueOnce(mockPlanPro);
+      mockPrisma.subscription.updateMany.mockResolvedValueOnce({ count: 1 }); // Cancels existing TRIAL sub
+      mockPrisma.subscription.create.mockResolvedValueOnce({
+        id: 'new-paid-sub-pro',
+        tenantId: trialTenantId,
+        planId: mockPlanPro.id,
+        status: SubscriptionStatus.ACTIVE,
+        maxRouters: 3,
+        price: 30.0,
+        plan: mockPlanPro,
+      });
+      mockPrisma.tenant.update.mockResolvedValueOnce({});
+      mockPrisma.auditLog.create.mockResolvedValueOnce({});
+
+      const newSub = await tenantsService.approveSubscription(
+        trialTenantId,
+        {
+          planName: 'PRO',
+          billingCycle: BillingCycle.MONTHLY,
+          notes: 'ترقية من الباقة التجريبية إلى باقة PRO المدفوعة',
+        },
+        superAdminId,
+      );
+
+      // Verify trial subscription was superseded and new paid subscription is ACTIVE
+      expect(mockPrisma.subscription.updateMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: trialTenantId,
+          status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
+        },
+        data: {
+          status: SubscriptionStatus.CANCELLED,
+        },
+      });
+      expect(newSub.status).toBe(SubscriptionStatus.ACTIVE);
+      expect((newSub as any).plan.name).toBe('PRO');
     });
   });
 });

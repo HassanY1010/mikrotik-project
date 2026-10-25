@@ -16,12 +16,16 @@ void main() {
 
     test('AppTheme defines correct Brightness and Brand colors for both themes', () {
       expect(AppTheme.darkTheme.brightness, Brightness.dark);
-      expect(AppTheme.darkTheme.colorScheme.primary, AppTheme.primary);
+      expect(AppTheme.darkTheme.colorScheme.primary, AppTheme.primaryLight);
       expect(AppTheme.darkTheme.scaffoldBackgroundColor, AppTheme.backgroundDark);
+      expect(AppTheme.darkTheme.textSelectionTheme.cursorColor, AppTheme.accent);
+      expect(AppTheme.darkTheme.textTheme.bodyMedium?.color, AppTheme.textDark);
 
       expect(AppTheme.lightTheme.brightness, Brightness.light);
       expect(AppTheme.lightTheme.colorScheme.primary, AppTheme.primary);
       expect(AppTheme.lightTheme.scaffoldBackgroundColor, AppTheme.backgroundLight);
+      expect(AppTheme.lightTheme.textSelectionTheme.cursorColor, AppTheme.primary);
+      expect(AppTheme.lightTheme.textTheme.bodyMedium?.color, AppTheme.textLight);
     });
 
     test('LocalStorage defaults to dark theme and correctly persists changes', () async {

@@ -78,6 +78,27 @@ export class CreateBatchDto {
   @IsOptional()
   pattern?: 'NUMERIC' | 'ALPHANUMERIC' | 'ALPHABETIC' | 'HEX';
 
+  @ApiPropertyOptional({
+    description: 'Length of separate password (if not single credential)',
+    example: 4,
+    default: 4,
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(4)
+  @Max(16)
+  @IsOptional()
+  passwordLength?: number;
+
+  @ApiPropertyOptional({
+    description: 'Password pattern type (if not single credential)',
+    enum: ['NUMERIC', 'ALPHANUMERIC', 'ALPHABETIC', 'HEX', 'NONE'],
+    default: 'NUMERIC',
+  })
+  @IsIn(['NUMERIC', 'ALPHANUMERIC', 'ALPHABETIC', 'HEX', 'NONE'])
+  @IsOptional()
+  passwordPattern?: 'NUMERIC' | 'ALPHANUMERIC' | 'ALPHABETIC' | 'HEX' | 'NONE';
+
   @ApiPropertyOptional({ description: 'Selling price per card in tenant currency', example: 500 })
   @Type(() => Number)
   @IsNumber()

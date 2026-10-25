@@ -15,7 +15,11 @@ import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
 import { DeviceStatus, RouterOsVersion, MikroTikDevice, Prisma } from '@prisma/client';
-import { RouterResource, RouterBackupItem } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
+import {
+  RouterResource,
+  RouterBackupItem,
+  ConnectedDeviceItem,
+} from '../../core/mikrotik/interfaces/mikrotik-client.interface';
 import { RoleName } from '@mikrotik-saas/shared-types';
 import type { RequestUser } from '../../core/decorators/current-user.decorator';
 
@@ -53,6 +57,7 @@ export interface DeviceResponse {
 export class DevicesService {
   private readonly logger = new Logger(DevicesService.name);
   private readonly activeDeviceCreationLocks = new Set<string>();
+  public static readonly activeDeviceOperations = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -140,6 +145,20 @@ export class DevicesService {
         });
 
         if (!subscription) {
+          const expiredSub = await tx.subscription.findFirst({
+            where: { tenantId: effectiveTenantId },
+            orderBy: { expiresAt: 'desc' },
+          });
+          if (
+            expiredSub &&
+            (expiredSub.status === 'EXPIRED' ||
+              new Date(expiredSub.expiresAt).getTime() <= Date.now())
+          ) {
+            throw new ForbiddenException({
+              code: 'SUBSCRIPTION_EXPIRED',
+              message: 'انتهت صلاحية اشتراك الشبكة. يرجى تجديد الباقة لإضافة أجهزة راوتر جديدة.',
+            });
+          }
           throw new ForbiddenException({
             code: 'SUBSCRIPTION_REQUIRED',
             message: 'يلزم وجود اشتراك نشط أو فترة تجريبية لإضافة راوترات جديدة.',
@@ -977,6 +996,18 @@ export class DevicesService {
     };
   }
 
+  /**
+   * Securely derives a deterministic, strong encryption password for router backups
+   * when no custom password is provided by the user.
+   * Derived from HMAC-SHA256(deviceId + tenantId) using the server's master encryption key.
+   */
+  public deriveDefaultBackupPassword(tenantId: string, deviceId: string): string {
+    return this.encryptionService.deriveDeterministicSecret(
+      `sudafi-router-backup:${tenantId}:${deviceId}`,
+      24,
+    );
+  }
+
   async createBackup(
     tenantId: string,
     id: string,
@@ -992,8 +1023,16 @@ export class DevicesService {
       creationTime?: string;
       deviceName: string;
       deviceHost: string;
+      isEncrypted: boolean;
     };
   }> {
+    if (DevicesService.activeDeviceOperations.has(id)) {
+      throw new ConflictException({
+        code: 'DEVICE_OPERATION_IN_PROGRESS',
+        message: 'توجد عملية جارية حالياً (برمجة أو نسخ أو استعادة) على هذا الراوتر. يرجى الانتظار حتى اكتمالها.',
+      });
+    }
+
     const device = await this.prisma.mikroTikDevice.findFirst({
       where: { id, tenantId, deletedAt: null },
     });
@@ -1004,6 +1043,8 @@ export class DevicesService {
         message: `لم يتم العثور على جهاز الراوتر المحدد (ID: ${id})`,
       });
     }
+
+    DevicesService.activeDeviceOperations.add(id);
 
     try {
       const client = await this.mikrotikClientFactory.getClient({
@@ -1024,8 +1065,15 @@ export class DevicesService {
         throw new Error('العميل البرمجي لـ MikroTik لا يدعم ميزة النسخ الاحتياطي التلقائي');
       }
 
-      const backupResult = await client.createBackup(backupName, password);
+      // Enforce strong encryption: use user password if provided, or secure derived password
+      const effectivePassword =
+        password && password.trim().length > 0
+          ? password.trim()
+          : this.deriveDefaultBackupPassword(tenantId, id);
 
+      const backupResult = await client.createBackup(backupName, effectivePassword);
+
+      // Audit log records that the backup is encrypted, but NEVER records the password!
       await this.prisma.auditLog.create({
         data: {
           tenantId,
@@ -1038,19 +1086,21 @@ export class DevicesService {
             size: backupResult.size,
             deviceName: device.name,
             deviceHost: device.host,
+            isEncrypted: true,
           },
         },
       });
 
       return {
         success: true,
-        message: `تم إنشاء النسخة الاحتياطية (${backupResult.filename}) بنجاح على جهاز الراوتر`,
+        message: `تم إنشاء النسخة الاحتياطية المشفرة (${backupResult.filename}) بنجاح على جهاز الراوتر`,
         backup: {
           filename: backupResult.filename,
           size: backupResult.size,
           creationTime: backupResult.creationTime,
           deviceName: device.name,
           deviceHost: device.host,
+          isEncrypted: true,
         },
       };
     } catch (err) {
@@ -1063,6 +1113,8 @@ export class DevicesService {
         message: `فشل إنشاء النسخة الاحتياطية للراوتر (${device.name} - ${device.host}). تأكد من اتصال الراوتر واستجابته.`,
         error: errMsg,
       });
+    } finally {
+      DevicesService.activeDeviceOperations.delete(id);
     }
   }
 
@@ -1114,18 +1166,22 @@ export class DevicesService {
     filename: string,
     userId?: string,
   ): Promise<{ buffer: Buffer; filename: string; size: number }> {
-    const safeFilename = path.basename(filename.trim());
+    const rawFilename = filename.trim();
     if (
-      !safeFilename.toLowerCase().endsWith('.backup') ||
-      !/^[a-zA-Z0-9_.-]+$/.test(safeFilename) ||
-      safeFilename.includes('..') ||
-      safeFilename.length > 100
+      rawFilename.includes('..') ||
+      rawFilename.includes('/') ||
+      rawFilename.includes('\\') ||
+      !rawFilename.toLowerCase().endsWith('.backup') ||
+      !/^[a-zA-Z0-9_.-]+$/.test(rawFilename) ||
+      rawFilename.length > 100
     ) {
       throw new BadRequestException({
         code: 'INVALID_FILENAME',
         message: 'اسم ملف النسخة الاحتياطية غير صالح أو يحتوي على مسارات غير مسموح بها',
       });
     }
+
+    const safeFilename = path.basename(rawFilename);
 
     const device = await this.prisma.mikroTikDevice.findFirst({
       where: { id, tenantId, deletedAt: null },
@@ -1225,6 +1281,536 @@ export class DevicesService {
         message: `تعذر تنزيل ملف النسخة الاحتياطية من الراوتر (${device.name}): ${errMsg}`,
       });
     }
+  }
+
+  async restoreBackup(
+    tenantId: string,
+    id: string,
+    filename: string,
+    password?: string,
+    confirmed?: boolean,
+    userId?: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    rebootTriggered: boolean;
+    restoredBackup: string;
+    deviceName: string;
+  }> {
+    if (!confirmed) {
+      throw new BadRequestException({
+        code: 'RESTORE_NOT_CONFIRMED',
+        message: 'يلزم التأكيد الصريح بأن استعادة النسخة الاحتياطية ستستبدل الإعدادات وتعيد تشغيل الراوتر فوراً.',
+      });
+    }
+
+    const rawFilename = filename.trim();
+    if (
+      rawFilename.includes('..') ||
+      rawFilename.includes('/') ||
+      rawFilename.includes('\\') ||
+      !rawFilename.toLowerCase().endsWith('.backup') ||
+      !/^[a-zA-Z0-9_.-]+$/.test(rawFilename)
+    ) {
+      throw new BadRequestException({
+        code: 'INVALID_FILENAME',
+        message: 'اسم ملف النسخة الاحتياطية غير صالح.',
+      });
+    }
+
+    const safeFilename = path.basename(rawFilename);
+
+    if (DevicesService.activeDeviceOperations.has(id)) {
+      throw new ConflictException({
+        code: 'DEVICE_OPERATION_IN_PROGRESS',
+        message: 'توجد عملية جارية حالياً (برمجة أو نسخ أو استعادة) على هذا الراوتر. يرجى الانتظار حتى اكتمالها.',
+      });
+    }
+
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `لم يتم العثور على جهاز الراوتر المحدد (ID: ${id})`,
+      });
+    }
+
+    DevicesService.activeDeviceOperations.add(id);
+
+    try {
+      const client: any = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+
+      if (typeof client.restoreBackup !== 'function') {
+        throw new BadGatewayException({
+          code: 'RESTORE_NOT_SUPPORTED',
+          message: 'عميل الاتصال الحالي لا يدعم تنفيذ الاستعادة الآلية عن بُعد.',
+        });
+      }
+
+      const effectivePassword =
+        password && password.trim().length > 0
+          ? password.trim()
+          : this.deriveDefaultBackupPassword(tenantId, id);
+
+      const res = await client.restoreBackup(safeFilename, effectivePassword);
+
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: userId ?? null,
+          action: 'ROUTER_BACKUP_RESTORED',
+          entity: 'mikrotik_device',
+          entityId: id,
+          newValues: {
+            filename: safeFilename,
+            deviceName: device.name,
+            deviceHost: device.host,
+            rebootTriggered: res.rebootTriggered,
+          },
+        },
+      });
+
+      // Mark device temporarily offline as it reboots
+      await this.prisma.mikroTikDevice.update({
+        where: { id: device.id },
+        data: { isOnline: false, lastSyncAt: new Date() },
+      });
+
+      return {
+        success: true,
+        message: res.message,
+        rebootTriggered: res.rebootTriggered,
+        restoredBackup: safeFilename,
+        deviceName: device.name,
+      };
+    } catch (err: any) {
+      if (
+        err instanceof BadRequestException ||
+        err instanceof NotFoundException ||
+        err instanceof ConflictException ||
+        err instanceof BadGatewayException
+      ) {
+        throw err;
+      }
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed to restore backup ${safeFilename} on router ${device.name}: ${errMsg}`);
+      throw new BadGatewayException({
+        code: 'ROUTER_BACKUP_RESTORE_FAILED',
+        message: `تعذر إتمام استعادة النسخة الاحتياطية على الراوتر (${device.name}): ${errMsg}`,
+      });
+    } finally {
+      DevicesService.activeDeviceOperations.delete(id);
+    }
+  }
+
+  private normalizeMac(mac?: string): string {
+    if (!mac) return '';
+    return mac.toUpperCase().replace(/[^0-9A-F]/g, '');
+  }
+
+  private formatMac(mac?: string): string {
+    if (!mac) return '';
+    const clean = this.normalizeMac(mac);
+    if (clean.length === 12) {
+      return clean.match(/.{1,2}/g)?.join(':') ?? mac.toUpperCase();
+    }
+    return mac.toUpperCase();
+  }
+
+  private isRecentlySeen(lastSeen?: string, maxMinutes = 5): boolean {
+    if (!lastSeen) return false;
+    const clean = lastSeen.trim().toLowerCase();
+    if (clean.includes('d') || clean.includes('w')) return false;
+    let totalMinutes = 0;
+    const hourMatch = clean.match(/(\d+)\s*h/);
+    if (hourMatch) totalMinutes += parseInt(hourMatch[1], 10) * 60;
+    const minMatch = clean.match(/(\d+)\s*m(?!s)/);
+    if (minMatch) totalMinutes += parseInt(minMatch[1], 10);
+    const secMatch = clean.match(/(\d+)\s*s/);
+    if (secMatch && totalMinutes === 0) return true;
+    return totalMinutes <= maxMinutes;
+  }
+
+  private classifyDeviceType(
+    name: string,
+    hostName?: string,
+    identity?: string,
+    platform?: string,
+    board?: string,
+  ): { type: 'ACCESS_POINT' | 'PHONE' | 'COMPUTER' | 'ROUTER' | 'UNKNOWN'; vendor?: string } {
+    const rawTokens = [name, hostName, identity, platform, board]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    // 1. Explicit exclusions from Access Point / Broadcasting equipment:
+    // e.g. PlayStation, WorkStation, Smart TV, Printing station
+    const isGamingConsole = /\b(playstation|ps[345]|xbox|nintendo|switch)\b/i.test(rawTokens);
+    if (isGamingConsole) {
+      return { type: 'UNKNOWN', vendor: rawTokens.includes('playstation') ? 'Sony' : undefined };
+    }
+
+    // 2. Ubiquiti outdoor antennas and APs
+    if (
+      /\b(ubnt|ubiquiti|unifi|nanostation|nanobeam|powerbeam|litebeam|airmax|airgrid|rocket|bullet|isostation|loco\s*m[25]|locom[25]|ns-m[25]|nsm[25])\b/i.test(
+        rawTokens,
+      )
+    ) {
+      return { type: 'ACCESS_POINT', vendor: 'Ubiquiti' };
+    }
+
+    // 3. MikroTik wireless AP / Sector / CPE boards
+    if (
+      /\b(sxt|lhg|omnitik|groove|netbox|netmetal|basebox|metal\s*52|wap\s*ac|wap\s*lte|cap\s*ac|cap\s*xl|qrt|dynadish|cube\s*60)\b/i.test(
+        rawTokens,
+      ) ||
+      (rawTokens.includes('mikrotik') && /\b(wireless|antenna|sector)\b/i.test(rawTokens))
+    ) {
+      return { type: 'ACCESS_POINT', vendor: 'MikroTik' };
+    }
+
+    // 4. Dedicated wireless Outdoor APs / Antennas (TP-Link CPE, Cambium, Mimosa)
+    if (/\b(cpe210|cpe220|cpe510|cpe610|cpe710|eap\d{3}|omada)\b/i.test(rawTokens)) {
+      return { type: 'ACCESS_POINT', vendor: 'TP-Link' };
+    }
+    if (/\b(cambium|epmp|force\s*180|force\s*200|force\s*300)\b/i.test(rawTokens)) {
+      return { type: 'ACCESS_POINT', vendor: 'Cambium' };
+    }
+    if (/\b(mimosa|b5|b11|b24|c5|c5c|c5x)\b/i.test(rawTokens)) {
+      return { type: 'ACCESS_POINT', vendor: 'Mimosa' };
+    }
+
+    // 5. Generic explicit Access Point identifiers (excluding workstations)
+    if (
+      /\b(access\s*point|outdoor\s*ap|wifi\s*ap|repeater|extender|base\s*station)\b/i.test(rawTokens) &&
+      !/\b(workstation|playstation)\b/i.test(rawTokens)
+    ) {
+      return { type: 'ACCESS_POINT' };
+    }
+
+    // 6. Router (MikroTik RouterOS/RouterBOARD or EdgeRouter)
+    if (/\b(mikrotik|routeros|routerboard|rb\d{3,4}|ccr\d{4}|crs\d{3}|hex|edgerouter)\b/i.test(rawTokens)) {
+      return { type: 'ROUTER', vendor: rawTokens.includes('edgerouter') ? 'Ubiquiti' : 'MikroTik' };
+    }
+
+    // 7. Phone / Tablet
+    if (
+      /\b(iphone|ipad|android|galaxy|samsung|huawei|honor|xiaomi|redmi|poco|oppo|vivo|realme|pixel|oneplus|tecno|infinix|itel|nokia|xperia|motorola)\b/i.test(
+        rawTokens,
+      )
+    ) {
+      let vendor: string | undefined;
+      if (/\b(iphone|ipad)\b/i.test(rawTokens)) vendor = 'Apple';
+      else if (/\b(galaxy|samsung)\b/i.test(rawTokens)) vendor = 'Samsung';
+      else if (/\b(huawei)\b/i.test(rawTokens)) vendor = 'Huawei';
+      else if (/\b(honor)\b/i.test(rawTokens)) vendor = 'Honor';
+      else if (/\b(xiaomi|redmi|poco)\b/i.test(rawTokens)) vendor = 'Xiaomi';
+      else if (/\b(oppo)\b/i.test(rawTokens)) vendor = 'Oppo';
+      else if (/\b(vivo)\b/i.test(rawTokens)) vendor = 'Vivo';
+      else if (/\b(realme)\b/i.test(rawTokens)) vendor = 'Realme';
+      else if (/\b(pixel)\b/i.test(rawTokens)) vendor = 'Google';
+      else if (/\b(oneplus)\b/i.test(rawTokens)) vendor = 'OnePlus';
+      else if (/\b(tecno)\b/i.test(rawTokens)) vendor = 'Tecno';
+      else if (/\b(infinix)\b/i.test(rawTokens)) vendor = 'Infinix';
+      return { type: 'PHONE', vendor };
+    }
+
+    // 8. Computer / Laptop
+    if (
+      /\b(desktop|laptop|notebook|macbook|windows|linux|thinkpad|ideapad|latitude|optiplex|probook|elitebook|surface)\b/i.test(
+        rawTokens,
+      ) ||
+      /\b(dell|lenovo|asus|acer|msi)\b/i.test(rawTokens)
+    ) {
+      let vendor: string | undefined;
+      if (/\b(macbook)\b/i.test(rawTokens)) vendor = 'Apple';
+      else if (/\b(dell|latitude|optiplex)\b/i.test(rawTokens)) vendor = 'Dell';
+      else if (/\b(hp|probook|elitebook)\b/i.test(rawTokens)) vendor = 'HP';
+      else if (/\b(lenovo|thinkpad|ideapad)\b/i.test(rawTokens)) vendor = 'Lenovo';
+      else if (/\b(asus)\b/i.test(rawTokens)) vendor = 'Asus';
+      else if (/\b(acer)\b/i.test(rawTokens)) vendor = 'Acer';
+      return { type: 'COMPUTER', vendor };
+    }
+
+    return { type: 'UNKNOWN' };
+  }
+
+  async getConnectedDevices(
+    tenantId: string | undefined | null,
+    id: string,
+    currentUser?: RequestUser,
+  ): Promise<ConnectedDeviceItem[]> {
+    const device = await this.assertUserDeviceAccess(tenantId, id, currentUser);
+
+    let client;
+    try {
+      client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to connect to router ${device.name} (${id}) for connected devices: ${errMsg}`);
+      throw new BadGatewayException({
+        code: 'ROUTER_CONNECTION_FAILED',
+        message: `تعذر الاتصال بالراوتر (${device.name}): يرجى التأكد من تشغيل الراوتر واتصاله بالشبكة`,
+      });
+    }
+
+    // Query DHCP Leases, ARP Table, and Neighbors concurrently
+    const [leasesRes, arpRes, neighborsRes] = await Promise.allSettled([
+      client.listDhcpLeases ? client.listDhcpLeases() : Promise.resolve([]),
+      client.listArpTable ? client.listArpTable() : Promise.resolve([]),
+      client.listNeighbors ? client.listNeighbors() : Promise.resolve([]),
+    ]);
+
+    const leases = leasesRes.status === 'fulfilled' ? leasesRes.value : [];
+    const arpItems = arpRes.status === 'fulfilled' ? arpRes.value : [];
+    const neighbors = neighborsRes.status === 'fulfilled' ? neighborsRes.value : [];
+
+    if (leasesRes.status === 'rejected') {
+      this.logger.warn(`Could not fetch DHCP leases for router ${device.name}: ${leasesRes.reason}`);
+    }
+    if (arpRes.status === 'rejected') {
+      this.logger.warn(`Could not fetch ARP table for router ${device.name}: ${arpRes.reason}`);
+    }
+    if (neighborsRes.status === 'rejected') {
+      this.logger.warn(`Could not fetch neighbors for router ${device.name}: ${neighborsRes.reason}`);
+    }
+
+    if (
+      leasesRes.status === 'rejected' &&
+      arpRes.status === 'rejected' &&
+      neighborsRes.status === 'rejected'
+    ) {
+      throw new BadGatewayException({
+        code: 'ROUTER_QUERY_FAILED',
+        message: `تعذر جلب الأجهزة المتصلة من الراوتر (${device.name}): فشل الاستعلام من RouterOS`,
+      });
+    }
+
+    // Gather records into unified map by normalized MAC or IP fallback
+    const unifiedMap = new Map<
+      string,
+      {
+        key: string;
+        mac: string;
+        neighbor?: (typeof neighbors)[0];
+        lease?: (typeof leases)[0];
+        arp?: (typeof arpItems)[0];
+        sources: Array<'DHCP' | 'ARP' | 'NEIGHBOR'>;
+      }
+    >();
+
+    const getOrInit = (mac: string, ip: string, fallbackPrefix: string, fallbackId?: string) => {
+      const normMac = this.normalizeMac(mac);
+      const key = normMac || (ip ? `ip_${ip}` : `${fallbackPrefix}_${fallbackId ?? Math.random()}`);
+      let entry = unifiedMap.get(key);
+      if (!entry) {
+        entry = {
+          key,
+          mac: this.formatMac(mac),
+          sources: [],
+        };
+        unifiedMap.set(key, entry);
+      }
+      return entry;
+    };
+
+    // 1. Ingest Neighbors
+    for (const nb of neighbors) {
+      const mac = nb.macAddress ?? '';
+      const ip = nb.address ?? '';
+      const entry = getOrInit(mac, ip, 'nb', nb.id);
+      entry.neighbor = nb;
+      if (!entry.sources.includes('NEIGHBOR')) entry.sources.push('NEIGHBOR');
+    }
+
+    // 2. Ingest DHCP Leases
+    for (const lease of leases) {
+      const mac = lease.activeMacAddress || lease.macAddress || '';
+      const ip = lease.activeAddress || lease.address || '';
+      const entry = getOrInit(mac, ip, 'lease', lease.id);
+      entry.lease = lease;
+      if (!entry.sources.includes('DHCP')) entry.sources.push('DHCP');
+    }
+
+    // 3. Ingest ARP Table
+    for (const arp of arpItems) {
+      const mac = arp.macAddress ?? '';
+      const ip = arp.address ?? '';
+      const entry = getOrInit(mac, ip, 'arp', arp.id);
+      entry.arp = arp;
+      if (!entry.sources.includes('ARP')) entry.sources.push('ARP');
+    }
+
+    // Process each unified device and resolve identity, connection certainty, and classification
+    const result: ConnectedDeviceItem[] = [];
+
+    for (const item of unifiedMap.values()) {
+      const mac = item.mac;
+      const nb = item.neighbor;
+      const lease = item.lease;
+      const arp = item.arp;
+
+      // 1. IP Address resolution: Prefer active ARP address, then DHCP active-address, then Neighbor
+      const ipAddress =
+        arp?.address ||
+        lease?.activeAddress ||
+        lease?.address ||
+        nb?.address ||
+        '';
+
+      // 2. Physical / Network Interface
+      const iface = arp?.interface || nb?.interface || lease?.server;
+
+      // 3. Name & Hostname resolution
+      const nbIdentity = nb?.identity?.trim();
+      const leaseHostName = lease?.hostName?.trim();
+      const leaseComment = lease?.comment?.trim();
+      const arpComment = arp?.comment?.trim();
+      const nbBoard = nb?.board?.trim();
+
+      let name = '';
+      if (nbIdentity && !nbIdentity.startsWith('MikroTik') && !nbIdentity.startsWith('RouterOS')) {
+        name = nbIdentity;
+      } else if (leaseHostName) {
+        name = leaseHostName;
+      } else if (leaseComment) {
+        name = leaseComment;
+      } else if (arpComment) {
+        name = arpComment;
+      } else if (nbBoard) {
+        name = nbBoard;
+      } else if (nbIdentity) {
+        name = nbIdentity;
+      } else {
+        name = mac ? `جهاز (${mac})` : `جهاز (${ipAddress})`;
+      }
+
+      // 4. Device Classification
+      const classification = this.classifyDeviceType(
+        name,
+        leaseHostName,
+        nbIdentity,
+        nb?.platform,
+        nb?.board,
+      );
+
+      let deviceType: 'ACCESS_POINT' | 'PHONE' | 'COMPUTER' | 'ROUTER' | 'UNKNOWN' = classification.type;
+      let vendor = classification.vendor || nb?.platform || nb?.board;
+
+      // If neighbor exists with wireless hardware board, ensure ACCESS_POINT
+      if (deviceType === 'UNKNOWN' && nb) {
+        const nbTokens = `${nb.board ?? ''} ${nb.platform ?? ''} ${nb.identity ?? ''}`.toLowerCase();
+        if (
+          /\b(sxt|lhg|omnitik|cpe|nanostation|litebeam|powerbeam|airmax|bullet|groove|wap|cap)\b/i.test(
+            nbTokens,
+          )
+        ) {
+          deviceType = 'ACCESS_POINT';
+        } else if (/\b(routerboard|routeros|ccr|crs|hex|rb)\b/i.test(nbTokens)) {
+          deviceType = 'ROUTER';
+          if (!vendor) vendor = 'MikroTik';
+        }
+      }
+
+      // 5. Connection Certainty Evaluation
+      const isArpActive = Boolean(arp && arp.complete !== false && !arp.disabled);
+      const isNeighborRecent = Boolean(
+        nb && (!nb.age || this.isRecentlySeen(nb.age, 5)),
+      );
+      const isLeaseRecent = Boolean(
+        lease && this.isRecentlySeen(lease.lastSeen, 5),
+      );
+      const isDhcpBound = Boolean(
+        lease &&
+          (lease.status?.toLowerCase() === 'bound' || lease.activeAddress) &&
+          !lease.disabled,
+      );
+
+      let connectionCertainty: 'CONFIRMED_ONLINE' | 'LEASE_ACTIVE' | 'OFFLINE';
+
+      if (isArpActive || isNeighborRecent || isLeaseRecent) {
+        // High confidence: active Layer-2 packets confirmed in ARP or MNDP or recent DHCP packet
+        connectionCertainty = 'CONFIRMED_ONLINE';
+      } else if (isDhcpBound) {
+        // Medium confidence: DHCP lease is currently granted, but no active ARP traffic confirmed
+        connectionCertainty = 'LEASE_ACTIVE';
+      } else {
+        // Static lease waiting, incomplete ARP, or disabled
+        connectionCertainty = 'OFFLINE';
+      }
+
+      const isOnline = connectionCertainty === 'CONFIRMED_ONLINE';
+      const status =
+        connectionCertainty === 'CONFIRMED_ONLINE'
+          ? 'active'
+          : connectionCertainty === 'LEASE_ACTIVE'
+            ? 'leased'
+            : 'offline';
+
+      // Primary source indicator
+      const primarySource: 'DHCP' | 'ARP' | 'NEIGHBOR' = isArpActive
+        ? 'ARP'
+        : nb
+          ? 'NEIGHBOR'
+          : 'DHCP';
+
+      result.push({
+        id: item.key,
+        name,
+        ipAddress,
+        macAddress: mac,
+        interface: iface,
+        status,
+        isOnline,
+        connectionCertainty,
+        deviceType,
+        hostName: leaseHostName || nbIdentity,
+        vendor,
+        uptime: nb?.uptime,
+        expiresAfter: lease?.expiresAfter,
+        lastSeen: lease?.lastSeen,
+        age: nb?.age,
+        source: primarySource,
+        sources: item.sources,
+      });
+    }
+
+    // Sort: Confirmed Online first, then Leased, then Offline, then Access Points first, then alphabetical
+    return result.sort((a, b) => {
+      const order = { CONFIRMED_ONLINE: 0, LEASE_ACTIVE: 1, OFFLINE: 2 };
+      const diff = order[a.connectionCertainty] - order[b.connectionCertainty];
+      if (diff !== 0) return diff;
+      if (a.deviceType === 'ACCESS_POINT' && b.deviceType !== 'ACCESS_POINT') return -1;
+      if (b.deviceType === 'ACCESS_POINT' && a.deviceType !== 'ACCESS_POINT') return 1;
+      return a.name.localeCompare(b.name, 'ar');
+    });
   }
 }
 

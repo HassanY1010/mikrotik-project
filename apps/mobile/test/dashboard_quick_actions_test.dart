@@ -14,6 +14,10 @@ void main() {
         ApiEndpoints.deviceBackupDownload(deviceId, filename),
         '/devices/$deviceId/backups/$filename/download',
       );
+      expect(
+        ApiEndpoints.deviceBackupRestore(deviceId),
+        '/devices/$deviceId/backups/restore',
+      );
     });
 
     test('HotspotPortalDesignerScreen can be instantiated cleanly without exceptions', () {

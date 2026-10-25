@@ -15,6 +15,9 @@ import type {
   RouterIpAddressItem,
   RouterDhcpClientItem,
   RouterDhcpServerItem,
+  RouterDhcpLeaseItem,
+  RouterArpItem,
+  RouterNeighborItem,
   RouterNatRuleItem,
   RouterRouteItem,
   RouterHotspotServerItem,
@@ -228,20 +231,37 @@ export class RouterOsApiClient implements IMikrotikClient {
     }
   }
 
-  private async executeCommand(words: string[]): Promise<CommandResponse[]> {
+  private async executeCommand(words: (string | Buffer)[], timeoutMs?: number): Promise<CommandResponse[]> {
     if (!this.socket) {
       throw new Error('Socket not initialized');
     }
 
+    const effectiveTimeout = timeoutMs ?? this.config.timeoutMs ?? 15000;
+
     return new Promise<CommandResponse[]>((resolve, reject) => {
-      this.pendingResolver = resolve;
-      this.pendingRejecter = reject;
+      const timer = setTimeout(() => {
+        if (this.pendingRejecter === reject) {
+          this.pendingResolver = null;
+          this.pendingRejecter = null;
+          reject(new Error(`RouterOS command timed out after ${effectiveTimeout}ms`));
+        }
+      }, effectiveTimeout);
+
+      this.pendingResolver = (res) => {
+        clearTimeout(timer);
+        resolve(res);
+      };
+      this.pendingRejecter = (err) => {
+        clearTimeout(timer);
+        reject(err);
+      };
       this.currentResponses = [];
 
       const encoded = RouterOsSocketProtocol.encodeSentence(words);
       this.socket!.write(encoded);
     });
   }
+
 
   // ===========================================================================
   // IMikrotikClient Implementation
@@ -360,6 +380,9 @@ export class RouterOsApiClient implements IMikrotikClient {
           : undefined,
         comment: r.attributes['comment'],
         disabled: r.attributes['disabled'] === 'true',
+        uptime: r.attributes['uptime'],
+        bytesIn: r.attributes['bytes-in'] ? parseInt(r.attributes['bytes-in'], 10) : 0,
+        bytesOut: r.attributes['bytes-out'] ? parseInt(r.attributes['bytes-out'], 10) : 0,
       }));
   }
 
@@ -372,6 +395,7 @@ export class RouterOsApiClient implements IMikrotikClient {
     if (user.limitBytesTotal !== undefined)
       words.push(`=limit-bytes-total=${user.limitBytesTotal}`);
     if (user.comment) words.push(`=comment=${user.comment}`);
+    if (user.disabled !== undefined) words.push(`=disabled=${user.disabled ? 'yes' : 'no'}`);
 
     const res = await this.executeCommand(words);
     const done = res.find((r) => r.type === '!done');
@@ -436,6 +460,13 @@ export class RouterOsApiClient implements IMikrotikClient {
         bytesIn: parseInt(r.attributes['bytes-in'] ?? '0', 10),
         bytesOut: parseInt(r.attributes['bytes-out'] ?? '0', 10),
         sessionId: r.attributes['session-id'],
+        server: r.attributes['server'],
+        loginBy: r.attributes['login-by'],
+        sessionTimeLeft: r.attributes['session-time-left'],
+        idleTime: r.attributes['idle-time'],
+        limitBytesTotal: r.attributes['limit-bytes-total']
+          ? parseInt(r.attributes['limit-bytes-total'], 10)
+          : undefined,
       }));
   }
 
@@ -476,7 +507,7 @@ export class RouterOsApiClient implements IMikrotikClient {
       } else {
         await this.executeCommand([
           '/ip/firewall/mangle/add',
-          '=chain=prerouting',
+          '=chain=postrouting',
           '=action=change-ttl',
           '=new-ttl=set:1',
           '=comment=SudaFi_Anti_Tethering_TTL',
@@ -537,24 +568,14 @@ export class RouterOsApiClient implements IMikrotikClient {
       .replace(/\.backup$/i, '')
       .replace(/[^a-zA-Z0-9_-]/g, '_');
 
-    let words: string[];
-    if (password && password.trim().length > 0) {
-      words = ['/system/backup/save', `=name=${safeName}`, `=password=${password.trim()}`];
-    } else {
-      words = ['/system/backup/save', `=name=${safeName}`, '=dont-encrypt=yes'];
+    if (!password || password.trim().length === 0) {
+      throw new Error(
+        'النسخ الاحتياطي غير المشفر غير مسموح به. يجب توفير كلمة مرور لتشفير النسخة الاحتياطية (AES) وحمايتها.',
+      );
     }
 
-    try {
-      await this.executeCommand(words);
-    } catch (saveErr) {
-      const errMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
-      // Fallback for older ROS 6 versions where dont-encrypt is not recognized
-      if (!password && errMsg.toLowerCase().includes('dont-encrypt')) {
-        await this.executeCommand(['/system/backup/save', `=name=${safeName}`]);
-      } else {
-        throw saveErr;
-      }
-    }
+    const words = ['/system/backup/save', `=name=${safeName}`, `=password=${password.trim()}`];
+    await this.executeCommand(words);
 
     const expectedFilename = `${safeName}.backup`;
     let fileRecord: CommandResponse | undefined;
@@ -699,6 +720,100 @@ export class RouterOsApiClient implements IMikrotikClient {
     }
   }
 
+  async restoreBackup(
+    filename: string,
+    password?: string,
+  ): Promise<{ success: boolean; message: string; rebootTriggered: boolean; targetFileName?: string }> {
+    await this.connect();
+    const safeFilename = filename
+      .replace(/[^a-zA-Z0-9_.\-\/]/g, '')
+      .replace(/\.{2,}/g, '')
+      .replace(/^\/+/, '');
+
+    // 1. Verify file exists on router
+    const files = await this.executeCommand(['/file/print']);
+    const target = files
+      .filter((r) => r.type === '!re')
+      .find(
+        (r) =>
+          r.attributes['name'] === safeFilename ||
+          r.attributes['name'] === safeFilename.replace(/\.backup$/i, '') ||
+          r.attributes['name'] === `flash/${safeFilename}` ||
+          r.attributes['name'] === `flash/${safeFilename.replace(/\.backup$/i, '')}`,
+      );
+
+    if (!target) {
+      throw new Error(`ملف النسخة الاحتياطية (${safeFilename}) غير موجود على ذاكرة الراوتر.`);
+    }
+
+    const matchedFullName = target.attributes['name'] ?? safeFilename;
+    // In RouterOS 6, backup load strictly requires the name without .backup (it automatically appends .backup)
+    // In RouterOS 7, it accepts both, but stripping .backup is universally compatible.
+    const nameWithoutExt = matchedFullName.replace(/\.backup$/i, '');
+    const candidateNames = [nameWithoutExt, matchedFullName];
+
+    let lastError: Error | null = null;
+    let commandDispatched = false;
+
+    for (const loadName of candidateNames) {
+      const words = ['/system/backup/load', `=name=${loadName}`];
+      if (password && password.trim().length > 0) {
+        words.push(`=password=${password.trim()}`);
+      }
+
+      try {
+        await this.executeCommand(words);
+        commandDispatched = true;
+        break;
+      } catch (loadErr) {
+        const errMsg = loadErr instanceof Error ? loadErr.message : String(loadErr);
+        // Explicit RouterOS traps (e.g. wrong password, action failed, corrupt file) MUST NOT be treated as reboots
+        const isTrapError =
+          errMsg.toLowerCase().includes('trap') ||
+          errMsg.toLowerCase().includes('wrong password') ||
+          errMsg.toLowerCase().includes('corrupted') ||
+          errMsg.toLowerCase().includes('invalid password');
+
+        if (isTrapError) {
+          throw new Error(`فشل تنفيذ الاستعادة من الراوتر: ${errMsg}`);
+        }
+
+        // If it's a file not found trap on the first candidate, try the second candidate
+        if (errMsg.toLowerCase().includes('file not found') || errMsg.toLowerCase().includes('no such file')) {
+          lastError = loadErr instanceof Error ? loadErr : new Error(errMsg);
+          continue;
+        }
+
+        // Check if connection was severed after the command was received by the router (reboot signal)
+        const isSocketDrop =
+          errMsg.toLowerCase().includes('closed') ||
+          errMsg.toLowerCase().includes('reset') ||
+          errMsg.toLowerCase().includes('end of stream') ||
+          errMsg.toLowerCase().includes('socket') ||
+          errMsg.toLowerCase().includes('econnreset') ||
+          errMsg.toLowerCase().includes('timeout');
+
+        if (isSocketDrop) {
+          commandDispatched = true;
+          break;
+        }
+
+        throw loadErr;
+      }
+    }
+
+    if (!commandDispatched) {
+      throw lastError || new Error(`تعذر تحميل النسخة الاحتياطية (${safeFilename}) على الراوتر`);
+    }
+
+    return {
+      success: true,
+      message: `تم إرسال أمر استعادة النسخة الاحتياطية (${safeFilename}) وبدأت إعادة تشغيل الراوتر. لا تكتمل الاستعادة إلا بعد عودة الراوتر للعمل ومطابقة إعداداته.`,
+      rebootTriggered: true,
+      targetFileName: matchedFullName,
+    };
+  }
+
   async listInterfaces(): Promise<RouterInterfaceItem[]> {
     await this.connect();
     const responses = await this.executeCommand(['/interface/print']);
@@ -738,6 +853,7 @@ export class RouterOsApiClient implements IMikrotikClient {
         id: r.attributes['.id'],
         bridge: r.attributes['bridge'] ?? '',
         interface: r.attributes['interface'] ?? '',
+        horizon: r.attributes['horizon'] ? parseInt(r.attributes['horizon'], 10) : undefined,
         disabled: r.attributes['disabled'] === 'true',
       }));
   }
@@ -789,6 +905,64 @@ export class RouterOsApiClient implements IMikrotikClient {
       }));
   }
 
+  async listDhcpLeases(): Promise<RouterDhcpLeaseItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/dhcp-server/lease/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        address: r.attributes['active-address'] || r.attributes['address'] || '',
+        macAddress: r.attributes['active-mac-address'] || r.attributes['mac-address'] || '',
+        hostName: r.attributes['host-name'],
+        server: r.attributes['server'],
+        status: r.attributes['status'],
+        expiresAfter: r.attributes['expires-after'],
+        lastSeen: r.attributes['last-seen'],
+        activeAddress: r.attributes['active-address'],
+        activeMacAddress: r.attributes['active-mac-address'],
+        comment: r.attributes['comment'],
+        disabled: r.attributes['disabled'] === 'true',
+        dynamic: r.attributes['dynamic'] === 'true',
+      }));
+  }
+
+  async listArpTable(): Promise<RouterArpItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/arp/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        address: r.attributes['address'] ?? '',
+        macAddress: r.attributes['mac-address'] ?? '',
+        interface: r.attributes['interface'],
+        complete: r.attributes['complete'] === 'true',
+        disabled: r.attributes['disabled'] === 'true',
+        dynamic: r.attributes['dynamic'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listNeighbors(): Promise<RouterNeighborItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/neighbor/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        interface: r.attributes['interface'],
+        address: r.attributes['address4'] || r.attributes['address'],
+        macAddress: r.attributes['mac-address'],
+        identity: r.attributes['identity'],
+        platform: r.attributes['platform'],
+        version: r.attributes['version'],
+        board: r.attributes['board'],
+        uptime: r.attributes['uptime'],
+        age: r.attributes['age'],
+      }));
+  }
+
   async listNatRules(): Promise<RouterNatRuleItem[]> {
     await this.connect();
     const responses = await this.executeCommand(['/ip/firewall/nat/print']);
@@ -801,6 +975,34 @@ export class RouterOsApiClient implements IMikrotikClient {
         outInterface: r.attributes['out-interface'],
         disabled: r.attributes['disabled'] === 'true',
         comment: r.attributes['comment'],
+      }));
+  }
+
+  async listMangleRules(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/firewall/mangle/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        chain: r.attributes['chain'] ?? '',
+        action: r.attributes['action'] ?? '',
+        comment: r.attributes['comment'],
+        disabled: r.attributes['disabled'] === 'true',
+      }));
+  }
+
+  async listFilterRules(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/firewall/filter/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        chain: r.attributes['chain'] ?? '',
+        action: r.attributes['action'] ?? '',
+        comment: r.attributes['comment'],
+        disabled: r.attributes['disabled'] === 'true',
       }));
   }
 

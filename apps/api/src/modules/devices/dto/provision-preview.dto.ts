@@ -136,6 +136,38 @@ export class HotspotServerConfigDto {
   defaultSessionTimeout?: string;
 }
 
+export class SecurityPoliciesConfigDto {
+  @ApiPropertyOptional({ description: 'TTL Lock (new-ttl=1 on client downstream) to mitigate tethering', default: true })
+  @IsBoolean()
+  @IsOptional()
+  antiTethering?: boolean;
+
+  @ApiPropertyOptional({ description: 'Bridge port horizon isolation (L2 client isolation)', default: true })
+  @IsBoolean()
+  @IsOptional()
+  clientIsolation?: boolean;
+
+  @ApiPropertyOptional({ description: 'Drop management ports (22, 23, 8291, 8728, 8729) on Hotspot interface', default: true })
+  @IsBoolean()
+  @IsOptional()
+  protectManagementAccess?: boolean;
+
+  @ApiPropertyOptional({ description: 'Force subscriber DNS queries to router DNS cache (UDP/TCP 53 redirect)', default: true })
+  @IsBoolean()
+  @IsOptional()
+  forceRouterDns?: boolean;
+
+  @ApiPropertyOptional({ description: 'Enforce single device per voucher (shared-users=1)', default: true })
+  @IsBoolean()
+  @IsOptional()
+  enforceSingleDevice?: boolean;
+
+  @ApiPropertyOptional({ description: 'Block unauthenticated forward bypass traffic', default: true })
+  @IsBoolean()
+  @IsOptional()
+  blockUnauthenticatedBypass?: boolean;
+}
+
 export class ProvisionPreviewDto {
   @ApiProperty({
     description: 'Provisioning template selection',
@@ -160,4 +192,11 @@ export class ProvisionPreviewDto {
   @Type(() => HotspotServerConfigDto)
   @IsOptional()
   hotspot?: HotspotServerConfigDto;
+
+  @ApiPropertyOptional({ description: 'Security and anti-sharing policies configuration' })
+  @ValidateNested()
+  @Type(() => SecurityPoliciesConfigDto)
+  @IsOptional()
+  securityPolicies?: SecurityPoliciesConfigDto;
 }
+

@@ -3,9 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/models/router_provisioning_models.dart';
 import '../../../core/providers.dart';
+import '../../../core/services/mikrotik_discovery_service.dart';
 import '../../../core/services/router_provisioning_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/whatsapp_helper.dart';
+import '../../studio/presentation/card_studio_screen.dart';
+import '../../inventory/presentation/cards_store_screen.dart';
+import '../../pppoe/presentation/pppoe_management_screen.dart';
 
 class RouterSetupScreen extends ConsumerStatefulWidget {
   final RouterDeviceModel? router;
@@ -34,6 +38,16 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   bool _obscurePassword = true;
   String? _selectedDeviceId;
 
+  // Step 1: Mode Selection & Network Discovery
+  // 'DISCOVERY' (البحث التلقائي) | 'MANUAL' (الإدخال اليدوي)
+  String _setupMode = 'DISCOVERY';
+  bool _isScanningNetwork = false;
+  double _scanProgress = 0.0;
+  String _scanStatusMessage = '';
+  final List<DiscoveredRouterModel> _discoveredRouters = [];
+  bool _scanHasRun = false;
+  DiscoveredRouterModel? _selectedDiscoveredRouter;
+
   bool _isTesting = false;
   String? _testResult;
   bool? _testSuccess;
@@ -45,8 +59,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   String? _discoveryError;
   RouterDiscoverySnapshotModel? _discovery;
 
-  // Step 3: Template & WAN Mode
+  // Step 3: Template & Service System & WAN Mode
   String _selectedTemplate = 'CLEAN_SETUP'; // 'CLEAN_SETUP' | 'HOTSPOT_ON_EXISTING' | 'CUSTOM'
+  String _selectedServiceType = 'HOTSPOT'; // 'HOTSPOT' | 'PPPOE_SERVER' | 'USER_MANAGER'
   String _selectedWanMode = 'DHCP'; // 'DHCP' | 'PPPOE' | 'STATIC'
   final _pppoeUserController = TextEditingController();
   final _pppoePassController = TextEditingController();
@@ -65,6 +80,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   final _serverNameController = TextEditingController(text: 'hs-sudafi');
   final _profileNameController = TextEditingController(text: 'hsp-sudafi');
 
+  // Security & Anti-Sharing Policies
+  SecurityPoliciesConfigModel _securityPolicies = const SecurityPoliciesConfigModel();
+
   // Step 5: Preview & Conflict State
   bool _isPreviewing = false;
   String? _previewError;
@@ -78,6 +96,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   String? _applyError;
   ProvisionApplyResult? _applyResult;
 
+  bool _hasManuallySwitchedMode = false;
+
   @override
   void initState() {
     super.initState();
@@ -85,23 +105,26 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     final existingRouters = ref.read(routersProvider).asData?.value ?? [];
     final nextIndex = existingRouters.length + 1;
 
-    _selectedDeviceId = r?.id;
-    _nameController = TextEditingController(
-      text: r?.name ?? (existingRouters.isEmpty ? 'راوتر البرج الرئيسي' : 'راوتر فرعي $nextIndex'),
-    );
-    _hostController = TextEditingController(text: r?.host ?? '192.168.88.1');
-    _apiPortController = TextEditingController(text: (r?.apiPort ?? 8728).toString());
-    _restPortController = TextEditingController(text: (r?.restPort ?? 443).toString());
-    _userController = TextEditingController(text: r?.username ?? 'admin');
-    _rosVersion = (r?.rosVersion.toUpperCase().contains('V6') == true) ? 'V6' : 'V7';
-    _useSsl = r?.useSsl ?? false;
-
-    // If router already exists, auto-discover in the background
-    if (_selectedDeviceId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _handleFetchDiscovery();
-      });
+    RouterDeviceModel? targetRouter = r;
+    if (targetRouter == null && existingRouters.isNotEmpty) {
+      final activeId = ref.read(selectedRouterIdProvider);
+      targetRouter = existingRouters.where((x) => x.id == activeId).firstOrNull ?? existingRouters.first;
     }
+
+    _selectedDeviceId = targetRouter?.id;
+    _setupMode = (targetRouter != null || existingRouters.isNotEmpty) ? 'ACCOUNT' : 'DISCOVERY';
+    if (targetRouter != null) {
+      _hasManuallySwitchedMode = true;
+    }
+    _nameController = TextEditingController(
+      text: targetRouter?.name ?? (existingRouters.isEmpty ? 'راوتر البرج الرئيسي' : 'راوتر فرعي $nextIndex'),
+    );
+    _hostController = TextEditingController(text: targetRouter?.host ?? '192.168.88.1');
+    _apiPortController = TextEditingController(text: (targetRouter?.apiPort ?? 8728).toString());
+    _restPortController = TextEditingController(text: (targetRouter?.restPort ?? 443).toString());
+    _userController = TextEditingController(text: targetRouter?.username ?? 'admin');
+    _rosVersion = (targetRouter?.rosVersion.toUpperCase().contains('V6') == true) ? 'V6' : 'V7';
+    _useSsl = targetRouter?.useSsl ?? false;
   }
 
   @override
@@ -127,8 +150,116 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   }
 
   // ===========================================================================
-  // Step 1 Handlers: Test & Save Device
+  // Step 1 Handlers: Local Discovery & Router Setup
   // ===========================================================================
+
+  Future<void> _startNetworkDiscovery() async {
+    setState(() {
+      _isScanningNetwork = true;
+      _scanProgress = 0.05;
+      _scanStatusMessage = 'جارِ فحص واجهات الشبكة والاستماع لبروتوكول MNDP...';
+      _discoveredRouters.clear();
+      _scanHasRun = true;
+    });
+
+    final service = ref.read(mikrotikDiscoveryServiceProvider);
+    try {
+      await for (final router in service.discoverStream(
+        timeout: const Duration(seconds: 12),
+        onProgress: (progress, status) {
+          if (mounted) {
+            setState(() {
+              _scanProgress = progress;
+              _scanStatusMessage = status;
+            });
+          }
+        },
+      )) {
+        if (!mounted) break;
+        setState(() {
+          if (!_discoveredRouters.any((r) => r.ip == router.ip)) {
+            _discoveredRouters.add(router);
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('حدث خطأ أثناء فحص الشبكة المحلية: $e'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isScanningNetwork = false;
+          _scanProgress = 1.0;
+          _scanStatusMessage = _discoveredRouters.isEmpty
+              ? 'اكتمل الفحص: لم يتم العثور على أجهزة MikroTik نشطة'
+              : 'اكتمل الفحص: تم العثور على ${_discoveredRouters.length} راوتر';
+        });
+      }
+    }
+  }
+
+  void _stopNetworkDiscovery() {
+    ref.read(mikrotikDiscoveryServiceProvider).stop();
+    setState(() {
+      _isScanningNetwork = false;
+      _scanStatusMessage = 'تم إيقاف البحث بطلب من المستخدم';
+    });
+  }
+
+  void _selectDiscoveredRouter(DiscoveredRouterModel router) {
+    setState(() {
+      _selectedDiscoveredRouter = router;
+      _nameController.text = router.identity.isNotEmpty ? router.identity : 'MikroTik (${router.ip})';
+      _hostController.text = router.ip;
+      if (router.openPorts.contains(8728)) {
+        _apiPortController.text = '8728';
+      } else if (router.openPorts.contains(8729)) {
+        _apiPortController.text = '8729';
+        _useSsl = true;
+      }
+      if (router.openPorts.contains(443) || router.openPorts.contains(80)) {
+        _restPortController.text = router.openPorts.contains(443) ? '443' : '80';
+      }
+      _rosVersion = router.rosVersion;
+      // Switch to manual mode to complete credentials & verification
+      _setupMode = 'MANUAL';
+      _testResult = null;
+      _testSuccess = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('تم اختيار [${router.identity}] (${router.ip}). أدخل كلمة المرور واضغط اختبار الاتصال.'),
+        backgroundColor: const Color(0xFF0284C7),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _selectAccountRouter(RouterDeviceModel r) {
+    setState(() {
+      _selectedDeviceId = r.id;
+      _nameController.text = r.name;
+      _hostController.text = r.host;
+      _apiPortController.text = r.apiPort.toString();
+      _restPortController.text = r.restPort.toString();
+      _userController.text = r.username;
+      _rosVersion = (r.rosVersion.toUpperCase().contains('V6')) ? 'V6' : 'V7';
+      _useSsl = r.useSsl;
+      _testSuccess = null;
+      _testResult = null;
+      _latencyMs = null;
+      _routerMetrics = null;
+      _discovery = null;
+      _discoveryError = null;
+    });
+  }
 
   Future<void> _handleTestConnection() async {
     final host = _hostController.text.trim();
@@ -161,31 +292,72 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       'useSsl': _useSsl,
     };
 
-    final result = await ref.read(routersProvider.notifier).testConnectionDirect(payload);
-    if (!mounted) return;
+    try {
+      final result = await ref.read(routersProvider.notifier).testConnectionDirect(payload);
+      if (!mounted) return;
 
-    final isOk = result['success'] == true;
-    final msg = result['message']?.toString() ??
-        (isOk ? 'تم الاتصال والمصادقة بنجاح مع الراوتر' : 'فشل الاتصال بالراوتر');
-    final latency = result['latencyMs'];
-    final info = result['routerInfo'] as Map<String, dynamic>?;
+      bool isOk = result['success'] == true;
+      String msg = result['message']?.toString() ??
+          (isOk ? 'تم الاتصال والمصادقة بنجاح مع الراوتر' : 'فشل الاتصال بالراوتر');
+      int? latency = result['latencyMs'] is num ? (result['latencyMs'] as num).toInt() : null;
+      Map<String, dynamic>? info = result['routerInfo'] as Map<String, dynamic>?;
 
-    setState(() {
-      _isTesting = false;
-      _testSuccess = isOk;
-      _testResult = msg;
-      _latencyMs = latency is num ? latency.toInt() : null;
-      _routerMetrics = info;
-    });
+      // Fallback: If Backend times out on a private LAN IP (e.g. 192.168.88.1)
+      // because Render is in the cloud, test directly from the phone over local Wi-Fi!
+      final isPrivateIp = host.startsWith('192.168.') ||
+          host.startsWith('10.') ||
+          host.startsWith('172.16.') ||
+          host.startsWith('172.17.') ||
+          host.startsWith('172.18.') ||
+          host.startsWith('172.19.') ||
+          host.startsWith('172.2') ||
+          host.startsWith('172.3');
 
-    if (isOk && _selectedDeviceId == null) {
-      // Auto save newly tested device so it gets an ID for discovery
-      await _handleSaveNewDeviceSilently();
+      if (!isOk && isPrivateIp) {
+        final localRes = await ref.read(mikrotikDiscoveryServiceProvider).verifyCredentialsLocally(
+          host: host,
+          username: user,
+          password: pass,
+          apiPort: int.tryParse(_apiPortController.text.trim()) ?? 8728,
+          restPort: int.tryParse(_restPortController.text.trim()) ?? 443,
+          rosVersion: _rosVersion,
+          useSsl: _useSsl,
+        );
+
+        if (localRes['success'] == true) {
+          isOk = true;
+          msg = localRes['message']?.toString() ?? 'تم الاتصال والمصادقة محلياً من الهاتف بنجاح';
+          latency = localRes['latencyMs'] as int?;
+          info = localRes['routerInfo'] as Map<String, dynamic>?;
+        } else if (localRes['code'] == 'INVALID_CREDENTIALS') {
+          msg = localRes['message']?.toString() ?? 'بيانات تسجيل الدخول غير صحيحة';
+        }
+      }
+
+      setState(() {
+        _isTesting = false;
+        _testSuccess = isOk;
+        _testResult = msg;
+        _latencyMs = latency;
+        _routerMetrics = info;
+      });
+
+      if (isOk && _selectedDeviceId == null) {
+        // Auto save newly tested device so it gets an ID for discovery
+        await _handleSaveNewDeviceSilently();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isTesting = false;
+        _testSuccess = false;
+        _testResult = 'فشل الاتصال بالراوتر: $e';
+      });
     }
   }
 
-  Future<void> _handleSaveNewDeviceSilently() async {
-    if (_selectedDeviceId != null) return;
+  Future<bool> _handleSaveNewDeviceSilently() async {
+    if (_selectedDeviceId != null) return true;
     final payload = {
       'name': _nameController.text.trim(),
       'host': _hostController.text.trim(),
@@ -198,13 +370,28 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     };
 
     final saveRes = await ref.read(routersProvider.notifier).saveRouter(payload, id: _selectedDeviceId);
-    if (!mounted) return;
+    if (!mounted) return false;
 
     if (saveRes['success'] == true && saveRes['data'] != null) {
       final dev = saveRes['data'] as Map<String, dynamic>;
       setState(() {
         _selectedDeviceId = dev['id']?.toString() ?? _selectedDeviceId;
       });
+      return true;
+    } else {
+      final errorMsg = saveRes['message']?.toString() ?? 'فشل حفظ الراوتر في السيرفر';
+      setState(() {
+        _testSuccess = false;
+        _testResult = 'فشل حفظ الراوتر:\n$errorMsg';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          backgroundColor: Colors.red.shade700,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      return false;
     }
   }
 
@@ -307,6 +494,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         'defaultRateLimit': '2M/5M',
         'defaultSessionTimeout': '1d',
       },
+      'securityPolicies': _securityPolicies.toJson(),
       'cleanSetupConfirmed': _cleanSetupConfirmed,
       'allowOverwrite': _allowOverwrite,
       'skipBackupOnError': false,
@@ -400,12 +588,223 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     }
   }
 
+  Future<void> _confirmAndApply() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 26),
+            SizedBox(width: 8),
+            Text('تأكيد تطبيق البرمجة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('هل أنت متأكد من رغبتك في بدء برمجة الراوتر (${_nameController.text.trim()}) الآن؟'),
+            const SizedBox(height: 12),
+            const Text('• سيتم أخذ نسخة احتياطية (.backup) تلقائياً على الراوتر قبل أي تغيير.', style: TextStyle(fontSize: 12)),
+            const SizedBox(height: 4),
+            Text('• سيتم تنفيذ ${_preview?.generatedCommands.length ?? 0} أمراً وفق المعاينة المعتمدة.', style: const TextStyle(fontSize: 12)),
+            const SizedBox(height: 4),
+            const Text('• يرجى عدم فصل الراوتر أو إيقاف تشغيله أثناء التهيئة.', style: TextStyle(fontSize: 12)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('نعم، ابدأ البرمجة الآن', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _handleApplyProvisioning();
+    }
+  }
+
+  Future<void> _showRestoreDirectDialog({
+    required String deviceId,
+    required String filename,
+    required String routerName,
+  }) async {
+    final passController = TextEditingController();
+    bool confirmed = false;
+    bool isRestoring = false;
+    String? localError;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: context.bgCard,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 26),
+                  SizedBox(width: 8),
+                  Text('استعادة النسخة الاحتياطية', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('الجهاز: $routerName'),
+                    const SizedBox(height: 4),
+                    Text('الملف: $filename', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'تحذير: استعادة النسخة ستستبدل الإعدادات الحالية وتؤدي إلى إعادة تشغيل الراوتر فوراً.',
+                        style: TextStyle(fontSize: 11, color: Colors.redAccent),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: passController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'كلمة مرور النسخة (إن وجدت)',
+                        hintText: 'اتركه فارغاً إذا لم تكن مشفرة',
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    InkWell(
+                      onTap: isRestoring
+                          ? null
+                          : () => setDialogState(() => confirmed = !confirmed),
+                      child: Row(
+                        children: [
+                          Checkbox(
+                            value: confirmed,
+                            activeColor: Colors.red,
+                            onChanged: isRestoring
+                                ? null
+                                : (v) => setDialogState(() => confirmed = v ?? false),
+                          ),
+                          const Expanded(
+                            child: Text(
+                              'أؤكد رغبتي باستبدال الإعدادات وإعادة تشغيل الراوتر الآن.',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (localError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(localError!, style: const TextStyle(color: Colors.red, fontSize: 11)),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isRestoring ? null : () => Navigator.pop(dialogCtx),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: (!confirmed || isRestoring)
+                      ? null
+                      : () async {
+                          final passVal = passController.text.trim();
+                          setDialogState(() {
+                            isRestoring = true;
+                            localError = null;
+                          });
+
+                          final res = await ref.read(routersProvider.notifier).restoreBackup(
+                                deviceId,
+                                filename,
+                                password: passVal.isNotEmpty ? passVal : null,
+                                confirmed: true,
+                              );
+
+                          if (!dialogCtx.mounted) return;
+
+                          if (res['success'] == true) {
+                            Navigator.pop(dialogCtx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(res['message']?.toString() ?? 'تم إرسال أمر الاستعادة بنجاح، جاري إعادة تشغيل الراوتر'),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                            ref.invalidate(routersProvider);
+                          } else {
+                            setDialogState(() {
+                              isRestoring = false;
+                              localError = res['message']?.toString() ?? 'فشلت عملية الاستعادة';
+                            });
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    disabledBackgroundColor: Colors.grey.withValues(alpha: 0.3),
+                  ),
+                  child: Text(
+                    isRestoring ? 'جارٍ الاستعادة...' : 'استعادة الآن',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   // ===========================================================================
   // Build Methods
   // ===========================================================================
 
+
   @override
   Widget build(BuildContext context) {
+    if (!_hasManuallySwitchedMode && _selectedDeviceId == null) {
+      final routers = ref.watch(routersProvider).asData?.value;
+      if (routers != null && routers.isNotEmpty) {
+        final activeId = ref.read(selectedRouterIdProvider);
+        final activeRouter = routers.where((x) => x.id == activeId).firstOrNull ?? routers.first;
+        _selectedDeviceId = activeRouter.id;
+        _setupMode = 'ACCOUNT';
+        _nameController.text = activeRouter.name;
+        _hostController.text = activeRouter.host;
+        _apiPortController.text = activeRouter.apiPort.toString();
+        _restPortController.text = activeRouter.restPort.toString();
+        _userController.text = activeRouter.username;
+        _rosVersion = (activeRouter.rosVersion.toUpperCase().contains('V6')) ? 'V6' : 'V7';
+        _useSsl = activeRouter.useSsl;
+      }
+    }
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -538,7 +937,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Step 1: Router Connection & Auth
+  // Step 1: Router Connection & Auth (Manual or Auto-Discovery)
   // ---------------------------------------------------------------------------
   Widget _buildStep1Connection() {
     return Form(
@@ -548,150 +947,936 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         children: [
           _buildCardHeader(
             icon: Icons.cell_tower,
-            title: '1. بيانات الاتصال بالراوتر والمصادقة',
-            subtitle: 'قم بإدخال بيانات الاتصال المباشر بالراوتر واختبار المصافحة لربطه بالتطبيق.',
+            title: '1. اختيار الراوتر والتحقق من الاتصال',
+            subtitle: 'اختر الراوتر المرتبط بحسابك أو ابحث عنه تلقائياً في الشبكة للتحقق من الاتصال والمصادقة.',
           ),
           const SizedBox(height: 16),
 
-          // Router Name
-          _buildTextField(
-            'اسم الراوتر في النظام',
-            _nameController,
-            Icons.label_outline,
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
-          ),
-          const SizedBox(height: 14),
-
-          // IP Host & API Port Row
-          Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: _buildTextField(
-                  'عنوان IP أو الدومين',
-                  _hostController,
-                  Icons.dns_outlined,
-                  hintText: '192.168.88.1',
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildTextField(
-                  'منفذ API',
-                  _apiPortController,
-                  Icons.numbers,
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-
-          // RouterOS version toggle
-          Row(
-            children: [
-              Expanded(
-                child: _buildVersionChip('V7', 'RouterOS v7 (REST/API)', Icons.speed),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildVersionChip('V6', 'RouterOS v6 (Socket)', Icons.cable),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-
-          // Username & Password Row
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  'اسم مستخدم API',
-                  _userController,
-                  Icons.person_outline,
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildTextField(
-                  'كلمة المرور',
-                  _passController,
-                  Icons.lock_outline,
-                  obscureText: _obscurePassword,
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                      size: 18,
-                      color: context.textSecondary,
+          // Mode Selector Tabs (Account vs Discovery vs Manual)
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.borderColor),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () => setState(() => _setupMode = 'ACCOUNT'),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _setupMode == 'ACCOUNT' ? const Color(0xFF0284C7) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.dns_outlined,
+                            size: 16,
+                            color: _setupMode == 'ACCOUNT' ? Colors.white : context.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'راوترات الحساب',
+                            style: TextStyle(
+                              color: _setupMode == 'ACCOUNT' ? Colors.white : context.textPrimary,
+                              fontWeight: _setupMode == 'ACCOUNT' ? FontWeight.bold : FontWeight.normal,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-
-          // SSL Toggle
-          SwitchListTile(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-              side: BorderSide(color: context.borderColor),
+                Expanded(
+                  child: InkWell(
+                    onTap: () => setState(() => _setupMode = 'DISCOVERY'),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _setupMode == 'DISCOVERY' ? const Color(0xFF0284C7) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.radar,
+                            size: 16,
+                            color: _setupMode == 'DISCOVERY' ? Colors.white : context.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'البحث التلقائي',
+                            style: TextStyle(
+                              color: _setupMode == 'DISCOVERY' ? Colors.white : context.textPrimary,
+                              fontWeight: _setupMode == 'DISCOVERY' ? FontWeight.bold : FontWeight.normal,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: InkWell(
+                    onTap: () => setState(() => _setupMode = 'MANUAL'),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _setupMode == 'MANUAL' ? const Color(0xFF0284C7) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.tune,
+                            size: 16,
+                            color: _setupMode == 'MANUAL' ? Colors.white : context.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'إدخال يدوي',
+                            style: TextStyle(
+                              color: _setupMode == 'MANUAL' ? Colors.white : context.textPrimary,
+                              fontWeight: _setupMode == 'MANUAL' ? FontWeight.bold : FontWeight.normal,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            tileColor: context.bgCard,
-            title: Text(
-              'استخدام اتصال مشفر (SSL/TLS)',
-              style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text(
-              'تفعيل HTTPS لمنفذ REST (443) أو API-SSL (8729)',
-              style: TextStyle(color: context.textSecondary, fontSize: 11),
-            ),
-            value: _useSsl,
-            activeThumbColor: const Color(0xFF0284C7),
-            onChanged: (v) => setState(() => _useSsl = v),
           ),
           const SizedBox(height: 18),
 
-          // Test Button
+          // Render active mode
+          if (_setupMode == 'ACCOUNT')
+            _buildAccountRoutersSection()
+          else if (_setupMode == 'DISCOVERY')
+            _buildDiscoveryModeSection()
+          else
+            _buildManualModeSection(),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Option 1: Account Registered Routers Section
+  // ---------------------------------------------------------------------------
+  Widget _buildAccountRoutersSection() {
+    final routersAsync = ref.watch(routersProvider);
+
+    return routersAsync.when(
+      loading: () => const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Column(
+            children: [
+              CircularProgressIndicator(color: Color(0xFF0284C7)),
+              SizedBox(height: 12),
+              Text('جارِ جلب راوترات الحساب...'),
+            ],
+          ),
+        ),
+      ),
+      error: (err, _) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.redAccent),
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.redAccent, size: 28),
+            const SizedBox(height: 8),
+            Text(
+              'تعذر جلب قائمة الراوترات المرتبطة بحسابك:\n$err',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              onPressed: () => ref.refresh(routersProvider),
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('إعادة المحاولة'),
+            ),
+          ],
+        ),
+      ),
+      data: (routers) {
+        if (routers.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.borderColor),
+            ),
+            child: Column(
+              children: [
+                const Icon(Icons.router_outlined, size: 40, color: Colors.grey),
+                const SizedBox(height: 12),
+                Text(
+                  'لا توجد أجهزة راوتر مسجلة في حسابك حالياً',
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'يمكنك البحث التلقائي عن الراوتر عبر الشبكة المحلية أو إدخال بيانات الربط يدوياً.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: context.textSecondary, fontSize: 11),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => setState(() => _setupMode = 'DISCOVERY'),
+                      icon: const Icon(Icons.radar, size: 16),
+                      label: const Text('البحث في الشبكة'),
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton.icon(
+                      onPressed: () => setState(() => _setupMode = 'MANUAL'),
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('إدخال يدوي'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
+
+        RouterDeviceModel? selectedRouter;
+        if (_selectedDeviceId != null) {
+          for (final r in routers) {
+            if (r.id == _selectedDeviceId) {
+              selectedRouter = r;
+              break;
+            }
+          }
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'اختر الراوتر المراد برمجته (${routers.length}):',
+              style: TextStyle(
+                color: context.textPrimary,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            ...routers.map((r) {
+              final isSelected = _selectedDeviceId == r.id;
+              final isConnected = r.status.toLowerCase() == 'connected' || r.status.toLowerCase() == 'online';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color(0xFF0284C7).withValues(alpha: 0.1)
+                      : context.bgCard,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isSelected ? const Color(0xFF0284C7) : context.borderColor,
+                    width: isSelected ? 1.5 : 1,
+                  ),
+                ),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  onTap: () => _selectAccountRouter(r),
+                  leading: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: isSelected
+                        ? const Color(0xFF0284C7)
+                        : (isConnected ? Colors.green.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.15)),
+                    child: Icon(
+                      Icons.router,
+                      color: isSelected ? Colors.white : (isConnected ? Colors.green : Colors.grey),
+                      size: 20,
+                    ),
+                  ),
+                  title: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          r.name,
+                          style: TextStyle(
+                            color: context.textPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isConnected
+                              ? Colors.green.withValues(alpha: 0.15)
+                              : Colors.grey.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          isConnected ? 'متصل' : 'غير متصل',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isConnected ? Colors.green : Colors.grey,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  subtitle: Text(
+                    '${r.host}:${r.apiPort} • RouterOS ${r.rosVersion}',
+                    style: TextStyle(color: context.textSecondary, fontSize: 11),
+                  ),
+                  trailing: Icon(
+                    isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                    color: isSelected ? const Color(0xFF0284C7) : Colors.grey,
+                    size: 20,
+                  ),
+                ),
+              );
+            }),
+
+            const SizedBox(height: 16),
+
+            // Connection Test & Verification Box for the selected router
+            if (selectedRouter != null) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: context.bgCard,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: context.borderColor),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.verified_user_outlined, size: 18, color: Color(0xFF38BDF8)),
+                        const SizedBox(width: 8),
+                        Text(
+                          'التحقق من الاتصال بالراوتر: [${selectedRouter.name}]',
+                          style: TextStyle(
+                            color: context.textPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'يجب اختبار الاتصال والمصادقة للتحقق من صلاحية الوصول وإصدار RouterOS قبل الانتقال لمرحلة استكشاف الشبكة.',
+                      style: TextStyle(color: context.textSecondary, fontSize: 11),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _isTesting ? null : _handleTestConnection,
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF0284C7)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: _isTesting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+                              )
+                            : const Icon(Icons.network_check, color: Color(0xFF0284C7), size: 18),
+                        label: Text(
+                          _isTesting ? 'جارِ فحص الاتصال واكتشاف القدرات...' : 'اختبار الاتصال والمصادقة الآن',
+                          style: const TextStyle(color: Color(0xFF0284C7), fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Diagnostics Result Banner
+              if (_testResult != null) ...[
+                const SizedBox(height: 12),
+                _buildResultBanner(
+                  isSuccess: _testSuccess == true,
+                  title: _testSuccess == true ? 'تم الاتصال والمصادقة بنجاح' : 'فشل الاتصال بالراوتر',
+                  message: _testResult!,
+                  latencyMs: _latencyMs,
+                  metrics: _routerMetrics,
+                ),
+              ],
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Option 2: Automatic Network Discovery Mode Section
+  // ---------------------------------------------------------------------------
+  Widget _buildDiscoveryModeSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Action Bar for Discovery
+        if (!_isScanningNetwork) ...[
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _isTesting ? null : _handleTestConnection,
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF0284C7)),
-                padding: const EdgeInsets.symmetric(vertical: 14),
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _startNetworkDiscovery,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              icon: _isTesting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
-                    )
-                  : const Icon(Icons.network_check, color: Color(0xFF0284C7)),
+              icon: const Icon(Icons.radar, color: Colors.white),
               label: Text(
-                _isTesting ? 'جارِ فحص الاتصال ومصافحة الراوتر...' : 'اختبار الاتصال المباشر والمصادقة',
-                style: const TextStyle(color: Color(0xFF0284C7), fontWeight: FontWeight.bold),
+                _scanHasRun ? 'إعادة البحث عن راوترات MikroTik' : 'البحث عن راوترات MikroTik على الشبكة',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
               ),
             ),
           ),
-
-          // Diagnostics Box
-          if (_testResult != null) ...[
-            const SizedBox(height: 14),
-            _buildResultBanner(
-              isSuccess: _testSuccess == true,
-              title: _testSuccess == true ? 'تم الاتصال والمصادقة بنجاح' : 'فشل فحص الاتصال',
-              message: _testResult!,
-              latencyMs: _latencyMs,
-              metrics: _routerMetrics,
+        ] else ...[
+          // Scanning progress card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF0284C7)),
             ),
-          ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'جارِ مسح الشبكة المحلية...',
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                    TextButton.icon(
+                      onPressed: _stopNetworkDiscovery,
+                      icon: const Icon(Icons.stop, size: 16, color: Colors.red),
+                      label: const Text('إيقاف', style: TextStyle(color: Colors.red, fontSize: 12)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: _scanProgress.clamp(0.0, 1.0),
+                    backgroundColor: Colors.grey.withValues(alpha: 0.2),
+                    color: const Color(0xFF0284C7),
+                    minHeight: 6,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _scanStatusMessage,
+                  style: TextStyle(color: context.textSecondary, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 16),
+
+        // Discovered Devices List
+        if (_discoveredRouters.isNotEmpty) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'الراوترات المكتشفة (${_discoveredRouters.length}):',
+                style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              if (!_isScanningNetwork)
+                TextButton.icon(
+                  onPressed: _startNetworkDiscovery,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('تحديث القائمة', style: TextStyle(fontSize: 12)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ..._discoveredRouters.map((router) => _buildDiscoveredRouterCard(router)),
+        ] else if (_scanHasRun && !_isScanningNetwork) ...[
+          // Empty State with troubleshooting advice
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.amber.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amber.shade400.withValues(alpha: 0.5)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.search_off, color: Colors.amber.shade700, size: 24),
+                    const SizedBox(width: 8),
+                    Text(
+                      'لم يتم العثور على أجهزة MikroTik على الشبكة',
+                      style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'لم تتمكن عملية البحث من اكتشاف أي راوتر يستجيب لبروتوكول MNDP أو منافذ RouterOS على الشبكة الحالية.\n'
+                  'خطوات مقترحة:\n'
+                  '• تأكد من اتصال جهازك بنفس شبكة Wi-Fi المتصل بها الراوتر.\n'
+                  '• تأكد من تفعيل خدمة Neighbor Discovery أو منفذ API (8728) في الراوتر.\n'
+                  '• إذا كان الراوتر على عنوان IP مخصص أو شبكة أخرى، استخدم الإضافة اليدوية.',
+                  style: TextStyle(color: context.textPrimary, fontSize: 11, height: 1.5),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _startNetworkDiscovery,
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: const Text('إعادة البحث'),
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton.icon(
+                      onPressed: () => setState(() => _setupMode = 'MANUAL'),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
+                      icon: const Icon(Icons.tune, size: 16, color: Colors.white),
+                      label: const Text('الانتقال للإضافة اليدوية', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ] else if (!_scanHasRun && !_isScanningNetwork) ...[
+          // Initial prompt card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.borderColor),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.12),
+                  child: const Icon(Icons.wifi_find, color: Color(0xFF0284C7)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'اكتشاف سريع وتلقائي',
+                        style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'اضغط على زر البحث أعلاه لمسح الشبكة واكتشاف هوية ومنافذ راوترات MikroTik تلقائيًا.',
+                        style: TextStyle(color: context.textSecondary, fontSize: 11, height: 1.3),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDiscoveredRouterCard(DiscoveredRouterModel router) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                child: const Icon(Icons.router, color: Color(0xFF0284C7), size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            router.identity,
+                            style: TextStyle(
+                              color: context.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.circle, color: Colors.green, size: 8),
+                              SizedBox(width: 4),
+                              Text(
+                                'متاح على الشبكة',
+                                style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'عنوان IP: ${router.ip}',
+                      style: const TextStyle(
+                        color: Color(0xFF0284C7),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Divider(height: 1, color: context.borderColor),
+          const SizedBox(height: 10),
+
+          // Metadata Chips: Model, ROS Version, MAC, Open Ports, Discovery Method
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              if (router.model != null)
+                _buildInfoBadge(Icons.memory, 'الموديل: ${router.model}'),
+              _buildInfoBadge(
+                Icons.system_update_alt,
+                'RouterOS: ${router.version ?? router.rosVersion}',
+              ),
+              if (router.macAddress != null)
+                _buildInfoBadge(Icons.fingerprint, 'MAC: ${router.macAddress}'),
+              if (router.openPorts.isNotEmpty)
+                _buildInfoBadge(
+                  Icons.numbers,
+                  'المنافذ المفتوحة: ${router.openPorts.join(', ')}',
+                  color: Colors.blueGrey,
+                ),
+              _buildInfoBadge(
+                Icons.travel_explore,
+                router.discoveryMethod == 'MNDP' ? 'بروتوكول MNDP' : 'فحص المنافذ',
+                color: const Color(0xFF0284C7),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Selection button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _selectDiscoveredRouter(router),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+              icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
+              label: const Text(
+                'اختيار هذا الراوتر وإضافته',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildInfoBadge(IconData icon, String text, {Color? color}) {
+    final c = color ?? context.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: context.bgScaffold,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: c),
+          const SizedBox(width: 4),
+          Text(text, style: TextStyle(color: context.textPrimary, fontSize: 10)),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Option 1: Manual Mode Section (Preserves all existing inputs)
+  // ---------------------------------------------------------------------------
+  Widget _buildManualModeSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_selectedDiscoveredRouter != null) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0284C7).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF0284C7)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Color(0xFF0284C7), size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'تم جلب بيانات [${_selectedDiscoveredRouter!.identity}] (${_selectedDiscoveredRouter!.ip}) تلقائيًا. الرجاء إدخال كلمة المرور واختبار الاتصال.',
+                    style: TextStyle(color: context.textPrimary, fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _selectedDiscoveredRouter = null),
+                  child: const Text('مسح', style: TextStyle(fontSize: 11)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+
+        // Router Name
+        _buildTextField(
+          'اسم الراوتر في النظام',
+          _nameController,
+          Icons.label_outline,
+          validator: (v) => (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+        ),
+        const SizedBox(height: 14),
+
+        // IP Host & API Port Row
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: _buildTextField(
+                'عنوان IP أو الدومين',
+                _hostController,
+                Icons.dns_outlined,
+                hintText: '192.168.88.1',
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildTextField(
+                'منفذ API',
+                _apiPortController,
+                Icons.numbers,
+                keyboardType: TextInputType.number,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // RouterOS version toggle
+        Row(
+          children: [
+            Expanded(
+              child: _buildVersionChip('V7', 'RouterOS v7 (REST/API)', Icons.speed),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildVersionChip('V6', 'RouterOS v6 (Socket)', Icons.cable),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // Username & Password Row
+        Row(
+          children: [
+            Expanded(
+              child: _buildTextField(
+                'اسم مستخدم API',
+                _userController,
+                Icons.person_outline,
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildTextField(
+                'كلمة المرور',
+                _passController,
+                Icons.lock_outline,
+                obscureText: _obscurePassword,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    size: 18,
+                    color: context.textSecondary,
+                  ),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // SSL Toggle
+        SwitchListTile(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: BorderSide(color: context.borderColor),
+          ),
+          tileColor: context.bgCard,
+          title: Text(
+            'استخدام اتصال مشفر (SSL/TLS)',
+            style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+          ),
+          subtitle: Text(
+            'تفعيل HTTPS لمنفذ REST (443) أو API-SSL (8729)',
+            style: TextStyle(color: context.textSecondary, fontSize: 11),
+          ),
+          value: _useSsl,
+          activeThumbColor: const Color(0xFF0284C7),
+          onChanged: (v) => setState(() => _useSsl = v),
+        ),
+        const SizedBox(height: 18),
+
+        // Test Button
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _isTesting ? null : _handleTestConnection,
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Color(0xFF0284C7)),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            icon: _isTesting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+                  )
+                : const Icon(Icons.network_check, color: Color(0xFF0284C7)),
+            label: Text(
+              _isTesting ? 'جارِ فحص الاتصال ومصافحة الراوتر...' : 'اختبار الاتصال المباشر والمصادقة',
+              style: const TextStyle(color: Color(0xFF0284C7), fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+
+        // Diagnostics Box
+        if (_testResult != null) ...[
+          const SizedBox(height: 14),
+          _buildResultBanner(
+            isSuccess: _testSuccess == true,
+            title: _testSuccess == true ? 'تم الاتصال والمصادقة بنجاح' : 'فشل فحص الاتصال',
+            message: _testResult!,
+            latencyMs: _latencyMs,
+            metrics: _routerMetrics,
+          ),
+        ],
+
+        // Confirmation & Save Button
+        if (_testSuccess == true && _selectedDeviceId == null) ...[
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _handleSaveNewDeviceSilently,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.save, color: Colors.white),
+              label: const Text(
+                'تأكيد وحفظ الراوتر في النظام',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -931,6 +2116,43 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         const SizedBox(height: 10),
 
         Text(
+          'نظام الخدمة والمشتركين المطلوب (Service System):',
+          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+        ),
+        const SizedBox(height: 8),
+
+        _buildServiceTypeCard(
+          id: 'HOTSPOT',
+          title: 'نظام الهوتسبوت وباقات الكروت (Hotspot Vouchers)',
+          description: 'كروت شحن مسبقة الدفع، صفحة تسجيل دخول محلية، سياسات مكافحة مشاركة الإنترنت (Anti-Tethering) وربط مباشر بمطبعة واستوديو الكروت.',
+          badge: 'مدعوم بالكامل (الأكثر شيوعاً)',
+          badgeColor: Colors.green,
+          icon: Icons.wifi,
+        ),
+        const SizedBox(height: 10),
+        _buildServiceTypeCard(
+          id: 'PPPOE_SERVER',
+          title: 'نظام البرودباند المنزلي (PPPoE Server)',
+          description: 'اشتراكات شهرية مخصصة، حسابات مستقلة (يوزر وباسورد)، وتحديد السرعات والحصص عبر شاشة اشتراكات PPPoE.',
+          badge: 'مدعوم بالكامل',
+          badgeColor: Colors.blue,
+          icon: Icons.vpn_key,
+        ),
+        const SizedBox(height: 10),
+        _buildServiceTypeCard(
+          id: 'USER_MANAGER',
+          title: 'نظام User Manager / RADIUS',
+          description: 'نظام إدارة المشتركين الخاص بـ MikroTik (يتطلب تثبيت حزمة user-manager الرسمية المتوافقة مع إصدار الراوتر).',
+          badge: 'فحص التوافق',
+          badgeColor: Colors.orange,
+          icon: Icons.manage_accounts,
+        ),
+        const SizedBox(height: 20),
+
+        Divider(color: context.borderColor),
+        const SizedBox(height: 10),
+
+        Text(
           'طريقة اتصال الإنترنت (WAN Connection Mode):',
           style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
         ),
@@ -1144,6 +2366,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             ),
           ],
         ),
+        _buildSecurityPoliciesSection(),
       ],
     );
   }
@@ -1280,6 +2503,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             ),
             const SizedBox(height: 14),
           ],
+
+          // Security Policies Report Card
+          if (_preview!.securityPoliciesReport.isNotEmpty)
+            _buildSecurityPoliciesReportCard(_preview!.securityPoliciesReport),
 
           // Planned Steps Overview
           Text(
@@ -1457,7 +2684,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton.icon(
-                    onPressed: _handleApplyProvisioning,
+                    onPressed: _confirmAndApply,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green.shade700,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1518,6 +2745,144 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           const SizedBox(height: 14),
         ],
 
+        // Recovery Instructions on failure
+        if (!isSuccess && res.recoveryInstructions != null) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.build_circle_outlined, color: Colors.orange, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'إرشادات الاستعادة (المرحلة: ${res.failedStage ?? "غير محددة"}):',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.orange),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  res.recoveryInstructions!,
+                  style: TextStyle(fontSize: 11, color: context.textPrimary),
+                ),
+                if (!isSuccess && res.backupFilename != null && _selectedDeviceId != null) ...[
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        _showRestoreDirectDialog(
+                          deviceId: _selectedDeviceId!,
+                          filename: res.backupFilename!,
+                          routerName: _nameController.text.trim(),
+                        );
+                      },
+                      icon: const Icon(Icons.restore_page_outlined, color: Colors.orange, size: 16),
+                      label: const Text(
+                        'استعادة النسخة الاحتياطية المأخوذة فوراً',
+                        style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.orange),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+
+        // Executed Stages Timeline Breakdown
+        if (res.executedStages.isNotEmpty) ...[
+          Text(
+            'سجل المراحل المنفذة:',
+            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: context.borderColor),
+            ),
+            child: Column(
+              children: res.executedStages.map((stage) {
+                final isStageOk = stage.status == 'SUCCESS';
+                final isStageSkipped = stage.status == 'SKIPPED';
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isStageOk
+                            ? Icons.check_circle_outline
+                            : isStageSkipped
+                                ? Icons.remove_circle_outline
+                                : Icons.highlight_off,
+                        color: isStageOk
+                            ? Colors.green
+                            : isStageSkipped
+                                ? Colors.grey
+                                : Colors.red,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              stage.stage,
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                            if (stage.command != null)
+                              Text(
+                                stage.command!,
+                                style: TextStyle(fontSize: 9, color: context.textSecondary),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            if (stage.error != null)
+                              Text(
+                                stage.error!,
+                                style: const TextStyle(fontSize: 9, color: Colors.red),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        stage.status,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: isStageOk
+                              ? Colors.green
+                              : isStageSkipped
+                                  ? Colors.grey
+                                  : Colors.red,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+
         // Multi-point verification badges
         Text(
           'نتائج الفحص والتشخيص الميداني:',
@@ -1557,31 +2922,162 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 isOk: verif.hotspotOperational,
                 details: verif.hotspotOperational ? 'الخادم يعمل وجاهز لاستقبال المشتركين' : 'خادم الهوتسبوت معطل',
               ),
+              const Divider(height: 16),
+              _buildVerifItem(
+                title: 'سياسات الحماية ومكافحة مشاركة الإنترنت',
+                isOk: verif.securityPoliciesVerified,
+                details: verif.securityPoliciesVerified
+                    ? 'تم تطبيق قواعد TTL Lock وعزل المنافذ وحماية منافذ الإدارة وتوجيه DNS'
+                    : 'لم تكتمل جميع سياسات الحماية',
+              ),
             ],
           ),
         ),
         const SizedBox(height: 20),
 
+        // Next Steps Section (Post-Provisioning Action Hub)
+        if (isSuccess) ...[
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFF10B981).withValues(alpha: 0.15),
+                  context.bgCard,
+                ],
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.stars_rounded, color: Color(0xFF10B981), size: 22),
+                    SizedBox(width: 8),
+                    Text(
+                      'ماذا بعد اكتمال التجهيز؟ (الربط المباشر مع النظام)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF10B981)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'تم حفظ بروفايل الشبكة في حسابك بنجاح. يمكنك الآن الانتقال مباشرة لتوليد باقات الكروت وطباعتها أو إدارة المشتركين:',
+                  style: TextStyle(fontSize: 11),
+                ),
+                const SizedBox(height: 14),
+
+                // Button 1: Card Studio & Printing
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      if (_selectedDeviceId != null) {
+                        ref.read(selectedRouterIdProvider.notifier).state = _selectedDeviceId;
+                      }
+                      ref.read(profilesProvider.notifier).fetchProfiles();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const CardStudioScreen(),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.print_outlined, color: Colors.white, size: 20),
+                    label: const Text(
+                      'فتح استوديو تصميم وطباعة الكروت',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Button 2 & 3 in a Row: Cards Store & PPPoE Management
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const CardsStoreScreen(),
+                            ),
+                          );
+                        },
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF0284C7)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF0284C7), size: 16),
+                        label: const Text(
+                          'مخزن الكروت',
+                          style: TextStyle(color: Color(0xFF0284C7), fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const PppoeManagementScreen(),
+                            ),
+                          );
+                        },
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.grey.shade600),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        icon: const Icon(Icons.vpn_key_outlined, size: 16),
+                        label: const Text(
+                          'إدارة PPPoE',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+
         // Done button
         SizedBox(
           width: double.infinity,
           height: 48,
-          child: ElevatedButton.icon(
+          child: OutlinedButton.icon(
             onPressed: () {
               Navigator.of(context).pop();
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0284C7),
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(color: context.borderColor),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            icon: const Icon(Icons.done_all, color: Colors.white),
-            label: const Text(
+            icon: Icon(Icons.home_outlined, color: context.textPrimary),
+            label: Text(
               'الانتهاء والعودة إلى لوحة التحكم',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
             ),
           ),
         ),
       ],
+
     );
   }
 
@@ -1611,6 +3107,274 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     );
   }
 
+  Widget _buildSecurityPoliciesSection() {
+    return Container(
+      margin: const EdgeInsets.only(top: 18),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.security, color: Color(0xFF38BDF8), size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'سياسات الحماية والحد من مشاركة الإنترنت',
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'التحكم المستقل بآليات كبح بث الهوتسبوت وعزل المشتركين وحماية المحاسبة',
+                      style: TextStyle(color: context.textSecondary, fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Policy 1: Anti-Tethering TTL Lock
+          _buildPolicySwitch(
+            title: 'كبح بث الهوتسبوت والمشاركة (Anti-Tethering / TTL Lock)',
+            subtitle: 'تثبيت قيمة TTL=1 للمشتركين لمنع بث الهوتسبوت أو مشاركة USB/Bluetooth للأجهزة غير المروتة.',
+            value: _securityPolicies.antiTethering,
+            onChanged: (v) => setState(() => _securityPolicies = _securityPolicies.copyWith(antiTethering: v)),
+            icon: Icons.wifi_tethering_off,
+          ),
+          const Divider(height: 16),
+
+          // Policy 2: Client Isolation
+          _buildPolicySwitch(
+            title: 'عزل أجهزة المشتركين (Client Port Isolation / Horizon)',
+            subtitle: 'عزل منافذ جسر المشتركين لمنع برامج البروكسي المحلية وتبادل البيانات المباشر على الطبقة الثانية.',
+            value: _securityPolicies.clientIsolation,
+            onChanged: (v) => setState(() => _securityPolicies = _securityPolicies.copyWith(clientIsolation: v)),
+            icon: Icons.device_hub,
+          ),
+          const Divider(height: 16),
+
+          // Policy 3: Management Protection
+          _buildPolicySwitch(
+            title: 'حماية منافذ إدارة الراوتر (Management Protection)',
+            subtitle: 'حظر وصول المشتركين لمنافذ WinBox و SSH و Telnet و API مع بقاء صفحة تسجيل الدخول متاحة.',
+            value: _securityPolicies.protectManagementAccess,
+            onChanged: (v) => setState(() => _securityPolicies = _securityPolicies.copyWith(protectManagementAccess: v)),
+            icon: Icons.admin_panel_settings_outlined,
+          ),
+          const Divider(height: 16),
+
+          // Policy 4: Force Router DNS
+          _buildPolicySwitch(
+            title: 'إلزام كاش الراوتر ومنع التلاعب بـ DNS (Force Router DNS)',
+            subtitle: 'إعادة توجيه استعلامات DNS (منفذ 53) للراوتر لمنع تجاوز صفحة الدخول عند تعيين DNS يدوي.',
+            value: _securityPolicies.forceRouterDns,
+            onChanged: (v) => setState(() => _securityPolicies = _securityPolicies.copyWith(forceRouterDns: v)),
+            icon: Icons.dns,
+          ),
+          const Divider(height: 16),
+
+          // Policy 5: Single Device per Card
+          _buildPolicySwitch(
+            title: 'قصر الكرت على جهاز واحد ومصادقة MAC (Single Device)',
+            subtitle: 'منع استخدام الكرت الواحد على أكثر من جهاز في نفس اللحظة وحفظ الجلسة برمز MAC Cookie.',
+            value: _securityPolicies.enforceSingleDevice,
+            onChanged: (v) => setState(() => _securityPolicies = _securityPolicies.copyWith(enforceSingleDevice: v)),
+            icon: Icons.smartphone,
+          ),
+          const Divider(height: 16),
+
+          // Policy 6: Block Unauthenticated Bypass
+          _buildPolicySwitch(
+            title: 'حظر التجاوز غير المصرح به وتدقيق Walled Garden',
+            subtitle: 'ضمان مرور كافة حزم الإنترنت عبر سلاسل الهوتسبوت والمحاسبة لمنع تسرب البيانات المجانية.',
+            value: _securityPolicies.blockUnauthenticatedBypass,
+            onChanged: (v) => setState(() => _securityPolicies = _securityPolicies.copyWith(blockUnauthenticatedBypass: v)),
+            icon: Icons.lock_outline,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPolicySwitch({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    required IconData icon,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: value ? const Color(0xFF38BDF8) : Colors.grey),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: context.textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(color: context.textSecondary, fontSize: 10, height: 1.3),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 6),
+        Switch(
+          value: value,
+          activeColor: const Color(0xFF0284C7),
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSecurityPoliciesReportCard(List<SecurityPolicyReportItemModel> reports) {
+    if (reports.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.shield_outlined, color: Color(0xFF38BDF8), size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'تقرير سياسات الحماية والحدود الفنية للراوتر (${reports.length}):',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF38BDF8)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...reports.map((r) {
+            Color statusColor;
+            String statusText;
+            switch (r.status) {
+              case 'ACTIVE_ON_ROUTER':
+                statusColor = Colors.green;
+                statusText = 'مفعلة على الراوتر';
+                break;
+              case 'PROPOSED':
+                statusColor = Colors.blue;
+                statusText = 'سيتم تطبيقها';
+                break;
+              case 'DISABLED':
+                statusColor = Colors.grey;
+                statusText = 'معطلة';
+                break;
+              default:
+                statusColor = Colors.orange;
+                statusText = 'غير مدعومة';
+            }
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: context.bgScaffold,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: context.borderColor),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          r.name,
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 11),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: statusColor),
+                        ),
+                        child: Text(
+                          statusText,
+                          style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• القدرة الواقعية: ', style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
+                      Expanded(
+                        child: Text(
+                          r.realisticEffect,
+                          style: TextStyle(fontSize: 10, color: context.textSecondary),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• الحدود التقنية: ', style: TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold)),
+                      Expanded(
+                        child: Text(
+                          r.knownLimitations,
+                          style: TextStyle(fontSize: 10, color: context.textSecondary),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   // ===========================================================================
   // Step Navigation Controls
   // ===========================================================================
@@ -1633,6 +3397,18 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           else
             const SizedBox(),
 
+          if (_currentStep == 0 && _testSuccess != true)
+            Row(
+              children: [
+                Icon(Icons.info_outline, size: 14, color: Colors.amber.shade700),
+                const SizedBox(width: 4),
+                Text(
+                  'اختبر الاتصال بالمصادقة للمتابعة',
+                  style: TextStyle(fontSize: 11, color: Colors.amber.shade700),
+                ),
+              ],
+            ),
+
           if (_currentStep < 5)
             ElevatedButton.icon(
               onPressed: _canAdvance() ? _handleNextStep : null,
@@ -1650,7 +3426,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
   bool _canAdvance() {
     if (_currentStep == 0) {
-      return _selectedDeviceId != null || _testSuccess == true;
+      return _selectedDeviceId != null && _testSuccess == true;
     }
     if (_currentStep == 1) {
       return _discovery != null;
@@ -1664,7 +3440,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   void _handleNextStep() async {
     if (_currentStep == 0) {
       if (_selectedDeviceId == null) {
-        await _handleSaveNewDeviceSilently();
+        final saved = await _handleSaveNewDeviceSilently();
+        if (!saved) return;
       }
       setState(() => _currentStep = 1);
       if (_discovery == null) {
@@ -1855,6 +3632,94 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               description,
               style: TextStyle(color: context.textSecondary, fontSize: 11, height: 1.3),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildServiceTypeCard({
+    required String id,
+    required String title,
+    required String description,
+    required String badge,
+    required Color badgeColor,
+    required IconData icon,
+  }) {
+    final isSelected = _selectedServiceType == id;
+
+    return InkWell(
+      onTap: () => setState(() => _selectedServiceType = id),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF0284C7).withValues(alpha: 0.1) : context.bgCard,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF0284C7) : context.borderColor,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: isSelected ? const Color(0xFF0284C7) : context.textSecondary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: context.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(
+                    badge,
+                    style: TextStyle(fontSize: 10, color: badgeColor, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              description,
+              style: TextStyle(color: context.textSecondary, fontSize: 11, height: 1.4),
+            ),
+            if (id == 'USER_MANAGER' && isSelected) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.orange),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'تنبيه فني: يتطلب User Manager تثبيت حزمة user-manager الرسمية المتوافقة مع إصدار RouterOS. نظام SudaFi يوفر تكاملاً فائق السرعة عبر محرك Hotspot ومحرك PPPoE المباشر بدون الحاجة لأي حزم خارجية.',
+                        style: TextStyle(fontSize: 10, color: Colors.orange),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

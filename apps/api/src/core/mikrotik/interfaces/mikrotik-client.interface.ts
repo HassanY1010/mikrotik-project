@@ -30,6 +30,9 @@ export interface HotspotUserItem {
   limitBytesTotal?: number;
   comment?: string;
   disabled?: boolean;
+  uptime?: string;
+  bytesIn?: number;
+  bytesOut?: number;
 }
 
 export interface HotspotActiveSessionItem {
@@ -41,6 +44,11 @@ export interface HotspotActiveSessionItem {
   bytesIn: number;
   bytesOut: number;
   sessionId?: string;
+  server?: string;
+  loginBy?: string;
+  sessionTimeLeft?: string;
+  idleTime?: string;
+  limitBytesTotal?: number;
 }
 
 export interface RouterBackupItem {
@@ -72,6 +80,7 @@ export interface RouterBridgePortItem {
   id?: string;
   bridge: string;
   interface: string;
+  horizon?: number;
   disabled?: boolean;
 }
 
@@ -142,6 +151,66 @@ export interface RouterPingResult {
   isReachable: boolean;
 }
 
+export interface RouterDhcpLeaseItem {
+  id?: string;
+  address: string;
+  macAddress: string;
+  hostName?: string;
+  server?: string;
+  status?: string;
+  expiresAfter?: string;
+  lastSeen?: string;
+  activeAddress?: string;
+  activeMacAddress?: string;
+  comment?: string;
+  disabled?: boolean;
+  dynamic?: boolean;
+}
+
+export interface RouterArpItem {
+  id?: string;
+  address: string;
+  macAddress: string;
+  interface?: string;
+  complete?: boolean;
+  disabled?: boolean;
+  dynamic?: boolean;
+  comment?: string;
+}
+
+export interface RouterNeighborItem {
+  id?: string;
+  interface?: string;
+  address?: string;
+  macAddress?: string;
+  identity?: string;
+  platform?: string;
+  version?: string;
+  board?: string;
+  uptime?: string;
+  age?: string;
+}
+
+export interface ConnectedDeviceItem {
+  id: string;
+  name: string;
+  ipAddress: string;
+  macAddress: string;
+  interface?: string;
+  status: string;
+  isOnline: boolean;
+  connectionCertainty: 'CONFIRMED_ONLINE' | 'LEASE_ACTIVE' | 'OFFLINE';
+  deviceType: 'ACCESS_POINT' | 'PHONE' | 'COMPUTER' | 'ROUTER' | 'UNKNOWN';
+  hostName?: string;
+  vendor?: string;
+  uptime?: string;
+  expiresAfter?: string;
+  lastSeen?: string;
+  age?: string;
+  source: 'DHCP' | 'ARP' | 'NEIGHBOR';
+  sources: Array<'DHCP' | 'ARP' | 'NEIGHBOR'>;
+}
+
 export interface IMikrotikClient {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
@@ -169,13 +238,22 @@ export interface IMikrotikClient {
   ): Promise<{ filename: string; size?: number; creationTime?: string }>;
   listBackups?(): Promise<RouterBackupItem[]>;
   downloadBackup?(filename: string): Promise<Buffer>;
+  restoreBackup?(
+    filename: string,
+    password?: string,
+  ): Promise<{ success: boolean; message: string; rebootTriggered: boolean }>;
   listInterfaces?(): Promise<RouterInterfaceItem[]>;
   listBridges?(): Promise<RouterBridgeItem[]>;
   listBridgePorts?(): Promise<RouterBridgePortItem[]>;
   listIpAddresses?(): Promise<RouterIpAddressItem[]>;
   listDhcpClients?(): Promise<RouterDhcpClientItem[]>;
   listDhcpServers?(): Promise<RouterDhcpServerItem[]>;
+  listDhcpLeases?(): Promise<RouterDhcpLeaseItem[]>;
+  listArpTable?(): Promise<RouterArpItem[]>;
+  listNeighbors?(): Promise<RouterNeighborItem[]>;
   listNatRules?(): Promise<RouterNatRuleItem[]>;
+  listMangleRules?(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>>;
+  listFilterRules?(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>>;
   listRoutes?(): Promise<RouterRouteItem[]>;
   listHotspotServers?(): Promise<RouterHotspotServerItem[]>;
   pingHost?(host: string, count?: number): Promise<RouterPingResult>;

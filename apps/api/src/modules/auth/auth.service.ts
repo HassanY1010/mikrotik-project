@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as crypto from 'crypto';
-import { TenantStatus, UserStatus, SubscriptionStatus } from '@prisma/client';
+import { TenantStatus, UserStatus, SubscriptionStatus, BillingCycle } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { HashingService } from '../../core/security/hashing.service';
 import { RoleName } from '@mikrotik-saas/shared-types';
@@ -92,8 +92,7 @@ export class AuthService {
           include: {
             subscriptions: {
               where: {
-                status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
-                expiresAt: { gt: new Date() },
+                status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL, SubscriptionStatus.EXPIRED] },
               },
               include: { plan: true },
               orderBy: { expiresAt: 'desc' },
@@ -202,10 +201,18 @@ export class AuthService {
     const activeSub = tenant?.subscriptions?.[0];
     const isSuperAdmin = user.role.name === RoleName.SUPER_ADMIN;
 
+    const isSubExpired = activeSub
+      ? (activeSub.status === SubscriptionStatus.EXPIRED || new Date(activeSub.expiresAt).getTime() <= Date.now())
+      : false;
+
     const subscriptionPlan = activeSub?.plan.name ?? (isSuperAdmin ? 'ENTERPRISE' : undefined);
     const subscriptionPlanAr = activeSub?.plan.nameAr ?? (isSuperAdmin ? 'باقة المشرف العام (شاملة)' : undefined);
     const subscriptionExpiresAt = activeSub?.expiresAt ?? (isSuperAdmin ? new Date(Date.now() + 3650 * 86400000) : undefined);
-    const subscriptionStatus = activeSub ? activeSub.status : (isSuperAdmin ? 'ACTIVE' : 'NONE');
+    const subscriptionStatus = isSuperAdmin
+      ? 'ACTIVE'
+      : (activeSub
+          ? (isSubExpired ? 'EXPIRED' : activeSub.status)
+          : 'NONE');
 
     // Generate tokens
     const tokens = await this.generateTokens({
@@ -312,6 +319,13 @@ export class AuthService {
     message: string;
     tenant: { id: string; name: string; slug: string };
     user: { id: string; email: string; fullName: string };
+    subscription: {
+      plan: string;
+      planNameAr: string;
+      status: string;
+      startsAt?: Date;
+      expiresAt?: Date;
+    };
   }> {
     const email = dto.adminEmail.toLowerCase().trim();
     const slug = dto.slug.toLowerCase().trim();
@@ -364,8 +378,69 @@ export class AuthService {
         },
       });
 
-      // 2. Note: Per project policy, new self-registered tenants do NOT receive an active
-      // paid subscription automatically. Subscriptions are activated exclusively by Super Admin.
+      // 2. Auto-provision 48-Hour Free Trial Subscription
+      // Fetch or automatically initialize the TRIAL subscription plan
+      let trialPlan = await tx.subscriptionPlan.findUnique({
+        where: { name: 'TRIAL' },
+      });
+
+      if (!trialPlan) {
+        trialPlan = await tx.subscriptionPlan.create({
+          data: {
+            name: 'TRIAL',
+            nameAr: 'الباقة التجريبية المجانية',
+            description: 'فترة تجريبية مجانية لمدة 48 ساعة تشمل جميع ميزات وصلاحيات النظام بالكامل لتجربة الخدمة',
+            maxRouters: 5,
+            priceMonthly: 0,
+            priceYearly: 0,
+            features: {
+              isUnlimited: true,
+              maxRouters: 5,
+              cardGenerationLimit: null,
+              thermalPrinting: true,
+              a4Printing: true,
+              basicReports: true,
+              advancedReports: true,
+              fullAnalytics: true,
+              multiCashier: true,
+              unlimitedCashiers: true,
+              customTemplates: true,
+              prioritySupport: true,
+              offlineSales: true,
+              pppoeManagement: true,
+              multiRouter: true,
+            },
+          },
+        });
+      }
+
+      // Idempotency: verify that no subscription already exists for this tenant
+      const existingSub = await tx.subscription.findFirst({
+        where: { tenantId: tenant.id },
+        include: { plan: true },
+      });
+
+      let trialSub = existingSub;
+      if (!existingSub) {
+        const startsAt = new Date(); // Normalized UTC timestamp
+        const TRIAL_DURATION_MS = 48 * 60 * 60 * 1000; // Exactly 48 hours from activation
+        const expiresAt = new Date(startsAt.getTime() + TRIAL_DURATION_MS);
+
+        trialSub = await tx.subscription.create({
+          data: {
+            tenantId: tenant.id,
+            planId: trialPlan.id,
+            status: SubscriptionStatus.TRIAL,
+            billingCycle: BillingCycle.MONTHLY,
+            startsAt,
+            expiresAt,
+            maxRouters: trialPlan.maxRouters,
+            price: 0,
+            notes: 'تفعيل تلقائي للباقة التجريبية المجانية لمدة 48 ساعة عند تسجيل الحساب',
+          },
+          include: { plan: true },
+        });
+      }
 
       // 3. Create Tenant Admin User with TENANT_ADMIN role
       const adminUser = await tx.user.create({
@@ -411,16 +486,27 @@ export class AuthService {
           action: 'tenant:registered',
           entity: 'Tenant',
           entityId: tenant.id,
-          newValues: { name: tenant.name, slug: tenant.slug, requestedPlan: plan?.name ?? requestedPlanName },
+          newValues: {
+            name: tenant.name,
+            slug: tenant.slug,
+            requestedPlan: plan?.name ?? requestedPlanName,
+            trialSubscription: {
+              plan: 'TRIAL',
+              planNameAr: 'الباقة التجريبية المجانية',
+              status: trialSub?.status ?? SubscriptionStatus.TRIAL,
+              startsAt: trialSub?.startsAt,
+              expiresAt: trialSub?.expiresAt,
+            },
+          },
           ipAddress,
         },
       });
 
-      return { tenant, user: adminUser };
+      return { tenant, user: adminUser, subscription: trialSub };
     });
 
     return {
-      message: 'تم تسجيل الشبكة بنجاح. الحساب جاهز للاستخدام الأساسي وبانتظار تفعيل الباقة من إدارة المنصة',
+      message: 'تم تسجيل الشبكة بنجاح وتفعيل الباقة التجريبية المجانية لمدة 48 ساعة مع وصول لكافة الميزات.',
       tenant: {
         id: result.tenant.id,
         name: result.tenant.name,
@@ -430,6 +516,13 @@ export class AuthService {
         id: result.user.id,
         email: result.user.email,
         fullName: result.user.fullName,
+      },
+      subscription: {
+        plan: (result.subscription as any)?.plan?.name ?? 'TRIAL',
+        planNameAr: (result.subscription as any)?.plan?.nameAr ?? 'الباقة التجريبية المجانية',
+        status: result.subscription?.status ?? SubscriptionStatus.TRIAL,
+        startsAt: result.subscription?.startsAt,
+        expiresAt: result.subscription?.expiresAt,
       },
     };
   }
@@ -1042,8 +1135,7 @@ export class AuthService {
           include: {
             subscriptions: {
               where: {
-                status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
-                expiresAt: { gt: new Date() },
+                status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL, SubscriptionStatus.EXPIRED] },
               },
               include: { plan: true },
               orderBy: { expiresAt: 'desc' },
@@ -1140,10 +1232,18 @@ export class AuthService {
     const activeSubscription = tenant?.subscriptions?.[0];
     const isSuperAdmin = user.role.name === RoleName.SUPER_ADMIN;
 
+    const isSubExpired = activeSubscription
+      ? (activeSubscription.status === SubscriptionStatus.EXPIRED || new Date(activeSubscription.expiresAt).getTime() <= Date.now())
+      : false;
+
     const subscriptionPlan = activeSubscription?.plan.name ?? (isSuperAdmin ? 'ENTERPRISE' : undefined);
     const subscriptionPlanAr = activeSubscription?.plan.nameAr ?? (isSuperAdmin ? 'باقة المشرف العام (شاملة)' : undefined);
     const subscriptionExpiresAt = activeSubscription?.expiresAt ?? (isSuperAdmin ? new Date(Date.now() + 3650 * 86400000) : undefined);
-    const subscriptionStatus = activeSubscription ? activeSubscription.status : (isSuperAdmin ? 'ACTIVE' : 'NONE');
+    const subscriptionStatus = isSuperAdmin
+      ? 'ACTIVE'
+      : (activeSubscription
+          ? (isSubExpired ? 'EXPIRED' : activeSubscription.status)
+          : 'NONE');
 
     return {
       id: user.id,

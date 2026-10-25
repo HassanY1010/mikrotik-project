@@ -168,6 +168,14 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         onOpenSync: () => _pushScreen(const SyncScreen()),
         onOpenShift: () => _pushScreen(const ShiftSummaryScreen()),
         onOpenRouterSetup: () => _pushScreen(const RouterSetupScreen()),
+        onOpenRouterProvisioning: () {
+          final selectedId = ref.read(selectedRouterIdProvider);
+          final routers = ref.read(routersProvider).asData?.value ?? [];
+          final selectedRouter = (selectedId != null && routers.isNotEmpty)
+              ? (routers.where((r) => r.id == selectedId).firstOrNull ?? routers.first)
+              : (routers.isNotEmpty ? routers.first : null);
+          _pushScreen(RouterSetupScreen(router: selectedRouter));
+        },
         onOpenCloudWallet: () => _pushScreen(const ProfileWalletScreen()),
         onOpenTemplates: () => _pushScreen(const CardTemplatesScreen()),
         onOpenProfiles: () => _pushScreen(const HotspotProfilesScreen()),

@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ProvisionPreviewDto } from './provision-preview.dto';
 
@@ -42,4 +42,15 @@ export class ProvisionApplyDto extends ProvisionPreviewDto {
   @IsBoolean()
   @IsOptional()
   updateRouterHostIfChanged?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Optional custom password for the pre-configuration backup (useful for lab / offline manual recovery)',
+    example: 'LabSecret2026!',
+  })
+  @IsString()
+  @IsOptional()
+  @MinLength(8, { message: 'يجب ألا تقل كلمة مرور النسخة الاحتياطية عن 8 خانات' })
+  @MaxLength(64, { message: 'يجب ألا تتجاوز كلمة مرور النسخة الاحتياطية 64 خانة' })
+  customBackupPassword?: string;
 }
+

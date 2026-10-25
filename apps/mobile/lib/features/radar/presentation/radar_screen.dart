@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
@@ -17,6 +18,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
   Timer? _autoRefreshTimer;
   String _searchQuery = '';
   String? _kickingSessionId;
+  final Set<String> _expandedSessionIds = {};
 
   @override
   void initState() {
@@ -26,8 +28,8 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
       duration: const Duration(seconds: 3),
     )..repeat();
 
-    // Auto-refresh sessions periodically every 20 seconds while mounted
-    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+    // Auto-refresh sessions periodically every 15 seconds while mounted
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted && _kickingSessionId == null) {
         ref.read(activeSessionsProvider.notifier).refresh();
       }
@@ -54,7 +56,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'قطع اتصال المستخدم',
+                'قطع اتصال المشترك',
                 style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
@@ -65,7 +67,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'هل تريد بالتأكيد فصل المستخدم التالي من شبكة HotSpot؟',
+              'هل تريد بالتأكيد فصل المشترك التالي من راوتر MikroTik؟',
               style: TextStyle(color: Color(0xFFE2E8F0), fontSize: 13, height: 1.4),
             ),
             const SizedBox(height: 12),
@@ -79,22 +81,29 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('اسم المستخدم: ${session.user}',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text(
+                    'اسم المستخدم / الكرت: ${session.user}',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
                   const SizedBox(height: 4),
                   Text('عنوان IP: ${session.address}',
                       style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
                   if (session.macAddress.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text('الماك MAC: ${session.macAddress}',
+                    Text('عنوان MAC: ${session.macAddress}',
                         style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  ],
+                  if (session.deviceName != null && session.deviceName!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text('الراوتر: ${session.deviceName}',
+                        style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 11)),
                   ],
                 ],
               ),
             ),
             const SizedBox(height: 12),
             const Text(
-              'سيتم إنهاء جلسة الاتصال النشطة لهذا المستخدم على الراوتر.',
+              'سيتم إنهاء الجلسة الحالية وإيقاف الاتصال فورياً على الراوتر.',
               style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
             ),
           ],
@@ -132,8 +141,8 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
           SnackBar(
             content: Text(
               success
-                  ? 'تم فصل المستخدم "${session.user}" من شبكة HotSpot بنجاح.'
-                  : (result['message']?.toString() ?? 'فشل فصل المستخدم'),
+                  ? 'تم فصل المشترك "${session.user}" بنجاح.'
+                  : (result['message']?.toString() ?? 'فشل فصل المشترك'),
             ),
             backgroundColor: success ? const Color(0xFF10B981) : Colors.redAccent,
             duration: const Duration(seconds: 4),
@@ -143,11 +152,24 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
     }
   }
 
+  void _copyToClipboard(String text, String label) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('تم نسخ $label: $text'),
+        backgroundColor: const Color(0xFF0284C7),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final sessionsAsync = ref.watch(activeSessionsProvider);
     final routersAsync = ref.watch(routersProvider);
     final selectedRouterId = ref.watch(selectedRouterIdProvider);
+    final lastUpdated = ref.watch(radarLastUpdatedProvider);
+    final routerStatuses = ref.watch(radarRouterStatusesProvider);
 
     return Scaffold(
       backgroundColor: context.bgScaffold,
@@ -169,7 +191,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'رادار جلسات Hotspot',
+                  'رادار المشتركين المتصلين',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -177,8 +199,8 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                   ),
                 ),
                 Text(
-                  'مراقبة الجلسات الحية والتحكم في الاتصال',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                  'مراقبة لحظية لاستهلاك وباقات المشتركين',
+                  style: TextStyle(fontSize: 11, color: context.textSecondary),
                 ),
               ],
             ),
@@ -188,22 +210,26 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
             onPressed: () => ref.read(activeSessionsProvider.notifier).refresh(),
-            tooltip: 'تحديث جلسات Hotspot',
+            tooltip: 'تحديث البيانات الآن',
           ),
         ],
       ),
       body: Column(
         children: [
           // Radar Header with router switcher & visualizer
-          _buildRadarHeaderVisualizer(routersAsync, selectedRouterId, sessionsAsync),
+          _buildRadarHeaderVisualizer(routersAsync, selectedRouterId, sessionsAsync, lastUpdated),
 
-          // Search bar
+          // Unreachable Routers Warning Banner (if any router failed)
+          if (routerStatuses.any((r) => !r.isOnline))
+            _buildUnreachableBanner(routerStatuses.where((r) => !r.isOnline).toList()),
+
+          // Search and Filter Bar
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
               style: TextStyle(color: context.textPrimary),
               decoration: InputDecoration(
-                hintText: 'بحث باسم المستخدم أو IP أو MAC...',
+                hintText: 'بحث باسم المشترك، الكرت، IP، MAC أو البروفايل...',
                 hintStyle: TextStyle(color: context.textSecondary, fontSize: 13),
                 prefixIcon: const Icon(Icons.search, color: Color(0xFF38BDF8)),
                 suffixIcon: _searchQuery.isNotEmpty
@@ -245,39 +271,56 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                     if (cleanQuery.isEmpty) return true;
                     final userMatch = s.user.toLowerCase().contains(cleanQuery);
                     final ipMatch = s.address.toLowerCase().contains(cleanQuery);
+                    final profileMatch = s.profileName.toLowerCase().contains(cleanQuery);
                     final macRaw = s.macAddress.toLowerCase();
                     final cleanMacRaw = macRaw.replaceAll(RegExp(r'[:-]'), '');
                     final macMatch = macRaw.contains(cleanQuery) ||
                         (cleanMacQuery.length > 2 && cleanMacRaw.contains(cleanMacQuery));
-                    return userMatch || ipMatch || macMatch;
+                    return userMatch || ipMatch || macMatch || profileMatch;
                   }).toList();
 
                   if (filtered.isEmpty) {
                     return Center(
                       child: SingleChildScrollView(
                         physics: const AlwaysScrollableScrollPhysics(),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _searchQuery.isEmpty ? Icons.wifi_tethering_off : Icons.search_off,
-                              size: 54,
-                              color: Colors.grey.shade600,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _searchQuery.isEmpty
-                                  ? 'لا يوجد مستخدمون متصلون حالياً على هذا الراوتر'
-                                  : 'لا توجد نتائج تطابق بحثك عن "$_searchQuery"',
-                              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
-                            ),
-                            const SizedBox(height: 8),
-                            TextButton.icon(
-                              icon: const Icon(Icons.sync, color: Color(0xFF38BDF8), size: 16),
-                              label: const Text('تحديث القائمة الآن', style: TextStyle(color: Color(0xFF38BDF8))),
-                              onPressed: () => ref.read(activeSessionsProvider.notifier).refresh(),
-                            ),
-                          ],
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _searchQuery.isEmpty ? Icons.wifi_tethering_off : Icons.search_off,
+                                size: 54,
+                                color: context.textSecondary,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                _searchQuery.isEmpty
+                                    ? 'لا يوجد مشتركين متصلين حالياً على هذا الراوتر'
+                                    : 'لا توجد نتائج تطابق بحثك عن "$_searchQuery"',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: context.textPrimary, fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                _searchQuery.isEmpty
+                                    ? 'سيتم تحديث القائمة تلقائياً عند اتصال أي جهاز جديد.'
+                                    : 'تأكد من كتابة الاسم أو رقم الكرت أو عنوان الماك بشكل صحيح.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: context.textSecondary, fontSize: 12),
+                              ),
+                              const SizedBox(height: 14),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF0284C7),
+                                  foregroundColor: Colors.white,
+                                ),
+                                icon: const Icon(Icons.sync, size: 18),
+                                label: const Text('تحديث القائمة الآن'),
+                                onPressed: () => ref.read(activeSessionsProvider.notifier).refresh(),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -340,6 +383,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
     AsyncValue<List<RouterDeviceModel>> routersAsync,
     String? selectedRouterId,
     AsyncValue<List<ActiveSessionModel>> sessionsAsync,
+    DateTime? lastUpdated,
   ) {
     final count = sessionsAsync.asData?.value.length ?? 0;
     final routers = routersAsync.asData?.value ?? [];
@@ -350,6 +394,14 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
         (r) => r.id == selectedRouterId,
         orElse: () => routers.first,
       );
+    }
+
+    String timeStr = 'منذ لحظات';
+    if (lastUpdated != null) {
+      final h = lastUpdated.hour.toString().padLeft(2, '0');
+      final m = lastUpdated.minute.toString().padLeft(2, '0');
+      final s = lastUpdated.second.toString().padLeft(2, '0');
+      timeStr = '$h:$m:$s';
     }
 
     return Container(
@@ -369,8 +421,8 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                 animation: _animController,
                 builder: (context, child) {
                   return Container(
-                    width: 70,
-                    height: 70,
+                    width: 72,
+                    height: 72,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
@@ -429,29 +481,48 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                     currentRouter != null
                         ? '${currentRouter.name} - ${currentRouter.modelName ?? 'MikroTik'}'
                         : 'جاري تحديد الراوتر...',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: context.textPrimary,
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
                     ),
                   ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF06B6D4).withValues(alpha: 0.2),
+                        color: const Color(0xFF06B6D4).withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Text(
-                        '$count جهاز متصل الآن',
-                        style: const TextStyle(
-                          color: Color(0xFF22D3EE),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Color(0xFF10B981),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '$count مشترك متصل الآن',
+                            style: const TextStyle(
+                              color: Color(0xFF22D3EE),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
                       ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'آخر تحديث: $timeStr',
+                      style: TextStyle(color: context.textSecondary, fontSize: 10),
                     ),
                   ],
                 ),
@@ -463,29 +534,95 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
     );
   }
 
+  Widget _buildUnreachableBanner(List<RouterConnectionStatus> unreachable) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.amber.shade900.withValues(alpha: 0.25),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'تعذر جلب بيانات من: ${unreachable.map((r) => r.name).join(', ')} (انقطاع الراوتر)',
+              style: const TextStyle(color: Colors.amber, fontSize: 12),
+            ),
+          ),
+          TextButton(
+            onPressed: () => ref.read(activeSessionsProvider.notifier).refresh(),
+            child: const Text('إعادة المحاولة', style: TextStyle(color: Colors.white, fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSessionCard(ActiveSessionModel session) {
     final isKicking = _kickingSessionId == session.id;
+    final isExpanded = _expandedSessionIds.contains(session.id);
+
+    // Dynamic progress color based on consumption percentage
+    final percentage = session.consumptionPercentage ?? 0.0;
+    Color progressColor = const Color(0xFF06B6D4);
+    if (session.isQuotaExhausted) {
+      progressColor = Colors.redAccent;
+    } else if (percentage >= 80) {
+      progressColor = Colors.orangeAccent;
+    }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: context.bgCard,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: context.borderColor),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: session.isQuotaExhausted ? Colors.redAccent.withValues(alpha: 0.5) : context.borderColor,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 4,
+            blurRadius: 6,
             offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Row 1: User / Voucher, Status indicator, and Disconnect button
           Row(
             children: [
-              // Power Disconnect Button
+              // Online Glowing Dot + Username
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF10B981),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.6),
+                      blurRadius: 6,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  session.user,
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+
+              // Disconnect (Kick) Button
               IconButton(
                 onPressed: isKicking ? null : () => _handleKick(session),
                 icon: isKicking
@@ -494,86 +631,301 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.redAccent),
                       )
-                    : const Icon(Icons.power_settings_new, color: Colors.redAccent, size: 26),
-                tooltip: 'فصل وقطع الاتصال',
-              ),
-              const SizedBox(width: 8),
-              // User and IP
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      session.user,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'IP: ${session.address}',
-                      style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 13, fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              ),
-              // Device Icon Box
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF38BDF8).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.devices, color: Color(0xFF38BDF8), size: 22),
+                    : const Icon(Icons.power_settings_new, color: Colors.redAccent, size: 24),
+                tooltip: 'فصل الاتصال من الراوتر',
               ),
             ],
           ),
+
+          const SizedBox(height: 6),
+
+          // Row 2: Badges (Router Name, Profile Name, Speed Limits)
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              if (session.deviceName != null && session.deviceName!.isNotEmpty)
+                _buildBadge(
+                  icon: Icons.router,
+                  text: session.deviceName!,
+                  color: const Color(0xFF38BDF8),
+                ),
+              _buildBadge(
+                icon: Icons.card_membership,
+                text: session.profileName,
+                color: const Color(0xFFA855F7),
+              ),
+              _buildBadge(
+                icon: Icons.speed,
+                text: session.formattedSpeed,
+                color: const Color(0xFFF59E0B),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Row 3: Data Consumption Progress Section
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: context.bgCardAlt,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.borderColor),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.data_usage, color: Color(0xFF06B6D4), size: 16),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'استهلاك الباقة:',
+                          style: TextStyle(color: Color(0xFFE2E8F0), fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      'المتبقي: ${session.formattedRemaining}',
+                      style: TextStyle(
+                        color: session.isQuotaExhausted ? Colors.redAccent : const Color(0xFF10B981),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (!session.isUnlimitedQuota && !session.isUnknownQuota) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: (percentage / 100).clamp(0.0, 1.0),
+                      minHeight: 6,
+                      backgroundColor: Colors.grey.shade800,
+                      valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'المستهلك: ${session.formattedConsumed}',
+                      style: TextStyle(color: context.textSecondary, fontSize: 11),
+                    ),
+                    Text(
+                      'الإجمالي: ${session.formattedTotalQuota}',
+                      style: TextStyle(color: context.textSecondary, fontSize: 11),
+                    ),
+                    if (session.consumptionPercentage != null)
+                      Text(
+                        '${session.consumptionPercentage!.toStringAsFixed(1)}%',
+                        style: TextStyle(color: progressColor, fontWeight: FontWeight.bold, fontSize: 11),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
           const SizedBox(height: 10),
-          Divider(color: context.borderColor, height: 1),
-          const SizedBox(height: 10),
+
+          // Row 4: Session Uptime & Remaining Duration
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Total Data Usage
               Row(
                 children: [
-                  const Icon(Icons.sync, color: Color(0xFF10B981), size: 14),
+                  const Icon(Icons.timer_outlined, color: Color(0xFF38BDF8), size: 15),
                   const SizedBox(width: 4),
                   Text(
-                    'MB ${session.totalMb.toStringAsFixed(1)}',
-                    style: const TextStyle(
-                      color: Color(0xFF10B981),
-                      fontWeight: FontWeight.bold,
+                    'الجلسة: ${session.uptime}',
+                    style: TextStyle(color: context.textPrimary, fontSize: 12),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  const Icon(Icons.hourglass_bottom, color: Color(0xFFF59E0B), size: 15),
+                  const SizedBox(width: 4),
+                  Text(
+                    'الوقت: ${session.formattedRemainingTime}',
+                    style: TextStyle(
+                      color: session.isExpired ? Colors.redAccent : context.textPrimary,
                       fontSize: 12,
                     ),
                   ),
                 ],
               ),
-              // Uptime
-              Row(
-                children: [
-                  const Icon(Icons.timer_outlined, color: Color(0xFF94A3B8), size: 14),
-                  const SizedBox(width: 4),
-                  Text(
-                    session.uptime,
-                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // Row 5: IP and MAC Addresses with Tap-to-Copy
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              InkWell(
+                onTap: () => _copyToClipboard(session.address, 'عنوان IP'),
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.language, color: Color(0xFF94A3B8), size: 14),
+                      const SizedBox(width: 4),
+                      Text(
+                        'IP: ${session.address}',
+                        style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-              // MAC Address
-              Row(
-                children: [
-                  const Icon(Icons.fingerprint, color: Color(0xFF94A3B8), size: 14),
-                  const SizedBox(width: 4),
-                  Text(
-                    session.macAddress,
-                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+              InkWell(
+                onTap: () => _copyToClipboard(session.macAddress, 'عنوان MAC'),
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.fingerprint, color: Color(0xFF94A3B8), size: 14),
+                      const SizedBox(width: 4),
+                      Text(
+                        session.macAddress,
+                        style: TextStyle(color: context.textSecondary, fontSize: 11),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ],
+          ),
+
+          // Row 6: Expandable Details Section
+          const SizedBox(height: 6),
+          Divider(color: context.borderColor, height: 1),
+          const SizedBox(height: 4),
+
+          InkWell(
+            onTap: () {
+              setState(() {
+                if (isExpanded) {
+                  _expandedSessionIds.remove(session.id);
+                } else {
+                  _expandedSessionIds.add(session.id);
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    isExpanded ? 'طي التفاصيل الإضافية' : 'عرض التفاصيل الإضافية',
+                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.w600),
+                  ),
+                  Icon(
+                    isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    color: const Color(0xFF38BDF8),
+                    size: 16,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          if (isExpanded) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: context.bgCardAlt,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: context.borderColor),
+              ),
+              child: Column(
+                children: [
+                  _buildDetailRow('معرف الجلسة:', session.sessionId ?? 'غير متاح'),
+                  _buildDetailRow('خادم الهوتسبوت:', session.server ?? 'hotspot1'),
+                  _buildDetailRow('طريقة الدخول:', session.loginBy ?? 'تلقائي / كرت'),
+                  _buildDetailRow('محدد السرعة (Rate-Limit):', session.rateLimit ?? 'غير محدد (مفتوح)'),
+                  _buildDetailRow('حجم الرفع (Upload):', ActiveSessionModel.formatBytes(session.bytesIn)),
+                  _buildDetailRow('حجم التنزيل (Download):', ActiveSessionModel.formatBytes(session.bytesOut)),
+                  if (session.timeLimit != null)
+                    _buildDetailRow('الحد الزمني للباقة:', session.timeLimit!),
+                  if (session.expiresAt != null)
+                    _buildDetailRow('تاريخ الانتهاء:', session.expiresAt!.substring(0, 10)),
+                  _buildDetailRow(
+                    'حالة الباقة:',
+                    session.isQuotaExhausted
+                        ? 'مستنفدة بالكامل'
+                        : (session.isExpired ? 'منتهية الصلاحية' : 'نشطة وجارية'),
+                    valueColor: (session.isQuotaExhausted || session.isExpired)
+                        ? Colors.redAccent
+                        : const Color(0xFF10B981),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBadge({
+    required IconData icon,
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, {Color? valueColor}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: context.textSecondary, fontSize: 11)),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                color: valueColor ?? context.textPrimary,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),

@@ -422,22 +422,29 @@ export class MockRouterWorker implements IRouterWorker {
       throw new Error('No files provided for HotSpot portal deployment.');
     }
 
+    const stagingDir = `${dir}-staging`;
     const written: string[] = [];
     for (const file of payload.files) {
-      if (!file.name || !/^[a-zA-Z0-9_.-]+$/.test(file.name)) {
-        throw new Error(`Invalid file name: "${file.name}".`);
+      const cleanName = (file.name ?? '').replace(/^\/+/, '').trim();
+      if (!cleanName || cleanName.includes('..') || !/^[a-zA-Z0-9_./-]+$/.test(cleanName)) {
+        throw new Error(`Invalid file name: "${file.name}". Must be safe relative path.`);
       }
-      const fullPath = `${dir}/${file.name}`;
+      const fullPath = `${stagingDir}/${cleanName}`;
       this.hotspotFiles.set(fullPath, file.content ?? '');
-      written.push(file.name);
+      written.push(cleanName);
     }
 
     return {
       published: true,
       directory: dir,
+      stagingDirectory: stagingDir,
       filesWritten: written,
-      profileUpdated: payload.applyToProfile,
-      message: `Successfully published ${written.length} files to directory "${dir}"`,
+      filesVerified: written,
+      profileUpdated: payload.applyToProfile ?? 'hsprof1',
+      originalProfileName: payload.applyToProfile ?? 'hsprof1',
+      originalHtmlDirectory: dir,
+      rollbackSupported: true,
+      message: `Successfully published ${written.length} files to directory "${stagingDir}"`,
     };
   }
 

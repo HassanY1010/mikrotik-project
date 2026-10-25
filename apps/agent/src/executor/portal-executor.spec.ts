@@ -40,9 +40,10 @@ describe('Hotspot Portal Command Executor (Task 5.1)', () => {
     expect(res.result!.profileUpdated).toBe('hsprof1');
 
     // Verify stored in mock worker
-    expect(worker.hasHotspotFile('hotspot-sudafi/login.html')).toBe(true);
-    expect(worker.getHotspotFile('hotspot-sudafi/login.html')).toContain('$(link-login-only)');
-    expect(worker.getHotspotFile('hotspot-sudafi/style.css')).toBe('body { background: #0f172a; }');
+    expect(res.result!.stagingDirectory).toBe('hotspot-sudafi-staging');
+    expect(worker.hasHotspotFile('hotspot-sudafi-staging/login.html')).toBe(true);
+    expect(worker.getHotspotFile('hotspot-sudafi-staging/login.html')).toContain('$(link-login-only)');
+    expect(worker.getHotspotFile('hotspot-sudafi-staging/style.css')).toBe('body { background: #0f172a; }');
   });
 
   it('should fail when files payload is missing or empty', async () => {

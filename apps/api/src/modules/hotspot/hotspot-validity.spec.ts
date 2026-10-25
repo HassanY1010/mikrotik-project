@@ -49,6 +49,9 @@ describe('Hotspot Validity Duration Integration & MikroTik Provisioning (m, h, d
       createMany: jest.fn().mockResolvedValue({ count: 10 }),
       updateMany: jest.fn().mockResolvedValue({ count: 10 }),
     },
+    user: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'u1', role: { name: 'OWNER' } }),
+    },
     $transaction: jest.fn((cb) => cb(mockPrisma)),
   };
 

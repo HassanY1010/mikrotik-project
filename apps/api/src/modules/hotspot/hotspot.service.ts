@@ -12,13 +12,26 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { HotspotActiveSessionItem } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
+import {
+  HotspotActiveSessionItem,
+  HotspotUserItem,
+} from '../../core/mikrotik/interfaces/mikrotik-client.interface';
 import {
   formatValidityDurationArabic,
   normalizeValidityDuration,
 } from '../../common/utils/validity-duration.util';
 import { RoleName } from '@mikrotik-saas/shared-types';
 import type { RequestUser } from '../../core/decorators/current-user.decorator';
+import {
+  parseRateLimit,
+  calculateConsumptionAndQuota,
+  calculateValidityAndTime,
+} from './utils/hotspot-parser.util';
+import {
+  EnrichedHotspotSessionDto,
+  HotspotActiveSessionsResponseDto,
+  RouterConnectionStatusDto,
+} from './dto/enriched-hotspot-session.dto';
 
 @Injectable()
 export class HotspotService {
@@ -719,7 +732,7 @@ export class HotspotService {
     deviceId?: string,
     search?: string,
     currentUser?: RequestUser,
-  ): Promise<{ data: (HotspotActiveSessionItem & { deviceId: string; deviceName: string })[]; total: number }> {
+  ): Promise<HotspotActiveSessionsResponseDto> {
     let resolvedTenantId = tenantId;
     if (!resolvedTenantId) {
       const first = await this.prisma.tenant.findFirst({
@@ -730,7 +743,14 @@ export class HotspotService {
     }
 
     if (!resolvedTenantId) {
-      return { data: [], total: 0 };
+      return {
+        data: [],
+        total: 0,
+        meta: {
+          lastUpdated: new Date().toISOString(),
+          routers: [],
+        },
+      };
     }
 
     const deviceWhere: Prisma.MikroTikDeviceWhereInput = {
@@ -754,7 +774,14 @@ export class HotspotService {
       });
       const assignedIds = assigned.map((a) => a.deviceId);
       if (assignedIds.length === 0) {
-        return { data: [], total: 0 };
+        return {
+          data: [],
+          total: 0,
+          meta: {
+            lastUpdated: new Date().toISOString(),
+            routers: [],
+          },
+        };
       }
       deviceWhere.id = { in: assignedIds };
     }
@@ -763,7 +790,14 @@ export class HotspotService {
       where: deviceWhere,
     });
 
-    const results: (HotspotActiveSessionItem & { deviceId: string; deviceName: string })[] = [];
+    const routerStatuses: Record<string, RouterConnectionStatusDto> = {};
+    const rawDeviceSessions: {
+      device: (typeof devices)[0];
+      client?: any;
+      session: HotspotActiveSessionItem;
+      routerUser?: HotspotUserItem;
+    }[] = [];
+    const allUsernames = new Set<string>();
 
     for (const device of devices) {
       try {
@@ -780,17 +814,202 @@ export class HotspotService {
           authTag: device.authTag,
           rosVersion: device.rosVersion,
         });
+
         const sessions = await client.listActiveSessions();
-        for (const s of sessions) {
-          results.push({
-            ...s,
-            deviceId: device.id,
-            deviceName: device.name,
-          });
+        routerStatuses[device.id] = {
+          id: device.id,
+          name: device.name,
+          status: 'online',
+        };
+
+        // Query router users to access cumulative closed-session counters (bytes-in/out)
+        let routerUsers: HotspotUserItem[] = [];
+        if (sessions.length > 0 && typeof client.listHotspotUsers === 'function') {
+          try {
+            routerUsers = await client.listHotspotUsers();
+          } catch (uErr: any) {
+            this.logger.debug(
+              `Could not fetch hotspot users from router ${device.id}: ${uErr instanceof Error ? uErr.message : String(uErr)}`,
+            );
+          }
         }
-      } catch (err) {
-        this.logger.debug(`Could not poll live sessions from device ${device.id} (${device.name}): ${err}`);
+        const userMap = new Map<string, HotspotUserItem>();
+        for (const u of routerUsers) {
+          if (u.name) userMap.set(u.name, u);
+        }
+
+        for (const s of sessions) {
+          const routerUser = userMap.get(s.user);
+          rawDeviceSessions.push({ device, client, session: s, routerUser });
+          if (s.user) {
+            allUsernames.add(s.user);
+          }
+        }
+      } catch (err: any) {
+        const errMessage = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Could not poll live sessions from device ${device.id} (${device.name}): ${errMessage}`);
+        routerStatuses[device.id] = {
+          id: device.id,
+          name: device.name,
+          status: 'unreachable',
+          error: errMessage,
+        };
       }
+    }
+
+    // Batch query linked cards and profiles in DB for this tenant
+    const usernamesList = Array.from(allUsernames);
+    const [cards, tenantProfiles] = await Promise.all([
+      usernamesList.length > 0
+        ? this.prisma.card.findMany({
+            where: {
+              tenantId: resolvedTenantId,
+              username: { in: usernamesList },
+            },
+            include: {
+              profile: true,
+              batch: true,
+            },
+          })
+        : [],
+      this.prisma.hotspotProfile.findMany({
+        where: { tenantId: resolvedTenantId },
+      }),
+    ]);
+
+    const cardMap = new Map<string, (typeof cards)[0]>();
+    for (const card of cards) {
+      cardMap.set(card.username, card);
+    }
+
+    const profileMapByName = new Map<string, (typeof tenantProfiles)[0]>();
+    for (const p of tenantProfiles) {
+      profileMapByName.set(p.name, p);
+    }
+
+    const results: EnrichedHotspotSessionDto[] = [];
+    const nowIso = new Date().toISOString();
+
+    for (const { device, client, session: s, routerUser } of rawDeviceSessions) {
+      const card = cardMap.get(s.user);
+      const matchedProfile =
+        card?.profile ||
+        profileMapByName.get(card?.profile?.name || '') ||
+        profileMapByName.get('default');
+
+      const profileName = card?.profile?.name || matchedProfile?.name || 'default';
+      const rawRateLimit = card?.profile?.rateLimit || matchedProfile?.rateLimit || null;
+      const parsedRates = parseRateLimit(rawRateLimit);
+
+      const consumption = calculateConsumptionAndQuota({
+        sessionBytesIn: s.bytesIn,
+        sessionBytesOut: s.bytesOut,
+        cumulativeUserBytesIn: routerUser?.bytesIn ?? null,
+        cumulativeUserBytesOut: routerUser?.bytesOut ?? null,
+        cardDataLimitBytes: card?.dataLimitBytes ?? null,
+        profileDataLimitBytes: matchedProfile?.dataLimitBytes ?? null,
+        routerLimitBytesTotal: s.limitBytesTotal ?? routerUser?.limitBytesTotal ?? null,
+        hasKnownPlanOrProfile: Boolean(card || matchedProfile),
+      });
+
+      const validity = calculateValidityAndTime({
+        uptimeStr: s.uptime,
+        sessionTimeLeftStr: s.sessionTimeLeft,
+        cardActivatedAt: card?.activatedAt,
+        cardExpiresAt: card?.expiresAt,
+        cardTimeLimit: card?.timeLimit,
+        profileSessionTimeout: matchedProfile?.sessionTimeout,
+        validityDays: card?.validityDays,
+      });
+
+      // 1. If card was not activated yet and is now running an active session, record first login & expiration
+      if (card && !card.activatedAt) {
+        const activatedAt = new Date();
+        const updateData: any = {
+          activatedAt,
+          status: 'ACTIVE',
+        };
+        if (card.validityDays && !card.expiresAt) {
+          updateData.expiresAt = new Date(activatedAt.getTime() + card.validityDays * 86400 * 1000);
+          card.expiresAt = updateData.expiresAt;
+        }
+        card.activatedAt = activatedAt;
+        card.status = 'ACTIVE' as any;
+        if (typeof (this.prisma.card as any)?.update === 'function') {
+          this.prisma.card
+            .update({
+              where: { id: card.id },
+              data: updateData,
+            })
+            .catch((err) => this.logger.debug(`Could not update card activation: ${err.message}`));
+        }
+      }
+
+      // 2. If card is expired or validity.isExpired, kick session and disable user on router
+      if (card && ((card.expiresAt && card.expiresAt.getTime() <= Date.now()) || validity.isExpired)) {
+        if (client) {
+          if (typeof client.removeActiveSession === 'function') {
+            client.removeActiveSession(s.id || s.sessionId).catch(() => {});
+          }
+          if (typeof client.disableHotspotUser === 'function') {
+            client.disableHotspotUser(card.username).catch(() => {});
+          }
+        }
+        if (card.status !== ('EXPIRED' as any)) {
+          if (typeof (this.prisma.card as any)?.update === 'function') {
+            this.prisma.card
+              .update({
+                where: { id: card.id },
+                data: { status: 'EXPIRED' },
+              })
+              .catch(() => {});
+          }
+        }
+      }
+
+      results.push({
+        id: s.id || s.sessionId || `${device.id}_${s.user}`,
+        user: s.user || 'مستخدم',
+        address: s.address || '',
+        macAddress: s.macAddress || '',
+        uptime: validity.sessionUptime,
+        uptimeSeconds: validity.sessionUptimeSeconds,
+        bytesIn: s.bytesIn || 0,
+        bytesOut: s.bytesOut || 0,
+        sessionId: s.sessionId,
+        server: s.server,
+        loginBy: s.loginBy,
+
+        deviceId: device.id,
+        deviceName: device.name,
+        routerStatus: 'online',
+
+        profileName,
+        rateLimit: rawRateLimit,
+        downloadSpeedLimit: parsedRates.downloadSpeedLimit,
+        uploadSpeedLimit: parsedRates.uploadSpeedLimit,
+        downloadSpeedLimitBps: parsedRates.downloadSpeedLimitBps,
+        uploadSpeedLimitBps: parsedRates.uploadSpeedLimitBps,
+        isUnlimitedSpeed: parsedRates.isUnlimitedSpeed,
+
+        totalQuotaBytes: consumption.totalQuotaBytes,
+        consumedBytes: consumption.consumedBytes,
+        remainingBytes: consumption.remainingBytes,
+        consumptionPercentage: consumption.consumptionPercentage,
+        isUnlimitedQuota: consumption.isUnlimitedQuota,
+        isQuotaExhausted: consumption.isQuotaExhausted,
+        isUnknownQuota: consumption.isUnknownQuota,
+
+        timeLimit: validity.timeLimit,
+        sessionTimeLeft: validity.sessionTimeLeft,
+        remainingTimeSeconds: validity.remainingTimeSeconds,
+        expiresAt: validity.expiresAt,
+        isUnlimitedTime: validity.isUnlimitedTime,
+        isExpired: validity.isExpired,
+
+        connectionStatus: 'connected',
+        lastSeen: nowIso,
+      });
     }
 
     // Apply filtering if search parameter provided
@@ -801,14 +1020,23 @@ export class HotspotService {
       filtered = results.filter((s) => {
         const userMatch = s.user.toLowerCase().includes(query);
         const ipMatch = s.address.toLowerCase().includes(query);
+        const profileMatch = s.profileName.toLowerCase().includes(query);
         const macRaw = s.macAddress.toLowerCase();
         const cleanMacRaw = macRaw.replace(/[:-]/g, '');
-        const macMatch = macRaw.includes(query) || (cleanMacQuery.length > 2 && cleanMacRaw.includes(cleanMacQuery));
-        return userMatch || ipMatch || macMatch;
+        const macMatch =
+          macRaw.includes(query) || (cleanMacQuery.length > 2 && cleanMacRaw.includes(cleanMacQuery));
+        return userMatch || ipMatch || macMatch || profileMatch;
       });
     }
 
-    return { data: filtered, total: filtered.length };
+    return {
+      data: filtered,
+      total: filtered.length,
+      meta: {
+        lastUpdated: nowIso,
+        routers: Object.values(routerStatuses),
+      },
+    };
   }
 
   async kickTenantSession(

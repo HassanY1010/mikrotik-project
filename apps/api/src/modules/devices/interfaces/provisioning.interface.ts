@@ -53,6 +53,9 @@ export interface RouterDiscoverySnapshot {
   dhcpClients: RouterDhcpClientItem[];
   dhcpServers: RouterDhcpServerItem[];
   natRules: RouterNatRuleItem[];
+  mangleRules?: Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>;
+  filterRules?: Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>;
+  hotspotUserProfiles?: Array<{ id?: string; name: string; sharedUsers?: number; rateLimit?: string }>;
   routes: RouterRouteItem[];
   hotspotServers: RouterHotspotServerItem[];
 }
@@ -78,6 +81,26 @@ export interface PlannedProvisioningStep {
   description: string;
 }
 
+export interface SecurityPoliciesConfig {
+  antiTethering?: boolean; // TTL Lock (new-ttl=1 on client downstream)
+  clientIsolation?: boolean; // Bridge port horizon=1 (L2 isolation)
+  protectManagementAccess?: boolean; // Drop Hotspot port 22,23,8291,8728,8729
+  forceRouterDns?: boolean; // Redirect port 53 to router
+  enforceSingleDevice?: boolean; // shared-users=1 + mac-cookie
+  blockUnauthenticatedBypass?: boolean; // Drop unauthorized forward bypass
+}
+
+export interface SecurityPolicyReportItem {
+  id: string;
+  name: string;
+  category: 'SHARING_PREVENTION' | 'ACCESS_CONTROL' | 'ACCOUNTING_PROTECTION';
+  status: 'ACTIVE_ON_ROUTER' | 'PROPOSED' | 'DISABLED' | 'UNSUPPORTED';
+  isSupported: boolean;
+  description: string;
+  realisticEffect: string; // What it can reliably prevent
+  knownLimitations: string; // What cannot be guaranteed (e.g. rooted devices / L3 cloning)
+}
+
 export interface GeneratedCommandItem {
   stage: string;
   command: string;
@@ -92,6 +115,7 @@ export interface ProvisioningPreviewResponse {
   generatedCommands: GeneratedCommandItem[];
   warnings: ProvisioningWarning[];
   conflicts: ProvisioningConflict[];
+  securityPoliciesReport: SecurityPolicyReportItem[];
   canProceed: boolean;
   requiresCleanConfirmation: boolean;
   backupRecommended: boolean;
@@ -111,6 +135,9 @@ export interface ProvisioningVerificationResult {
   defaultRouteActive: boolean;
   hotspotOperational: boolean;
   pingPacketsReceived: number;
+  securityPoliciesVerified: boolean;
+  profileSpeedVerified?: boolean;
+  portalFilesVerified?: boolean;
   overallStatus: 'VERIFIED_READY' | 'PARTIALLY_VERIFIED' | 'VERIFICATION_FAILED';
   diagnosticsMessage: string;
 }
@@ -126,3 +153,4 @@ export interface ProvisioningApplyResult {
   recoveryInstructions?: string;
   verification: ProvisioningVerificationResult;
 }
+

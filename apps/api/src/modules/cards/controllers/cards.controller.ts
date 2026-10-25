@@ -19,10 +19,13 @@ import {
   CardBatchSummary,
   CardItemResponse,
   BulkDeleteResult,
+  BulkActivateResult,
+  CardDetailResponse,
 } from '../services/cards.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
 import { UpdateCardStatusDto } from '../dto/update-card-status.dto';
 import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
+import { BulkActivateCardsDto } from '../dto/bulk-activate-cards.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../../core/guards/roles.guard';
@@ -246,6 +249,51 @@ export class CardsController {
     return this.cardsService.bulkDeleteCards(effectiveTenantId, dto);
   }
 
+  @Post('bulk-activate')
+  @RequirePermissions('cards:disable')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Bulk activate cards on database and enable/provision hotspot users on MikroTik routers',
+  })
+  @ApiResponse({ status: 200, description: 'Bulk activation summary' })
+  async bulkActivateCards(
+    @CurrentUser('tenantId') userTenantId: string,
+    @TenantId() headerTenantId: string,
+    @Body() dto: BulkActivateCardsDto,
+  ): Promise<BulkActivateResult> {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.bulkActivateCards(effectiveTenantId, dto);
+  }
+
+  @Get(':id')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
+  @ApiOperation({ summary: 'Get full details and live consumption of a specific card' })
+  @ApiResponse({ status: 200, description: 'Card details' })
+  @ApiResponse({ status: 404, description: 'Card not found' })
+  async getCardById(
+    @CurrentUser('tenantId') userTenantId: string,
+    @TenantId() headerTenantId: string,
+    @Param('id') id: string,
+  ): Promise<CardDetailResponse> {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.getCardById(effectiveTenantId, id);
+  }
+
   @Post('retry-pending-deletions')
   @RequirePermissions('cards:delete')
   @Roles(
@@ -267,6 +315,28 @@ export class CardsController {
   ): Promise<{ processedCount: number; cleanedCount: number; stillPendingCount: number }> {
     const effectiveTenantId = userTenantId || headerTenantId || '';
     return this.cardsService.retryPendingDeletions(effectiveTenantId, deviceId);
+  }
+
+  @Post('reconcile-expirations')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reconcile expired cards, disable them on MikroTik, and kick active sessions',
+  })
+  @ApiResponse({ status: 200, description: 'Summary of reconciled expirations' })
+  async reconcileExpirations(
+    @CurrentUser('tenantId') userTenantId: string,
+    @TenantId() headerTenantId: string,
+    @Query('deviceId') deviceId?: string,
+  ) {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.checkAndExpireCards(effectiveTenantId, deviceId);
   }
 
   @Delete(':id')

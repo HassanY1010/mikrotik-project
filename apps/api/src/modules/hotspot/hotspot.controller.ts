@@ -15,6 +15,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { HotspotService } from './hotspot.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { HotspotActiveSessionsResponseDto } from './dto/enriched-hotspot-session.dto';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
@@ -106,7 +107,7 @@ export class HotspotController {
     RoleName.CASHIER,
   )
   @ApiOperation({ summary: 'List live active Hotspot sessions connected to the router' })
-  @ApiResponse({ status: 200, description: 'List of active sessions' })
+  @ApiResponse({ status: 200, type: HotspotActiveSessionsResponseDto, description: 'Enriched list of active sessions with accounting and rate-limit details' })
   async listActiveSessions(
     @CurrentUser('tenantId') tenantId: string,
     @Param('deviceId') deviceId: string,
@@ -224,7 +225,7 @@ export class TenantHotspotController {
     RoleName.CASHIER,
   )
   @ApiOperation({ summary: 'List live active Hotspot sessions across tenant routers' })
-  @ApiResponse({ status: 200, description: 'List of active sessions' })
+  @ApiResponse({ status: 200, type: HotspotActiveSessionsResponseDto, description: 'Enriched list of active sessions across all tenant routers' })
   async listAllSessions(
     @CurrentUser('tenantId') tenantId?: string,
     @Query('deviceId') deviceId?: string,

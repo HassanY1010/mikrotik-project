@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 
 /// Authenticated user representation
 class AuthUser {
@@ -343,6 +344,36 @@ class CardModel {
   final String? rateLimit;
   final DateTime createdAt;
   final DateTime? soldAt;
+  final DateTime? activatedAt;
+  final DateTime? expiresAt;
+  final int? validityDays;
+  final int? dataLimitBytes;
+  final int? profileDataLimitBytes;
+  final int? _effectiveDataLimitBytes;
+  int? get effectiveDataLimitBytes => _effectiveDataLimitBytes ?? dataLimitBytes ?? profileDataLimitBytes;
+
+  final String? effectiveTimeLimit;
+  final String? profileSessionTimeout;
+  final String? downloadSpeedLimit;
+  final String? uploadSpeedLimit;
+  final bool isUnlimitedSpeed;
+  final bool? _isUnlimitedQuota;
+  bool get isUnlimitedQuota =>
+      _isUnlimitedQuota ??
+      (profileId != null &&
+          (effectiveDataLimitBytes == null || effectiveDataLimitBytes == 0) &&
+          (dataLimitBytes == null || dataLimitBytes == 0) &&
+          (profileDataLimitBytes == null || profileDataLimitBytes == 0));
+
+  final bool isCustomQuota;
+  final String lifecycleStatus; // NEW, USED, EXPIRED, DISABLED, SOLD
+  final int? consumedBytes;
+  final int? remainingBytes;
+  final double? consumptionPercentage;
+  final bool? isOnline;
+  final bool hasLiveAccounting;
+  final String? sessionUptime;
+  final String? sessionTimeLeft;
 
   CardModel({
     required this.id,
@@ -361,32 +392,231 @@ class CardModel {
     this.rateLimit,
     required this.createdAt,
     this.soldAt,
-  });
+    this.activatedAt,
+    this.expiresAt,
+    this.validityDays,
+    this.dataLimitBytes,
+    this.profileDataLimitBytes,
+    int? effectiveDataLimitBytes,
+    this.effectiveTimeLimit,
+    this.profileSessionTimeout,
+    this.downloadSpeedLimit,
+    this.uploadSpeedLimit,
+    this.isUnlimitedSpeed = false,
+    bool? isUnlimitedQuota,
+    this.isCustomQuota = false,
+    this.lifecycleStatus = 'NEW',
+    this.consumedBytes,
+    this.remainingBytes,
+    this.consumptionPercentage,
+    this.isOnline,
+    this.hasLiveAccounting = false,
+    this.sessionUptime,
+    this.sessionTimeLeft,
+  })  : _effectiveDataLimitBytes = effectiveDataLimitBytes,
+        _isUnlimitedQuota = isUnlimitedQuota;
 
   factory CardModel.fromJson(Map<String, dynamic> json) {
     final profile = json['profile'] as Map<String, dynamic>?;
     final device = json['device'] as Map<String, dynamic>?;
+
+    final cardDataLimit = json['dataLimitBytes'] != null
+        ? int.tryParse(json['dataLimitBytes'].toString())
+        : null;
+    final profileDataLimit = profile?['dataLimitBytes'] != null
+        ? int.tryParse(profile!['dataLimitBytes'].toString())
+        : (json['profileDataLimitBytes'] != null
+            ? int.tryParse(json['profileDataLimitBytes'].toString())
+            : null);
+    final effDataLimit = json['effectiveDataLimitBytes'] != null
+        ? int.tryParse(json['effectiveDataLimitBytes'].toString())
+        : (cardDataLimit ?? profileDataLimit);
+
+    final String? effTimeLimit = json['effectiveTimeLimit'] as String? ??
+        json['timeLimit'] as String? ??
+        profile?['sessionTimeout'] as String?;
+
     return CardModel(
       id: json['id'] as String? ?? '',
       serialNumber: json['serialNumber'] as String? ?? '',
       username: json['username'] as String? ?? '',
       clearPassword: json['clearPassword'] as String? ?? json['pinCode'] as String?,
       pinCode: json['pinCode'] as String?,
-      price: (json['price'] is num) ? (json['price'] as num).toDouble() : (double.tryParse(json['price']?.toString() ?? '0') ?? 0.0),
+      price: (json['price'] is num)
+          ? (json['price'] as num).toDouble()
+          : (double.tryParse(json['price']?.toString() ?? '0') ?? 0.0),
       status: json['status'] as String? ?? 'AVAILABLE',
       profileId: profile?['id'] as String? ?? json['profileId'] as String?,
-      profileName: profile?['displayName'] as String? ?? profile?['name'] as String? ?? json['profileName'] as String? ?? 'باقة هوتسبوت',
+      profileName: profile?['displayName'] as String? ??
+          profile?['name'] as String? ??
+          json['profileName'] as String? ??
+          'باقة هوتسبوت',
       deviceName: device?['name'] as String? ?? json['deviceName'] as String?,
       batchNumber: json['batchNumber'] as String?,
       invoiceNumber: json['invoiceNumber'] as String?,
       timeLimit: json['timeLimit'] as String?,
-      rateLimit: profile?['rateLimit'] as String?,
-      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now() : DateTime.now(),
+      rateLimit: profile?['rateLimit'] as String? ?? json['rateLimit'] as String?,
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
+          : DateTime.now(),
       soldAt: json['soldAt'] != null ? DateTime.tryParse(json['soldAt'] as String) : null,
+      activatedAt: json['activatedAt'] != null ? DateTime.tryParse(json['activatedAt'] as String) : null,
+      expiresAt: json['expiresAt'] != null ? DateTime.tryParse(json['expiresAt'] as String) : null,
+      validityDays: json['validityDays'] != null ? int.tryParse(json['validityDays'].toString()) : null,
+      dataLimitBytes: cardDataLimit,
+      profileDataLimitBytes: profileDataLimit,
+      effectiveDataLimitBytes: effDataLimit,
+      effectiveTimeLimit: effTimeLimit,
+      profileSessionTimeout: profile?['sessionTimeout'] as String? ?? json['profileSessionTimeout'] as String?,
+      downloadSpeedLimit: json['downloadSpeedLimit'] as String?,
+      uploadSpeedLimit: json['uploadSpeedLimit'] as String?,
+      isUnlimitedSpeed: json['isUnlimitedSpeed'] == true,
+      isUnlimitedQuota: json.containsKey('isUnlimitedQuota')
+          ? (json['isUnlimitedQuota'] == true)
+          : (profile != null && (effDataLimit == null || effDataLimit == 0)),
+      isCustomQuota: json['isCustomQuota'] == true ||
+          (cardDataLimit != null && profileDataLimit != null && cardDataLimit != profileDataLimit),
+      lifecycleStatus: json['lifecycleStatus'] as String? ?? json['status'] as String? ?? 'NEW',
+      consumedBytes: json['consumedBytes'] != null ? int.tryParse(json['consumedBytes'].toString()) : null,
+      remainingBytes: json['remainingBytes'] != null ? int.tryParse(json['remainingBytes'].toString()) : null,
+      consumptionPercentage: json['consumptionPercentage'] != null
+          ? double.tryParse(json['consumptionPercentage'].toString())
+          : null,
+      isOnline: json['isOnline'] as bool?,
+      hasLiveAccounting: json['hasLiveAccounting'] == true,
+      sessionUptime: json['sessionUptime'] as String?,
+      sessionTimeLeft: json['sessionTimeLeft'] as String?,
     );
   }
 
-  String get loginUrl => 'http://login.hotspot/login?username=$username&password=${clearPassword ?? pinCode ?? username}';
+  bool get isExpired =>
+      lifecycleStatus.toUpperCase() == 'EXPIRED' ||
+      status.toUpperCase() == 'EXPIRED' ||
+      (expiresAt != null && expiresAt!.isBefore(DateTime.now()));
+
+  bool get isDisabled =>
+      lifecycleStatus.toUpperCase() == 'DISABLED' ||
+      status.toUpperCase() == 'DISABLED' ||
+      status.toUpperCase() == 'CANCELLED';
+
+  bool get isUsed =>
+      !isExpired &&
+      !isDisabled &&
+      (lifecycleStatus.toUpperCase() == 'USED' ||
+          status.toUpperCase() == 'ACTIVE' ||
+          activatedAt != null);
+
+  bool get isNew =>
+      !isExpired &&
+      !isDisabled &&
+      !isUsed &&
+      (lifecycleStatus.toUpperCase() == 'NEW' ||
+          status.toUpperCase() == 'AVAILABLE' ||
+          status.toUpperCase() == 'GENERATED');
+
+  /// Formatted Arabic status label
+  String get statusArabic {
+    if (isExpired) return 'منتهي الصلاحية';
+    if (isDisabled) return 'معطّل';
+    if (isUsed) return 'مستخدم';
+    if (status.toUpperCase() == 'SOLD') return 'مباع';
+    if (isNew) return 'جديد (غير مستخدم)';
+    return 'جديد';
+  }
+
+  /// Formatted status badge color
+  Color get statusBadgeColor {
+    if (isExpired) return const Color(0xFFEF4444);
+    if (isDisabled) return const Color(0xFF6B7280);
+    if (isUsed) return const Color(0xFF38BDF8);
+    if (status.toUpperCase() == 'SOLD') return const Color(0xFFF59E0B);
+    return const Color(0xFF10B981);
+  }
+
+  /// Formatted data quota in readable GB or MB or مفتوح
+  String get formattedDataQuota {
+    if (isUnlimitedQuota) {
+      return 'مفتوح';
+    }
+    if (effectiveDataLimitBytes == null || effectiveDataLimitBytes == 0) {
+      return 'غير محدد';
+    }
+    final bytes = effectiveDataLimitBytes!;
+    if (bytes >= 1024 * 1024 * 1024) {
+      final gb = bytes / (1024 * 1024 * 1024);
+      return '${gb % 1 == 0 ? gb.toInt() : gb.toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      final mb = bytes / (1024 * 1024);
+      return '${mb % 1 == 0 ? mb.toInt() : mb.toStringAsFixed(1)} MB';
+    }
+    return '$bytes B';
+  }
+
+  /// Formatted consumed bytes
+  String get formattedConsumedBytes {
+    if (!hasLiveAccounting || consumedBytes == null) {
+      return 'غير متاح';
+    }
+    final bytes = consumedBytes!;
+    if (bytes >= 1024 * 1024 * 1024) {
+      final gb = bytes / (1024 * 1024 * 1024);
+      return '${gb % 1 == 0 ? gb.toInt() : gb.toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      final mb = bytes / (1024 * 1024);
+      return '${mb % 1 == 0 ? mb.toInt() : mb.toStringAsFixed(1)} MB';
+    }
+    return '$bytes B';
+  }
+
+  /// Formatted remaining bytes
+  String get formattedRemainingBytes {
+    if (isUnlimitedQuota) {
+      return 'مفتوح';
+    }
+    if (!hasLiveAccounting || remainingBytes == null) {
+      return 'غير متاح';
+    }
+    final bytes = remainingBytes!;
+    if (bytes >= 1024 * 1024 * 1024) {
+      final gb = bytes / (1024 * 1024 * 1024);
+      return '${gb % 1 == 0 ? gb.toInt() : gb.toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      final mb = bytes / (1024 * 1024);
+      return '${mb % 1 == 0 ? mb.toInt() : mb.toStringAsFixed(1)} MB';
+    }
+    return '$bytes B';
+  }
+
+  /// Formatted speed label (with proper download and upload directions)
+  String get formattedSpeedLabel {
+    if (isUnlimitedSpeed) {
+      return 'مفتوحة';
+    }
+    if (downloadSpeedLimit != null && uploadSpeedLimit != null) {
+      return '↓ $downloadSpeedLimit / ↑ $uploadSpeedLimit';
+    }
+    if (rateLimit != null && rateLimit!.isNotEmpty) {
+      return rateLimit!;
+    }
+    return 'مفتوحة';
+  }
+
+  /// Formatted validity
+  String get formattedValidity {
+    if (validityDays != null && validityDays! > 0) {
+      return '$validityDays يوم';
+    }
+    if (effectiveTimeLimit != null && effectiveTimeLimit!.isNotEmpty) {
+      return effectiveTimeLimit!;
+    }
+    return 'غير محددة';
+  }
+
+  String get loginUrl =>
+      'http://login.hotspot/login?username=$username&password=${clearPassword ?? pinCode ?? username}';
 }
 
 /// Cards inventory response state with pagination and status counts
@@ -924,17 +1154,71 @@ class RouterDeviceModel {
 }
 
 /// Hotspot Active Session model (Radar)
+class RouterConnectionStatus {
+  final String id;
+  final String name;
+  final String status; // 'online' | 'offline' | 'unreachable'
+  final String? error;
+
+  RouterConnectionStatus({
+    required this.id,
+    required this.name,
+    required this.status,
+    this.error,
+  });
+
+  factory RouterConnectionStatus.fromJson(Map<String, dynamic> json) {
+    return RouterConnectionStatus(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? 'MikroTik',
+      status: json['status'] as String? ?? 'online',
+      error: json['error'] as String?,
+    );
+  }
+
+  bool get isOnline => status == 'online';
+}
+
 class ActiveSessionModel {
   final String id;
   final String user;
   final String address;
   final String macAddress;
   final String uptime;
+  final int uptimeSeconds;
   final int bytesIn;
   final int bytesOut;
   final String? sessionId;
+  final String? server;
+  final String? loginBy;
+
   final String? deviceId;
   final String? deviceName;
+  final String routerStatus;
+
+  final String profileName;
+  final String? rateLimit;
+  final String? downloadSpeedLimit;
+  final String? uploadSpeedLimit;
+  final bool isUnlimitedSpeed;
+
+  final int? totalQuotaBytes;
+  final int consumedBytes;
+  final int? remainingBytes;
+  final double? consumptionPercentage;
+  final bool isUnlimitedQuota;
+  final bool isQuotaExhausted;
+  final bool isUnknownQuota;
+
+  final String? timeLimit;
+  final String? sessionTimeLeft;
+  final int? remainingTimeSeconds;
+  final String? expiresAt;
+  final bool isUnlimitedTime;
+  final bool isExpired;
+
+  final String connectionStatus;
+  final String? lastSeen;
 
   ActiveSessionModel({
     required this.id,
@@ -942,29 +1226,147 @@ class ActiveSessionModel {
     required this.address,
     required this.macAddress,
     required this.uptime,
+    this.uptimeSeconds = 0,
     required this.bytesIn,
     required this.bytesOut,
     this.sessionId,
+    this.server,
+    this.loginBy,
     this.deviceId,
     this.deviceName,
+    this.routerStatus = 'online',
+    this.profileName = 'default',
+    this.rateLimit,
+    this.downloadSpeedLimit,
+    this.uploadSpeedLimit,
+    this.isUnlimitedSpeed = false,
+    this.totalQuotaBytes,
+    this.consumedBytes = 0,
+    this.remainingBytes,
+    this.consumptionPercentage,
+    this.isUnlimitedQuota = false,
+    this.isQuotaExhausted = false,
+    this.isUnknownQuota = false,
+    this.timeLimit,
+    this.sessionTimeLeft,
+    this.remainingTimeSeconds,
+    this.expiresAt,
+    this.isUnlimitedTime = false,
+    this.isExpired = false,
+    this.connectionStatus = 'connected',
+    this.lastSeen,
   });
 
   factory ActiveSessionModel.fromJson(Map<String, dynamic> json) {
+    final bIn = int.tryParse(json['bytesIn']?.toString() ?? json['bytes-in']?.toString() ?? '0') ?? 0;
+    final bOut = int.tryParse(json['bytesOut']?.toString() ?? json['bytes-out']?.toString() ?? '0') ?? 0;
+    final parsedConsumed = int.tryParse(json['consumedBytes']?.toString() ?? '') ?? (bIn + bOut);
+
+    final rawTotalQuota = json['totalQuotaBytes'] != null
+        ? int.tryParse(json['totalQuotaBytes'].toString())
+        : null;
+    final rawRemaining = json['remainingBytes'] != null
+        ? int.tryParse(json['remainingBytes'].toString())
+        : null;
+    final rawPercentage = json['consumptionPercentage'] != null
+        ? double.tryParse(json['consumptionPercentage'].toString())
+        : null;
+
     return ActiveSessionModel(
       id: json['id'] as String? ?? json['user'] as String? ?? '',
       user: json['user'] as String? ?? json['username'] as String? ?? 'مستخدم',
       address: json['address'] as String? ?? json['ipAddress'] as String? ?? '',
       macAddress: json['macAddress'] as String? ?? json['mac-address'] as String? ?? '',
       uptime: json['uptime'] as String? ?? '0s',
-      bytesIn: int.tryParse(json['bytesIn']?.toString() ?? json['bytes-in']?.toString() ?? '0') ?? 0,
-      bytesOut: int.tryParse(json['bytesOut']?.toString() ?? json['bytes-out']?.toString() ?? '0') ?? 0,
+      uptimeSeconds: int.tryParse(json['uptimeSeconds']?.toString() ?? '0') ?? 0,
+      bytesIn: bIn,
+      bytesOut: bOut,
       sessionId: json['sessionId'] as String?,
+      server: json['server'] as String?,
+      loginBy: json['loginBy'] as String?,
       deviceId: json['deviceId'] as String?,
       deviceName: json['deviceName'] as String?,
+      routerStatus: json['routerStatus'] as String? ?? 'online',
+      profileName: json['profileName'] as String? ?? 'default',
+      rateLimit: json['rateLimit'] as String?,
+      downloadSpeedLimit: json['downloadSpeedLimit'] as String?,
+      uploadSpeedLimit: json['uploadSpeedLimit'] as String?,
+      isUnlimitedSpeed: json['isUnlimitedSpeed'] == true,
+      totalQuotaBytes: rawTotalQuota,
+      consumedBytes: parsedConsumed,
+      remainingBytes: rawRemaining,
+      consumptionPercentage: rawPercentage,
+      isUnlimitedQuota: json['isUnlimitedQuota'] == true,
+      isQuotaExhausted: json['isQuotaExhausted'] == true,
+      isUnknownQuota: json['isUnknownQuota'] == true,
+      timeLimit: json['timeLimit'] as String?,
+      sessionTimeLeft: json['sessionTimeLeft'] as String?,
+      remainingTimeSeconds: int.tryParse(json['remainingTimeSeconds']?.toString() ?? ''),
+      expiresAt: json['expiresAt'] as String?,
+      isUnlimitedTime: json['isUnlimitedTime'] == true,
+      isExpired: json['isExpired'] == true,
+      connectionStatus: json['connectionStatus'] as String? ?? 'connected',
+      lastSeen: json['lastSeen'] as String?,
     );
   }
 
-  double get totalMb => ((bytesIn + bytesOut) / (1024 * 1024));
+  double get totalMb => (consumedBytes > 0 ? (consumedBytes / (1024 * 1024)) : ((bytesIn + bytesOut) / (1024 * 1024)));
+
+  static String formatBytes(int bytes) {
+    if (bytes <= 0) return '0 MB';
+    final double mb = bytes / (1024 * 1024);
+    if (mb >= 1024) {
+      final double gb = mb / 1024;
+      return '${gb.toStringAsFixed(gb % 1 == 0 ? 0 : 2)} GB';
+    }
+    return '${mb.toStringAsFixed(mb % 1 == 0 ? 0 : 1)} MB';
+  }
+
+  static String formatSeconds(int seconds) {
+    if (seconds <= 0) return 'منتهية';
+    final int days = seconds ~/ 86400;
+    final int hours = (seconds % 86400) ~/ 3600;
+    final int minutes = (seconds % 3600) ~/ 60;
+    if (days > 0) return '$days ي $hours س';
+    if (hours > 0) return '$hours س $minutes د';
+    return '$minutes د';
+  }
+
+  String get formattedConsumed => formatBytes(consumedBytes > 0 ? consumedBytes : (bytesIn + bytesOut));
+
+  String get formattedRemaining {
+    if (isUnlimitedQuota) return 'مفتوحة';
+    if (isUnknownQuota || remainingBytes == null) return 'غير متاح';
+    if (isQuotaExhausted || remainingBytes! <= 0) return 'منتهية (0 MB)';
+    return formatBytes(remainingBytes!);
+  }
+
+  String get formattedTotalQuota {
+    if (isUnlimitedQuota) return 'غير محدودة';
+    if (isUnknownQuota || totalQuotaBytes == null) return 'غير متاح';
+    return formatBytes(totalQuotaBytes!);
+  }
+
+  String get formattedSpeed {
+    if (isUnlimitedSpeed || (downloadSpeedLimit == null && uploadSpeedLimit == null)) {
+      return 'غير محددة';
+    }
+    final dl = downloadSpeedLimit != null ? '↓ $downloadSpeedLimit' : '';
+    final ul = uploadSpeedLimit != null ? '↑ $uploadSpeedLimit' : '';
+    if (dl.isNotEmpty && ul.isNotEmpty) return '$dl | $ul';
+    return dl.isNotEmpty ? dl : ul;
+  }
+
+  String get formattedRemainingTime {
+    if (isUnlimitedTime) return 'غير محدودة زمنيًا';
+    if (remainingTimeSeconds != null) {
+      return formatSeconds(remainingTimeSeconds!);
+    }
+    if (sessionTimeLeft != null && sessionTimeLeft!.isNotEmpty) {
+      return sessionTimeLeft!;
+    }
+    return 'غير متاح';
+  }
 }
 
 /// Card print template model
@@ -1004,6 +1406,28 @@ class CardTemplateModel {
   String get supportPhone => layoutConfig['supportPhone'] as String? ?? '';
   String get headerTitle => layoutConfig['headerTitle'] as String? ?? 'كرت إنترنت فائق السرعة';
   String get instructions => layoutConfig['instructions'] as String? ?? 'امسح الرمز أو أدخل اسم المستخدم للدخول';
+
+  bool get hasCustomBackground =>
+      (backgroundImageBase64 != null && backgroundImageBase64!.isNotEmpty) ||
+      (backgroundDesign != null &&
+          backgroundDesign!.isNotEmpty &&
+          backgroundDesign != 'default' &&
+          backgroundDesign != 'none');
+
+  String? get backgroundImageBase64 {
+    final fromConfig = layoutConfig['backgroundImageBase64'] as String?;
+    if (fromConfig != null && fromConfig.isNotEmpty) return fromConfig;
+    if (backgroundDesign != null && backgroundDesign!.startsWith('data:image')) {
+      final parts = backgroundDesign!.split(',');
+      if (parts.length > 1) return parts.last;
+      return backgroundDesign;
+    }
+    return null;
+  }
+
+  String get backgroundFit => layoutConfig['backgroundFit'] as String? ?? 'cover';
+  bool get isImageBackground => layoutConfig['isImageBackground'] as bool? ?? (backgroundImageBase64 != null);
+  bool get isPdfBackground => layoutConfig['isPdfBackground'] as bool? ?? false;
 
   factory CardTemplateModel.fromJson(Map<String, dynamic> json) {
     Map<String, dynamic> cfg = {};
@@ -2410,4 +2834,119 @@ class HotspotPortalConfigModel {
     );
   }
 }
+
+/// Represents a connected device discovered on the router (DHCP Leases, ARP, Neighbors)
+class ConnectedDeviceModel {
+  final String id;
+  final String name;
+  final String ipAddress;
+  final String macAddress;
+  final String? interfaceName;
+  final String status;
+  final bool isOnline;
+  final String connectionCertainty; // 'CONFIRMED_ONLINE' | 'LEASE_ACTIVE' | 'OFFLINE'
+  final String deviceType; // 'ACCESS_POINT' | 'PHONE' | 'COMPUTER' | 'ROUTER' | 'UNKNOWN'
+  final String? hostName;
+  final String? vendor;
+  final String? uptime;
+  final String? expiresAfter;
+  final String? lastSeen;
+  final String? age;
+  final String source; // 'DHCP' | 'ARP' | 'NEIGHBOR'
+  final List<String> sources;
+
+  const ConnectedDeviceModel({
+    required this.id,
+    required this.name,
+    required this.ipAddress,
+    required this.macAddress,
+    this.interfaceName,
+    required this.status,
+    required this.isOnline,
+    this.connectionCertainty = 'CONFIRMED_ONLINE',
+    required this.deviceType,
+    this.hostName,
+    this.vendor,
+    this.uptime,
+    this.expiresAfter,
+    this.lastSeen,
+    this.age,
+    required this.source,
+    this.sources = const [],
+  });
+
+  bool get isAccessPoint => deviceType == 'ACCESS_POINT';
+  bool get isConfirmedOnline => connectionCertainty == 'CONFIRMED_ONLINE';
+  bool get isLeaseOnly => connectionCertainty == 'LEASE_ACTIVE';
+  bool get isUnknown => deviceType == 'UNKNOWN' || deviceType == 'DEVICE';
+
+  factory ConnectedDeviceModel.fromJson(Map<String, dynamic> json) {
+    final rawOnline = json['isOnline'] == true;
+    final rawStatus = json['status']?.toString() ?? 'unknown';
+
+    // Parse connection certainty with robust fallback
+    final rawCertainty = json['connectionCertainty']?.toString();
+    final certainty = rawCertainty != null && rawCertainty.isNotEmpty
+        ? rawCertainty
+        : (rawOnline
+            ? 'CONFIRMED_ONLINE'
+            : (rawStatus.toLowerCase() == 'bound' || rawStatus.toLowerCase() == 'leased'
+                ? 'LEASE_ACTIVE'
+                : 'OFFLINE'));
+
+    // Parse sources list
+    final rawSources = json['sources'];
+    final sourcesList = (rawSources is List)
+        ? rawSources.map((e) => e.toString()).toList()
+        : <String>[];
+
+    final primarySource = json['source']?.toString().toUpperCase() ?? 'DHCP';
+    if (sourcesList.isEmpty && primarySource.isNotEmpty) {
+      sourcesList.add(primarySource);
+    }
+
+    return ConnectedDeviceModel(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? 'جهاز غير معروف',
+      ipAddress: json['ipAddress']?.toString() ?? '',
+      macAddress: json['macAddress']?.toString() ?? '',
+      interfaceName: json['interface']?.toString(),
+      status: rawStatus,
+      isOnline: certainty == 'CONFIRMED_ONLINE',
+      connectionCertainty: certainty,
+      deviceType: json['deviceType']?.toString().toUpperCase() ?? 'UNKNOWN',
+      hostName: json['hostName']?.toString(),
+      vendor: json['vendor']?.toString(),
+      uptime: json['uptime']?.toString(),
+      expiresAfter: json['expiresAfter']?.toString(),
+      lastSeen: json['lastSeen']?.toString(),
+      age: json['age']?.toString(),
+      source: primarySource,
+      sources: sourcesList,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'ipAddress': ipAddress,
+      'macAddress': macAddress,
+      'interface': interfaceName,
+      'status': status,
+      'isOnline': isOnline,
+      'connectionCertainty': connectionCertainty,
+      'deviceType': deviceType,
+      'hostName': hostName,
+      'vendor': vendor,
+      'uptime': uptime,
+      'expiresAfter': expiresAfter,
+      'lastSeen': lastSeen,
+      'age': age,
+      'source': source,
+      'sources': sources,
+    };
+  }
+}
+
 

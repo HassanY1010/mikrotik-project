@@ -77,10 +77,13 @@ export class QuotasService {
         });
       }
 
-      if (anySub?.status === SubscriptionStatus.EXPIRED || (anySub?.status === SubscriptionStatus.ACTIVE && anySub?.expiresAt <= now)) {
+      if (
+        anySub?.status === SubscriptionStatus.EXPIRED ||
+        ((anySub?.status === SubscriptionStatus.ACTIVE || anySub?.status === SubscriptionStatus.TRIAL) && anySub?.expiresAt <= now)
+      ) {
         throw new ForbiddenException({
           code: 'SUBSCRIPTION_EXPIRED',
-          message: 'انتهت صلاحية اشتراك الشبكة. يرجى تجديد الباقة للمتابعة',
+          message: 'انتهت صلاحية اشتراك الشبكة (الفترة التجريبية أو الباقة). يرجى ترقية أو تجديد الباقة للمتابعة',
         });
       }
 
@@ -399,6 +402,22 @@ export class QuotasService {
     });
 
     if (!sub) {
+      const expiredSub = await tx.subscription.findFirst({
+        where: { tenantId },
+        orderBy: { expiresAt: 'desc' },
+      });
+
+      if (
+        expiredSub &&
+        (expiredSub.status === SubscriptionStatus.EXPIRED ||
+          new Date(expiredSub.expiresAt).getTime() <= now.getTime())
+      ) {
+        throw new ForbiddenException({
+          code: 'SUBSCRIPTION_EXPIRED',
+          message: 'انتهت صلاحية اشتراك الشبكة، يرجى التجديد للمتابعة',
+        });
+      }
+
       throw new ForbiddenException({
         code: 'SUBSCRIPTION_REQUIRED',
         message: 'لا يوجد اشتراك نشط لهذه الشبكة',

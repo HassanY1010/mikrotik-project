@@ -193,7 +193,8 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                 // Name
                 TextFormField(
                   controller: _nameController,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  cursorColor: context.textPrimary,
+                  style: TextStyle(color: context.textPrimary, fontSize: 14),
                   decoration: _buildInputDecoration(
                     label: 'اسم البروفايل *',
                     hint: 'مثال: home_10mbps',
@@ -212,7 +213,8 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                     Expanded(
                       child: TextFormField(
                         controller: _rateLimitController,
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'monospace'),
+                        cursorColor: context.textPrimary,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14, fontFamily: 'monospace'),
                         decoration: _buildInputDecoration(
                           label: 'السرعة (Rate Limit)',
                           hint: '10M/10M',
@@ -225,7 +227,8 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                       child: TextFormField(
                         controller: _priceController,
                         keyboardType: TextInputType.number,
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        cursorColor: context.textPrimary,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14),
                         decoration: _buildInputDecoration(
                           label: 'السعر الشهري',
                           hint: '5000',
@@ -243,7 +246,8 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                     Expanded(
                       child: TextFormField(
                         controller: _localAddressController,
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'monospace'),
+                        cursorColor: context.textPrimary,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14, fontFamily: 'monospace'),
                         decoration: _buildInputDecoration(
                           label: 'العنوان المحلي (Gateway)',
                           hint: '10.100.0.1',
@@ -255,7 +259,8 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                     Expanded(
                       child: TextFormField(
                         controller: _remoteAddressController,
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'monospace'),
+                        cursorColor: context.textPrimary,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14, fontFamily: 'monospace'),
                         decoration: _buildInputDecoration(
                           label: 'المسبح أو الـ IP البعيد',
                           hint: 'pppoe-pool',
@@ -270,7 +275,8 @@ class _CreateEditPppoeProfileDialogState extends ConsumerState<CreateEditPppoePr
                 // DNS Servers
                 TextFormField(
                   controller: _dnsServersController,
-                  style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'monospace'),
+                  cursorColor: context.textPrimary,
+                  style: TextStyle(color: context.textPrimary, fontSize: 14, fontFamily: 'monospace'),
                   decoration: _buildInputDecoration(
                     label: 'خوادم DNS (مفصولة بفاصلة)',
                     hint: '8.8.8.8,1.1.1.1',

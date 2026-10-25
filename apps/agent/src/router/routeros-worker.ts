@@ -184,7 +184,7 @@ export class RouterOsWorker implements IRouterWorker {
     }
   }
 
-  private async executeCommand(words: string[]): Promise<CommandResponse[]> {
+  private async executeCommand(words: (string | Buffer)[]): Promise<CommandResponse[]> {
     if (!this.isConnected()) {
       await this.connect();
     }
@@ -429,6 +429,13 @@ export class RouterOsWorker implements IRouterWorker {
         bytesIn: parseInt(r.attributes['bytes-in'] ?? '0', 10),
         bytesOut: parseInt(r.attributes['bytes-out'] ?? '0', 10),
         sessionId: r.attributes['session-id'],
+        server: r.attributes['server'],
+        loginBy: r.attributes['login-by'],
+        sessionTimeLeft: r.attributes['session-time-left'],
+        idleTime: r.attributes['idle-time'],
+        limitBytesTotal: r.attributes['limit-bytes-total']
+          ? parseInt(r.attributes['limit-bytes-total'], 10)
+          : undefined,
       }));
 
     return {
@@ -757,24 +764,80 @@ export class RouterOsWorker implements IRouterWorker {
   }
 
   async publishHotspotPortal(payload: HotspotPortalPublishPayload): Promise<HotspotPortalPublishResult> {
-    const dir = payload.directoryName?.trim() || 'hotspot';
-    if (!/^[a-zA-Z0-9_-]+$/.test(dir)) {
-      throw new Error(`Invalid directory name: "${dir}". Must be alphanumeric.`);
+    const baseDir = payload.directoryName?.trim() || 'hotspot';
+    if (!/^[a-zA-Z0-9_-]+$/.test(baseDir)) {
+      throw new Error(`Invalid directory name: "${baseDir}". Must be alphanumeric.`);
     }
 
     if (!Array.isArray(payload.files) || payload.files.length === 0) {
       throw new Error('No files provided for HotSpot portal deployment.');
     }
 
-    const written: string[] = [];
+    // 1. Flash Detection & Staging Directory Setup
+    let hasFlash = false;
+    let existingFileNames = new Set<string>();
+    try {
+      const verifyRes = await this.executeCommand(['/file/print']);
+      const fileRecs = verifyRes.filter((r) => r.type === '!re');
+      existingFileNames = new Set(fileRecs.map((r) => r.attributes['name'] ?? ''));
+      hasFlash = Array.from(existingFileNames).some((name) => name.startsWith('flash/'));
+    } catch {
+      // Non-fatal
+    }
 
+    const targetDir = hasFlash && !baseDir.startsWith('flash/') ? `flash/${baseDir}` : baseDir;
+    const stagingDir = `${targetDir}-staging`;
+
+    // 2. Overwrite Protection in Staging
+    const existingInStaging = Array.from(existingFileNames).filter((name) => name.startsWith(`${stagingDir}/`));
+    if (existingInStaging.length > 0 && payload.overwriteConfirmed !== true) {
+      throw new Error(`Staging directory "${stagingDir}" contains ${existingInStaging.length} existing files. Overwrite confirmation required.`);
+    }
+
+    // 3. Capture Original Profile Settings for Rollback
+    let originalProfileName: string | undefined;
+    let originalHtmlDirectory: string | undefined;
+    let targetProfileId: string | undefined;
+
+    try {
+      const profRes = await this.executeCommand(['/ip/hotspot/profile/print']);
+      const profRecs = profRes.filter((r) => r.type === '!re');
+      if (payload.applyToProfile) {
+        const match = profRecs.find((r) => r.attributes['name'] === payload.applyToProfile!.trim());
+        if (match) {
+          originalProfileName = match.attributes['name'];
+          originalHtmlDirectory = match.attributes['html-directory'] ?? 'hotspot';
+          targetProfileId = match.attributes['.id'];
+        }
+      } else if (profRecs.length > 0) {
+        const firstProf = profRecs[0];
+        originalProfileName = firstProf.attributes['name'];
+        originalHtmlDirectory = firstProf.attributes['html-directory'] ?? 'hotspot';
+        targetProfileId = firstProf.attributes['.id'];
+      }
+    } catch (profErr) {
+      // Non-fatal
+    }
+
+    // 4. Upload Files to Staging (Lossless Binary Support)
+    const written: string[] = [];
     for (const file of payload.files) {
-      if (!file.name || !/^[a-zA-Z0-9_.-]+$/.test(file.name)) {
-        throw new Error(`Invalid file name: "${file.name}".`);
+      const cleanName = (file.name ?? '')
+        .replace(/^\/+/, '')
+        .trim();
+      if (!cleanName || cleanName.includes('..') || !/^[a-zA-Z0-9_./-]+$/.test(cleanName)) {
+        throw new Error(`Invalid file name: "${file.name}". Must be safe relative path.`);
       }
 
-      const filePath = `${dir}/${file.name}`;
-      const content = file.content ?? '';
+      const filePath = `${stagingDir}/${cleanName}`;
+
+      let contentsWord: string | Buffer;
+      if (file.encoding === 'base64') {
+        const binBuf = Buffer.from(file.content ?? '', 'base64');
+        contentsWord = Buffer.concat([Buffer.from('=contents='), binBuf]);
+      } else {
+        contentsWord = `=contents=${file.content ?? ''}`;
+      }
 
       // Check if file exists on router
       const checkRes = await this.executeCommand(['/file/print', `?name=${filePath}`]);
@@ -784,7 +847,7 @@ export class RouterOsWorker implements IRouterWorker {
         const setRes = await this.executeCommand([
           '/file/set',
           `=.id=${existing.attributes['.id']}`,
-          `=contents=${content}`,
+          contentsWord,
         ]);
         const trap = setRes.find((r) => r.type === '!trap');
         if (trap) {
@@ -794,7 +857,7 @@ export class RouterOsWorker implements IRouterWorker {
         const addRes = await this.executeCommand([
           '/file/add',
           `=name=${filePath}`,
-          `=contents=${content}`,
+          contentsWord,
         ]);
         const trap = addRes.find((r) => r.type === '!trap');
         if (trap) {
@@ -802,31 +865,71 @@ export class RouterOsWorker implements IRouterWorker {
         }
       }
 
-      written.push(file.name);
+      written.push(cleanName);
     }
 
-    // Optional profile update
+    // 5. Verify Written Files in Staging
+    const verified: string[] = [];
+    const postVerifyRes = await this.executeCommand(['/file/print']);
+    const postExistingFileNames = new Set(
+      postVerifyRes.filter((r) => r.type === '!re').map((r) => r.attributes['name']),
+    );
+    for (const w of written) {
+      const targetPath = `${stagingDir}/${w}`;
+      if (postExistingFileNames.has(targetPath) || postExistingFileNames.has(w)) {
+        verified.push(w);
+      }
+    }
+
+    if (verified.length < written.length) {
+      throw new Error(`Staging verification incomplete: ${verified.length}/${written.length} files verified. Profile update aborted.`);
+    }
+
+    // 6. Atomic Profile Update with Immediate Rollback on Failure
     let profileUpdated: string | undefined;
-    if (payload.applyToProfile) {
-      const profName = payload.applyToProfile.trim();
-      const profRes = await this.executeCommand(['/ip/hotspot/profile/print', `?name=${profName}`]);
-      const targetProf = profRes.find((r) => r.type === '!re');
-      if (targetProf && targetProf.attributes['.id']) {
-        await this.executeCommand([
+    if (targetProfileId && originalProfileName) {
+      try {
+        const profRes = await this.executeCommand([
           '/ip/hotspot/profile/set',
-          `=.id=${targetProf.attributes['.id']}`,
-          `=html-directory=${dir}`,
+          `=.id=${targetProfileId}`,
+          `=html-directory=${stagingDir}`,
         ]);
-        profileUpdated = profName;
+        const trap = profRes.find((r) => r.type === '!trap');
+        if (trap) {
+          throw new Error(trap.attributes['message'] ?? 'Profile set error');
+        }
+        profileUpdated = originalProfileName;
+      } catch (switchErr) {
+        // Rollback
+        if (originalHtmlDirectory) {
+          try {
+            await this.executeCommand([
+              '/ip/hotspot/profile/set',
+              `=.id=${targetProfileId}`,
+              `=html-directory=${originalHtmlDirectory}`,
+            ]);
+          } catch {
+            // ignore
+          }
+        }
+        throw new Error(`Failed to activate profile "${originalProfileName}" to staging: ${switchErr}. Preserved original directory "${originalHtmlDirectory}".`);
       }
     }
 
     return {
       published: true,
-      directory: dir,
+      directory: targetDir,
+      stagingDirectory: stagingDir,
       filesWritten: written,
+      filesVerified: verified,
       profileUpdated,
-      message: `Successfully uploaded ${written.length} captive portal file(s) to ${dir}/`,
+      originalProfileName,
+      originalHtmlDirectory,
+      rollbackSupported: Boolean(originalProfileName && originalHtmlDirectory),
+      message: `Successfully uploaded ${written.length} captive portal file(s) to ${stagingDir}/ (${verified.length} verified)`,
+    };
+  }
+      message: `Successfully uploaded ${written.length} captive portal file(s) to ${dir}/ (${verified.length} verified)`,
     };
   }
 

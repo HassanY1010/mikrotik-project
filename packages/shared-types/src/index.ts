@@ -553,6 +553,7 @@ export interface HotspotPortalConfig {
 export interface HotspotPortalFile {
   name: string;
   content: string;
+  encoding?: 'utf-8' | 'base64';
 }
 
 export interface HotspotPortalPublishPayload {
@@ -560,14 +561,35 @@ export interface HotspotPortalPublishPayload {
   directoryName: string; // e.g. "hotspot" or "hotspot-sudafi"
   files: HotspotPortalFile[];
   applyToProfile?: string; // e.g. "hsprof1" or undefined
+  overwriteConfirmed?: boolean;
 }
 
 export interface HotspotPortalPublishResult {
   published: boolean;
   directory: string;
+  stagingDirectory?: string;
   filesWritten: string[];
+  filesVerified?: string[];
   profileUpdated?: string;
+  originalProfileName?: string;
+  originalHtmlDirectory?: string;
+  rollbackSupported?: boolean;
   message?: string;
+}
+
+export interface HotspotProfileRollbackDto {
+  profileName: string;
+  htmlDirectory: string;
+}
+
+export interface HotspotInspectionResult {
+  deviceId: string;
+  deviceName: string;
+  activeDirectory: string;
+  hasFlashStorage: boolean;
+  profiles: Array<{ name: string; htmlDirectory?: string }>;
+  existingFilesCount: number;
+  existingFiles: string[];
 }
 
 

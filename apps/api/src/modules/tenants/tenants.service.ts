@@ -332,12 +332,12 @@ export class TenantsService {
 
     const data = tenants.map((t) => {
       const activeSub = t.subscriptions?.find(
-        (s) => s.status === SubscriptionStatus.ACTIVE && new Date(s.expiresAt) > now,
+        (s) => (s.status === SubscriptionStatus.ACTIVE || s.status === SubscriptionStatus.TRIAL) && new Date(s.expiresAt) > now,
       );
       const sub = activeSub || (t.subscriptions && t.subscriptions[0]);
-      const isSubActive = sub && sub.status === SubscriptionStatus.ACTIVE && new Date(sub.expiresAt) > now;
+      const isSubActive = sub && (sub.status === SubscriptionStatus.ACTIVE || sub.status === SubscriptionStatus.TRIAL) && new Date(sub.expiresAt) > now;
       const isSubExpired = sub && (sub.status === SubscriptionStatus.EXPIRED || new Date(sub.expiresAt) <= now);
-      const subscriptionStatus = isSubActive ? 'ACTIVE' : isSubExpired ? 'EXPIRED' : (sub ? sub.status : 'NONE');
+      const subscriptionStatus = isSubActive ? sub.status : isSubExpired ? 'EXPIRED' : (sub ? sub.status : 'NONE');
 
       return {
         id: t.id,
@@ -566,11 +566,11 @@ export class TenantsService {
 
     const price = dto.billingCycle === BillingCycle.YEARLY ? plan.priceYearly : plan.priceMonthly;
 
-    // Supersede any existing ACTIVE subscriptions to prevent conflicting states
+    // Supersede any existing ACTIVE or TRIAL subscriptions to prevent conflicting states
     await this.prisma.subscription.updateMany({
       where: {
         tenantId,
-        status: SubscriptionStatus.ACTIVE,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
       },
       data: {
         status: SubscriptionStatus.CANCELLED,
@@ -641,7 +641,7 @@ export class TenantsService {
       include: {
         subscriptions: {
           where: {
-            status: SubscriptionStatus.ACTIVE,
+            status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] },
             expiresAt: { gt: now },
           },
           include: { plan: true },
@@ -730,7 +730,7 @@ export class TenantsService {
         isUnlimited,
         cycleStart: candidateStart.toISOString(),
         cycleEnd: candidateEnd.toISOString(),
-        status: SubscriptionStatus.ACTIVE,
+        status: sub.status,
         startsAt: sub.startsAt.toISOString(),
         expiresAt: sub.expiresAt.toISOString(),
       };
@@ -742,7 +742,7 @@ export class TenantsService {
           tenantId: resolvedId,
           OR: [
             { status: SubscriptionStatus.EXPIRED },
-            { status: SubscriptionStatus.ACTIVE, expiresAt: { lte: now } },
+            { status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL] }, expiresAt: { lte: now } },
           ],
         },
         include: { plan: true },
@@ -1210,10 +1210,10 @@ export class TenantsService {
         const effectiveStatus =
           s.tenant.status === TenantStatus.SUSPENDED
             ? 'SUSPENDED'
-            : s.status === SubscriptionStatus.ACTIVE
+            : (s.status === SubscriptionStatus.ACTIVE || s.status === SubscriptionStatus.TRIAL)
             ? isExpired
               ? 'EXPIRED'
-              : 'ACTIVE'
+              : s.status
             : s.status;
 
         return {

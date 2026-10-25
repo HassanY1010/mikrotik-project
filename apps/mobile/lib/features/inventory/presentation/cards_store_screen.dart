@@ -24,6 +24,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
   bool _isSelectionMode = false;
   final Set<String> _selectedCardIds = {};
   bool _isDeleting = false;
+  bool _isActivating = false;
 
   final List<Map<String, String>> _statusFilters = [
     {'key': 'ALL', 'label': 'الكل'},
@@ -32,6 +33,108 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     {'key': 'ACTIVE', 'label': 'نشط ومستخدم'},
     {'key': 'DISABLED', 'label': 'ملغي ومعطل'},
   ];
+
+  Future<void> _handleBulkActivate(List<CardModel> currentCards) async {
+    if (_selectedCardIds.isEmpty || _isActivating || _isDeleting) return;
+
+    final selectedCount = _selectedCardIds.length;
+    final selectedCards = currentCards.where((c) => _selectedCardIds.contains(c.id)).toList();
+    final expiredCount = selectedCards.where((c) => c.isExpired).length;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.bolt_rounded, color: Color(0xFF10B981), size: 24),
+            const SizedBox(width: 8),
+            Text(
+              'تأكيد التفعيل الجماعي',
+              style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'هل تريد بالتأكيد تفعيل الكروت المحددة وعددها $selectedCount كرت؟\nسيتم تمكين الكروت على راوتر MikroTik وتحديث حالتها في النظام لتكون جاهزة للعمل.',
+              style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+            ),
+            if (expiredCount > 0) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, color: Colors.amber, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'ملاحظة: يتضمن التحديد $expiredCount كرت منتهي الصلاحية. يرفض النظام تفعيل الكروت المنتهية التزاماً بقواعد الاشتراك.',
+                        style: const TextStyle(color: Colors.amber, fontSize: 11, height: 1.3),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('نعم، تفعيل $selectedCount كرت'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    setState(() => _isActivating = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    final result = await ref
+        .read(cardsInventoryProvider.notifier)
+        .bulkActivateCards(_selectedCardIds.toList());
+
+    if (!mounted) return;
+    setState(() {
+      _isActivating = false;
+      _selectedCardIds.clear();
+      _isSelectionMode = false;
+    });
+
+    final success = result['success'] == true;
+    final message = result['message']?.toString() ??
+        (success ? 'تمت عملية التفعيل بنجاح' : 'فشلت عملية التفعيل');
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -383,215 +486,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
   void _showCardDetailsDialog(CardModel card) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: context.bgCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.credit_card, color: Color(0xFF38BDF8), size: 20),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'تفاصيل الكرت: ${card.username}',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // QR Code
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: QrImageView(
-                  data: card.loginUrl,
-                  version: QrVersions.auto,
-                  size: 170.0,
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Credential Display Card
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: context.bgCardAlt,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: context.borderColor),
-                ),
-                child: Column(
-                  children: [
-                    _buildDetailRow(
-                      'رمز الكرت (Code):',
-                      card.username,
-                      textColor: const Color(0xFF38BDF8),
-                      isMonospace: true,
-                      canCopy: true,
-                    ),
-                    if (card.clearPassword != null &&
-                        card.clearPassword!.isNotEmpty &&
-                        card.clearPassword != card.username) ...[
-                      Divider(color: context.borderColor),
-                      _buildDetailRow(
-                        'كلمة المرور:',
-                        card.clearPassword!,
-                        textColor: const Color(0xFFFBBF24),
-                        isMonospace: true,
-                        canCopy: true,
-                      ),
-                    ],
-                    if (card.pinCode != null && card.pinCode!.isNotEmpty) ...[
-                      Divider(color: context.borderColor),
-                      _buildDetailRow(
-                        'رمز PIN:',
-                        card.pinCode!,
-                        textColor: const Color(0xFFA78BFA),
-                        isMonospace: true,
-                        canCopy: true,
-                      ),
-                    ],
-                    Divider(color: context.borderColor),
-                    _buildDetailRow('الباقة:', card.profileName),
-                    Divider(color: context.borderColor),
-                    _buildDetailRow('السعر:', '${card.price.toStringAsFixed(0)} SDG', textColor: const Color(0xFF10B981)),
-                    Divider(color: context.borderColor),
-                    _buildDetailRow('الرقم التسلسلي:', card.serialNumber, canCopy: true),
-                    if (card.batchNumber != null) ...[
-                      Divider(color: context.borderColor),
-                      _buildDetailRow('رقم الدفعة:', card.batchNumber!),
-                    ],
-                    if (card.deviceName != null) ...[
-                      Divider(color: context.borderColor),
-                      _buildDetailRow('الراوتر:', card.deviceName!),
-                    ],
-                    if (card.timeLimit != null) ...[
-                      Divider(color: context.borderColor),
-                      _buildDetailRow('مدة الصلاحية:', card.timeLimit!),
-                    ],
-                    Divider(color: context.borderColor),
-                    _buildDetailRow(
-                      'تاريخ التوليد:',
-                      DateFormat('yyyy/MM/dd HH:mm').format(card.createdAt),
-                    ),
-                    if (card.soldAt != null) ...[
-                      Divider(color: context.borderColor),
-                      _buildDetailRow(
-                        'تاريخ البيع:',
-                        DateFormat('yyyy/MM/dd HH:mm').format(card.soldAt!),
-                        textColor: const Color(0xFF60A5FA),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          Row(
-            children: [
-              IconButton(
-                onPressed: () {
-                  final textToShare = '''
-بطاقة هوتسبوت: ${card.profileName}
-اسم المستخدم / الكود: ${card.username}
-${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : ''}
-السعر: ${card.price.toStringAsFixed(0)} SDG
-الرقم التسلسلي: ${card.serialNumber}
-رابط الدخول المباشر: ${card.loginUrl}
-'''.trim();
-                  Share.share(textToShare);
-                },
-                icon: const Icon(Icons.share, color: Color(0xFF38BDF8)),
-                tooltip: 'مشاركة بيانات الكرت',
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('إغلاق', style: TextStyle(color: Color(0xFF94A3B8))),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailRow(
-    String label,
-    String value, {
-    Color textColor = Colors.white,
-    bool isMonospace = false,
-    bool canCopy = false,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Flexible(
-                  child: Text(
-                    value,
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 12,
-                      fontWeight: isMonospace ? FontWeight.bold : FontWeight.w600,
-                      fontFamily: isMonospace ? 'monospace' : null,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.end,
-                  ),
-                ),
-                if (canCopy) ...[
-                  const SizedBox(width: 4),
-                  GestureDetector(
-                    onTap: () {
-                      Clipboard.setData(ClipboardData(text: value));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('تم نسخ: $value'),
-                          duration: const Duration(seconds: 1),
-                        ),
-                      );
-                    },
-                    child: const Icon(Icons.copy, size: 14, color: Color(0xFF64748B)),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
+      builder: (ctx) => _CardDetailsDialog(card: card),
     );
   }
 
@@ -663,17 +558,23 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
               onPressed: () => _toggleSelectAllVisible(state.cards),
               tooltip: 'تحديد / إلغاء تحديد الكل',
             ),
-            if (_selectedCardIds.isNotEmpty)
+            if (_selectedCardIds.isNotEmpty) ...[
+              IconButton(
+                icon: const Icon(Icons.bolt_rounded, color: Color(0xFF10B981)),
+                onPressed: (_isActivating || _isDeleting) ? null : () => _handleBulkActivate(state.cards),
+                tooltip: 'تفعيل المحدد (${_selectedCardIds.length})',
+              ),
               IconButton(
                 icon: const Icon(Icons.delete_sweep, color: Color(0xFFEF4444)),
-                onPressed: _isDeleting ? null : () => _handleBulkDelete(state.cards),
+                onPressed: (_isActivating || _isDeleting) ? null : () => _handleBulkDelete(state.cards),
                 tooltip: 'حذف المحدد (${_selectedCardIds.length})',
               ),
+            ],
           ] else ...[
             IconButton(
               onPressed: _toggleSelectionMode,
               icon: const Icon(Icons.checklist_rtl_rounded, color: Color(0xFF38BDF8)),
-              tooltip: 'تحديد كروت متعددة للحذف',
+              tooltip: 'تحديد كروت متعددة للعمليات الجماعية',
             ),
             IconButton(
               onPressed: () => ref.read(cardsInventoryProvider.notifier).refresh(),
@@ -702,7 +603,7 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                   children: [
                     Expanded(
                       child: Text(
-                        'المحدد: ${_selectedCardIds.length} كرت من أصل ${state.totalMatching}',
+                        'المحدد: ${_selectedCardIds.length} كرت',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -712,12 +613,30 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                     ),
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFEF4444),
+                        backgroundColor: const Color(0xFF10B981),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      onPressed: _isDeleting ? null : () => _handleBulkDelete(state.cards),
+                      onPressed: (_isActivating || _isDeleting) ? null : () => _handleBulkActivate(state.cards),
+                      icon: _isActivating
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.bolt_rounded, size: 18),
+                      label: Text(_isActivating ? 'جارٍ التفعيل...' : 'تفعيل المحدد'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFEF4444),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: (_isActivating || _isDeleting) ? null : () => _handleBulkDelete(state.cards),
                       icon: _isDeleting
                           ? const SizedBox(
                               width: 14,
@@ -725,7 +644,7 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                             )
                           : const Icon(Icons.delete_sweep, size: 18),
-                      label: Text(_isDeleting ? 'جارٍ الحذف...' : 'حذف المحدد (${_selectedCardIds.length})'),
+                      label: Text(_isDeleting ? 'جارٍ الحذف...' : 'حذف المحدد'),
                     ),
                   ],
                 ),
@@ -1069,47 +988,29 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
   }
 
   Widget _buildCardTile(CardModel card) {
-    Color statusColor;
-    String statusText;
-    IconData statusIcon;
-
-    switch (card.status) {
-      case 'AVAILABLE':
-        statusColor = const Color(0xFF10B981);
-        statusText = 'متاح للبيع';
-        statusIcon = Icons.check_circle_outline;
-        break;
-      case 'SOLD':
-        statusColor = const Color(0xFF3B82F6);
-        statusText = 'مباع';
-        statusIcon = Icons.shopping_bag_outlined;
-        break;
-      case 'ACTIVE':
-        statusColor = const Color(0xFFF59E0B);
-        statusText = 'نشط على الشبكة';
-        statusIcon = Icons.wifi;
-        break;
-      case 'EXPIRED':
-        statusColor = const Color(0xFFEA580C);
-        statusText = 'منتهي الصلاحية';
-        statusIcon = Icons.timer_off_outlined;
-        break;
-      case 'DISABLED':
-      case 'CANCELLED':
-        statusColor = const Color(0xFFEF4444);
-        statusText = 'ملغي / معطل';
-        statusIcon = Icons.block;
-        break;
-      default:
-        statusColor = const Color(0xFF94A3B8);
-        statusText = card.status;
-        statusIcon = Icons.help_outline;
+    final statusColor = card.statusBadgeColor;
+    final statusText = card.statusArabic;
+    IconData statusIcon = Icons.help_outline;
+    if (card.isExpired) {
+      statusIcon = Icons.timer_off_outlined;
+    } else if (card.isDisabled) {
+      statusIcon = Icons.block;
+    } else if (card.isNew) {
+      statusIcon = Icons.fiber_new_rounded;
+    } else if (card.isUsed) {
+      statusIcon = Icons.verified_user_outlined;
+    } else if (card.status == 'AVAILABLE') {
+      statusIcon = Icons.check_circle_outline;
+    } else if (card.status == 'SOLD') {
+      statusIcon = Icons.shopping_bag_outlined;
+    } else if (card.status == 'ACTIVE') {
+      statusIcon = Icons.wifi;
     }
 
     final isSelected = _selectedCardIds.contains(card.id);
 
     return InkWell(
-      onTap: _isSelectionMode ? () => _toggleCardSelection(card.id) : null,
+      onTap: _isSelectionMode ? () => _toggleCardSelection(card.id) : () => _showCardDetailsDialog(card),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
@@ -1147,181 +1048,300 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
                 ),
                 const SizedBox(width: 8),
 
-              // Card Main Info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            card.username,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                              letterSpacing: 1,
-                              fontFamily: 'monospace',
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: statusColor, width: 0.8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(statusIcon, size: 10, color: statusColor),
-                              const SizedBox(width: 3),
-                              Text(
-                                statusText,
-                                style: TextStyle(
-                                  color: statusColor,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${card.profileName} • S/N: ${card.serialNumber}',
-                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (card.batchNumber != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'دفعة: ${card.batchNumber!}',
-                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 10),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
-              // Price & Quick Actions
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${card.price.toStringAsFixed(0)} SDG',
-                    style: const TextStyle(
-                      color: Color(0xFF10B981),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
+                // Card Main Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Copy code button
-                      IconButton(
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: card.username));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('تم نسخ رمز الكرت إلى الحافظة'),
-                              duration: Duration(seconds: 1),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.copy, size: 16, color: Color(0xFF64748B)),
-                        tooltip: 'نسخ الكود',
-                      ),
-                      const SizedBox(width: 8),
-
-                      // More actions popup menu
-                      PopupMenuButton<String>(
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
-                        color: context.bgCard,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        onSelected: (val) {
-                          if (val == 'details') {
-                            _showCardDetailsDialog(card);
-                          } else if (val == 'toggle_status') {
-                            _toggleCardStatus(card);
-                          } else if (val == 'delete_card') {
-                            _handleDeleteSingleCard(card);
-                          }
-                        },
-                        itemBuilder: (ctx) => [
-                          const PopupMenuItem(
-                            value: 'details',
-                            child: Row(
-                              children: [
-                                Icon(Icons.visibility_outlined, size: 16, color: Color(0xFF38BDF8)),
-                                SizedBox(width: 8),
-                                Text('عرض التفاصيل والـ QR', style: TextStyle(color: Colors.white, fontSize: 12)),
-                              ],
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              card.username,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                letterSpacing: 1,
+                                fontFamily: 'monospace',
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          PopupMenuItem(
-                            value: 'toggle_status',
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: statusColor, width: 0.8),
+                            ),
                             child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
-                                  (card.status == 'DISABLED' || card.status == 'CANCELLED')
-                                      ? Icons.check_circle_outline
-                                      : Icons.block,
-                                  size: 16,
-                                  color: (card.status == 'DISABLED' || card.status == 'CANCELLED')
-                                      ? const Color(0xFF10B981)
-                                      : const Color(0xFFEF4444),
-                                ),
-                                const SizedBox(width: 8),
+                                Icon(statusIcon, size: 10, color: statusColor),
+                                const SizedBox(width: 3),
                                 Text(
-                                  (card.status == 'DISABLED' || card.status == 'CANCELLED')
-                                      ? 'إعادة تفعيل الكرت'
-                                      : 'إلغاء وتعطيل الكرت',
+                                  statusText,
                                   style: TextStyle(
-                                    color: (card.status == 'DISABLED' || card.status == 'CANCELLED')
-                                        ? const Color(0xFF10B981)
-                                        : const Color(0xFFEF4444),
-                                    fontSize: 12,
+                                    color: statusColor,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          const PopupMenuItem(
-                            value: 'delete_card',
-                            child: Row(
-                              children: [
-                                Icon(Icons.delete_outline, size: 16, color: Color(0xFFEF4444)),
-                                SizedBox(width: 8),
-                                Text('حذف الكرت نهائياً', style: TextStyle(color: Color(0xFFEF4444), fontSize: 12)),
-                              ],
+                          if (card.isOnline == true) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.circle, size: 6, color: Color(0xFF10B981)),
+                                  SizedBox(width: 3),
+                                  Text(
+                                    'متصل',
+                                    style: TextStyle(color: Color(0xFF10B981), fontSize: 9, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
                             ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              card.profileName,
+                              style: const TextStyle(
+                                color: Color(0xFFE2E8F0),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (card.isCustomQuota) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text('مخصص', style: TextStyle(color: Color(0xFFF59E0B), fontSize: 9)),
+                            ),
+                          ],
+                          const SizedBox(width: 6),
+                          Text(
+                            '• S/N: ${card.serialNumber}',
+                            style: const TextStyle(color: Color(0xFF64748B), fontSize: 10),
                           ),
                         ],
                       ),
                     ],
                   ),
+                ),
+
+                // Price & Quick Actions
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${card.price.toStringAsFixed(0)} SDG',
+                      style: const TextStyle(
+                        color: Color(0xFF10B981),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Copy code button
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: card.username));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('تم نسخ رمز الكرت إلى الحافظة'),
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.copy, size: 16, color: Color(0xFF64748B)),
+                          tooltip: 'نسخ الكود',
+                        ),
+                        const SizedBox(width: 8),
+
+                        // More actions popup menu
+                        PopupMenuButton<String>(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
+                          color: context.bgCard,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          onSelected: (val) {
+                            if (val == 'details') {
+                              _showCardDetailsDialog(card);
+                            } else if (val == 'toggle_status') {
+                              _toggleCardStatus(card);
+                            } else if (val == 'delete_card') {
+                              _handleDeleteSingleCard(card);
+                            }
+                          },
+                          itemBuilder: (ctx) => [
+                            const PopupMenuItem(
+                              value: 'details',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.visibility_outlined, size: 16, color: Color(0xFF38BDF8)),
+                                  SizedBox(width: 8),
+                                  Text('عرض التفاصيل والـ QR', style: TextStyle(color: Colors.white, fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'toggle_status',
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    (card.status == 'DISABLED' || card.status == 'CANCELLED')
+                                        ? Icons.check_circle_outline
+                                        : Icons.block,
+                                    size: 16,
+                                    color: (card.status == 'DISABLED' || card.status == 'CANCELLED')
+                                        ? const Color(0xFF10B981)
+                                        : const Color(0xFFEF4444),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    (card.status == 'DISABLED' || card.status == 'CANCELLED')
+                                        ? 'إعادة تفعيل الكرت'
+                                        : 'إلغاء وتعطيل الكرت',
+                                    style: TextStyle(
+                                      color: (card.status == 'DISABLED' || card.status == 'CANCELLED')
+                                          ? const Color(0xFF10B981)
+                                          : const Color(0xFFEF4444),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'delete_card',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete_outline, size: 16, color: Color(0xFFEF4444)),
+                                  SizedBox(width: 8),
+                                  Text('حذف الكرت نهائياً', style: TextStyle(color: Color(0xFFEF4444), fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            // Card Metadata Chips (Speed, Quota, Validity, Router, Consumption)
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: context.bgCardAlt,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  // Speed with correct direction
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.speed_rounded, size: 12, color: Color(0xFF38BDF8)),
+                      const SizedBox(width: 3),
+                      Text(
+                        card.formattedSpeedLabel,
+                        style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 10.5, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                  // Quota (MB/GB/مفتوح)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.cloud_download_outlined, size: 12, color: Color(0xFF10B981)),
+                      const SizedBox(width: 3),
+                      Text(
+                        card.formattedDataQuota,
+                        style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 10.5, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                  // Validity
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.timer_outlined, size: 12, color: Color(0xFFFBBF24)),
+                      const SizedBox(width: 3),
+                      Text(
+                        card.formattedValidity,
+                        style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 10.5, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                  // Device / Router
+                  if (card.deviceName != null)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.router_outlined, size: 12, color: Color(0xFF94A3B8)),
+                        const SizedBox(width: 3),
+                        Text(
+                          card.deviceName!,
+                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5),
+                        ),
+                      ],
+                    ),
+                  // Consumed data if available
+                  if (card.consumedBytes != null && card.consumedBytes! > 0)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.data_usage_rounded, size: 12, color: Color(0xFFF59E0B)),
+                        const SizedBox(width: 3),
+                        Text(
+                          'مستهلك: ${card.formattedConsumedBytes}',
+                          style: const TextStyle(color: Color(0xFFF59E0B), fontSize: 10.5),
+                        ),
+                      ],
+                    ),
                 ],
               ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildPaginationBar(CardsInventoryState state) {
     return Container(
@@ -1360,3 +1380,509 @@ ${card.clearPassword != null ? 'كلمة المرور: ${card.clearPassword}' : 
     );
   }
 }
+
+class _CardDetailsDialog extends ConsumerWidget {
+  final CardModel card;
+
+  const _CardDetailsDialog({required this.card});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return FutureBuilder<CardModel?>(
+      future: ref.read(cardsInventoryProvider.notifier).fetchCardDetails(card.id),
+      builder: (context, snapshot) {
+        final c = snapshot.data ?? card;
+        final isLoadingLive = snapshot.connectionState == ConnectionState.waiting;
+
+        bool showCredentials = false;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: context.bgCard,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              titlePadding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.credit_card, color: Color(0xFF38BDF8), size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'تفاصيل الكرت: ${c.username}',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: c.statusBadgeColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: c.statusBadgeColor, width: 0.8),
+                              ),
+                              child: Text(
+                                c.statusArabic,
+                                style: TextStyle(color: c.statusBadgeColor, fontSize: 10, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            if (c.isOnline != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: c.isOnline == true
+                                      ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                                      : const Color(0xFF64748B).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: c.isOnline == true ? const Color(0xFF10B981) : const Color(0xFF64748B),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.circle,
+                                      size: 6,
+                                      color: c.isOnline == true ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      c.isOnline == true ? 'جلسة نشطة بالراوتر' : 'لا توجد جلسة نشطة',
+                                      style: TextStyle(
+                                        color: c.isOnline == true ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+              if (isLoadingLive)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                ),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 6),
+                  // QR Code
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: QrImageView(
+                      data: c.loginUrl,
+                      version: QrVersions.auto,
+                      size: 140.0,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Section 1: بيانات الدخول والتعريف
+                  _buildSectionHeader(
+                    'بيانات الدخول والتعريف',
+                    Icons.key_rounded,
+                    action: InkWell(
+                      onTap: () => setDialogState(() => showCredentials = !showCredentials),
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              showCredentials ? Icons.visibility_off : Icons.visibility,
+                              size: 14,
+                              color: const Color(0xFF38BDF8),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              showCredentials ? 'إخفاء' : 'كشف الرموز',
+                              style: const TextStyle(
+                                color: Color(0xFF38BDF8),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  _buildCardSection(
+                    context: context,
+                    children: [
+                      _buildDetailRow(
+                        'اسم المستخدم / الرمز:',
+                        c.username,
+                        textColor: const Color(0xFF38BDF8),
+                        isMonospace: true,
+                        canCopy: true,
+                        context: context,
+                      ),
+                      if (c.clearPassword != null &&
+                          c.clearPassword!.isNotEmpty &&
+                          c.clearPassword != c.username) ...[
+                        Divider(color: context.borderColor),
+                        _buildDetailRow(
+                          'كلمة المرور:',
+                          showCredentials ? c.clearPassword! : '••••••••',
+                          textColor: const Color(0xFFFBBF24),
+                          isMonospace: true,
+                          canCopy: showCredentials,
+                          context: context,
+                        ),
+                      ],
+                      if (c.pinCode != null && c.pinCode!.isNotEmpty) ...[
+                        Divider(color: context.borderColor),
+                        _buildDetailRow(
+                          'رمز PIN:',
+                          showCredentials ? c.pinCode! : '••••',
+                          textColor: const Color(0xFFA78BFA),
+                          isMonospace: true,
+                          canCopy: showCredentials,
+                          context: context,
+                        ),
+                      ],
+                      Divider(color: context.borderColor),
+                      _buildDetailRow('الرقم التسلسلي:', c.serialNumber, canCopy: true, context: context),
+                      if (c.batchNumber != null) ...[
+                        Divider(color: context.borderColor),
+                        _buildDetailRow('رقم الدفعة:', c.batchNumber!, context: context),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Section 2: البروفايل والسرعات والحصص
+                  _buildSectionHeader('الباقة والسرعات والحصص', Icons.speed_rounded),
+                  _buildCardSection(
+                    context: context,
+                    children: [
+                      _buildDetailRow('البروفايل:', c.profileName, textColor: Colors.white, context: context),
+                      Divider(color: context.borderColor),
+                      _buildDetailRow(
+                        'مصدر الإعدادات:',
+                        c.isCustomQuota ? 'إعدادات مخصصة للكرت (تتجاوز البروفايل)' : 'إعدادات البروفايل الافتراضية',
+                        textColor: c.isCustomQuota ? const Color(0xFFF59E0B) : const Color(0xFF94A3B8),
+                        context: context,
+                      ),
+                      Divider(color: context.borderColor),
+                      _buildDetailRow(
+                        'السرعة المطبقة:',
+                        c.formattedSpeedLabel,
+                        textColor: const Color(0xFF38BDF8),
+                        context: context,
+                      ),
+                      Divider(color: context.borderColor),
+                      _buildDetailRow(
+                        'حصة الإنترنت (Quota):',
+                        c.formattedDataQuota,
+                        textColor: c.isUnlimitedQuota ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+                        context: context,
+                      ),
+                      Divider(color: context.borderColor),
+                      _buildDetailRow(
+                        'مدة الصلاحية:',
+                        c.formattedValidity,
+                        textColor: const Color(0xFFE2E8F0),
+                        context: context,
+                      ),
+                      if (c.effectiveTimeLimit != null && c.validityDays != null) ...[
+                        Divider(color: context.borderColor),
+                        _buildDetailRow(
+                          'حد الجلسة بالراوتر:',
+                          c.effectiveTimeLimit!,
+                          textColor: const Color(0xFF94A3B8),
+                          context: context,
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Section 3: المحاسبة والاستهلاك اللحظي
+                  _buildSectionHeader('المحاسبة والاستهلاك', Icons.analytics_outlined),
+                  _buildCardSection(
+                    context: context,
+                    children: [
+                      _buildDetailRow(
+                        'البيانات المستهلكة:',
+                        c.formattedConsumedBytes,
+                        textColor: (c.consumedBytes != null && c.consumedBytes! > 0)
+                            ? const Color(0xFFF59E0B)
+                            : const Color(0xFF94A3B8),
+                        context: context,
+                      ),
+                      Divider(color: context.borderColor),
+                      _buildDetailRow(
+                        'البيانات المتبقية:',
+                        c.formattedRemainingBytes,
+                        textColor: (c.remainingBytes != null && c.remainingBytes! > 0)
+                            ? const Color(0xFF10B981)
+                            : const Color(0xFF94A3B8),
+                        context: context,
+                      ),
+                      if (c.consumptionPercentage != null) ...[
+                        Divider(color: context.borderColor),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('نسبة استهلاك الحصة:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                                  Text(
+                                    '${c.consumptionPercentage!.toStringAsFixed(1)}%',
+                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: LinearProgressIndicator(
+                                  value: (c.consumptionPercentage! / 100).clamp(0.0, 1.0),
+                                  minHeight: 6,
+                                  backgroundColor: const Color(0xFF334155),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    c.consumptionPercentage! > 90
+                                        ? const Color(0xFFEF4444)
+                                        : (c.consumptionPercentage! > 75 ? const Color(0xFFF59E0B) : const Color(0xFF10B981)),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (c.sessionUptime != null) ...[
+                        Divider(color: context.borderColor),
+                        _buildDetailRow(
+                          'مدة الجلسة النشطة:',
+                          c.sessionUptime!,
+                          textColor: const Color(0xFF38BDF8),
+                          context: context,
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Section 4: التواريخ ومعلومات الراوتر
+                  _buildSectionHeader('الشبكة والتواريخ', Icons.calendar_month_outlined),
+                  _buildCardSection(
+                    context: context,
+                    children: [
+                      if (c.deviceName != null) ...[
+                        _buildDetailRow('الراوتر المرتبط:', c.deviceName!, textColor: const Color(0xFF60A5FA), context: context),
+                        Divider(color: context.borderColor),
+                      ],
+                      _buildDetailRow('السعر:', '${c.price.toStringAsFixed(0)} SDG', textColor: const Color(0xFF10B981), context: context),
+                      Divider(color: context.borderColor),
+                      _buildDetailRow(
+                        'تاريخ التوليد:',
+                        DateFormat('yyyy/MM/dd HH:mm').format(c.createdAt),
+                        context: context,
+                      ),
+                      if (c.soldAt != null) ...[
+                        Divider(color: context.borderColor),
+                        _buildDetailRow(
+                          'تاريخ البيع:',
+                          DateFormat('yyyy/MM/dd HH:mm').format(c.soldAt!),
+                          textColor: const Color(0xFF60A5FA),
+                          context: context,
+                        ),
+                      ],
+                      if (c.activatedAt != null) ...[
+                        Divider(color: context.borderColor),
+                        _buildDetailRow(
+                          'تاريخ أول تفعيل:',
+                          DateFormat('yyyy/MM/dd HH:mm').format(c.activatedAt!),
+                          textColor: const Color(0xFF10B981),
+                          context: context,
+                        ),
+                      ],
+                      if (c.expiresAt != null) ...[
+                        Divider(color: context.borderColor),
+                        _buildDetailRow(
+                          'تاريخ انتهاء الصلاحية:',
+                          DateFormat('yyyy/MM/dd HH:mm').format(c.expiresAt!),
+                          textColor: c.isExpired ? const Color(0xFFEF4444) : const Color(0xFFF59E0B),
+                          context: context,
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () {
+                    final textToShare = '''
+بطاقة هوتسبوت: ${c.profileName}
+اسم المستخدم / الكود: ${c.username}
+${c.clearPassword != null ? 'كلمة المرور: ${c.clearPassword}' : ''}
+السرعة: ${c.formattedSpeedLabel}
+الحصة: ${c.formattedDataQuota}
+الصلاحية: ${c.formattedValidity}
+السعر: ${c.price.toStringAsFixed(0)} SDG
+الرقم التسلسلي: ${c.serialNumber}
+رابط الدخول المباشر: ${c.loginUrl}
+'''.trim();
+                    Share.share(textToShare);
+                  },
+                  icon: const Icon(Icons.share, color: Color(0xFF38BDF8)),
+                  tooltip: 'مشاركة بيانات الكرت',
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('إغلاق', style: TextStyle(color: Color(0xFF94A3B8))),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  },
+);
+}
+
+  Widget _buildSectionHeader(String title, IconData icon, {Widget? action}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6, top: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFF38BDF8)),
+          const SizedBox(width: 6),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Color(0xFF38BDF8),
+              fontSize: 11.5,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          if (action != null) ...[
+            const Spacer(),
+            action,
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardSection({required BuildContext context, required List<Widget> children}) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.bgCardAlt,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildDetailRow(
+    String label,
+    String value, {
+    required BuildContext context,
+    Color textColor = Colors.white,
+    bool isMonospace = false,
+    bool canCopy = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.5),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Flexible(
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 11,
+                      fontWeight: isMonospace ? FontWeight.bold : FontWeight.w600,
+                      fontFamily: isMonospace ? 'monospace' : null,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.end,
+                  ),
+                ),
+                if (canCopy) ...[
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: value));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('تم نسخ: $value'),
+                          duration: const Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                    child: const Icon(Icons.copy, size: 13, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

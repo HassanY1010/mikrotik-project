@@ -51,9 +51,11 @@ class ApiEndpoints {
   static String deviceBackups(String id) => '/devices/$id/backups';
   static String deviceBackupDownload(String id, String filename) =>
       '/devices/$id/backups/$filename/download';
+  static String deviceBackupRestore(String id) => '/devices/$id/backups/restore';
   static String deviceProvisionDiscover(String id) => '/devices/$id/provision/discover';
   static String deviceProvisionPreview(String id) => '/devices/$id/provision/preview';
   static String deviceProvisionApply(String id) => '/devices/$id/provision/apply';
+  static String deviceConnectedDevices(String id) => '/devices/$id/connected-devices';
 
   // Hotspot
   static String hotspotKick(String sessionId) => '/hotspot/sessions/$sessionId/kick';
@@ -62,6 +64,7 @@ class ApiEndpoints {
   static const String cards = '/cards';
   static String cardItem(String id) => '/cards/$id';
   static const String cardsBulkDelete = '/cards/bulk-delete';
+  static const String cardsBulkActivate = '/cards/bulk-activate';
   static String cardStatus(String id) => '/cards/$id/status';
   static const String cardBatches = '/cards/batches';
   static const String cardTemplates = '/card-templates';
@@ -111,5 +114,8 @@ class ApiEndpoints {
   static String portalPreview(String id) => '/portal/templates/$id/preview';
   static const String portalPreviewDraft = '/portal/preview-draft';
   static String portalPublish(String deviceId) => '/portal/devices/$deviceId/publish';
+  static String portalInspectHotspot(String deviceId) => '/portal/devices/$deviceId/inspect-hotspot';
+  static String portalRollbackProfile(String deviceId) => '/portal/devices/$deviceId/rollback-profile';
   static String agentCommandStatus(String commandId) => '/agent/commands/$commandId';
 }
+

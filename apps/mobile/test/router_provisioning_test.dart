@@ -254,6 +254,69 @@ void main() {
       expect(result.verification.overallStatus, 'VERIFICATION_FAILED');
       expect(result.backupFilename, isNotNull);
     });
+
+    test('SecurityPoliciesConfigModel serializes and copies with overrides correctly', () {
+      const config = SecurityPoliciesConfigModel();
+      expect(config.antiTethering, true);
+      expect(config.clientIsolation, true);
+      expect(config.protectManagementAccess, true);
+      expect(config.forceRouterDns, true);
+      expect(config.enforceSingleDevice, true);
+      expect(config.blockUnauthenticatedBypass, true);
+
+      final json = config.toJson();
+      expect(json['antiTethering'], true);
+      expect(json['clientIsolation'], true);
+
+      final modified = config.copyWith(antiTethering: false, forceRouterDns: false);
+      expect(modified.antiTethering, false);
+      expect(modified.clientIsolation, true);
+      expect(modified.forceRouterDns, false);
+    });
+
+    test('ProvisionPreviewResponse parses securityPoliciesReport with realistic effects and limits', () {
+      final previewWithSecurityJson = {
+        'template': 'CLEAN_SETUP',
+        'routerVersion': 'V7',
+        'plannedSteps': [],
+        'generatedCommands': [],
+        'warnings': [],
+        'conflicts': [],
+        'canProceed': true,
+        'requiresCleanConfirmation': false,
+        'backupRecommended': true,
+        'securityPoliciesReport': [
+          {
+            'id': 'ANTI_TETHERING',
+            'name': 'الحد من مشاركة الاتصال وتمريره (Anti-Tethering / TTL Lock)',
+            'category': 'SHARING_PREVENTION',
+            'status': 'PROPOSED',
+            'isSupported': true,
+            'description': 'تثبيت قيمة TTL=1 على الحزم المتجهة للمشتركين',
+            'realisticEffect': 'يمنع بث الإنترنت عبر Mobile Hotspot ومشاركة USB/Bluetooth للأجهزة غير المروتة',
+            'knownLimitations': 'لا يمنع الأجهزة المروتة (Rooted Android)',
+          },
+          {
+            'id': 'CLIENT_ISOLATION',
+            'name': 'عزل أجهزة المشتركين (Client Port Isolation)',
+            'category': 'SHARING_PREVENTION',
+            'status': 'ACTIVE_ON_ROUTER',
+            'isSupported': true,
+            'description': 'عزل المنافذ (Horizon=1)',
+            'realisticEffect': 'يمنع التواصل المباشر وتطبيقات البروكسي المحلية',
+            'knownLimitations': 'يطبق على المنافذ السلكية ويتطلب تفعيل عزل AP',
+          },
+        ],
+      };
+
+      final preview = ProvisionPreviewResponse.fromJson(previewWithSecurityJson);
+      expect(preview.securityPoliciesReport.length, 2);
+      expect(preview.securityPoliciesReport[0].id, 'ANTI_TETHERING');
+      expect(preview.securityPoliciesReport[0].status, 'PROPOSED');
+      expect(preview.securityPoliciesReport[0].realisticEffect, contains('Mobile Hotspot'));
+      expect(preview.securityPoliciesReport[0].knownLimitations, contains('Rooted Android'));
+      expect(preview.securityPoliciesReport[1].status, 'ACTIVE_ON_ROUTER');
+    });
   });
 
   group('API Endpoints Validation', () {
@@ -264,3 +327,4 @@ void main() {
     });
   });
 }
+

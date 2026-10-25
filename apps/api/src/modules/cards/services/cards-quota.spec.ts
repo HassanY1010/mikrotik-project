@@ -63,6 +63,7 @@ describe('SaaS Card Quotas & Synchronization Integrity (Phase 1)', () => {
       },
       user: {
         findFirst: jest.fn().mockResolvedValue({ id: mockUserId }),
+        findUnique: jest.fn().mockResolvedValue({ id: mockUserId, role: { name: 'TENANT_ADMIN' } }),
       },
       tenant: {
         findUnique: jest.fn().mockResolvedValue({ id: mockTenantId, status: 'ACTIVE' }),

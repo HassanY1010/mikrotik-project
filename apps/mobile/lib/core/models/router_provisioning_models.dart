@@ -189,11 +189,94 @@ class GeneratedCommandModel {
   }
 }
 
+class SecurityPolicyReportItemModel {
+  final String id;
+  final String name;
+  final String category; // 'SHARING_PREVENTION' | 'ACCESS_CONTROL' | 'ACCOUNTING_PROTECTION'
+  final String status; // 'ACTIVE_ON_ROUTER' | 'PROPOSED' | 'DISABLED' | 'UNSUPPORTED'
+  final bool isSupported;
+  final String description;
+  final String realisticEffect;
+  final String knownLimitations;
+
+  const SecurityPolicyReportItemModel({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.status,
+    required this.isSupported,
+    required this.description,
+    required this.realisticEffect,
+    required this.knownLimitations,
+  });
+
+  factory SecurityPolicyReportItemModel.fromJson(Map<String, dynamic> json) {
+    return SecurityPolicyReportItemModel(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      category: json['category'] as String? ?? 'SHARING_PREVENTION',
+      status: json['status'] as String? ?? 'PROPOSED',
+      isSupported: json['isSupported'] as bool? ?? true,
+      description: json['description'] as String? ?? '',
+      realisticEffect: json['realisticEffect'] as String? ?? '',
+      knownLimitations: json['knownLimitations'] as String? ?? '',
+    );
+  }
+}
+
+class SecurityPoliciesConfigModel {
+  final bool antiTethering;
+  final bool clientIsolation;
+  final bool protectManagementAccess;
+  final bool forceRouterDns;
+  final bool enforceSingleDevice;
+  final bool blockUnauthenticatedBypass;
+
+  const SecurityPoliciesConfigModel({
+    this.antiTethering = true,
+    this.clientIsolation = true,
+    this.protectManagementAccess = true,
+    this.forceRouterDns = true,
+    this.enforceSingleDevice = true,
+    this.blockUnauthenticatedBypass = true,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'antiTethering': antiTethering,
+      'clientIsolation': clientIsolation,
+      'protectManagementAccess': protectManagementAccess,
+      'forceRouterDns': forceRouterDns,
+      'enforceSingleDevice': enforceSingleDevice,
+      'blockUnauthenticatedBypass': blockUnauthenticatedBypass,
+    };
+  }
+
+  SecurityPoliciesConfigModel copyWith({
+    bool? antiTethering,
+    bool? clientIsolation,
+    bool? protectManagementAccess,
+    bool? forceRouterDns,
+    bool? enforceSingleDevice,
+    bool? blockUnauthenticatedBypass,
+  }) {
+    return SecurityPoliciesConfigModel(
+      antiTethering: antiTethering ?? this.antiTethering,
+      clientIsolation: clientIsolation ?? this.clientIsolation,
+      protectManagementAccess: protectManagementAccess ?? this.protectManagementAccess,
+      forceRouterDns: forceRouterDns ?? this.forceRouterDns,
+      enforceSingleDevice: enforceSingleDevice ?? this.enforceSingleDevice,
+      blockUnauthenticatedBypass: blockUnauthenticatedBypass ?? this.blockUnauthenticatedBypass,
+    );
+  }
+}
+
 class ProvisionPreviewResponse {
   final String template;
   final String routerVersion;
   final List<PlannedStepModel> plannedSteps;
   final List<GeneratedCommandModel> generatedCommands;
+  final List<SecurityPolicyReportItemModel> securityPoliciesReport;
   final List<ProvisionWarningModel> warnings;
   final List<ProvisionConflictModel> conflicts;
   final bool canProceed;
@@ -205,6 +288,7 @@ class ProvisionPreviewResponse {
     required this.routerVersion,
     required this.plannedSteps,
     required this.generatedCommands,
+    this.securityPoliciesReport = const [],
     required this.warnings,
     required this.conflicts,
     required this.canProceed,
@@ -215,6 +299,7 @@ class ProvisionPreviewResponse {
   factory ProvisionPreviewResponse.fromJson(Map<String, dynamic> json) {
     final stepsRaw = json['plannedSteps'] as List<dynamic>? ?? [];
     final cmdsRaw = json['generatedCommands'] as List<dynamic>? ?? [];
+    final secRaw = json['securityPoliciesReport'] as List<dynamic>? ?? [];
     final warnsRaw = json['warnings'] as List<dynamic>? ?? [];
     final confsRaw = json['conflicts'] as List<dynamic>? ?? [];
 
@@ -223,6 +308,7 @@ class ProvisionPreviewResponse {
       routerVersion: json['routerVersion'] as String? ?? 'V7',
       plannedSteps: stepsRaw.map((e) => PlannedStepModel.fromJson(e as Map<String, dynamic>)).toList(),
       generatedCommands: cmdsRaw.map((e) => GeneratedCommandModel.fromJson(e as Map<String, dynamic>)).toList(),
+      securityPoliciesReport: secRaw.map((e) => SecurityPolicyReportItemModel.fromJson(e as Map<String, dynamic>)).toList(),
       warnings: warnsRaw.map((e) => ProvisionWarningModel.fromJson(e as Map<String, dynamic>)).toList(),
       conflicts: confsRaw.map((e) => ProvisionConflictModel.fromJson(e as Map<String, dynamic>)).toList(),
       canProceed: json['canProceed'] as bool? ?? false,
@@ -263,6 +349,7 @@ class ProvisionVerificationResultModel {
   final bool wanConfigured;
   final bool defaultRouteActive;
   final bool hotspotOperational;
+  final bool securityPoliciesVerified;
   final int pingPacketsReceived;
   final String overallStatus; // 'VERIFIED_READY' | 'PARTIALLY_VERIFIED' | 'VERIFICATION_FAILED'
   final String diagnosticsMessage;
@@ -272,6 +359,7 @@ class ProvisionVerificationResultModel {
     required this.wanConfigured,
     required this.defaultRouteActive,
     required this.hotspotOperational,
+    this.securityPoliciesVerified = true,
     this.pingPacketsReceived = 0,
     required this.overallStatus,
     required this.diagnosticsMessage,
@@ -283,6 +371,7 @@ class ProvisionVerificationResultModel {
       wanConfigured: json['wanConfigured'] as bool? ?? false,
       defaultRouteActive: json['defaultRouteActive'] as bool? ?? false,
       hotspotOperational: json['hotspotOperational'] as bool? ?? false,
+      securityPoliciesVerified: json['securityPoliciesVerified'] as bool? ?? true,
       pingPacketsReceived: json['pingPacketsReceived'] as int? ?? 0,
       overallStatus: json['overallStatus'] as String? ?? 'VERIFICATION_FAILED',
       diagnosticsMessage: json['diagnosticsMessage'] as String? ?? '',

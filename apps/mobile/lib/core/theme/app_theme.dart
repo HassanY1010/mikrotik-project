@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // Brand colors
-  static const Color primary = Color(0xFF0D9488); // Modern Teal / Emerald
-  static const Color primaryDark = Color(0xFF0F766E);
-  static const Color primaryLight = Color(0xFF14B8A6);
-  static const Color accent = Color(0xFFF59E0B); // Amber
+  // Brand colors - SudaFi Official Identity
+  static const Color primary = Color(0xFF114C54); // Dark Petrol (البترولي الداكن)
+  static const Color primaryDark = Color(0xFF0C383E);
+  static const Color primaryLight = Color(0xFF1B6A75);
+  static const Color accent = Color(0xFFCEAE85); // Sandy Gold (الذهبي الرملي)
+  static const Color accentLight = Color(0xFFE2CBB0);
   static const Color backgroundDark = Color(0xFF0F172A); // Slate 900
   static const Color surfaceDark = Color(0xFF1E293B); // Slate 800
   static const Color cardDark = Color(0xFF334155); // Slate 700
@@ -13,19 +14,19 @@ class AppTheme {
   static const Color textMutedDark = Color(0xFF94A3B8);
 
   // Light Palette Tokens
-  static const Color backgroundLight = Color(0xFFF8FAFC); // Slate 50
+  static const Color backgroundLight = Color(0xFFFDF8F2); // SudaFi Creamy (الكريمي)
   static const Color surfaceLight = Colors.white;
   static const Color cardLight = Colors.white;
-  static const Color cardAltLight = Color(0xFFF1F5F9); // Slate 100
-  static const Color textLight = Color(0xFF0F172A); // Slate 900
-  static const Color textMutedLight = Color(0xFF64748B); // Slate 500
-  static const Color borderLight = Color(0xFFE2E8F0); // Slate 200
+  static const Color cardAltLight = Color(0xFFF7F0E6); // Soft warm creamy tint
+  static const Color textLight = Color(0xFF24343A); // Charcoal Petrol (الفحمي المائل للبترولي)
+  static const Color textMutedLight = Color(0xFF5D7179); // Muted petrol gray
+  static const Color borderLight = Color(0xFFE8DFD3); // Warm subtle border
 
   static ThemeData darkTheme = ThemeData(
     useMaterial3: true,
     brightness: Brightness.dark,
     colorScheme: const ColorScheme.dark(
-      primary: primary,
+      primary: primaryLight,
       secondary: accent,
       surface: surfaceDark,
       error: Color(0xFFEF4444),
@@ -89,9 +90,27 @@ class AppTheme {
         textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
       ),
     ),
+    textSelectionTheme: const TextSelectionThemeData(
+      cursorColor: accent, // Sandy gold cursor on dark
+      selectionColor: Color(0x66114C54),
+      selectionHandleColor: accent,
+    ),
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: textDark),
+      bodyMedium: TextStyle(color: textDark),
+      bodySmall: TextStyle(color: textMutedDark),
+      titleLarge: TextStyle(color: textDark, fontWeight: FontWeight.bold),
+      titleMedium: TextStyle(color: textDark, fontWeight: FontWeight.w600),
+      titleSmall: TextStyle(color: textDark),
+      labelLarge: TextStyle(color: textDark),
+      labelMedium: TextStyle(color: textMutedDark),
+      labelSmall: TextStyle(color: textMutedDark),
+    ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: const Color(0xFF1E293B),
+      prefixIconColor: textMutedDark,
+      suffixIconColor: textMutedDark,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Color(0xFF475569)),
@@ -102,18 +121,28 @@ class AppTheme {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: primary, width: 2),
+        borderSide: const BorderSide(color: primaryLight, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFEF4444)),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
       ),
       labelStyle: const TextStyle(color: textMutedDark),
+      floatingLabelStyle: const TextStyle(color: accent, fontWeight: FontWeight.bold),
       hintStyle: const TextStyle(color: Color(0xFF64748B)),
+      errorStyle: const TextStyle(color: Color(0xFFEF4444)),
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: surfaceDark,
-      indicatorColor: const Color(0xFF2563EB).withValues(alpha: 0.3),
+      indicatorColor: primary.withValues(alpha: 0.35),
       labelTextStyle: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
           return const TextStyle(
-            color: Color(0xFF38BDF8),
+            color: accent,
             fontWeight: FontWeight.bold,
             fontSize: 11,
           );
@@ -122,7 +151,7 @@ class AppTheme {
       }),
       iconTheme: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
-          return const IconThemeData(color: Color(0xFF38BDF8), size: 24);
+          return const IconThemeData(color: accent, size: 24);
         }
         return const IconThemeData(color: Color(0xFF94A3B8), size: 22);
       }),
@@ -141,10 +170,26 @@ class AppTheme {
       onSurface: textLight,
     ),
     scaffoldBackgroundColor: backgroundLight,
+    textSelectionTheme: const TextSelectionThemeData(
+      cursorColor: primary, // Dark Petrol - crystal clear on creamy/white
+      selectionColor: Color(0x4D114C54), // 30% Dark Petrol
+      selectionHandleColor: primary,
+    ),
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: textLight),
+      bodyMedium: TextStyle(color: textLight),
+      bodySmall: TextStyle(color: textMutedLight),
+      titleLarge: TextStyle(color: textLight, fontWeight: FontWeight.bold),
+      titleMedium: TextStyle(color: textLight, fontWeight: FontWeight.w600),
+      titleSmall: TextStyle(color: textLight),
+      labelLarge: TextStyle(color: textLight),
+      labelMedium: TextStyle(color: textMutedLight),
+      labelSmall: TextStyle(color: textMutedLight),
+    ),
     cardTheme: CardThemeData(
       color: surfaceLight,
       elevation: 1,
-      shadowColor: Colors.black.withValues(alpha: 0.06),
+      shadowColor: primary.withValues(alpha: 0.08),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: const BorderSide(color: borderLight, width: 1),
@@ -202,21 +247,33 @@ class AppTheme {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: const Color(0xFFF1F5F9),
+      fillColor: cardAltLight,
+      prefixIconColor: textMutedLight,
+      suffixIconColor: textMutedLight,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+        borderSide: const BorderSide(color: Color(0xFFD6CABE)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        borderSide: const BorderSide(color: borderLight),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: primary, width: 2),
       ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFDC2626)),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFDC2626), width: 2),
+      ),
       labelStyle: const TextStyle(color: textMutedLight),
-      hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+      floatingLabelStyle: const TextStyle(color: primary, fontWeight: FontWeight.bold),
+      hintStyle: const TextStyle(color: Color(0xFF8C9FA7)),
+      errorStyle: const TextStyle(color: Color(0xFFDC2626)),
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: surfaceLight,

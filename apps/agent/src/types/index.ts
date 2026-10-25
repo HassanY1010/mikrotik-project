@@ -159,6 +159,11 @@ export interface HotspotActiveSession {
   bytesIn: number;
   bytesOut: number;
   sessionId?: string;
+  server?: string;
+  loginBy?: string;
+  sessionTimeLeft?: string;
+  idleTime?: string;
+  limitBytesTotal?: number;
 }
 
 export interface HotspotSessionListResult {

@@ -4,7 +4,7 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { HashingService } from '../../core/security/hashing.service';
 import { MailService } from './mail.service';
-import { UserStatus } from '@prisma/client';
+import { UserStatus, SubscriptionStatus } from '@prisma/client';
 
 describe('AuthService', () => {
   let authService: AuthService;
@@ -336,7 +336,7 @@ describe('AuthService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should successfully register tenant with TENANT_ADMIN role and without active paid subscription', async () => {
+    it('should successfully register tenant with TENANT_ADMIN role and auto-activate a 48-hour free trial subscription', async () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
       (prisma.tenant.findUnique as jest.Mock).mockResolvedValue(null);
       (prisma.subscriptionPlan.findUnique as jest.Mock).mockResolvedValue({ id: 'plan-basic', name: 'BASIC' });
@@ -344,6 +344,15 @@ describe('AuthService', () => {
 
       const createdTenant = { id: 'tenant-new-1', name: 'Al-Baraka WiFi', slug: 'al-baraka' };
       const createdUser = { id: 'user-new-1', email: 'owner@albaraka.sd', fullName: 'Omer Ahmed' };
+      const trialPlan = {
+        id: 'plan-trial-id',
+        name: 'TRIAL',
+        nameAr: 'الباقة التجريبية المجانية',
+        maxRouters: 5,
+        features: { isUnlimited: true, maxRouters: 5 },
+      };
+
+      let capturedSubscriptionData: any = null;
 
       (prisma.$transaction as jest.Mock).mockImplementation(async (callback) => {
         const tx = {
@@ -351,13 +360,26 @@ describe('AuthService', () => {
           user: { create: jest.fn().mockResolvedValue(createdUser) },
           cardTemplate: { create: jest.fn().mockResolvedValue({ id: 'tpl-1' }) },
           auditLog: { create: jest.fn().mockResolvedValue({ id: 'log-1' }) },
-          subscription: { create: jest.fn() }, // Should NOT be called
+          subscriptionPlan: {
+            findUnique: jest.fn().mockResolvedValue(trialPlan),
+            create: jest.fn(),
+          },
+          subscription: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockImplementation((args) => {
+              capturedSubscriptionData = args.data;
+              return {
+                id: 'sub-trial-1',
+                ...args.data,
+                plan: trialPlan,
+              };
+            }),
+          },
         };
-        const res = await callback(tx);
-        expect(tx.subscription.create).not.toHaveBeenCalled();
-        return res;
+        return await callback(tx);
       });
 
+      const beforeCall = Date.now();
       const result = await authService.registerTenant({
         tenantName: 'Al-Baraka WiFi',
         slug: 'al-baraka',
@@ -366,10 +388,113 @@ describe('AuthService', () => {
         adminPassword: 'Password@123',
         currency: 'SDG',
       });
+      const afterCall = Date.now();
 
       expect(result.tenant.id).toEqual('tenant-new-1');
       expect(result.user.email).toEqual('owner@albaraka.sd');
-      expect(result.message).toContain('تم تسجيل الشبكة بنجاح');
+      expect(result.message).toContain('تم تسجيل الشبكة بنجاح وتفعيل الباقة التجريبية المجانية');
+      expect(result.subscription.status).toBe(SubscriptionStatus.TRIAL);
+      expect(result.subscription.plan).toBe('TRIAL');
+      expect(result.subscription.planNameAr).toBe('الباقة التجريبية المجانية');
+
+      // Verify trial subscription parameters
+      expect(capturedSubscriptionData).toBeDefined();
+      expect(capturedSubscriptionData.status).toBe(SubscriptionStatus.TRIAL);
+      expect(capturedSubscriptionData.price).toBe(0);
+      expect(capturedSubscriptionData.maxRouters).toBe(5);
+
+      // Verify exact 48-hour UTC duration from activation
+      const startsAtTime = new Date(capturedSubscriptionData.startsAt).getTime();
+      const expiresAtTime = new Date(capturedSubscriptionData.expiresAt).getTime();
+      const durationMs = expiresAtTime - startsAtTime;
+      const expected48HoursMs = 48 * 60 * 60 * 1000;
+
+      expect(durationMs).toBe(expected48HoursMs);
+      expect(startsAtTime).toBeGreaterThanOrEqual(beforeCall);
+      expect(startsAtTime).toBeLessThanOrEqual(afterCall);
+    });
+
+    it('should be idempotent and not create duplicate trial subscription if one already exists', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.tenant.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.subscriptionPlan.findUnique as jest.Mock).mockResolvedValue({ id: 'plan-basic', name: 'BASIC' });
+      (prisma.role.findFirst as jest.Mock).mockResolvedValue({ id: 'role-tenant-admin', name: 'TENANT_ADMIN' });
+
+      const createdTenant = { id: 'tenant-new-1', name: 'Al-Baraka WiFi', slug: 'al-baraka' };
+      const createdUser = { id: 'user-new-1', email: 'owner@albaraka.sd', fullName: 'Omer Ahmed' };
+      const existingTrialSub = {
+        id: 'sub-existing-trial',
+        status: SubscriptionStatus.TRIAL,
+        startsAt: new Date(),
+        expiresAt: new Date(Date.now() + 48 * 3600 * 1000),
+        plan: { name: 'TRIAL', nameAr: 'الباقة التجريبية المجانية' },
+      };
+
+      const createSubMock = jest.fn();
+
+      (prisma.$transaction as jest.Mock).mockImplementation(async (callback) => {
+        const tx = {
+          tenant: { create: jest.fn().mockResolvedValue(createdTenant) },
+          user: { create: jest.fn().mockResolvedValue(createdUser) },
+          cardTemplate: { create: jest.fn().mockResolvedValue({ id: 'tpl-1' }) },
+          auditLog: { create: jest.fn().mockResolvedValue({ id: 'log-1' }) },
+          subscriptionPlan: {
+            findUnique: jest.fn().mockResolvedValue({ id: 'plan-trial-id', name: 'TRIAL' }),
+            create: jest.fn(),
+          },
+          subscription: {
+            findFirst: jest.fn().mockResolvedValue(existingTrialSub),
+            create: createSubMock,
+          },
+        };
+        return await callback(tx);
+      });
+
+      const result = await authService.registerTenant({
+        tenantName: 'Al-Baraka WiFi',
+        slug: 'al-baraka',
+        adminFullName: 'Omer Ahmed',
+        adminEmail: 'owner@albaraka.sd',
+        adminPassword: 'Password@123',
+      });
+
+      expect(createSubMock).not.toHaveBeenCalled();
+      expect(result.subscription.status).toBe(SubscriptionStatus.TRIAL);
+    });
+
+    it('should handle trial creation database failure cleanly and reject registration', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.tenant.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.subscriptionPlan.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.role.findFirst as jest.Mock).mockResolvedValue({ id: 'role-tenant-admin', name: 'TENANT_ADMIN' });
+
+      (prisma.$transaction as jest.Mock).mockImplementation(async (callback) => {
+        const tx = {
+          tenant: { create: jest.fn().mockResolvedValue({ id: 't-1' }) },
+          user: { create: jest.fn() },
+          cardTemplate: { create: jest.fn() },
+          auditLog: { create: jest.fn() },
+          subscriptionPlan: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockRejectedValue(new Error('DB Connection Timeout')),
+          },
+          subscription: {
+            findFirst: jest.fn(),
+            create: jest.fn(),
+          },
+        };
+        return await callback(tx);
+      });
+
+      await expect(
+        authService.registerTenant({
+          tenantName: 'Al-Baraka WiFi',
+          slug: 'al-baraka',
+          adminFullName: 'Omer Ahmed',
+          adminEmail: 'owner@albaraka.sd',
+          adminPassword: 'Password@123',
+        }),
+      ).rejects.toThrow('DB Connection Timeout');
     });
   });
 

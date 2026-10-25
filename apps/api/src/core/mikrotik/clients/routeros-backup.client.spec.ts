@@ -17,71 +17,10 @@ describe('MikroTik Backup Clients Audit Tests', () => {
       (client as any).socket = { write: jest.fn() };
     });
 
-    it('should send dont-encrypt=yes when password is not provided on RouterOS 7', async () => {
-      const executedCommands: string[][] = [];
-      (client as any).executeCommand = jest.fn(async (words: any) => {
-        executedCommands.push(words);
-        if (words[0] === '/file/print') {
-          return [
-            {
-              type: '!re',
-              attributes: {
-                name: 'test_backup.backup',
-                size: '204800',
-                'creation-time': '2026-10-18 09:00:00',
-                type: 'backup',
-              },
-            },
-            { type: '!done', attributes: {} },
-          ];
-        }
-        return [{ type: '!done', attributes: {} }];
-      });
-
-      const result = await client.createBackup('test_backup');
-
-      expect(executedCommands[0]).toEqual([
-        '/system/backup/save',
-        '=name=test_backup',
-        '=dont-encrypt=yes',
-      ]);
-      expect(result.filename).toBe('test_backup.backup');
-      expect(result.size).toBe(204800);
-    });
-
-    it('should fallback to save without dont-encrypt if older RouterOS 6 rejects it', async () => {
-      const executedCommands: string[][] = [];
-      (client as any).executeCommand = jest.fn(async (words: any) => {
-        executedCommands.push(words);
-        if (words.includes('=dont-encrypt=yes')) {
-          throw new Error('input does not match any value of dont-encrypt');
-        }
-        if (words[0] === '/file/print') {
-          return [
-            {
-              type: '!re',
-              attributes: {
-                name: 'ros6_backup.backup',
-                size: '150000',
-                'creation-time': '2026-10-18 09:00:00',
-              },
-            },
-            { type: '!done', attributes: {} },
-          ];
-        }
-        return [{ type: '!done', attributes: {} }];
-      });
-
-      const result = await client.createBackup('ros6_backup');
-
-      expect(executedCommands[0]).toEqual([
-        '/system/backup/save',
-        '=name=ros6_backup',
-        '=dont-encrypt=yes',
-      ]);
-      expect(executedCommands[1]).toEqual(['/system/backup/save', '=name=ros6_backup']);
-      expect(result.filename).toBe('ros6_backup.backup');
-      expect(result.size).toBe(150000);
+    it('should reject backup creation if password is not provided (encrypted by default policy)', async () => {
+      await expect(client.createBackup('unencrypted_attempt')).rejects.toThrow(
+        /النسخ الاحتياطي غير المشفر غير مسموح به/,
+      );
     });
 
     it('should pass password encryption parameter when password is supplied', async () => {
@@ -123,7 +62,7 @@ describe('MikroTik Backup Clients Audit Tests', () => {
         return [{ type: '!done', attributes: {} }];
       });
 
-      await expect(client.createBackup('missing_backup')).rejects.toThrow(
+      await expect(client.createBackup('missing_backup', 'secret123')).rejects.toThrow(
         /فشل التحقق من إنشاء ملف النسخة الاحتياطية/,
       );
     });
@@ -149,6 +88,65 @@ describe('MikroTik Backup Clients Audit Tests', () => {
       expect(backups).toHaveLength(2);
       expect(backups.map((b) => b.name)).toEqual(['backup1.backup', 'backup2.backup']);
     });
+
+    describe('restoreBackup Operations (API Client)', () => {
+      it('should throw NotFound if file does not exist in /file/print', async () => {
+        (client as any).executeCommand = jest.fn(async () => [
+          { type: '!re', attributes: { name: 'other_file.backup' } },
+          { type: '!done', attributes: {} },
+        ]);
+
+        await expect(client.restoreBackup('non_existent.backup')).rejects.toThrow(
+          /غير موجود على ذاكرة الراوتر/,
+        );
+      });
+
+      it('should format filename without .backup for universal RouterOS 6 & 7 compatibility', async () => {
+        const executedCommands: string[][] = [];
+        (client as any).executeCommand = jest.fn(async (words: any) => {
+          executedCommands.push(words);
+          if (words[0] === '/file/print') {
+            return [
+              { type: '!re', attributes: { name: 'clean_setup.backup' } },
+              { type: '!done', attributes: {} },
+            ];
+          }
+          if (words[0] === '/system/backup/load') {
+            // Emulate router reboot socket drop immediately following load command acceptance
+            throw new Error('Socket closed by remote peer (reboot)');
+          }
+          return [{ type: '!done', attributes: {} }];
+        });
+
+        const res = await client.restoreBackup('clean_setup.backup', 'secretKey123');
+        expect(res.success).toBe(true);
+        expect(res.rebootTriggered).toBe(true);
+        expect(executedCommands[1]).toEqual([
+          '/system/backup/load',
+          '=name=clean_setup',
+          '=password=secretKey123',
+        ]);
+      });
+
+      it('should throw immediately and NOT treat RouterOS trap (wrong password) as a reboot', async () => {
+        (client as any).executeCommand = jest.fn(async (words: any) => {
+          if (words[0] === '/file/print') {
+            return [
+              { type: '!re', attributes: { name: 'protected.backup' } },
+              { type: '!done', attributes: {} },
+            ];
+          }
+          if (words[0] === '/system/backup/load') {
+            throw new Error('Trap received: action failed: wrong password');
+          }
+          return [{ type: '!done', attributes: {} }];
+        });
+
+        await expect(client.restoreBackup('protected.backup', 'bad_pass')).rejects.toThrow(
+          /فشل تنفيذ الاستعادة من الراوتر: Trap received: action failed: wrong password/,
+        );
+      });
+    });
   });
 
   describe('RouterOsRestClient Backup Operations', () => {
@@ -164,32 +162,10 @@ describe('MikroTik Backup Clients Audit Tests', () => {
       });
     });
 
-    it('should post payload with dont-encrypt=yes when password is not provided on REST', async () => {
-      const requests: { endpoint: string; options: any }[] = [];
-      (restClient as any).request = jest.fn(async (endpoint: any, options: any) => {
-        requests.push({ endpoint, options });
-        if (endpoint === '/file') {
-          return [
-            {
-              name: 'rest_backup.backup',
-              size: '300000',
-              'creation-time': '2026-10-18 09:20:00',
-              type: 'backup',
-            },
-          ];
-        }
-        return {};
-      });
-
-      const result = await restClient.createBackup('rest_backup');
-
-      expect(requests[0].endpoint).toBe('/system/backup/save');
-      expect(JSON.parse(requests[0].options.body)).toEqual({
-        name: 'rest_backup',
-        'dont-encrypt': 'yes',
-      });
-      expect(result.filename).toBe('rest_backup.backup');
-      expect(result.size).toBe(300000);
+    it('should reject backup creation on REST if password is not provided (mandatory encryption policy)', async () => {
+      await expect(restClient.createBackup('unencrypted_rest')).rejects.toThrow(
+        /النسخ الاحتياطي غير المشفر غير مسموح به/,
+      );
     });
 
     it('should post payload with password when encryption password is provided on REST', async () => {
@@ -227,9 +203,49 @@ describe('MikroTik Backup Clients Audit Tests', () => {
         return {};
       });
 
-      await expect(restClient.createBackup('missing_rest')).rejects.toThrow(
+      await expect(restClient.createBackup('missing_rest', 'anyPass')).rejects.toThrow(
         /فشل التحقق من إنشاء ملف النسخة الاحتياطية/,
       );
+    });
+
+    describe('restoreBackup Operations (REST Client)', () => {
+      it('should throw immediately and NOT treat REST HTTP 400 wrong password as a reboot', async () => {
+        (restClient as any).request = jest.fn(async (endpoint: any) => {
+          if (endpoint === '/file') {
+            return [{ name: 'rest_prot.backup' }];
+          }
+          if (endpoint === '/system/backup/load') {
+            throw new Error('HTTP 400 Bad Request: {"detail":"action failed: wrong password"}');
+          }
+          return {};
+        });
+
+        await expect(restClient.restoreBackup('rest_prot.backup', 'wrong_secret')).rejects.toThrow(
+          /فشل تنفيذ استعادة النسخة عبر REST: HTTP 400 Bad Request/,
+        );
+      });
+
+      it('should handle socket severance after restore payload dispatch as rebootTriggered', async () => {
+        const dispatchedPayloads: any[] = [];
+        (restClient as any).request = jest.fn(async (endpoint: any, options: any) => {
+          if (endpoint === '/file') {
+            return [{ name: 'flash/rest_clean.backup' }];
+          }
+          if (endpoint === '/system/backup/load') {
+            dispatchedPayloads.push(JSON.parse(options.body));
+            throw new Error('fetch failed: socket closed (ECONNRESET)');
+          }
+          return {};
+        });
+
+        const res = await restClient.restoreBackup('flash/rest_clean.backup', 'sec99');
+        expect(res.success).toBe(true);
+        expect(res.rebootTriggered).toBe(true);
+        expect(dispatchedPayloads[0]).toEqual({
+          name: 'flash/rest_clean',
+          password: 'sec99',
+        });
+      });
     });
 
     describe('downloadBackup Security & Integrity', () => {

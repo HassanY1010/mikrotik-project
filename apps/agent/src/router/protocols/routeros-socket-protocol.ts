@@ -6,8 +6,8 @@ export class RouterOsSocketProtocol {
   /**
    * Encodes a string word into RouterOS length-prefixed Buffer.
    */
-  static encodeWord(word: string): Buffer {
-    const wordBuffer = Buffer.from(word, 'utf8');
+  static encodeWord(word: string | Buffer): Buffer {
+    const wordBuffer = Buffer.isBuffer(word) ? word : Buffer.from(word, 'utf8');
     const len = wordBuffer.length;
     let headerBuffer: Buffer;
 
@@ -43,7 +43,7 @@ export class RouterOsSocketProtocol {
   /**
    * Encodes an array of words into a sentence ending with an empty word.
    */
-  static encodeSentence(words: string[]): Buffer {
+  static encodeSentence(words: (string | Buffer)[]): Buffer {
     const buffers: Buffer[] = words.map((w) => this.encodeWord(w));
     // End of sentence is signaled by an empty word (length 0 = single 0x00 byte)
     buffers.push(Buffer.from([0x00]));

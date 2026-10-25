@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme/app_theme.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -20,6 +21,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController = TextEditingController();
   final _serverUrlController = TextEditingController();
   bool _isLoading = false;
+  bool _obscurePassword = true;
   String? _errorMessage;
 
   @override
@@ -94,7 +96,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('مرحباً بك، ${user.fullName}'),
-            backgroundColor: const Color(0xFF0D9488),
+            backgroundColor: AppTheme.primary,
           ),
         );
       }
@@ -194,53 +196,66 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // SudaFi Hero Branding Banner
+                  // SudaFi Official Branding Banner
                   Container(
-                    height: 190,
                     width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
                     decoration: const BoxDecoration(
-                      image: DecorationImage(
-                        image: AssetImage('assets/images/sudafi_hero.jpg'),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.85),
-                          ],
-                        ),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      alignment: Alignment.bottomCenter,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: const [
-                          Text(
-                            'سودافاي | SudaFi',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'منظومة إدارة شبكات ميكروتك والهوتسبوت الذكية',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF5EEAD4),
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
+                      gradient: LinearGradient(
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                        colors: [
+                          AppTheme.primaryDark,
+                          AppTheme.primary,
                         ],
                       ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Official SudaFi App Icon Mark
+                        Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.25),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Image.asset(
+                              'assets/images/sudafi_icon.png',
+                              height: 72,
+                              width: 72,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'سودافاي | SudaFi',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'منظومة إدارة شبكات ميكروتك والهوتسبوت الذكية',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: AppTheme.accent,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
                   ),
 
@@ -289,6 +304,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14),
                         decoration: const InputDecoration(
                           labelText: 'البريد الإلكتروني',
                           prefixIcon: Icon(Icons.email_outlined),
@@ -302,10 +318,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                       TextFormField(
                         controller: _passwordController,
-                        obscureText: true,
-                        decoration: const InputDecoration(
+                        obscureText: _obscurePassword,
+                        style: TextStyle(color: context.textPrimary, fontSize: 14),
+                        decoration: InputDecoration(
                           labelText: 'كلمة المرور',
-                          prefixIcon: Icon(Icons.lock_outline),
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                              color: Colors.grey,
+                              size: 20,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                          ),
                         ),
                         validator: (val) {
                           if (val == null || val.isEmpty) return 'يرجى إدخال كلمة المرور';
@@ -356,7 +385,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 width: 22,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
-                            : const Text('دخول إلى نقطة البيع'),
+                            : const Text('تسجيل الدخول'),
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
