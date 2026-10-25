@@ -4,6 +4,7 @@
     "rootDir": "./",
     "outDir": "./dist",
     "baseUrl": "./",
+    "strictPropertyInitialization": false,
     "paths": {
       "@mikrotik-saas/shared-types": ["../../packages/shared-types/dist/index.d.ts"],
       "@mikrotik-saas/shared-validation": ["../../packages/shared-validation/dist/index.d.ts"]

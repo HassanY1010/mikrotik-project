@@ -18,6 +18,7 @@ import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { CreateBackupDto } from './dto/create-backup.dto';
 import { RestoreBackupDto } from './dto/restore-backup.dto';
+import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
 import { ProvisionPreviewDto } from './dto/provision-preview.dto';
 import { ProvisionApplyDto } from './dto/provision-apply.dto';
 import { RouterProvisioningService } from './services/router-provisioning.service';
