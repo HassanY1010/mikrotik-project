@@ -638,11 +638,11 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                             children: [
                               Text(
                                 'معرف العملية: ${item.clientMutationId.substring(0, item.clientMutationId.length > 20 ? 20 : item.clientMutationId.length)}...',
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                style: TextStyle(fontSize: 11, color: context.textSecondary),
                               ),
                               Text(
                                 'التاريخ: ${dateFormat.format(item.createdAt)}',
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                style: TextStyle(fontSize: 11, color: context.textSecondary),
                               ),
                               if (item.error != null)
                                 Padding(

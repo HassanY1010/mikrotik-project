@@ -466,6 +466,8 @@ model HotspotProfile {
   tenantId         String
   deviceId         String
   name             String   // e.g. "1hour-unlimited", "1day-500mb"
+  displayName      String?  // Commercial display name (e.g. "باقة 3 جيجا")
+  price            Decimal? @default(0) @db.Decimal(10, 2) // Price in SDG
   rateLimit        String?  // e.g. "2M/2M"
   sessionTimeout   String?  // e.g. "1h"
   idleTimeout      String?  // e.g. "5m"

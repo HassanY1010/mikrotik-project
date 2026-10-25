@@ -339,7 +339,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             decoration: BoxDecoration(
               color: theme.cardTheme.color,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: context.borderColor),
             ),
             child: Center(
               child: Column(
@@ -450,7 +450,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                       if (p.validity != null || p.rateLimit != null)
                         Text(
                           '${formatValidityArabic(p.validity)} ${p.rateLimit != null ? '• ${p.rateLimit}' : ''}',
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          style: TextStyle(fontSize: 11, color: context.textSecondary),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -465,7 +465,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                               color: Color(0xFF10B981),
                             ),
                           ),
-                          const Icon(Icons.wifi, size: 16, color: Colors.white38),
+                          Icon(Icons.wifi, size: 16, color: context.textMuted),
                         ],
                       ),
                     ],

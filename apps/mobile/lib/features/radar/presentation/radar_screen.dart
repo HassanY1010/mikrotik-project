@@ -83,7 +83,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                 children: [
                   Text(
                     'اسم المستخدم / الكرت: ${session.user}',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                   const SizedBox(height: 4),
                   Text('عنوان IP: ${session.address}',
@@ -346,9 +346,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                         children: [
                           const Icon(Icons.cloud_off, size: 54, color: Colors.redAccent),
                           const SizedBox(height: 12),
-                          const Text(
+                          Text(
                             'تعذر جلب جلسات الراوتر المباشرة',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
                           ),
                           const SizedBox(height: 6),
                           Text(

@@ -867,12 +867,12 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.people_outline,
-                            size: 64, color: Colors.white.withValues(alpha: 0.2)),
+                            size: 64, color: context.isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.2)),
                         const SizedBox(height: 16),
-                        const Text(
+                        Text(
                           'لا يوجد موظفون مسجلون',
                           style: TextStyle(
-                            color: Colors.white,
+                            color: context.textPrimary,
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
@@ -941,8 +941,8 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                         Flexible(
                           child: Text(
                             u.fullName,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: context.textPrimary,
                               fontWeight: FontWeight.bold,
                               fontSize: 15,
                             ),
@@ -1203,12 +1203,12 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.mail_outline, size: 64, color: Colors.white.withValues(alpha: 0.2)),
+                  Icon(Icons.mail_outline, size: 64, color: context.isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.2)),
                   const SizedBox(height: 16),
-                  const Text(
+                  Text(
                     'لا توجد دعوات انضمام معلقة',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: context.textPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1264,8 +1264,8 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                           children: [
                             Text(
                               inv.fullName,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: context.textPrimary,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
                               ),

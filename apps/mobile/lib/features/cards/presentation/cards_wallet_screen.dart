@@ -239,13 +239,13 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'تصدير كروت الهوتسبوت كـ PDF',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary),
                         ),
                         Text(
                           'جاهز لطباعة ورق A4 في مراكز خدمات الطباعة (${exportCards.length} كرت)',
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                          style: TextStyle(fontSize: 12, color: context.textSecondary),
                         ),
                       ],
                     ),
@@ -253,9 +253,9 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'تنسيق ورق A4 وعلامات القص:',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFE2E8F0)),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -293,9 +293,9 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                 ],
               ),
               const SizedBox(height: 14),
-              const Text(
+              Text(
                 'تصميم وثيم الكرت المختار:',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFE2E8F0)),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -649,11 +649,11 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                               padding: const EdgeInsets.only(top: 4.0),
                               child: Text(
                                 'المستخدم: ${card.username} | ${card.profileName} | ${card.price.toStringAsFixed(0)} ${card.currency}',
-                                style: const TextStyle(fontSize: 12, color: Colors.white70),
+                                style: TextStyle(fontSize: 12, color: context.textSecondary),
                               ),
                             ),
                             trailing: IconButton(
-                              icon: const Icon(Icons.qr_code_2, color: Color(0xFF5EEAD4)),
+                              icon: Icon(Icons.qr_code_2, color: context.skyColor),
                               tooltip: 'عرض QR Code',
                               onPressed: () => _showCardQr(card),
                             ),

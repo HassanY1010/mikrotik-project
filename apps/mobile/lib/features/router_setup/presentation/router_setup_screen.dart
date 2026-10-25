@@ -2441,15 +2441,15 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                         padding: const EdgeInsets.only(bottom: 6),
                         child: Text(
                           '• ${c.details} (القيمة الحالية: ${c.existingValue} | المقترحة: ${c.proposedValue})',
-                          style: const TextStyle(fontSize: 11, color: Colors.white70),
+                          style: TextStyle(fontSize: 11, color: context.textSecondary),
                         ),
                       )),
                   const SizedBox(height: 8),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text(
+                    title: Text(
                       'الموافقة على تجاوز وتكييف هذه التعارضات تلقائياً',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary),
                     ),
                     value: _allowOverwrite,
                     activeThumbColor: Colors.redAccent,
@@ -2484,16 +2484,16 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  const Text(
+                  Text(
                     'الراوتر يحتوي على إعدادات سابقة قيد الاستخدام. اختيار Clean Setup سيقوم بإعادة تشكيل البنية التحتية لشبكة المشتركين.',
-                    style: TextStyle(color: Colors.white70, fontSize: 11),
+                    style: TextStyle(color: context.textSecondary, fontSize: 11),
                   ),
                   const SizedBox(height: 8),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text(
+                    title: Text(
                       'أوافق صراحةً على إعادة برمجة الراوتر وفق القالب الجديد',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary),
                     ),
                     value: _cleanSetupConfirmed,
                     activeThumbColor: Colors.orangeAccent,

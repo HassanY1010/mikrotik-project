@@ -97,6 +97,12 @@ void main() {
       expect(capturedDarkContext.textPrimary, AppTheme.textDark);
       expect(capturedDarkContext.textSecondary, AppTheme.textMutedDark);
       expect(capturedDarkContext.borderColor, const Color(0xFF334155));
+      expect(capturedDarkContext.skyColor, const Color(0xFF38BDF8));
+      expect(capturedDarkContext.emeraldColor, const Color(0xFF34D399));
+      expect(capturedDarkContext.amberColor, const Color(0xFFFBBF24));
+      expect(capturedDarkContext.roseColor, const Color(0xFFF87171));
+      expect(capturedDarkContext.purpleColor, const Color(0xFFA78BFA));
+      expect(capturedDarkContext.textMuted, const Color(0xFF64748B));
 
       await tester.pumpWidget(
         Theme(
@@ -115,6 +121,12 @@ void main() {
       expect(capturedLightContext.textPrimary, AppTheme.textLight);
       expect(capturedLightContext.textSecondary, AppTheme.textMutedLight);
       expect(capturedLightContext.borderColor, AppTheme.borderLight);
+      expect(capturedLightContext.skyColor, const Color(0xFF0369A1));
+      expect(capturedLightContext.emeraldColor, const Color(0xFF047857));
+      expect(capturedLightContext.amberColor, const Color(0xFFB45309));
+      expect(capturedLightContext.roseColor, const Color(0xFFDC2626));
+      expect(capturedLightContext.purpleColor, const Color(0xFF6D28D9));
+      expect(capturedLightContext.textMuted, const Color(0xFF546E7A));
     });
   });
 }

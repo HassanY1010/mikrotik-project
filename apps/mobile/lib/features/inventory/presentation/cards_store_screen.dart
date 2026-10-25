@@ -832,9 +832,9 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             children: [
               const Icon(Icons.cloud_off_rounded, size: 54, color: Color(0xFFEF4444)),
               const SizedBox(height: 14),
-              const Text(
+              Text(
                 'تعذر تحميل الكروت',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 6),
               Text(
@@ -919,9 +919,9 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           children: [
             const Icon(Icons.search_off_rounded, size: 52, color: Color(0xFF64748B)),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'لا توجد كروت مطابقة لمعايير البحث',
-              style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+              style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
             Text(
@@ -957,7 +957,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             const SizedBox(height: 12),
             Text(
               'لا توجد كروت بحالة ($currentFilterLabel)',
-              style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+              style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
             const Text(
@@ -1419,7 +1419,7 @@ class _CardDetailsDialog extends ConsumerWidget {
                       children: [
                         Text(
                           'تفاصيل الكرت: ${c.username}',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 3),
@@ -1594,7 +1594,7 @@ class _CardDetailsDialog extends ConsumerWidget {
                   _buildCardSection(
                     context: context,
                     children: [
-                      _buildDetailRow('البروفايل:', c.profileName, textColor: Colors.white, context: context),
+                      _buildDetailRow('البروفايل:', c.profileName, context: context),
                       Divider(color: context.borderColor),
                       _buildDetailRow(
                         'مصدر الإعدادات:',
@@ -1831,10 +1831,11 @@ ${c.clearPassword != null ? 'كلمة المرور: ${c.clearPassword}' : ''}
     String label,
     String value, {
     required BuildContext context,
-    Color textColor = Colors.white,
+    Color? textColor,
     bool isMonospace = false,
     bool canCopy = false,
   }) {
+    final resolvedColor = textColor ?? context.textPrimary;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2.5),
       child: Row(
@@ -1842,7 +1843,7 @@ ${c.clearPassword != null ? 'كلمة المرور: ${c.clearPassword}' : ''}
         children: [
           Text(
             label,
-            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+            style: TextStyle(color: context.textSecondary, fontSize: 11),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1853,7 +1854,7 @@ ${c.clearPassword != null ? 'كلمة المرور: ${c.clearPassword}' : ''}
                   child: Text(
                     value,
                     style: TextStyle(
-                      color: textColor,
+                      color: resolvedColor,
                       fontSize: 11,
                       fontWeight: isMonospace ? FontWeight.bold : FontWeight.w600,
                       fontFamily: isMonospace ? 'monospace' : null,

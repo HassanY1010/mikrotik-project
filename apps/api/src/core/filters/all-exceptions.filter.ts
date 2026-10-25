@@ -38,14 +38,41 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }),
     );
 
+    let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
+    let errorCode = 'INTERNAL_SERVER_ERROR';
+    let errorMessage = isProduction
+      ? 'An internal server error occurred. Please contact support.'
+      : error.message;
+
+    // Gracefully handle Prisma ORM errors without leaking connection credentials
+    const errorRecord = error as unknown as Record<string, unknown>;
+    if (errorRecord && typeof errorRecord['code'] === 'string') {
+      const prismaCode = errorRecord['code'];
+      if (prismaCode === 'P2002') {
+        statusCode = HttpStatus.CONFLICT;
+        errorCode = 'UNIQUE_CONSTRAINT_FAILED';
+        errorMessage = 'يوجد سجل مسبق بنفس الاسم أو البيانات المدخلة في النظام';
+      } else if (prismaCode === 'P2025') {
+        statusCode = HttpStatus.NOT_FOUND;
+        errorCode = 'RECORD_NOT_FOUND';
+        errorMessage = 'السجل المطلوب غير موجود في قاعدة البيانات';
+      } else if (prismaCode === 'P2003') {
+        statusCode = HttpStatus.BAD_REQUEST;
+        errorCode = 'FOREIGN_KEY_VIOLATION';
+        errorMessage = 'فشلت العملية لارتباط السجل ببيانات أخرى أو تم حذفه';
+      } else if (prismaCode === 'P2022') {
+        statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
+        errorCode = 'DATABASE_SCHEMA_DRIFT';
+        errorMessage = 'خطأ في توافق مخطط قاعدة البيانات، يرجى تحديث النظام';
+      }
+    }
+
     const errorPayload: ApiErrorResponse = {
       success: false,
-      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+      statusCode,
       error: {
-        code: 'INTERNAL_SERVER_ERROR',
-        message: isProduction
-          ? 'An internal server error occurred. Please contact support.'
-          : error.message,
+        code: errorCode,
+        message: errorMessage,
         ...(!isProduction && error.stack ? { details: error.stack } : {}),
       },
       timestamp: new Date().toISOString(),
@@ -53,6 +80,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
       ...(requestId ? { requestId } : {}),
     };
 
-    response.status(HttpStatus.INTERNAL_SERVER_ERROR).json(errorPayload);
+    response.status(statusCode).json(errorPayload);
   }
 }

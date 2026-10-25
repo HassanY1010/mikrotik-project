@@ -95,6 +95,8 @@ export class HotspotService {
 
     return profiles.map((p) => ({
       ...p,
+      price: p.price ? Number(p.price) : 0,
+      displayName: p.displayName || p.name,
       dataLimitBytes: p.dataLimitBytes ? Number(p.dataLimitBytes) : null,
       dataLimitGb: p.dataLimitBytes
         ? Number((Number(p.dataLimitBytes) / (1024 * 1024 * 1024)).toFixed(2))
@@ -156,12 +158,16 @@ export class HotspotService {
     });
 
     return profiles.map((p) => {
-      const price = p.cardBatches[0]?.price ? Number(p.cardBatches[0].price) : 500;
+      const price = p.price
+        ? Number(p.price)
+        : p.cardBatches[0]?.price
+          ? Number(p.cardBatches[0].price)
+          : 500;
       const rawVal =
         p.sessionTimeout ||
         (p.cardBatches[0]?.validityDays ? `${p.cardBatches[0].validityDays}d` : null);
       const validity = rawVal ? normalizeValidityDuration(rawVal) : null;
-      let displayName = p.name;
+      let displayName = p.displayName || p.name;
       const lower = p.name.toLowerCase();
       if (lower === '1hour-unlimited') displayName = 'باقة 1 ساعة (إنترنت مفتوح)';
       else if (lower === '3hours-unlimited') displayName = 'باقة 3 ساعات (إنترنت مفتوح)';
@@ -394,6 +400,8 @@ export class HotspotService {
         tenantId: effectiveTenantId,
         deviceId,
         name: dto.name,
+        displayName: dto.displayName?.trim() || null,
+        price: dto.price !== undefined && dto.price !== null ? dto.price : null,
         sessionTimeout: normalizedValidity,
         rateLimit: dto.rateLimit ?? null,
         idleTimeout: dto.idleTimeout ?? null,
@@ -407,12 +415,18 @@ export class HotspotService {
     this.logger.log(`Created hotspot profile "${profile.name}" on device ${device.id} (synced: ${routerProvisioned})`);
     return {
       ...profile,
+      price: profile.price ? Number(profile.price) : (dto.price ?? 0),
+      displayName: profile.displayName || dto.displayName || profile.name,
       dataLimitBytes: profile.dataLimitBytes ? Number(profile.dataLimitBytes) : null,
       dataLimitGb: profile.dataLimitBytes ? Number(profile.dataLimitBytes) / (1024 * 1024 * 1024) : null,
     };
   }
 
-  async createTenantProfile(tenantId: string | undefined, dto: CreateProfileDto) {
+  async createTenantProfile(
+    tenantId: string | undefined,
+    dto: CreateProfileDto,
+    currentUser?: RequestUser,
+  ) {
     let deviceId = dto.deviceId;
     if (!deviceId) {
       const where: any = { deletedAt: null };
@@ -428,7 +442,7 @@ export class HotspotService {
       }
       deviceId = firstDevice.id;
     }
-    return this.createProfile(tenantId || '', deviceId, dto);
+    return this.createProfile(tenantId || '', deviceId, dto, currentUser);
   }
 
   async deleteProfile(
@@ -575,6 +589,8 @@ export class HotspotService {
       where: { id: profileId },
       data: {
         ...(dto.name ? { name: dto.name } : {}),
+        ...(dto.displayName !== undefined ? { displayName: dto.displayName?.trim() || null } : {}),
+        ...(dto.price !== undefined ? { price: dto.price !== null ? dto.price : null } : {}),
         ...(dto.rateLimit !== undefined ? { rateLimit: dto.rateLimit } : {}),
         ...(normalizedValidity !== undefined ? { sessionTimeout: normalizedValidity } : {}),
         ...(dto.sharedUsers !== undefined ? { sharedUsers: dto.sharedUsers } : {}),
@@ -632,6 +648,8 @@ export class HotspotService {
 
     return {
       ...updated,
+      price: updated.price ? Number(updated.price) : 0,
+      displayName: updated.displayName || updated.name,
       dataLimitBytes: updated.dataLimitBytes ? Number(updated.dataLimitBytes) : null,
       dataLimitGb: updated.dataLimitBytes ? Number(updated.dataLimitBytes) / (1024 * 1024 * 1024) : null,
     };

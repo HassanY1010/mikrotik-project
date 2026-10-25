@@ -543,15 +543,15 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
               children: [
                 const Icon(Icons.error_outline_rounded, size: 52, color: Color(0xFFEF4444)),
                 const SizedBox(height: 14),
-                const Text(
+                Text(
                   'تعذر تحميل التقارير المالية',
-                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   err.toString(),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                  style: TextStyle(color: context.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 18),
                 ElevatedButton.icon(
@@ -661,9 +661,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
               ),
             ),
 
-          const Text(
+          Text(
             'مؤشرات الأداء المالي والتشغيلي للفترة',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
           ),
           const SizedBox(height: 10),
 
@@ -796,9 +796,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'حركة المبيعات خلال آخر 30 يوماً',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               Text(
                 'إجمالي: ${_formatAmount(report.dailyRevenueLast30Days.fold<double>(0, (sum, d) => sum + (double.tryParse(d['amount']?.toString() ?? '0') ?? 0)), report.currency)}',
@@ -813,9 +813,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'أكثر الباقات مبيعاً (Top Packages)',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               Text(
                 '${report.bestSellingProfiles.length} باقات',
@@ -830,9 +830,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'توزيع المبيعات حسب الراوترات',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               Text(
                 '${report.salesByRouter.length} راوترات نشطة',
@@ -971,9 +971,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'سجل عمليات البيع الفعلية المسجلة',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               IconButton(
                 icon: const Icon(Icons.refresh, size: 18, color: Color(0xFF38BDF8)),
@@ -1180,9 +1180,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
           ),
           const SizedBox(height: 16),
 
-          const Text(
+          Text(
             'حالات الكروت في النظام (بدون تكرار أو ازدواجية)',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
           ),
           const SizedBox(height: 10),
 
@@ -1247,7 +1247,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('تقييم مخزون الكروت المتاح', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)),
+                Text('تقييم مخزون الكروت المتاح', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: context.textPrimary)),
                 const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1376,9 +1376,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
           const SizedBox(height: 16),
 
           if (breakdown.isNotEmpty) ...[
-            const Text(
+            Text(
               'توزيع المصروفات حسب التصنيف',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
             ),
             const SizedBox(height: 10),
             Column(
@@ -1432,9 +1432,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'سجل بنود المصروفات المسجلة',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               IconButton(
                 icon: const Icon(Icons.refresh, size: 18, color: Color(0xFF38BDF8)),

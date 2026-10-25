@@ -176,8 +176,12 @@ export class TenantHotspotController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new Hotspot user profile for tenant' })
   @ApiResponse({ status: 201, description: 'Profile created' })
-  async createProfile(@TenantId() tenantId: string, @Body() dto: CreateProfileDto) {
-    return this.hotspotService.createTenantProfile(tenantId, dto);
+  async createProfile(
+    @TenantId() tenantId: string,
+    @Body() dto: CreateProfileDto,
+    @CurrentUser() currentUser: RequestUser,
+  ) {
+    return this.hotspotService.createTenantProfile(tenantId, dto, currentUser);
   }
 
   @Patch('profiles/:profileId')

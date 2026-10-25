@@ -326,7 +326,7 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
       child: Text(
         text,
         style: TextStyle(
-          color: isGreen ? Colors.white : const Color(0xFF94A3B8),
+          color: isGreen ? Colors.white : context.textSecondary,
           fontSize: 10,
           fontWeight: FontWeight.bold,
         ),

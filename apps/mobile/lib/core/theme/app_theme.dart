@@ -156,6 +156,30 @@ class AppTheme {
         return const IconThemeData(color: Color(0xFF94A3B8), size: 22);
       }),
     ),
+    popupMenuTheme: const PopupMenuThemeData(
+      color: surfaceDark,
+      surfaceTintColor: Colors.transparent,
+      elevation: 6,
+      textStyle: TextStyle(color: textDark, fontSize: 13),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        side: BorderSide(color: Color(0xFF334155)),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: surfaceDark,
+      disabledColor: const Color(0xFF334155),
+      selectedColor: primaryLight.withValues(alpha: 0.3),
+      secondarySelectedColor: primaryLight,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      labelStyle: const TextStyle(color: textDark, fontSize: 12),
+      secondaryLabelStyle: const TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 12),
+      brightness: Brightness.dark,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: Color(0xFF334155)),
+      ),
+    ),
   );
 
   static ThemeData lightTheme = ThemeData(
@@ -295,6 +319,30 @@ class AppTheme {
         return const IconThemeData(color: textMutedLight, size: 22);
       }),
     ),
+    popupMenuTheme: const PopupMenuThemeData(
+      color: surfaceLight,
+      surfaceTintColor: Colors.transparent,
+      elevation: 6,
+      textStyle: TextStyle(color: textLight, fontSize: 13),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        side: BorderSide(color: borderLight),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: cardAltLight,
+      disabledColor: const Color(0xFFE2E8F0),
+      selectedColor: primary.withValues(alpha: 0.15),
+      secondarySelectedColor: primary,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      labelStyle: const TextStyle(color: textLight, fontSize: 12),
+      secondaryLabelStyle: const TextStyle(color: primary, fontWeight: FontWeight.bold, fontSize: 12),
+      brightness: Brightness.light,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: borderLight),
+      ),
+    ),
   );
 }
 
@@ -308,11 +356,18 @@ extension AppThemeContextExtension on BuildContext {
 
   Color get textPrimary => isDarkMode ? AppTheme.textDark : AppTheme.textLight;
   Color get textSecondary => isDarkMode ? AppTheme.textMutedDark : AppTheme.textMutedLight;
-  Color get textMuted => isDarkMode ? const Color(0xFF64748B) : const Color(0xFF94A3B8);
+  Color get textMuted => isDarkMode ? const Color(0xFF64748B) : const Color(0xFF546E7A);
 
   Color get borderColor => isDarkMode ? const Color(0xFF334155) : AppTheme.borderLight;
   Color get borderLightColor => isDarkMode ? const Color(0x33334155) : const Color(0x40E2E8F0);
 
   Color get primaryColor => AppTheme.primary;
   Color get accentColor => AppTheme.accent;
+
+  // High-contrast contextual colors (WCAG AA compliant across Light & Dark modes)
+  Color get skyColor => isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0369A1);
+  Color get emeraldColor => isDarkMode ? const Color(0xFF34D399) : const Color(0xFF047857);
+  Color get amberColor => isDarkMode ? const Color(0xFFFBBF24) : const Color(0xFFB45309);
+  Color get roseColor => isDarkMode ? const Color(0xFFF87171) : const Color(0xFFDC2626);
+  Color get purpleColor => isDarkMode ? const Color(0xFFA78BFA) : const Color(0xFF6D28D9);
 }

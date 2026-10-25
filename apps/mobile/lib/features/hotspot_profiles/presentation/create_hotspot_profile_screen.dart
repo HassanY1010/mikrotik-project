@@ -278,12 +278,12 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                                 const SizedBox(width: 10),
                                 Text(
                                   r.name,
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                  style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
                                   '(${r.host})',
-                                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                                  style: TextStyle(color: context.textSecondary, fontSize: 12),
                                 ),
                               ],
                             ),
@@ -346,7 +346,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                       selectedColor: const Color(0xFF0284C7),
                       backgroundColor: context.bgCard,
                       labelStyle: TextStyle(
-                        color: isSel ? Colors.white : const Color(0xFF94A3B8),
+                        color: isSel ? Colors.white : context.textPrimary,
                         fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
                       ),
                       onSelected: (_) => setState(() => _rateLimitController.text = rate),
@@ -729,7 +729,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                                 selectedColor: const Color(0xFF0284C7),
                                 backgroundColor: context.bgCard,
                                 labelStyle: TextStyle(
-                                  color: isSel ? Colors.white : const Color(0xFF94A3B8),
+                                  color: isSel ? Colors.white : context.textPrimary,
                                   fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
                                 ),
                                 onSelected: (_) => setState(() => _dataAmountController.text = val.toString()),
@@ -919,11 +919,11 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
   Widget _buildSectionTitle(String title, IconData icon) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: const Color(0xFF38BDF8)),
+        Icon(icon, size: 18, color: context.isDarkMode ? const Color(0xFF38BDF8) : AppTheme.primaryLight),
         const SizedBox(width: 6),
         Text(
           title,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
         ),
       ],
     );
@@ -932,14 +932,14 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
   InputDecoration _inputDecoration(String label, String hint) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+      labelStyle: TextStyle(color: context.textSecondary, fontSize: 13),
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
+      hintStyle: TextStyle(color: context.textMuted, fontSize: 12),
       filled: true,
       fillColor: context.bgCard,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.isDarkMode ? const Color(0xFF38BDF8) : AppTheme.primary, width: 1.5)),
     );
   }
 
@@ -964,7 +964,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
           decoration: BoxDecoration(
             color: isSelected
-                ? const Color(0xFF10B981).withValues(alpha: 0.2)
+                ? (context.isDarkMode ? const Color(0xFF10B981).withValues(alpha: 0.2) : const Color(0xFF10B981).withValues(alpha: 0.12))
                 : context.bgCard,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
@@ -978,7 +978,9 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
               Text(
                 label,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : context.textPrimary,
+                  color: isSelected
+                      ? (context.isDarkMode ? Colors.white : const Color(0xFF047857))
+                      : context.textPrimary,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                   fontSize: 13,
                 ),
@@ -1050,11 +1052,13 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: isSelected
-                ? const Color(0xFF0284C7).withValues(alpha: 0.18)
+                ? (context.isDarkMode
+                    ? const Color(0xFF0284C7).withValues(alpha: 0.18)
+                    : const Color(0xFF0284C7).withValues(alpha: 0.10))
                 : context.bgCard,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
+              color: isSelected ? (context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)) : context.borderColor,
               width: isSelected ? 2 : 1,
             ),
           ),
@@ -1067,7 +1071,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                   Icon(
                     icon,
                     size: 20,
-                    color: isSelected ? const Color(0xFF38BDF8) : context.textSecondary,
+                    color: isSelected ? (context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)) : context.textSecondary,
                   ),
                   Container(
                     width: 18,
@@ -1075,10 +1079,10 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
+                        color: isSelected ? (context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)) : context.borderColor,
                         width: 2,
                       ),
-                      color: isSelected ? const Color(0xFF38BDF8) : Colors.transparent,
+                      color: isSelected ? (context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)) : Colors.transparent,
                     ),
                     child: isSelected
                         ? const Center(
@@ -1092,7 +1096,9 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
               Text(
                 title,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : context.textPrimary,
+                  color: isSelected
+                      ? (context.isDarkMode ? Colors.white : const Color(0xFF0369A1))
+                      : context.textPrimary,
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
                 ),
@@ -1101,7 +1107,9 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
               Text(
                 subtitle,
                 style: TextStyle(
-                  color: isSelected ? const Color(0xFF94A3B8) : context.textMuted,
+                  color: isSelected
+                      ? (context.isDarkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155))
+                      : context.textMuted,
                   fontSize: 10,
                 ),
                 maxLines: 2,

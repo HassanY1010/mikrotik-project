@@ -85,8 +85,24 @@ describe('HotspotService', () => {
 
     it('should return profiles list from database', async () => {
       const mockProfiles = [
-        { id: 'prof-1', name: '1hour', rateLimit: '2M/2M', dataLimitBytes: null, dataLimitGb: null },
-        { id: 'prof-2', name: 'default', rateLimit: null, dataLimitBytes: null, dataLimitGb: null },
+        {
+          id: 'prof-1',
+          name: '1hour',
+          displayName: '1hour',
+          price: 0,
+          rateLimit: '2M/2M',
+          dataLimitBytes: null,
+          dataLimitGb: null,
+        },
+        {
+          id: 'prof-2',
+          name: 'default',
+          displayName: 'default',
+          price: 0,
+          rateLimit: null,
+          dataLimitBytes: null,
+          dataLimitGb: null,
+        },
       ];
       prisma.hotspotProfile.findMany.mockResolvedValue([
         { id: 'prof-1', name: '1hour', rateLimit: '2M/2M' },
@@ -111,30 +127,61 @@ describe('HotspotService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should provision profile on router and save in database', async () => {
+    it('should provision profile on router and save in database with 3 GB limit, price, and shared users', async () => {
       prisma.hotspotProfile.findFirst.mockResolvedValue(null);
       mockClient.createHotspotProfile.mockResolvedValue('*1');
-      prisma.hotspotProfile.create.mockResolvedValue({
-        id: 'prof-new',
-        name: '3hours',
-        rateLimit: '5M/5M',
+      prisma.hotspotProfile.create.mockImplementation(({ data }: any) => {
+        return Promise.resolve({
+          id: 'prof-3gb',
+          name: data.name,
+          displayName: data.displayName,
+          price: data.price,
+          rateLimit: data.rateLimit,
+          sessionTimeout: data.sessionTimeout,
+          sharedUsers: data.sharedUsers,
+          dataLimitBytes: data.dataLimitBytes,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
       });
 
       const res = await service.createProfile(mockTenantId, mockDeviceId, {
-        name: '3hours',
-        rateLimit: '5M/5M',
-        sharedUsers: 2,
+        name: '3gb-package',
+        displayName: 'باقة 3 جيجا',
+        rateLimit: '2M/2M',
+        sessionTimeout: '1d',
+        validity: '1d',
+        price: 500,
+        sharedUsers: 1,
+        dataLimitGb: 3,
       });
 
       expect(mockClient.createHotspotProfile).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: '3hours',
-          rateLimit: '5M/5M',
-          sharedUsers: 2,
+          name: '3gb-package',
+          rateLimit: '2M/2M',
+          sessionTimeout: '1d',
+          sharedUsers: 1,
         }),
       );
-      expect(prisma.hotspotProfile.create).toHaveBeenCalled();
-      expect(res.name).toBe('3hours');
+
+      // Verify exact 3 GB bytes conversion: 3 * 1024 * 1024 * 1024 = 3,221,225,472 bytes
+      expect(prisma.hotspotProfile.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          name: '3gb-package',
+          displayName: 'باقة 3 جيجا',
+          price: 500,
+          sharedUsers: 1,
+          dataLimitBytes: 3221225472n,
+        }),
+      });
+
+      expect(res.name).toBe('3gb-package');
+      expect(res.displayName).toBe('باقة 3 جيجا');
+      expect(res.price).toBe(500);
+      expect(res.sharedUsers).toBe(1);
+      expect(res.dataLimitBytes).toBe(3221225472);
+      expect(res.dataLimitGb).toBe(3);
     });
 
     it('should throw BadGatewayException and NOT save to database when online router rejects command', async () => {

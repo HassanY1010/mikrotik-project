@@ -349,7 +349,7 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
             children: [
               const Icon(Icons.cloud_off, color: Colors.redAccent, size: 48),
               const SizedBox(height: 12),
-              Text('خطأ في جلب بيانات المحفظة: $err', style: const TextStyle(color: Colors.white70)),
+              Text('خطأ في جلب بيانات المحفظة: $err', style: TextStyle(color: context.textSecondary)),
               const SizedBox(height: 12),
               ElevatedButton.icon(
                 onPressed: () => ref.read(walletProvider.notifier).refresh(),
@@ -566,7 +566,7 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('العمليات الأخيرة في المحفظة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                Text('العمليات الأخيرة في المحفظة', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 15)),
                 if (wallet.transactions.isNotEmpty)
                   Text(
                     '${wallet.transactions.length} عمليات',

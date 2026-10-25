@@ -486,10 +486,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             mainAxisSize: MainAxisSize.min,
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 14, color: const Color(0xFF94A3B8)),
+                Icon(icon, size: 14, color: context.textSecondary),
                 const SizedBox(width: 6),
               ],
-              Text(title, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+              Text(title, style: TextStyle(color: context.textSecondary, fontSize: 12)),
             ],
           ),
           const SizedBox(width: 8),
@@ -498,7 +498,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               value,
               textAlign: TextAlign.end,
               style: TextStyle(
-                color: highlight ? const Color(0xFF38BDF8) : Colors.white,
+                color: highlight ? context.skyColor : context.textPrimary,
                 fontWeight: highlight ? FontWeight.bold : FontWeight.w600,
                 fontSize: 12,
               ),
@@ -527,15 +527,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: ctx.bgCard,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
-            children: const [
-              Icon(Icons.lock_outline_rounded, color: Color(0xFFF59E0B), size: 24),
-              SizedBox(width: 8),
+            children: [
+              const Icon(Icons.lock_outline_rounded, color: Color(0xFFF59E0B), size: 24),
+              const SizedBox(width: 8),
               Text(
                 'تفعيل الاشتراك مطلوب',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: ctx.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -543,7 +543,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             isExpired
                 ? 'انتهت صلاحية باقة هذه الشبكة. يرجى تجديد الاشتراك مع إدارة المنصة لتتمكن من استئناف توليد وطباعة الكروت.'
                 : 'حساب هذه الشبكة غير مرتبط بباقة نشطة حالياً. يرجى التواصل مع إدارة المنصة (Super Admin) لتفعيل باقة الاشتراك وتحديد حصص الكروت.',
-            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.4),
+            style: TextStyle(color: ctx.textSecondary, fontSize: 13, height: 1.4),
           ),
           actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           actions: [
@@ -844,19 +844,19 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0F172A),
+                      color: context.bgScaffold,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFF334155)),
+                      border: Border.all(color: context.borderColor),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('معرف الدفعة: $batchId', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                        Text('معرف الدفعة: $batchId', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                         const SizedBox(height: 4),
                         Text('العدد الفعلي: $quantity كرت  •  الباقة: ${profile.displayName ?? profile.name}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
                         Text('الإجمالي: ${(quantity * profile.price).toStringAsFixed(0)} SDG',
-                            style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 13)),
+                            style: TextStyle(color: context.skyColor, fontWeight: FontWeight.bold, fontSize: 13)),
                         const SizedBox(height: 8),
                         // Real MikroTik Sync Status Indicator
                         Container(
@@ -894,10 +894,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                             : Icons.cloud_done)),
                                 size: 18,
                                 color: syncedToRouter
-                                    ? const Color(0xFF34D399)
+                                    ? context.emeraldColor
                                     : (routerSyncStatus == 'FAILED'
-                                        ? const Color(0xFFF87171)
-                                        : const Color(0xFFFBBF24)),
+                                        ? context.roseColor
+                                        : context.amberColor),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
@@ -913,10 +913,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
                                     color: syncedToRouter
-                                        ? const Color(0xFF34D399)
+                                        ? context.emeraldColor
                                         : (routerSyncStatus == 'FAILED'
-                                            ? const Color(0xFFF87171)
-                                            : const Color(0xFFFBBF24)),
+                                            ? context.roseColor
+                                            : context.amberColor),
                                   ),
                                 ),
                               ),
@@ -1051,7 +1051,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       children: [
                         Text(
                           'قائمة الحسابات الناتجة (${cards.length} كرت):',
-                          style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 12, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                         Text(
                           'انقر للنسخ',
@@ -1063,13 +1063,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                     Container(
                       height: 160,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0F172A),
+                        color: context.bgScaffold,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF334155)),
+                        border: Border.all(color: context.borderColor),
                       ),
                       child: ListView.separated(
                         itemCount: cards.length,
-                        separatorBuilder: (_, _) => const Divider(color: Color(0xFF1E293B), height: 1),
+                        separatorBuilder: (_, _) => Divider(color: context.borderColor, height: 1),
                         itemBuilder: (cContext, idx) {
                           final c = cards[idx];
                           final hasPin = c.clearPassword != null && c.clearPassword!.isNotEmpty && c.clearPassword != c.username;
@@ -1080,13 +1080,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                               children: [
                                 Text(
                                   '#${idx + 1}',
-                                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                                  style: TextStyle(color: context.textSecondary, fontSize: 11),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     hasPin ? 'مستخدم: ${c.username}  |  رمز: ${c.clearPassword}' : 'رمز الدخول (PIN): ${c.username}',
-                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                    style: TextStyle(color: context.textPrimary, fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
                                 ),
                               ],
@@ -1310,9 +1310,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'اختر باقة الهوتسبوت',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               TextButton.icon(
                 key: const Key('button_add_new_profile'),
@@ -1329,9 +1329,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: profiles.isEmpty
                 ? InkWell(
@@ -1342,14 +1342,14 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: const [
+                        children: [
                           Expanded(
                             child: Text(
                               'لا توجد باقات متاحة حالياً. اضغط هنا لإضافة باقة جديدة',
-                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                              style: TextStyle(color: context.textSecondary, fontSize: 12),
                             ),
                           ),
-                          Icon(Icons.add_circle_outline_rounded, color: Color(0xFF10B981), size: 20),
+                          const Icon(Icons.add_circle_outline_rounded, color: Color(0xFF10B981), size: 20),
                         ],
                       ),
                     ),
@@ -1358,9 +1358,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                     child: DropdownButton<String>(
                       key: const Key('hotspot_profile_dropdown'),
                       value: _selectedProfileId,
-                      dropdownColor: const Color(0xFF1E293B),
+                      dropdownColor: context.bgCard,
                       isExpanded: true,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
                       items: [
                         ...profiles.map((p) {
                           return DropdownMenuItem<String>(
@@ -1454,13 +1454,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'الكمية المطلوبة للدفعة',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               TextButton(
                 onPressed: _handleCustomQuantity,
-                child: const Text('كمية مخصصة...', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
+                child: Text('كمية مخصصة...', style: TextStyle(color: context.skyColor, fontSize: 12)),
               ),
             ],
           ),
@@ -1477,9 +1477,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       label: Text('$qty كرت'),
                       selected: isSelected,
                       selectedColor: const Color(0xFF2563EB),
-                      backgroundColor: const Color(0xFF1E293B),
+                      backgroundColor: context.bgCard,
                       labelStyle: TextStyle(
-                        color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                        color: isSelected ? Colors.white : context.textPrimary,
                         fontWeight: FontWeight.bold,
                       ),
                       onSelected: (_) => setState(() => _selectedQuantity = qty),
@@ -1493,7 +1493,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       label: Text('$_selectedQuantity كرت (مخصص)'),
                       selected: true,
                       selectedColor: const Color(0xFF0D9488),
-                      backgroundColor: const Color(0xFF1E293B),
+                      backgroundColor: context.bgCard,
                       labelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                       onSelected: (_) {},
                     ),
@@ -1505,17 +1505,17 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           const SizedBox(height: 20),
 
           // 4. Credential Mode Selector
-          const Text(
+          Text(
             'طريقة تسجيل الدخول وكلمة المرور',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
           ),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Row(
               children: [
@@ -1532,28 +1532,28 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'تخصيص اسم المستخدم (Username / Code)',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _prefixController,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: TextStyle(color: context.textPrimary, fontSize: 13),
                   decoration: InputDecoration(
                     labelText: 'بادئة اسم المستخدم (اختياري، مثلاً: NET- أو 249-)',
-                    labelStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                    labelStyle: TextStyle(color: context.textSecondary, fontSize: 12),
                     filled: true,
-                    fillColor: const Color(0xFF0F172A),
+                    fillColor: context.bgScaffold,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: context.borderColor)),
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -1562,7 +1562,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                     Expanded(
                       child: Text(
                         'طول اسم المستخدم: $_usernameLength خانات',
-                        style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 12),
+                        style: TextStyle(color: context.textPrimary, fontSize: 12),
                       ),
                     ),
                     Slider(
@@ -1576,9 +1576,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   ],
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   'صيغة محارف اسم المستخدم:',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                  style: TextStyle(color: context.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 6),
                 Wrap(
@@ -1601,16 +1601,16 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
+                color: context.bgCard,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF334155)),
+                border: Border.all(color: context.borderColor),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'تخصيص كلمة المرور المنفصلة (Password)',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -1618,7 +1618,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       Expanded(
                         child: Text(
                           'طول كلمة المرور: $_passwordLength خانات',
-                          style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 12),
+                          style: TextStyle(color: context.textPrimary, fontSize: 12),
                         ),
                       ),
                       Slider(
@@ -1652,23 +1652,23 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
+                  children: [
                     Text(
                       'توليد أرقام تسلسلية فريدة (Serial Number)',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                      style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
                     ),
                     Text(
                       'رقم مسلسل غير مكرر لكل كرت لتسهيل تتبع المبيعات والتدقيق',
-                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      style: TextStyle(color: context.textSecondary, fontSize: 11),
                     ),
                   ],
                 ),
@@ -1774,9 +1774,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1786,26 +1786,26 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   children: [
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'مدة الاستخدام / الاتصال (Session Uptime)',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                         Text(
                           'الحد الأقصى للوقت الفعلي المتصل بالإنترنت',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                          style: TextStyle(color: context.textMuted, fontSize: 11),
                         ),
                       ],
                     ),
                     Switch(
                       value: _limitUptimeEnabled,
-                      activeThumbColor: const Color(0xFF38BDF8),
+                      activeThumbColor: context.skyColor,
                       onChanged: (v) => setState(() => _limitUptimeEnabled = v),
                     ),
                   ],
                 ),
                 if (_limitUptimeEnabled) ...[
-                  const Divider(color: Color(0xFF334155), height: 16),
+                  Divider(color: context.borderColor, height: 16),
                   Row(
                     children: [
                       Expanded(
@@ -1813,7 +1813,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                         child: TextFormField(
                           initialValue: '$_limitUptimeValue',
                           keyboardType: TextInputType.number,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          style: TextStyle(color: context.textPrimary, fontSize: 14),
                           decoration: const InputDecoration(
                             labelText: 'المدة الرقمية',
                             contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1829,7 +1829,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                         flex: 3,
                         child: DropdownButtonFormField<String>(
                           initialValue: _limitUptimeUnit,
-                          dropdownColor: const Color(0xFF1E293B),
+                          dropdownColor: context.bgCard,
                           decoration: const InputDecoration(
                             labelText: 'الوحدة',
                             contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1857,9 +1857,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1869,26 +1869,26 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   children: [
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'حد استهلاك البيانات (Data Quota)',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                         Text(
                           'حجم التنزيل والرفع المسموح به (limit-bytes-total)',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                          style: TextStyle(color: context.textMuted, fontSize: 11),
                         ),
                       ],
                     ),
                     Switch(
                       value: _limitDataQuotaEnabled,
-                      activeThumbColor: const Color(0xFF38BDF8),
+                      activeThumbColor: context.skyColor,
                       onChanged: (v) => setState(() => _limitDataQuotaEnabled = v),
                     ),
                   ],
                 ),
                 if (_limitDataQuotaEnabled) ...[
-                  const Divider(color: Color(0xFF334155), height: 16),
+                  Divider(color: context.borderColor, height: 16),
                   Row(
                     children: [
                       Expanded(
@@ -1896,7 +1896,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                         child: TextFormField(
                           initialValue: '$_limitDataQuotaValue',
                           keyboardType: TextInputType.number,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          style: TextStyle(color: context.textPrimary, fontSize: 14),
                           decoration: const InputDecoration(
                             labelText: 'الحجم',
                             contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1912,7 +1912,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                         flex: 3,
                         child: DropdownButtonFormField<String>(
                           initialValue: _limitDataQuotaUnit,
-                          dropdownColor: const Color(0xFF1E293B),
+                          dropdownColor: context.bgCard,
                           decoration: const InputDecoration(
                             labelText: 'وحدة السعة',
                             contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1939,9 +1939,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1951,33 +1951,33 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   children: [
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'مدة صلاحية الحساب (Account Validity)',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                         Text(
                           'عمر الكرت من تاريخ الإنشاء أو التفعيل الأول',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                          style: TextStyle(color: context.textMuted, fontSize: 11),
                         ),
                       ],
                     ),
                     Switch(
                       value: _validityDaysEnabled,
-                      activeThumbColor: const Color(0xFF38BDF8),
+                      activeThumbColor: context.skyColor,
                       onChanged: (v) => setState(() => _validityDaysEnabled = v),
                     ),
                   ],
                 ),
                 if (_validityDaysEnabled) ...[
-                  const Divider(color: Color(0xFF334155), height: 16),
+                  Divider(color: context.borderColor, height: 16),
                   Row(
                     children: [
                       Expanded(
                         child: TextFormField(
                           initialValue: '$_validityDaysValue',
                           keyboardType: TextInputType.number,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          style: TextStyle(color: context.textPrimary, fontSize: 14),
                           decoration: const InputDecoration(
                             labelText: 'عدد الأيام (Days)',
                             contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -2010,13 +2010,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'المعاينة الحية للكرت (Live Preview)',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               Text(
                 '$_cardWidthMm×$_cardHeightMm mm',
-                style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 11, color: context.skyColor, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -2029,16 +2029,16 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'خلفية الكرت وشعار الشبكة:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -2079,35 +2079,35 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'نصوص وعناوين الكرت المطبوع:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _networkNameController,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: TextStyle(color: context.textPrimary, fontSize: 13),
                   decoration: const InputDecoration(labelText: 'اسم الشبكة المطبوع'),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _headerTitleController,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: TextStyle(color: context.textPrimary, fontSize: 13),
                   decoration: const InputDecoration(labelText: 'عنوان رأس الكرت'),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _supportPhoneController,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: TextStyle(color: context.textPrimary, fontSize: 13),
                   decoration: const InputDecoration(labelText: 'رقم هاتف الدعم الفني / المبيعات'),
                   onChanged: (_) => setState(() {}),
                 ),
@@ -2121,16 +2121,16 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'إظهار وإخفاء عناصر الكرت:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
                 ),
                 const SizedBox(height: 8),
                 Wrap(
@@ -2155,16 +2155,16 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'أبعاد الكرت التناسبية:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
                 ),
                 const SizedBox(height: 8),
                 Wrap(
@@ -2187,8 +2187,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             width: double.infinity,
             child: OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF38BDF8),
-                side: const BorderSide(color: Color(0xFF38BDF8)),
+                foregroundColor: context.skyColor,
+                side: BorderSide(color: context.skyColor),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
@@ -2207,7 +2207,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       label: Text(label, style: const TextStyle(fontSize: 11)),
       selected: value,
       selectedColor: const Color(0xFF2563EB).withValues(alpha: 0.3),
-      checkmarkColor: const Color(0xFF38BDF8),
+      checkmarkColor: context.skyColor,
       onSelected: onChanged,
     );
   }
@@ -2231,9 +2231,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'تنسيق ورق الطباعة A4 المعتمد:',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
           ),
           const SizedBox(height: 10),
           RadioGroup<CardPdfLayout>(
@@ -2280,18 +2280,18 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: context.borderColor),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text('استوديو تصاميم وقوالب الكروت', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                    Text('إدارة القوالب السحابية والقوالب المحفوظة للشبكة', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  children: [
+                    Text('استوديو تصاميم وقوالب الكروت', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
+                    Text('إدارة القوالب السحابية والقوالب المحفوظة للشبكة', style: TextStyle(color: context.textMuted, fontSize: 11)),
                   ],
                 ),
                 TextButton(
@@ -2300,7 +2300,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       MaterialPageRoute(builder: (_) => const CardTemplatesScreen()),
                     );
                   },
-                  child: const Text('فتح الاستوديو', style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold)),
+                  child: Text('فتح الاستوديو', style: TextStyle(color: context.skyColor, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
@@ -2317,30 +2317,30 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF1E3A8A).withValues(alpha: 0.3) : const Color(0xFF1E293B),
+          color: isSelected ? context.skyColor.withValues(alpha: 0.15) : context.bgCard,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+            color: isSelected ? context.skyColor : context.borderColor,
             width: isSelected ? 2 : 1,
           ),
         ),
         child: Row(
           children: [
-            Icon(icon, color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8), size: 24),
+            Icon(icon, color: isSelected ? context.skyColor : context.textMuted, size: 24),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: TextStyle(color: isSelected ? Colors.white : const Color(0xFFE2E8F0), fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text(title, style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  Text(subtitle, style: TextStyle(color: context.textMuted, fontSize: 11)),
                 ],
               ),
             ),
             Radio<CardPdfLayout>(
               value: layout,
-              activeColor: const Color(0xFF38BDF8),
+              activeColor: context.skyColor,
             ),
           ],
         ),
@@ -2359,11 +2359,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
-        border: const Border(top: BorderSide(color: Color(0xFF334155), width: 1)),
+        color: context.bgCard,
+        border: Border(top: BorderSide(color: context.borderColor, width: 1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 10,
             offset: const Offset(0, -2),
           ),
@@ -2378,11 +2378,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               children: [
                 Text(
                   '$_selectedQuantity كرت • $priceTotal SDG',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
                 ),
                 Text(
                   profile?.displayName ?? profile?.name ?? 'باقة الهوتسبوت',
-                  style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11),
+                  style: TextStyle(color: context.skyColor, fontSize: 11),
                 ),
               ],
             ),
@@ -2688,24 +2688,24 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E293B),
+            color: context.bgCard,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: (!isUnlimited && limit != null && remaining < 100)
                   ? const Color(0xFFEF4444)
-                  : const Color(0xFF0284C7).withValues(alpha: 0.3),
+                  : context.borderColor,
             ),
           ),
           child: Row(
             children: [
-              const Icon(Icons.credit_card_outlined, color: Color(0xFF38BDF8), size: 18),
+              Icon(Icons.credit_card_outlined, color: context.skyColor, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   isUnlimited
                       ? 'الباقة: $planName • حصة الكروت: غير محدودة'
                       : 'الباقة: $planName • الرصيد المتبقي: $remaining من أصل $limit كرت',
-                  style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 12, fontWeight: FontWeight.w600),
+                  style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.w600),
                 ),
               ),
               if (!isUnlimited && limit != null)

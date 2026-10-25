@@ -1283,11 +1283,11 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.style_outlined, size: 64, color: Colors.white.withValues(alpha: 0.3)),
+                          Icon(Icons.style_outlined, size: 64, color: context.isDarkMode ? Colors.white.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.2)),
                           const SizedBox(height: 16),
-                          const Text('لا توجد قوالب طباعة مسجلة', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+                          Text('لا توجد قوالب طباعة مسجلة', style: TextStyle(color: context.textPrimary, fontSize: 17, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 8),
-                          const Text('يمكنك اختيار أحد القوالب الجاهزة أو استيراد قالب من الهاتف.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13), textAlign: TextAlign.center),
+                          Text('يمكنك اختيار أحد القوالب الجاهزة أو استيراد قالب من الهاتف.', style: TextStyle(color: context.textSecondary, fontSize: 13), textAlign: TextAlign.center),
                           const SizedBox(height: 20),
                           ElevatedButton.icon(
                             onPressed: _showAddTemplateOptions,

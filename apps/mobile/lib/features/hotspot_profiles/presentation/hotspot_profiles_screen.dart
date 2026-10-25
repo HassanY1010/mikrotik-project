@@ -240,11 +240,11 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.wifi_tethering_off, size: 64, color: Colors.white.withValues(alpha: 0.2)),
+                          Icon(Icons.wifi_tethering_off, size: 64, color: context.textMuted.withValues(alpha: 0.4)),
                           const SizedBox(height: 16),
-                          const Text('لا توجد باقات هوتسبوت مسجلة', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+                          Text('لا توجد باقات هوتسبوت مسجلة', style: TextStyle(color: context.textPrimary, fontSize: 17, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 8),
-                          const Text('يمكنك إنشاء باقة سرعة ووقت جديدة أو مزامنة الباقات من راوتر ميكروتك.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13), textAlign: TextAlign.center),
+                          Text('يمكنك إنشاء باقة سرعة ووقت جديدة أو مزامنة الباقات من راوتر ميكروتك.', style: TextStyle(color: context.textSecondary, fontSize: 13), textAlign: TextAlign.center),
                         ],
                       ),
                     ),
@@ -293,20 +293,20 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                                             Expanded(
                                               child: Text(
                                                 p.displayName ?? p.name,
-                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                                style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
                                                 overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
                                             Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                                               decoration: BoxDecoration(
-                                                color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                                                color: context.amberColor.withValues(alpha: 0.15),
                                                 borderRadius: BorderRadius.circular(12),
-                                                border: Border.all(color: const Color(0xFFF59E0B)),
+                                                border: Border.all(color: context.amberColor.withValues(alpha: 0.4)),
                                               ),
                                               child: Text(
                                                 '${p.price.toStringAsFixed(0)} SDG',
-                                                style: const TextStyle(color: Color(0xFFFBBF24), fontWeight: FontWeight.bold, fontSize: 12),
+                                                style: TextStyle(color: context.amberColor, fontWeight: FontWeight.bold, fontSize: 12),
                                               ),
                                             ),
                                           ],
@@ -314,7 +314,7 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                                         const SizedBox(height: 6),
                                         Text(
                                           'المعرف في الراوتر: ${p.name}',
-                                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11, fontFamily: 'monospace'),
+                                          style: TextStyle(color: context.textSecondary, fontSize: 11, fontFamily: 'monospace'),
                                         ),
                                         const SizedBox(height: 8),
 
@@ -368,8 +368,8 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                                         ref.read(profilesProvider.notifier).fetchProfiles();
                                       }
                                     },
-                                    icon: const Icon(Icons.edit_outlined, size: 16, color: Color(0xFF38BDF8)),
-                                    label: const Text('تعديل الباقة', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
+                                    icon: Icon(Icons.edit_outlined, size: 16, color: context.skyColor),
+                                    label: Text('تعديل الباقة', style: TextStyle(color: context.skyColor, fontSize: 12)),
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.delete_outline, size: 18, color: Color(0xFFEF4444)),
@@ -391,16 +391,29 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
   }
 
   Widget _buildBadge(String text, Color color) {
+    final textColor = context.isDarkMode
+        ? color
+        : (color == const Color(0xFF38BDF8)
+            ? const Color(0xFF0284C7)
+            : color == const Color(0xFF10B981)
+                ? const Color(0xFF047857)
+                : color == const Color(0xFFA78BFA)
+                    ? const Color(0xFF6D28D9)
+                    : color == const Color(0xFFF97316)
+                        ? const Color(0xFFC2410C)
+                        : color == const Color(0xFFEC4899)
+                            ? const Color(0xFFBE185D)
+                            : color);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
+        color: context.isDarkMode ? color.withValues(alpha: 0.2) : color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(color: color.withValues(alpha: context.isDarkMode ? 0.3 : 0.25)),
       ),
       child: Text(
         text,
-        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600),
+        style: TextStyle(color: textColor, fontSize: 10, fontWeight: FontWeight.w600),
       ),
     );
   }

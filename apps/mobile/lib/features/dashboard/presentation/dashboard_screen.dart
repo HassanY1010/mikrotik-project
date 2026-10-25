@@ -2897,8 +2897,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                 children: [
                   Text(
                     '${s.totalMb.toStringAsFixed(1)} MB',
-                    style: const TextStyle(
-                      color: Color(0xFF38BDF8),
+                    style: TextStyle(
+                      color: context.skyColor,
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
                     ),

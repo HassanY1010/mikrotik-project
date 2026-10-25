@@ -1375,13 +1375,13 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
         Icon(
           isPresent ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
           size: 13,
-          color: isPresent ? const Color(0xFF10B981) : Colors.grey,
+          color: isPresent ? const Color(0xFF10B981) : context.textSecondary,
         ),
         const SizedBox(width: 4),
         Text(
           label,
           style: TextStyle(
-            color: isPresent ? const Color(0xFF10B981) : Colors.grey,
+            color: isPresent ? const Color(0xFF10B981) : context.textSecondary,
             fontSize: 11,
           ),
         ),
