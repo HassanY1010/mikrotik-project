@@ -750,6 +750,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
                           if (res['success'] == true) {
                             Navigator.pop(dialogCtx);
+                            if (!mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(res['message']?.toString() ?? 'تم إرسال أمر الاستعادة بنجاح، جاري إعادة تشغيل الراوتر'),
@@ -2978,7 +2979,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   child: ElevatedButton.icon(
                     onPressed: () {
                       if (_selectedDeviceId != null) {
-                        ref.read(selectedRouterIdProvider.notifier).state = _selectedDeviceId;
+                        ref.read(selectedRouterIdProvider.notifier).select(_selectedDeviceId);
                       }
                       ref.read(profilesProvider.notifier).fetchProfiles();
                       Navigator.push(
@@ -3252,7 +3253,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         const SizedBox(width: 6),
         Switch(
           value: value,
-          activeColor: const Color(0xFF0284C7),
+          activeThumbColor: const Color(0xFF0284C7),
           onChanged: onChanged,
         ),
       ],

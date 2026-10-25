@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../core/constants/api_endpoints.dart';
-import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../services/hotspot_portal_validator.dart';
@@ -27,9 +26,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
 
   // Selected preset for Ready-Made templates
   String _selectedPresetKey = 'MODERN_DARK';
-  String _previewLoginMethod = 'VOUCHER_CODE';
   String? _selectedRouterId;
-  bool _isLoading = false;
   bool _isInspecting = false;
   bool _isPublishing = false;
 
@@ -125,6 +122,8 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
         allowedExtensions: ['html', 'htm', 'zip'],
         withData: true,
       );
+
+      if (!mounted) return;
 
       if (result == null || result.files.isEmpty) {
         setState(() => _isProcessingFile = false);

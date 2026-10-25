@@ -994,9 +994,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEF4444).withOpacity(0.08),
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.3)),
+                        border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1036,7 +1036,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                         labelText: 'كلمة مرور النسخة (إن وجدت)',
                         labelStyle: TextStyle(color: context.textSecondary, fontSize: 12),
                         hintText: 'اتركه فارغاً إذا لم تكن النسخة مشفرة',
-                        hintStyle: TextStyle(color: context.textSecondary.withOpacity(0.6), fontSize: 11),
+                        hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6), fontSize: 11),
                         prefixIcon: const Icon(Icons.lock_outline, size: 18, color: Color(0xFFF59E0B)),
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1087,7 +1087,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.1),
+                          color: Colors.red.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -1171,7 +1171,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFEF4444),
-                          disabledBackgroundColor: Colors.grey.withOpacity(0.3),
+                          disabledBackgroundColor: Colors.grey.withValues(alpha: 0.3),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),

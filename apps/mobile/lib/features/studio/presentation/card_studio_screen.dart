@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -59,7 +58,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   int _validityDaysValue = 30;
 
   // 3. Design Studio & Template Settings
-  String _selectedThemePreset = 'FOOTBALL';
+  final String _selectedThemePreset = 'FOOTBALL';
   CardTemplateModel? _selectedCustomTemplate;
   final TextEditingController _networkNameController = TextEditingController(text: 'سودافاي | SudaFi Net');
   final TextEditingController _headerTitleController = TextEditingController(text: 'كرت إنترنت فائق السرعة');
@@ -789,7 +788,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       }
 
       final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/Hotspot_Batch_${batchId}.csv');
+      final file = File('${tempDir.path}/Hotspot_Batch_$batchId.csv');
       await file.writeAsString(buffer.toString());
 
       await Share.shareXFiles(
@@ -1070,7 +1069,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       ),
                       child: ListView.separated(
                         itemCount: cards.length,
-                        separatorBuilder: (_, __) => const Divider(color: Color(0xFF1E293B), height: 1),
+                        separatorBuilder: (_, _) => const Divider(color: Color(0xFF1E293B), height: 1),
                         itemBuilder: (cContext, idx) {
                           final c = cards[idx];
                           final hasPin = c.clearPassword != null && c.clearPassword!.isNotEmpty && c.clearPassword != c.username;
@@ -1829,7 +1828,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       Expanded(
                         flex: 3,
                         child: DropdownButtonFormField<String>(
-                          value: _limitUptimeUnit,
+                          initialValue: _limitUptimeUnit,
                           dropdownColor: const Color(0xFF1E293B),
                           decoration: const InputDecoration(
                             labelText: 'الوحدة',
@@ -1912,7 +1911,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       Expanded(
                         flex: 3,
                         child: DropdownButtonFormField<String>(
-                          value: _limitDataQuotaUnit,
+                          initialValue: _limitDataQuotaUnit,
                           dropdownColor: const Color(0xFF1E293B),
                           decoration: const InputDecoration(
                             labelText: 'وحدة السعة',
@@ -2237,32 +2236,42 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
           ),
           const SizedBox(height: 10),
-          _buildPrintLayoutCard(
-            CardPdfLayout.a4Grid10,
-            '10 كروت في الصفحة (2×5)',
-            'حجم بطاقة الهوية المميز مع رمز QR كبير ومعلومات كاملة. أنسب خيار للمطابع والمكتبات.',
-            Icons.grid_view,
-          ),
-          const SizedBox(height: 8),
-          _buildPrintLayoutCard(
-            CardPdfLayout.a4Grid12,
-            '12 كرت في الصفحة (3×4)',
-            'تخطيط كروت قياسي متوازن للمقاهي والشبكات المتوسطة.',
-            Icons.view_module,
-          ),
-          const SizedBox(height: 8),
-          _buildPrintLayoutCard(
-            CardPdfLayout.a4Grid24,
-            '24 كرت في الصفحة (3×8)',
-            'تخطيط اقتصادي عالي الكفاءة يقلل استهلاك الورق إلى النصف.',
-            Icons.apps,
-          ),
-          const SizedBox(height: 8),
-          _buildPrintLayoutCard(
-            CardPdfLayout.a4Grid100,
-            '100 كرت في الصفحة (5×20)',
-            'شريط أكواد مكثف جداً للدفوعات الكبيرة وتوزيع الأكواد السريعة.',
-            Icons.line_weight,
+          RadioGroup<CardPdfLayout>(
+            groupValue: _selectedPrintLayout,
+            onChanged: (v) {
+              if (v != null) setState(() => _selectedPrintLayout = v);
+            },
+            child: Column(
+              children: [
+                _buildPrintLayoutCard(
+                  CardPdfLayout.a4Grid10,
+                  '10 كروت في الصفحة (2×5)',
+                  'حجم بطاقة الهوية المميز مع رمز QR كبير ومعلومات كاملة. أنسب خيار للمطابع والمكتبات.',
+                  Icons.grid_view,
+                ),
+                const SizedBox(height: 8),
+                _buildPrintLayoutCard(
+                  CardPdfLayout.a4Grid12,
+                  '12 كرت في الصفحة (3×4)',
+                  'تخطيط كروت قياسي متوازن للمقاهي والشبكات المتوسطة.',
+                  Icons.view_module,
+                ),
+                const SizedBox(height: 8),
+                _buildPrintLayoutCard(
+                  CardPdfLayout.a4Grid24,
+                  '24 كرت في الصفحة (3×8)',
+                  'تخطيط اقتصادي عالي الكفاءة يقلل استهلاك الورق إلى النصف.',
+                  Icons.apps,
+                ),
+                const SizedBox(height: 8),
+                _buildPrintLayoutCard(
+                  CardPdfLayout.a4Grid100,
+                  '100 كرت في الصفحة (5×20)',
+                  'شريط أكواد مكثف جداً للدفوعات الكبيرة وتوزيع الأكواد السريعة.',
+                  Icons.line_weight,
+                ),
+              ],
+            ),
           ),
 
           const SizedBox(height: 24),
@@ -2331,11 +2340,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             ),
             Radio<CardPdfLayout>(
               value: layout,
-              groupValue: _selectedPrintLayout,
               activeColor: const Color(0xFF38BDF8),
-              onChanged: (v) {
-                if (v != null) setState(() => _selectedPrintLayout = v);
-              },
             ),
           ],
         ),
