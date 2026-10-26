@@ -1121,8 +1121,8 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                           Flexible(
                             child: Text(
                               card.profileName,
-                              style: const TextStyle(
-                                color: Color(0xFFE2E8F0),
+                              style: TextStyle(
+                                color: context.textPrimary,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -1613,14 +1613,14 @@ class _CardDetailsDialog extends ConsumerWidget {
                       _buildDetailRow(
                         'حصة الإنترنت (Quota):',
                         c.formattedDataQuota,
-                        textColor: c.isUnlimitedQuota ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+                        textColor: c.isUnlimitedQuota ? const Color(0xFF10B981) : context.textPrimary,
                         context: context,
                       ),
                       Divider(color: context.borderColor),
                       _buildDetailRow(
                         'مدة الصلاحية:',
                         c.formattedValidity,
-                        textColor: const Color(0xFFE2E8F0),
+                        textColor: context.textPrimary,
                         context: context,
                       ),
                       if (c.effectiveTimeLimit != null && c.validityDays != null) ...[

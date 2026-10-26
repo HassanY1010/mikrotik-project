@@ -327,9 +327,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                       onChanged: isSubmitting
                           ? null
                           : (val) => setDialogState(() => isAgreed = val ?? false),
-                      title: const Text(
+                      title: Text(
                         'أقر وأؤكد بأنني أرغب بحذف حسابي نهائيًا وأعلم بعدم إمكانية استرجاعه',
-                        style: TextStyle(color: Color(0xFFE2E8F0), fontSize: 11.5, fontWeight: FontWeight.w600),
+                        style: TextStyle(color: context.textPrimary, fontSize: 11.5, fontWeight: FontWeight.w600),
                       ),
                       controlAffinity: ListTileControlAffinity.leading,
                     ),

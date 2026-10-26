@@ -66,9 +66,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'هل تريد بالتأكيد فصل المشترك التالي من راوتر MikroTik؟',
-              style: TextStyle(color: Color(0xFFE2E8F0), fontSize: 13, height: 1.4),
+              style: TextStyle(color: context.textPrimary, fontSize: 13, height: 1.4),
             ),
             const SizedBox(height: 12),
             Container(
@@ -683,9 +683,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                       children: [
                         const Icon(Icons.data_usage, color: Color(0xFF06B6D4), size: 16),
                         const SizedBox(width: 4),
-                        const Text(
+                        Text(
                           'استهلاك الباقة:',
-                          style: TextStyle(color: Color(0xFFE2E8F0), fontSize: 12, fontWeight: FontWeight.w600),
+                          style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.w600),
                         ),
                       ],
                     ),

@@ -432,18 +432,32 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.amber.withValues(alpha: 0.12),
+                          color: context.isDarkMode
+                              ? Colors.amber.withValues(alpha: 0.12)
+                              : const Color(0xFFFEF3C7),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                          border: Border.all(
+                            color: context.isDarkMode
+                                ? Colors.amber.withValues(alpha: 0.4)
+                                : const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 18),
+                            Icon(
+                              Icons.warning_amber_rounded,
+                              color: context.isDarkMode ? Colors.amber : const Color(0xFFB45309),
+                              size: 18,
+                            ),
                             const SizedBox(width: 8),
-                            const Expanded(
+                            Expanded(
                               child: Text(
                                 'تنبيه: الراوتر في حالة غير متصل حالياً بالخادم. يرجى التأكد من تشغيل الراوتر واتصاله بالشبكة قبل النسخ.',
-                                style: TextStyle(color: Color(0xFFFDE68A), fontSize: 11),
+                                style: TextStyle(
+                                  color: context.isDarkMode ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                           ],
@@ -1796,18 +1810,32 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                           margin: const EdgeInsets.only(bottom: 10),
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.amber.withValues(alpha: 0.15),
+                            color: context.isDarkMode
+                                ? Colors.amber.withValues(alpha: 0.15)
+                                : const Color(0xFFFEF3C7),
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                            border: Border.all(
+                              color: context.isDarkMode
+                                  ? Colors.amber.withValues(alpha: 0.4)
+                                  : const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                            ),
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.cloud_off_rounded, color: Colors.amber, size: 18),
+                              Icon(
+                                Icons.cloud_off_rounded,
+                                color: context.isDarkMode ? Colors.amber : const Color(0xFFB45309),
+                                size: 18,
+                              ),
                               const SizedBox(width: 8),
-                              const Expanded(
+                              Expanded(
                                 child: Text(
                                   'يتم عرض آخر بيانات محفوظة محلياً؛ تعذر الاتصال بالخادم للتحديث المباشر.',
-                                  style: TextStyle(color: Color(0xFFFDE68A), fontSize: 11),
+                                  style: TextStyle(
+                                    color: context.isDarkMode ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                               TextButton(
@@ -1817,9 +1845,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                                   minimumSize: Size.zero,
                                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 ),
-                                child: const Text(
+                                child: Text(
                                   'تحديث الآن',
-                                  style: TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                    color: context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ],
@@ -1903,16 +1935,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               // Quick Actions Grid Header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
+                children: [
                   Text(
                     'الوصول السريع والإجراءات',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: context.textPrimary,
                     ),
                   ),
-                  Text(
+                  const Text(
                     'جميع الوظائف',
                     style: TextStyle(fontSize: 12, color: Color(0xFF38BDF8)),
                   ),
@@ -1929,12 +1961,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'المستخدمون المتصلون الآن (الرادار)',
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: context.textPrimary,
                     ),
                   ),
                   TextButton.icon(
@@ -2402,13 +2434,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.amber.withValues(alpha: 0.1),
+                color: context.isDarkMode
+                    ? Colors.amber.withValues(alpha: 0.1)
+                    : const Color(0xFFFEF3C7),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                border: Border.all(
+                  color: context.isDarkMode
+                      ? Colors.amber.withValues(alpha: 0.3)
+                      : const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                ),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline, color: Colors.amber, size: 16),
+                  Icon(
+                    Icons.info_outline,
+                    color: context.isDarkMode ? Colors.amber : const Color(0xFFB45309),
+                    size: 16,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -2417,7 +2459,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                               router.host.startsWith('172.')
                           ? 'الراوتر بعنوان LAN خاص (${router.host}). يلزم VPN/وكيل شبكي للاتصال من السحابة، أو اضغط فحص الاتصال.'
                           : 'الراوتر غير متصل حالياً بالخادم. قراءات المعالج والذاكرة غير متاحة لحظياً.',
-                      style: const TextStyle(color: Color(0xFFFDE68A), fontSize: 11),
+                      style: TextStyle(
+                        color: context.isDarkMode ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],

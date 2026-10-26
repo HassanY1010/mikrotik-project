@@ -1749,19 +1749,34 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF0284C7).withValues(alpha: 0.12),
+              color: context.isDarkMode
+                  ? const Color(0xFF0284C7).withValues(alpha: 0.12)
+                  : const Color(0xFFE0F2FE),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+              border: Border.all(
+                color: context.isDarkMode
+                    ? const Color(0xFF0284C7).withValues(alpha: 0.3)
+                    : const Color(0xFF38BDF8).withValues(alpha: 0.6),
+              ),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Icon(Icons.info_outline, color: Color(0xFF38BDF8), size: 20),
-                SizedBox(width: 10),
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  color: context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     'المنظومة تدعم تطبيق القيود المتعددة (Multi-Constraint) بشكل متزامن. كل قيد يتم تفعيله هنا يُترجم إلى أمر RouterOS مباشر (مثل limit-uptime و limit-bytes-total) وتاريخ انتهاء الصلاحية.',
-                    style: TextStyle(color: Color(0xFFE2E8F0), fontSize: 11, height: 1.4),
+                    style: TextStyle(
+                      color: context.isDarkMode ? const Color(0xFFE2E8F0) : const Color(0xFF0369A1),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      height: 1.4,
+                    ),
                   ),
                 ),
               ],
@@ -2636,9 +2651,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           return Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
+              color: context.isDarkMode
+                  ? color.withValues(alpha: 0.1)
+                  : (isWarning ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7)),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: color.withValues(alpha: 0.35)),
+              border: Border.all(
+                color: context.isDarkMode
+                    ? color.withValues(alpha: 0.35)
+                    : (isWarning ? const Color(0xFFFCA5A5) : const Color(0xFFF59E0B).withValues(alpha: 0.5)),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2647,7 +2668,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   children: [
                     Icon(
                       isWarning ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
-                      color: color,
+                      color: context.isDarkMode ? color : (isWarning ? const Color(0xFFDC2626) : const Color(0xFFB45309)),
                       size: 20,
                     ),
                     const SizedBox(width: 10),
@@ -2655,7 +2676,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       child: Text(
                         text,
                         style: TextStyle(
-                          color: isWarning ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A),
+                          color: isWarning
+                              ? (context.isDarkMode ? const Color(0xFFFCA5A5) : const Color(0xFFB91C1C))
+                              : (context.isDarkMode ? const Color(0xFFFDE68A) : const Color(0xFF92400E)),
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),

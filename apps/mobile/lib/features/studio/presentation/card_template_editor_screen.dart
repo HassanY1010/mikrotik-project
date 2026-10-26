@@ -489,7 +489,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
                               Text(
                                 preset['name'] as String,
                                 style: TextStyle(
-                                  color: isSelected ? Colors.white : const Color(0xFFE2E8F0),
+                                  color: isSelected ? Colors.white : context.textPrimary,
                                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                                   fontSize: 13,
                                 ),
@@ -591,7 +591,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
                                 Text(
                                   'مقاس مخصص (أبعاد يدوية)',
                                   style: TextStyle(
-                                    color: _isCustomSize ? Colors.white : const Color(0xFFE2E8F0),
+                                    color: _isCustomSize ? Colors.white : context.textPrimary,
                                     fontWeight: _isCustomSize ? FontWeight.bold : FontWeight.w600,
                                     fontSize: 13,
                                   ),
