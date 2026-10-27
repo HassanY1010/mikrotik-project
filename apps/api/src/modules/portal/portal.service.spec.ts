@@ -560,6 +560,51 @@ describe('PortalService & PortalCompilerService (Task 5.1)', () => {
         portalService.publishToRouter(mockTenantId, 'unknown-device', {}),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('should compile pre-built template with customized networkName and USER_PASS loginMethod', async () => {
+      const res = await portalService.publishToRouter(mockTenantId, mockDeviceId, {
+        themePreset: 'MODERN_DARK',
+        networkName: 'شبكة النور السريعة',
+        loginMethod: 'USER_PASS',
+      });
+
+      expect(res.status).toBe('PENDING');
+      expect(agentService.queueCommand).toHaveBeenCalledWith(
+        mockTenantId,
+        mockDeviceId,
+        expect.objectContaining({
+          type: AgentCommandType.HOTSPOT_PORTAL_PUBLISH,
+          payload: expect.objectContaining({
+            files: expect.arrayContaining([
+              expect.objectContaining({
+                name: 'login.html',
+                content: expect.stringContaining('شبكة النور السريعة'),
+              }),
+            ]),
+          }),
+        }),
+      );
+
+      const lastCall = agentService.queueCommand.mock.calls[agentService.queueCommand.mock.calls.length - 1];
+      const loginHtmlFile = lastCall[2].payload.files.find((f: any) => f.name === 'login.html');
+      expect(loginHtmlFile.content).toContain('type="password"');
+      expect(loginHtmlFile.content).toContain('شبكة النور السريعة');
+    });
+
+    it('should compile pre-built template with customized networkName and VOUCHER loginMethod', async () => {
+      const res = await portalService.publishToRouter(mockTenantId, mockDeviceId, {
+        themePreset: 'STARLINK_CYAN',
+        networkName: 'Starlink Custom WiFi',
+        loginMethod: 'VOUCHER',
+      });
+
+      expect(res.status).toBe('PENDING');
+      const lastCall = agentService.queueCommand.mock.calls[agentService.queueCommand.mock.calls.length - 1];
+      const loginHtmlFile = lastCall[2].payload.files.find((f: any) => f.name === 'login.html');
+      expect(loginHtmlFile.content).toContain('Starlink Custom WiFi');
+      expect(loginHtmlFile.content).toContain('كود كرت الإنترنت');
+      expect(loginHtmlFile.content).toContain('type="hidden" id="password"');
+    });
   });
 });
 

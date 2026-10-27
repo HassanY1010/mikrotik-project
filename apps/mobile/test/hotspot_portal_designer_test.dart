@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:archive/archive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mobile/core/constants/api_endpoints.dart';
+import 'package:mobile/core/providers.dart';
+import 'package:mobile/core/storage/local_storage.dart';
 import 'package:mobile/features/portal/presentation/hotspot_portal_designer_screen.dart';
 import 'package:mobile/features/portal/services/hotspot_portal_validator.dart';
 
@@ -191,6 +194,96 @@ void main() {
       // Returns to the two options screen cleanly
       expect(find.text('إضافة صفحة من الصفحات الجاهزة'), findsOneWidget);
       expect(find.text('استيراد صفحة من الهاتف'), findsOneWidget);
+    });
+
+    testWidgets('should allow modifying network name and updating live preview', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final storage = LocalStorage(prefs);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            localStorageProvider.overrideWithValue(storage),
+          ],
+          child: const MaterialApp(
+            home: HotspotPortalDesignerScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('استعراض الصفحات الجاهزة ←'));
+      await tester.pumpAndSettle();
+
+      // Verify the customization title
+      expect(find.text('تعديل بيانات صفحة الدخول:'), findsOneWidget);
+      expect(find.text('1. اسم الشبكة داخل صفحة الدخول (SSID):'), findsOneWidget);
+
+      // Enter a custom network name in the TextField
+      final networkField = find.byType(TextField).first;
+      await tester.enterText(networkField, 'شبكة الأمل الفضائية');
+      await tester.pumpAndSettle();
+
+      // Verify live preview now displays the customized network name
+      expect(find.text('شبكة الأمل الفضائية'), findsAtLeastNWidgets(1));
+
+      // Verify storage was updated
+      expect(storage.getHotspotNetworkName(), 'شبكة الأمل الفضائية');
+    });
+
+    testWidgets('should toggle login method and update live preview fields', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final storage = LocalStorage(prefs);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            localStorageProvider.overrideWithValue(storage),
+          ],
+          child: const MaterialApp(
+            home: HotspotPortalDesignerScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('استعراض الصفحات الجاهزة ←'));
+      await tester.pumpAndSettle();
+
+      // Initially VOUCHER is selected -> single voucher field in preview
+      expect(find.text('اسم مستخدم فقط (كود الكرت / PIN)'), findsOneWidget);
+      expect(find.text('اسم مستخدم وكلمة مرور منفصلين'), findsOneWidget);
+      expect(find.text('الوضع المزدوج الذكي (يدعم النوعين معاً)'), findsOneWidget);
+      expect(find.text('أدخل كود كرت الإنترنت (PIN)'), findsOneWidget);
+      expect(find.text('اسم المستخدم (المطبوع على الكرت)'), findsNothing);
+
+      // Tap on "اسم مستخدم وكلمة مرور منفصلين"
+      await tester.tap(find.text('اسم مستخدم وكلمة مرور منفصلين'));
+      await tester.pumpAndSettle();
+
+      // Verify preview now shows username and password fields
+      expect(find.text('اسم المستخدم (المطبوع على الكرت)'), findsOneWidget);
+      expect(find.text('كلمة المرور (••••••••)'), findsOneWidget);
+      expect(find.text('أدخل كود كرت الإنترنت (PIN)'), findsNothing);
+      expect(storage.getHotspotLoginMethod(), 'USER_PASS');
+
+      // Tap on "الوضع المزدوج الذكي (يدعم النوعين معاً)"
+      await tester.tap(find.text('الوضع المزدوج الذكي (يدعم النوعين معاً)'));
+      await tester.pumpAndSettle();
+      expect(find.text('اسم المستخدم أو كود الكرت'), findsOneWidget);
+      expect(find.text('كلمة المرور (اتركها فارغة لكروت الـ PIN)'), findsOneWidget);
+      expect(storage.getHotspotLoginMethod(), 'BOTH');
+
+      // Tap back to "اسم مستخدم فقط (كود الكرت / PIN)"
+      await tester.tap(find.text('اسم مستخدم فقط (كود الكرت / PIN)'));
+      await tester.pumpAndSettle();
+
+      // Verify preview returns to voucher single field
+      expect(find.text('أدخل كود كرت الإنترنت (PIN)'), findsOneWidget);
+      expect(find.text('اسم المستخدم (المطبوع على الكرت)'), findsNothing);
+      expect(storage.getHotspotLoginMethod(), 'VOUCHER');
     });
   });
 }

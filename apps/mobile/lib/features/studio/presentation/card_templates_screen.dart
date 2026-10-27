@@ -8,6 +8,7 @@ import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/card_template_import_service.dart';
 import 'card_template_editor_screen.dart';
+import 'card_studio_screen.dart';
 
 class CardTemplatesScreen extends ConsumerStatefulWidget {
   const CardTemplatesScreen({super.key});
@@ -24,6 +25,32 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
       jsonStr,
       subject: 'قالب كروت هوتسبوت: ${tpl.name}',
     );
+  }
+
+  void _handlePinTemplate(CardTemplateModel tpl) async {
+    final res = await ref.read(cardTemplatesProvider.notifier).setTemplateAsDefault(tpl.id);
+    if (!mounted) return;
+    if (res['success'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تم تثبيت «${tpl.name}» كقالب افتراضي معتمد للطباعة بنجاح!'),
+          backgroundColor: const Color(0xFF10B981),
+        ),
+      );
+    }
+  }
+
+  void _handleUseTemplateInStudio(CardTemplateModel tpl) {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context, tpl);
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => CardStudioScreen(initialTemplate: tpl),
+        ),
+      );
+    }
   }
 
   void _handleDuplicate(CardTemplateModel tpl) async {
@@ -522,19 +549,66 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
       finalName = '$finalName (مستورد)';
     }
 
+    final shouldPin = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.push_pin_rounded, color: Color(0xFF10B981), size: 22),
+            const SizedBox(width: 8),
+            Text('تثبيت القالب المستورد', style: TextStyle(color: context.textPrimary, fontSize: 16)),
+          ],
+        ),
+        content: Text(
+          'تمت قراءة القالب «$finalName» بنجاح من هاتفك.\n\nهل تريد تثبيته كقالب افتراضي معتمد لإنشاء الكروت والطباعة فوراً؟',
+          style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('حفظ فقط'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.check, size: 16),
+            onPressed: () => Navigator.pop(ctx, true),
+            label: const Text('حفظ وتثبيت كافتراضي'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldPin == null) return;
+
     final templateToSave = imported.copyWith(
       id: '',
       name: finalName,
-      isDefault: false,
+      isDefault: shouldPin == true,
     );
 
     final res = await ref.read(cardTemplatesProvider.notifier).createTemplate(templateToSave);
     if (!mounted) return;
 
     if (res['success'] == true) {
+      if (shouldPin == true) {
+        final savedId = (res['template'] is CardTemplateModel)
+            ? (res['template'] as CardTemplateModel).id
+            : '';
+        if (savedId.isNotEmpty) {
+          await ref.read(cardTemplatesProvider.notifier).setTemplateAsDefault(savedId);
+        }
+      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('تم استيراد القالب «$finalName» بنجاح! وهو متاح الآن للاستخدام في الطباعة.'),
+          content: Text(shouldPin == true
+              ? 'تم استيراد القالب «$finalName» وتثبيته كقالب افتراضي لطباعة الكروت بنجاح!'
+              : 'تم استيراد القالب «$finalName» بنجاح وهو متاح الآن للاستخدام!'),
           backgroundColor: const Color(0xFF10B981),
           duration: const Duration(seconds: 4),
         ),
@@ -781,6 +855,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
         bool showPin = true;
         bool showPrice = true;
         bool showValidity = true;
+        bool setAsDefault = true;
         bool isSaving = false;
 
         return StatefulBuilder(
@@ -1129,6 +1204,28 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                         value: showPrice,
                         onChanged: (val) => setDlgState(() => showPrice = val),
                       ),
+                      const SizedBox(height: 6),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                        ),
+                        child: SwitchListTile(
+                          dense: true,
+                          activeThumbColor: const Color(0xFF10B981),
+                          title: const Text(
+                            'تثبيت كقالب افتراضي للطباعة فوراً',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                          ),
+                          subtitle: const Text(
+                            'سيتم استخدامه تلقائياً في استوديو إنشاء الكروت وأمر الطباعة',
+                            style: TextStyle(fontSize: 10.5),
+                          ),
+                          value: setAsDefault,
+                          onChanged: (val) => setDlgState(() => setAsDefault = val),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1165,6 +1262,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                 ? networkCtrl.text.trim()
                                 : 'سودافاي | SudaFi Net',
                             isPdf: isPdf,
+                            isDefault: setAsDefault,
                           );
 
                           Navigator.pop(dialogCtx);
@@ -1173,9 +1271,20 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                           if (!mounted) return;
 
                           if (res['success'] == true) {
+                            if (setAsDefault) {
+                              final createdId = (res['template'] is CardTemplateModel)
+                                  ? (res['template'] as CardTemplateModel).id
+                                  : '';
+                              if (createdId.isNotEmpty) {
+                                await ref.read(cardTemplatesProvider.notifier).setTemplateAsDefault(createdId);
+                              }
+                            }
+                            if (!mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('تم حفظ قالب «$name» بنجاح وهو متاح الآن للاستخدام!'),
+                                content: Text(setAsDefault
+                                    ? 'تم حفظ قالب «$name» وتثبيته كقالب افتراضي لطباعة الكروت بنجاح!'
+                                    : 'تم حفظ قالب «$name» بنجاح وهو متاح الآن للاستخدام!'),
                                 backgroundColor: const Color(0xFF10B981),
                               ),
                             );
@@ -1370,9 +1479,41 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                                 borderRadius: BorderRadius.circular(12),
                                                 border: Border.all(color: const Color(0xFF10B981)),
                                               ),
-                                              child: const Text(
-                                                'افتراضي',
-                                                style: TextStyle(color: Color(0xFF34D399), fontSize: 10, fontWeight: FontWeight.bold),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: const [
+                                                  Icon(Icons.check_circle, size: 11, color: Color(0xFF10B981)),
+                                                  SizedBox(width: 3),
+                                                  Text(
+                                                    'افتراضي للطباعة',
+                                                    style: TextStyle(color: Color(0xFF34D399), fontSize: 10, fontWeight: FontWeight.bold),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ] else ...[
+                                            const SizedBox(width: 8),
+                                            InkWell(
+                                              onTap: () => _handlePinTemplate(tpl),
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: context.bgCardAlt,
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  border: Border.all(color: context.borderColor),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: const [
+                                                    Icon(Icons.push_pin_outlined, size: 11, color: Color(0xFF38BDF8)),
+                                                    SizedBox(width: 3),
+                                                    Text(
+                                                      'تثبيت كافتراضي',
+                                                      style: TextStyle(color: Color(0xFF38BDF8), fontSize: 10, fontWeight: FontWeight.bold),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
                                             ),
                                           ],
@@ -1387,6 +1528,28 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                   ),
                                 ),
                               ],
+                            ),
+                          ),
+
+                          // Quick Action: Use this template directly in Card Studio
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: tpl.isDefault ? const Color(0xFF10B981) : const Color(0xFF0F766E),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                icon: const Icon(Icons.style, size: 15),
+                                label: Text(
+                                  tpl.isDefault ? 'إنشاء كروت بهذا القالب الافتراضي' : 'استخدام هذا القالب لإنشاء الكروت',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                                onPressed: () => _handleUseTemplateInStudio(tpl),
+                              ),
                             ),
                           ),
 

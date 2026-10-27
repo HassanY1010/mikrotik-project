@@ -34,12 +34,73 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     {'key': 'DISABLED', 'label': 'ملغي ومعطل'},
   ];
 
+  bool _isLoadingAllMatchingIds = false;
+
   Future<void> _handleBulkActivate(List<CardModel> currentCards) async {
     if (_selectedCardIds.isEmpty || _isActivating || _isDeleting) return;
 
-    final selectedCount = _selectedCardIds.length;
-    final selectedCards = currentCards.where((c) => _selectedCardIds.contains(c.id)).toList();
-    final expiredCount = selectedCards.where((c) => c.isExpired).length;
+    // Classify selected cards into activatable and expired
+    final List<String> activatableIds = [];
+    int expiredCount = 0;
+
+    for (final id in _selectedCardIds) {
+      final card = currentCards.cast<CardModel?>().firstWhere(
+            (c) => c?.id == id,
+            orElse: () => null,
+          );
+      if (card != null) {
+        if (card.isExpired || card.status == 'EXPIRED') {
+          expiredCount++;
+        } else {
+          activatableIds.add(id);
+        }
+      } else {
+        // Card is outside current visible page
+        if (_selectedStatus == 'DISABLED' || _selectedStatus == 'AVAILABLE' || _selectedStatus == 'ACTIVE') {
+          activatableIds.add(id);
+        } else {
+          activatableIds.add(id);
+        }
+      }
+    }
+
+    if (activatableIds.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: context.bgCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 24),
+              SizedBox(width: 8),
+              Text(
+                'تعذر التفعيل',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Text(
+            'لا يمكن تفعيل الكروت المحددة لأنها منتهية الصلاحية ($expiredCount كرت) وفقاً لقواعد الاشتراك. يمكنك تفعيل الكروت المعطلة أو المتاحة فقط.',
+            style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('حسناً'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final activatableCount = activatableIds.length;
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -61,7 +122,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'هل تريد بالتأكيد تفعيل الكروت المحددة وعددها $selectedCount كرت؟\nسيتم تمكين الكروت على راوتر MikroTik وتحديث حالتها في النظام لتكون جاهزة للعمل.',
+              'هل تريد بالتأكيد تفعيل الكروت المحددة وعددها $activatableCount كرت؟\nسيتم تمكين الكروت على راوتر MikroTik وتحديث حالتها في النظام لتكون جاهزة للعمل.',
               style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
             ),
             if (expiredCount > 0) ...[
@@ -79,7 +140,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'ملاحظة: يتضمن التحديد $expiredCount كرت منتهي الصلاحية. يرفض النظام تفعيل الكروت المنتهية التزاماً بقواعد الاشتراك.',
+                        'ملاحظة: تم استثناء $expiredCount كرت منتهي الصلاحية تلقائياً التزاماً بقواعد الاشتراك.',
                         style: const TextStyle(color: Colors.amber, fontSize: 11, height: 1.3),
                       ),
                     ),
@@ -101,7 +162,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('نعم، تفعيل $selectedCount كرت'),
+            child: Text('نعم، تفعيل $activatableCount كرت'),
           ),
         ],
       ),
@@ -114,7 +175,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
 
     final result = await ref
         .read(cardsInventoryProvider.notifier)
-        .bulkActivateCards(_selectedCardIds.toList());
+        .bulkActivateCards(activatableIds);
 
     if (!mounted) return;
     setState(() {
@@ -219,19 +280,96 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
       final allVisibleIds = visibleCards.map((c) => c.id).toSet();
       final hasAll = allVisibleIds.isNotEmpty && allVisibleIds.every((id) => _selectedCardIds.contains(id));
       if (hasAll) {
-        _selectedCardIds.removeAll(allVisibleIds);
+        _selectedCardIds.clear();
       } else {
         _selectedCardIds.addAll(allVisibleIds);
       }
     });
   }
 
-  Future<void> _handleBulkDelete(List<CardModel> currentCards) async {
-    if (_selectedCardIds.isEmpty) return;
+  Future<void> _selectAllMatchingCards(CardsInventoryState state) async {
+    if (_isLoadingAllMatchingIds) return;
+    setState(() => _isLoadingAllMatchingIds = true);
+    final allIds = await ref.read(cardsInventoryProvider.notifier).fetchAllMatchingCardIds(
+          search: _searchController.text.trim(),
+          status: _selectedStatus,
+        );
+    if (!mounted) return;
+    setState(() {
+      _isLoadingAllMatchingIds = false;
+      if (allIds.isNotEmpty) {
+        _selectedCardIds.addAll(allIds);
+      } else {
+        _selectedCardIds.addAll(state.cards.map((c) => c.id));
+      }
+    });
+  }
 
-    final selectedCount = _selectedCardIds.length;
-    final selectedCards = currentCards.where((c) => _selectedCardIds.contains(c.id)).toList();
-    final soldCount = selectedCards.where((c) => c.status == 'SOLD').length;
+  Future<void> _handleBulkDelete(List<CardModel> currentCards) async {
+    if (_selectedCardIds.isEmpty || _isDeleting || _isActivating) return;
+
+    // Classify selected cards into deletable and sold
+    final List<String> deletableIds = [];
+    int soldCount = 0;
+
+    for (final id in _selectedCardIds) {
+      final card = currentCards.cast<CardModel?>().firstWhere(
+            (c) => c?.id == id,
+            orElse: () => null,
+          );
+      if (card != null) {
+        if (card.status == 'SOLD' || card.soldAt != null) {
+          soldCount++;
+        } else {
+          deletableIds.add(id);
+        }
+      } else {
+        // Card is on another page; check current filter
+        if (_selectedStatus == 'SOLD') {
+          soldCount++;
+        } else {
+          deletableIds.add(id);
+        }
+      }
+    }
+
+    if (deletableIds.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: context.bgCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.shield_outlined, color: Colors.amber, size: 24),
+              SizedBox(width: 8),
+              Text(
+                'حماية السجلات المالية',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Text(
+            'لا يمكن حذف الكروت المحددة لأن جميعها ($soldCount كرت) هي كروت مباعة ومسجلة في القيود والفواتير المالية. لحماية السجلات المحاسبية والامتثال المالي، يمنع حذف الكروت المباعة. يمكنك حذف الكروت المتاحة أو المعطلة فقط.',
+            style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('حسناً'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final deletableCount = deletableIds.length;
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -253,7 +391,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'هل تريد بالتأكيد حذف الكروت المحددة وعددها $selectedCount كرت؟\nسيتم حذفها من النظام ومزامنة الحذف مع راوتر MikroTik.',
+              'هل تريد بالتأكيد حذف الكروت المحددة وعددها $deletableCount كرت؟\nسيتم حذفها من النظام ومزامنة الحذف مع راوتر MikroTik.',
               style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
             ),
             if (soldCount > 0) ...[
@@ -271,7 +409,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'تنبيه: يتضمن التحديد $soldCount كرت مباع. سيتم الاحتفاظ بها لحماية السجلات المالية والمحاسبية.',
+                        'تنبيه: تم استثناء $soldCount كرت مباع تلقائياً لحماية السجلات المالية والمحاسبية.',
                         style: const TextStyle(color: Colors.amber, fontSize: 11, height: 1.3),
                       ),
                     ),
@@ -293,7 +431,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('نعم، حذف $selectedCount كرت'),
+            child: Text('نعم، حذف $deletableCount كرت'),
           ),
         ],
       ),
@@ -306,7 +444,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
 
     final result = await ref
         .read(cardsInventoryProvider.notifier)
-        .bulkDeleteCards(_selectedCardIds.toList());
+        .bulkDeleteCards(deletableIds);
 
     if (!mounted) return;
     setState(() {
@@ -549,13 +687,22 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           if (_isSelectionMode) ...[
             IconButton(
               icon: Icon(
-                state.cards.isNotEmpty &&
-                        state.cards.every((c) => _selectedCardIds.contains(c.id))
+                _selectedCardIds.isNotEmpty &&
+                        ((state.totalMatching > 0 && _selectedCardIds.length >= state.totalMatching) ||
+                            (state.cards.isNotEmpty && state.cards.every((c) => _selectedCardIds.contains(c.id))))
                     ? Icons.deselect
                     : Icons.select_all,
                 color: const Color(0xFF38BDF8),
               ),
-              onPressed: () => _toggleSelectAllVisible(state.cards),
+              onPressed: () {
+                final hasAllVisible = state.cards.isNotEmpty && state.cards.every((c) => _selectedCardIds.contains(c.id));
+                final hasAllTotal = state.totalMatching > 0 && _selectedCardIds.length >= state.totalMatching;
+                if (hasAllTotal || hasAllVisible) {
+                  setState(() => _selectedCardIds.clear());
+                } else {
+                  _toggleSelectAllVisible(state.cards);
+                }
+              },
               tooltip: 'تحديد / إلغاء تحديد الكل',
             ),
             if (_selectedCardIds.isNotEmpty) ...[
@@ -780,6 +927,58 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                 ),
               ),
             ),
+
+            // Smart Bulk Selection Banner across pages
+            if (_isSelectionMode && _selectedCardIds.isNotEmpty && state.totalMatching > state.cards.length)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E3A8A).withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, color: Color(0xFF38BDF8), size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _selectedCardIds.length >= state.totalMatching
+                            ? 'تم تحديد جميع النتائج (${_selectedCardIds.length} كرت)'
+                            : 'تم تحديد ${_selectedCardIds.length} كرت في هذه الصفحة',
+                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                    if (_selectedCardIds.length < state.totalMatching)
+                      TextButton(
+                        onPressed: _isLoadingAllMatchingIds ? null : () => _selectAllMatchingCards(state),
+                        child: _isLoadingAllMatchingIds
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                              )
+                            : Text(
+                                'تحديد جميع النتائج (${state.totalMatching})',
+                                style: const TextStyle(
+                                  color: Color(0xFF38BDF8),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                      )
+                    else
+                      TextButton(
+                        onPressed: () => setState(() => _selectedCardIds.clear()),
+                        child: const Text(
+                          'إلغاء التحديد',
+                          style: TextStyle(color: Color(0xFFEF4444), fontSize: 12),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
 
             // Slim linear loading indicator for background searching
             if (state.isLoading && state.cards.isNotEmpty)
@@ -1011,6 +1210,14 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
 
     return InkWell(
       onTap: _isSelectionMode ? () => _toggleCardSelection(card.id) : () => _showCardDetailsDialog(card),
+      onLongPress: () {
+        if (!_isSelectionMode) {
+          setState(() {
+            _isSelectionMode = true;
+            _selectedCardIds.add(card.id);
+          });
+        }
+      },
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
@@ -1886,4 +2093,3 @@ ${c.clearPassword != null ? 'كلمة المرور: ${c.clearPassword}' : ''}
     );
   }
 }
-

@@ -419,15 +419,19 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
     const effectiveTemplateId = (dto.templateId || dto.cardTemplateId || '').trim();
     let matchedTemplate: { id: string; name: string; themePreset: string | null; widthMm: number } | null = null;
     if (effectiveTemplateId) {
-      matchedTemplate = await this.prisma.cardTemplate.findFirst({
-        where: { id: effectiveTemplateId, tenantId: resolvedTenantId },
-        select: { id: true, name: true, themePreset: true, widthMm: true },
-      });
-      if (!matchedTemplate) {
-        throw new NotFoundException({
-          code: 'TEMPLATE_NOT_FOUND',
-          message: `قالب تصميم الكروت المحدد (${effectiveTemplateId}) غير موجود أو تم حذفه`,
+      // Check if this is a client-side/offline imported template (e.g. imported-*, media-*, local-*)
+      const isClientSideTemplate = /^(imported|media|local)-/i.test(effectiveTemplateId);
+      if (!isClientSideTemplate) {
+        matchedTemplate = await this.prisma.cardTemplate.findFirst({
+          where: { id: effectiveTemplateId, tenantId: resolvedTenantId },
+          select: { id: true, name: true, themePreset: true, widthMm: true },
         });
+        if (!matchedTemplate) {
+          throw new NotFoundException({
+            code: 'TEMPLATE_NOT_FOUND',
+            message: `قالب تصميم الكروت المحدد (${effectiveTemplateId}) غير موجود أو تم حذفه`,
+          });
+        }
       }
     }
 
@@ -1400,6 +1404,80 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
         disabled: disabledCount,
       },
     };
+  }
+
+  /**
+   * Retrieves card IDs matching query filter for fast client-side bulk operations
+   */
+  async findMatchingCardIds(
+    tenantId: string,
+    query: {
+      status?: string;
+      search?: string;
+      profileId?: string;
+      deviceId?: string;
+      batchId?: string;
+    },
+  ): Promise<{ cardIds: string[] }> {
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const firstTenant = await this.prisma.tenant.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (firstTenant) resolvedTenantId = firstTenant.id;
+    }
+
+    const where: Prisma.CardWhereInput = {
+      tenantId: resolvedTenantId,
+    };
+
+    if (query.status && query.status !== 'ALL') {
+      const s = query.status.toUpperCase();
+      if (s === 'AVAILABLE') {
+        where.status = { in: [CardStatus.AVAILABLE, CardStatus.GENERATED] };
+      } else if (s === 'SOLD') {
+        where.status = CardStatus.SOLD;
+      } else if (s === 'ACTIVE' || s === 'USED') {
+        where.status = CardStatus.ACTIVE;
+      } else if (s === 'DISABLED' || s === 'CANCELLED' || s === 'EXPIRED') {
+        where.status = { in: [CardStatus.DISABLED, CardStatus.EXPIRED] };
+      } else if (Object.values(CardStatus).includes(s as CardStatus)) {
+        where.status = s as CardStatus;
+      }
+    }
+
+    if (query.profileId) {
+      where.profileId = query.profileId;
+    }
+
+    if (query.deviceId) {
+      where.deviceId = query.deviceId;
+    }
+
+    if (query.batchId) {
+      where.batchId = query.batchId;
+    }
+
+    if (query.search && query.search.trim().length > 0) {
+      const q = query.search.trim();
+      where.OR = [
+        { serialNumber: { contains: q, mode: 'insensitive' } },
+        { username: { contains: q, mode: 'insensitive' } },
+        { pinCode: { contains: q, mode: 'insensitive' } },
+        { profile: { name: { contains: q, mode: 'insensitive' } } },
+        { batch: { batchNumber: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const cards = await this.prisma.card.findMany({
+      where,
+      select: { id: true },
+      take: 5000,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return { cardIds: cards.map((c) => c.id) };
   }
 
   /**

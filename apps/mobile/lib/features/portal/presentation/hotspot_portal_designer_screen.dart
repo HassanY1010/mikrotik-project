@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/providers.dart';
+import '../../../core/storage/local_storage.dart';
 import '../../../core/theme/app_theme.dart';
 import '../services/hotspot_portal_validator.dart';
 
@@ -29,6 +30,10 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
   String? _selectedRouterId;
   bool _isInspecting = false;
   bool _isPublishing = false;
+
+  // Customization fields for Ready-Made templates
+  late final TextEditingController _networkNameController;
+  String _loginMethod = 'VOUCHER'; // 'VOUCHER' (PIN only) or 'USER_PASS' (User + Pass)
 
   // Presets Definition
   final Map<String, Map<String, dynamic>> _presets = {
@@ -90,9 +95,34 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
   ImportedPortalBundle? _importedBundle;
   bool _isProcessingFile = false;
 
+  LocalStorage? _getLocalStorage() {
+    try {
+      return ref.read(localStorageProvider);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    final storage = _getLocalStorage();
+    final savedPreset = storage?.getHotspotPreset();
+    if (savedPreset != null && _presets.containsKey(savedPreset)) {
+      _selectedPresetKey = savedPreset;
+    }
+
+    final savedNetwork = storage?.getHotspotNetworkName();
+    final defaultNetwork = _presets[_selectedPresetKey]?['network'] as String? ?? 'شبكة الواي فاي';
+    _networkNameController = TextEditingController(
+      text: (savedNetwork != null && savedNetwork.trim().isNotEmpty) ? savedNetwork : defaultNetwork,
+    );
+
+    final savedMethod = storage?.getHotspotLoginMethod();
+    if (savedMethod != null && (savedMethod == 'VOUCHER' || savedMethod == 'USER_PASS' || savedMethod == 'BOTH')) {
+      _loginMethod = savedMethod;
+    }
+
     // Auto-select first router if available
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final routers = ref.read(routersProvider).value ?? [];
@@ -100,6 +130,12 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
         setState(() => _selectedRouterId = routers.first.id);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _networkNameController.dispose();
+    super.dispose();
   }
 
   // Back button handling: returns to the 2-option home if inside a sub-flow
@@ -242,7 +278,17 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
       };
 
       if (isReadyMade) {
+        final currentPreset = _presets[_selectedPresetKey] ?? _presets['MODERN_DARK']!;
+        final customNetName = _networkNameController.text.trim().isNotEmpty
+            ? _networkNameController.text.trim()
+            : (currentPreset['network'] as String);
+
         payload['themePreset'] = _selectedPresetKey;
+        payload['networkName'] = customNetName;
+        payload['loginMethod'] = _loginMethod;
+        payload['title'] = currentPreset['title'];
+        payload['subtitle'] = currentPreset['subtitle'];
+        payload['footerText'] = currentPreset['footer'];
       } else {
         if (_importedBundle == null || _importedBundle!.files.isEmpty) {
           throw Exception('لا توجد ملفات صالحة للرفع.');
@@ -262,6 +308,15 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
       final stagingDir = data is Map ? data['stagingDirectory']?.toString() : null;
       final origDir = data is Map ? data['originalHtmlDirectory']?.toString() : null;
       final origProf = data is Map ? data['originalProfileName']?.toString() : null;
+
+      // Persist active hotspot login method for cross-feature compatibility
+      final storage = _getLocalStorage();
+      if (isReadyMade) {
+        storage?.setHotspotLoginMethod(_loginMethod);
+      } else {
+        final hasPw = _importedBundle?.report.hotspotFeatures['hasPassword'] ?? false;
+        storage?.setHotspotLoginMethod(hasPw ? 'USER_PASS' : 'VOUCHER');
+      }
 
       if (mounted) {
         _showSuccessDialog(
@@ -811,7 +866,18 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                 final data = entry.value;
                 final primaryCol = data['primary'] as Color;
                 return GestureDetector(
-                  onTap: () => setState(() => _selectedPresetKey = entry.key),
+                  onTap: () {
+                    final oldPreset = _presets[_selectedPresetKey];
+                    final oldDefaultNet = oldPreset?['network'] as String? ?? '';
+                    setState(() {
+                      _selectedPresetKey = entry.key;
+                      // Update network name if user hasn't customized it to something else
+                      if (_networkNameController.text.trim().isEmpty || _networkNameController.text.trim() == oldDefaultNet) {
+                        _networkNameController.text = data['network'] as String;
+                      }
+                    });
+                    _getLocalStorage()?.setHotspotPreset(entry.key);
+                  },
                   child: Container(
                     margin: const EdgeInsets.only(left: 10),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -850,6 +916,10 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
               }).toList(),
             ),
           ),
+          const SizedBox(height: 20),
+
+          // Customization Controls Section (Network Name & Card Display Mode)
+          _buildCustomizationControls(currentPreset),
           const SizedBox(height: 20),
 
           // Live Interactive Preview
@@ -926,11 +996,238 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
     );
   }
 
+  Widget _buildCustomizationControls(Map<String, dynamic> currentPreset) {
+    final primaryCol = currentPreset['primary'] as Color;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: primaryCol.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.tune_rounded, color: primaryCol, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'تعديل بيانات صفحة الدخول:',
+                      style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'خصص اسم الشبكة وطريقة تسجيل الدخول وستظهر مباشرة في المعاينة',
+                      style: TextStyle(color: context.textSecondary, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 1. تعديل اسم الشبكة
+          Text(
+            '1. اسم الشبكة داخل صفحة الدخول (SSID):',
+            style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _networkNameController,
+            style: TextStyle(color: context.textPrimary, fontSize: 13),
+            decoration: InputDecoration(
+              hintText: currentPreset['network'] as String,
+              hintStyle: TextStyle(color: context.textSecondary.withOpacity(0.6), fontSize: 12),
+              prefixIcon: Icon(Icons.wifi_rounded, color: primaryCol, size: 18),
+              suffixIcon: _networkNameController.text.trim().isNotEmpty &&
+                      _networkNameController.text.trim() != (currentPreset['network'] as String)
+                  ? IconButton(
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      tooltip: 'استعادة الاسم الافتراضي للنموذج',
+                      onPressed: () {
+                        setState(() {
+                          _networkNameController.text = currentPreset['network'] as String;
+                        });
+                        _getLocalStorage()?.setHotspotNetworkName(currentPreset['network'] as String);
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: context.bgScaffold,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: context.borderColor),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: context.borderColor),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: primaryCol, width: 1.5),
+              ),
+            ),
+            onChanged: (val) {
+              setState(() {});
+              _getLocalStorage()?.setHotspotNetworkName(val.trim());
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // 2. تحديد طريقة عرض بيانات الكرت
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '2. طريقة عرض بيانات الكرت وتسجيل الدخول:',
+                style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: primaryCol.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  _loginMethod == 'VOUCHER'
+                      ? 'كود الكرت فقط'
+                      : (_loginMethod == 'USER_PASS' ? 'مستخدم + باسورد' : 'الوضع المزدوج'),
+                  style: TextStyle(color: primaryCol, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Column(
+            children: [
+              // Option A: رقم الكرت فقط
+              _buildLoginMethodOption(
+                id: 'VOUCHER',
+                title: 'اسم مستخدم فقط (كود الكرت / PIN)',
+                subtitle: 'يظهر حقل واحد فقط لكود الكرت (يتطابق تلقائياً مع كلمة المرور)',
+                icon: Icons.pin_rounded,
+                activeColor: primaryCol,
+                isSelected: _loginMethod == 'VOUCHER',
+              ),
+              const SizedBox(height: 8),
+              // Option B: اسم مستخدم وكلمة مرور
+              _buildLoginMethodOption(
+                id: 'USER_PASS',
+                title: 'اسم مستخدم وكلمة مرور منفصلين',
+                subtitle: 'يظهر حقل اسم المستخدم وحقل مستقل لكلمة المرور للدخول',
+                icon: Icons.badge_rounded,
+                activeColor: primaryCol,
+                isSelected: _loginMethod == 'USER_PASS',
+              ),
+              const SizedBox(height: 8),
+              // Option C: الوضع المزدوج الذكي
+              _buildLoginMethodOption(
+                id: 'BOTH',
+                title: 'الوضع المزدوج الذكي (يدعم النوعين معاً)',
+                subtitle: 'يسمح بتسجيل الدخول بكود الكرت فقط أو باسم مستخدم وباسورد',
+                icon: Icons.sync_alt_rounded,
+                activeColor: primaryCol,
+                isSelected: _loginMethod == 'BOTH',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoginMethodOption({
+    required String id,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color activeColor,
+    required bool isSelected,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        setState(() => _loginMethod = id);
+        _getLocalStorage()?.setHotspotLoginMethod(id);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor.withOpacity(0.12) : context.bgScaffold,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? activeColor : context.borderColor,
+            width: isSelected ? 1.6 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: isSelected ? activeColor : context.textSecondary,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: isSelected ? activeColor : context.textPrimary,
+                      fontSize: 12,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Icon(
+                  isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                  size: 15,
+                  color: isSelected ? activeColor : context.textSecondary.withOpacity(0.5),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: context.textSecondary,
+                fontSize: 10,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPhonePreviewFrame(Map<String, dynamic> data) {
     final bgColor = data['bg'] as Color;
     final cardColor = data['card'] as Color;
     final primaryColor = data['primary'] as Color;
     final textColor = data['text'] as Color;
+    final customNetwork = _networkNameController.text.trim();
+    final networkName = customNetwork.isNotEmpty ? customNetwork : (data['network'] as String);
 
     return Center(
       child: Container(
@@ -963,8 +1260,11 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
 
             // Network Logo / Name
             Text(
-              data['network'] as String,
+              networkName,
               style: TextStyle(color: textColor, fontSize: 15, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 12),
 
@@ -992,29 +1292,127 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                   ),
                   const SizedBox(height: 14),
 
-                  // Input box
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.25),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.credit_card, color: primaryColor, size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'أدخل كود الكرت (مثال: 78945612)',
-                            style: TextStyle(color: textColor.withOpacity(0.4), fontSize: 11),
-                            overflow: TextOverflow.ellipsis,
+                  // Login Inputs depending on _loginMethod
+                  if (_loginMethod == 'USER_PASS') ...[
+                    // Username Field
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.person_outline_rounded, color: primaryColor, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'اسم المستخدم (المطبوع على الكرت)',
+                              style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 11),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    // Password Field
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.lock_outline_rounded, color: primaryColor, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'كلمة المرور (••••••••)',
+                              style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 11),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else if (_loginMethod == 'BOTH') ...[
+                    // Dual mode: Username or PIN with optional password
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.person_outline_rounded, color: primaryColor, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'اسم المستخدم أو كود الكرت',
+                              style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 11),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.lock_outline_rounded, color: primaryColor, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'كلمة المرور (اتركها فارغة لكروت الـ PIN)',
+                              style: TextStyle(color: textColor.withOpacity(0.4), fontSize: 10),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    // Voucher Single Input box
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.credit_card, color: primaryColor, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'أدخل كود كرت الإنترنت (PIN)',
+                              style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 11),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
 
                   // Submit button
@@ -1360,6 +1758,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
             children: [
               _buildFeatureCheck(label: 'فورم تسجيل الدخول', isPresent: report.hotspotFeatures['hasLoginForm'] ?? false),
               _buildFeatureCheck(label: 'حقل اسم المستخدم/الكرت', isPresent: report.hotspotFeatures['hasUsername'] ?? false),
+              _buildFeatureCheck(label: 'حقل كلمة المرور (password)', isPresent: report.hotspotFeatures['hasPassword'] ?? false),
               _buildFeatureCheck(label: 'متغير الخطأ \$(error)', isPresent: report.hotspotFeatures['hasErrorVariable'] ?? false),
             ],
           ),

@@ -456,16 +456,93 @@ export class PortalService {
       }
     } else {
       // Pre-built template compilation
+      let targetPreset = HotspotPortalThemePreset.MODERN_DARK;
+      if (dto.themePreset) {
+        if (dto.themePreset === 'SUNSET_GOLD' || dto.themePreset === 'SUNSET_ORANGE') {
+          targetPreset = HotspotPortalThemePreset.SUNSET_ORANGE;
+        } else if (dto.themePreset === 'STARLINK_CYAN') {
+          targetPreset = HotspotPortalThemePreset.STARLINK_CYAN;
+        } else if (dto.themePreset === 'MINIMAL_LIGHT') {
+          targetPreset = HotspotPortalThemePreset.MINIMAL_LIGHT;
+        } else {
+          targetPreset = HotspotPortalThemePreset.MODERN_DARK;
+        }
+      }
+
+      const presetConfigs = this.getPresetConfigs();
+      const basePreset = presetConfigs[targetPreset] || presetConfigs[HotspotPortalThemePreset.MODERN_DARK];
+
       if (dto.templateId) {
         template = await this.getTemplate(tenantId, dto.templateId);
       } else {
-        const defaultTpl = Array.from(store.values()).find((t) => t.isDefault);
-        template = defaultTpl || Array.from(store.values())[0];
+        const defaultTpl = Array.from(store.values()).find((t) => t.isDefault) || Array.from(store.values())[0];
+        template = defaultTpl || {
+          id: uuidv4(),
+          tenantId,
+          name: basePreset.name || 'قالب الهوتسبوت',
+          themePreset: targetPreset,
+          networkName: basePreset.networkName || 'شبكة الإنترنت',
+          title: basePreset.title || 'مرحباً بكم في شبكتنا',
+          subtitle: basePreset.subtitle || 'أدخل كود الكرت للاتصال الفوري',
+          logoUrl: null,
+          primaryColor: basePreset.primaryColor || '#0EA5E9',
+          accentColor: basePreset.accentColor || '#10B981',
+          backgroundColor: basePreset.backgroundColor || '#0F172A',
+          cardColor: basePreset.cardColor || '#1E293B',
+          textColor: basePreset.textColor || '#F8FAFC',
+          loginMethod: basePreset.loginMethod || HotspotPortalLoginMethod.VOUCHER,
+          showRemainingTime: true,
+          contactPhone: null,
+          termsText: null,
+          footerText: basePreset.footerText || 'مدعوم بواسطة منصة SudaFi',
+          customCss: null,
+          isDefault: true,
+          publishedDeviceId: null,
+          lastPublishedAt: null,
+          syncStatus: 'DRAFT',
+          syncError: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
       }
 
-      if (!template) {
-        throw new NotFoundException('لم يتم العثور على قالب صفحة جاهز للنشر');
+      // Apply theme preset styles if specified
+      if (dto.themePreset) {
+        template.themePreset = targetPreset;
+        if (basePreset.primaryColor) template.primaryColor = basePreset.primaryColor;
+        if (basePreset.accentColor) template.accentColor = basePreset.accentColor;
+        if (basePreset.backgroundColor) template.backgroundColor = basePreset.backgroundColor;
+        if (basePreset.cardColor) template.cardColor = basePreset.cardColor;
+        if (basePreset.textColor) template.textColor = basePreset.textColor;
+        if (basePreset.footerText) template.footerText = basePreset.footerText;
       }
+
+      // Apply custom overrides from DTO
+      if (dto.networkName && dto.networkName.trim().length > 0) {
+        template.networkName = dto.networkName.trim();
+      }
+      if (dto.title && dto.title.trim().length > 0) {
+        template.title = dto.title.trim();
+      }
+      if (dto.subtitle && dto.subtitle.trim().length > 0) {
+        template.subtitle = dto.subtitle.trim();
+      }
+      if (dto.footerText && dto.footerText.trim().length > 0) {
+        template.footerText = dto.footerText.trim();
+      }
+
+      if (dto.loginMethod) {
+        if (dto.loginMethod === 'USER_PASS' || dto.loginMethod === 'USERNAME_PASSWORD') {
+          template.loginMethod = HotspotPortalLoginMethod.USER_PASS;
+        } else if (dto.loginMethod === 'BOTH') {
+          template.loginMethod = HotspotPortalLoginMethod.BOTH;
+        } else {
+          template.loginMethod = HotspotPortalLoginMethod.VOUCHER;
+        }
+      }
+
+      template.updatedAt = new Date().toISOString();
+      store.set(template.id, template);
 
       const bundle = this.compilerService.compileAllFiles(template);
       filesToWrite = bundle.files;

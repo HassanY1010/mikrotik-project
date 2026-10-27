@@ -9,7 +9,7 @@ export class BulkDeleteCardsDto {
   })
   @IsArray()
   @ArrayNotEmpty({ message: 'يجب تحديد كرت واحد على الأقل للحذف' })
-  @ArrayMaxSize(500, { message: 'الحد الأقصى للعملية الواحدة هو 500 كرت' })
+  @ArrayMaxSize(5000, { message: 'الحد الأقصى للعملية الواحدة هو 5000 كرت' })
   @IsString({ each: true })
   cardIds!: string[];
 

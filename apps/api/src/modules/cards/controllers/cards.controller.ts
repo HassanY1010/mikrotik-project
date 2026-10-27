@@ -273,6 +273,36 @@ export class CardsController {
     return this.cardsService.bulkActivateCards(effectiveTenantId, dto);
   }
 
+  @Get('matching-ids')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
+  @ApiOperation({ summary: 'Get all card IDs matching query filter for bulk selection' })
+  @ApiResponse({ status: 200, description: 'List of matching card IDs' })
+  async getMatchingCardIds(
+    @CurrentUser('tenantId') userTenantId: string,
+    @TenantId() headerTenantId: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('profileId') profileId?: string,
+    @Query('deviceId') deviceId?: string,
+    @Query('batchId') batchId?: string,
+  ): Promise<{ cardIds: string[] }> {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.findMatchingCardIds(effectiveTenantId, {
+      status,
+      search,
+      profileId,
+      deviceId,
+      batchId,
+    });
+  }
+
   @Get(':id')
   @Roles(
     RoleName.SUPER_ADMIN,

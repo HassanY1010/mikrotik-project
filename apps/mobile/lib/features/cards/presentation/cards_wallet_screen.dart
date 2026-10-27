@@ -374,13 +374,19 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                     const SnackBar(content: Text('جاري إنشاء ملف الـ PDF عالي الدقة وتجهيز المشاركة...')),
                   );
                   try {
+                    final pinnedTemplate = ref.read(localStorageProvider).getPinnedTemplate();
                     await CardPdfGeneratorService.shareCardsPdf(
                       cards: exportCards,
                       networkName: networkNameController.text.trim().isNotEmpty
                           ? networkNameController.text.trim()
-                          : 'سودافاي | SudaFi Net',
+                          : (pinnedTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
                       layout: selectedLayout,
-                      themePreset: selectedTheme,
+                      themePreset: pinnedTemplate?.themePreset.isNotEmpty == true
+                          ? pinnedTemplate!.themePreset
+                          : selectedTheme,
+                      customPrimaryColor: pinnedTemplate?.primaryColor,
+                      customAccentColor: pinnedTemplate?.accentColor,
+                      customBackgroundImageBase64: pinnedTemplate?.backgroundImageBase64,
                     );
                   } catch (e) {
                     if (context.mounted) {
@@ -404,13 +410,19 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                 onPressed: () async {
                   Navigator.pop(ctx);
                   try {
+                    final pinnedTemplate = ref.read(localStorageProvider).getPinnedTemplate();
                     await CardPdfGeneratorService.previewAndPrint(
                       cards: exportCards,
                       networkName: networkNameController.text.trim().isNotEmpty
                           ? networkNameController.text.trim()
-                          : 'سودافاي | SudaFi Net',
+                          : (pinnedTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
                       layout: selectedLayout,
-                      themePreset: selectedTheme,
+                      themePreset: pinnedTemplate?.themePreset.isNotEmpty == true
+                          ? pinnedTemplate!.themePreset
+                          : selectedTheme,
+                      customPrimaryColor: pinnedTemplate?.primaryColor,
+                      customAccentColor: pinnedTemplate?.accentColor,
+                      customBackgroundImageBase64: pinnedTemplate?.backgroundImageBase64,
                     );
                   } catch (e) {
                     if (context.mounted) {

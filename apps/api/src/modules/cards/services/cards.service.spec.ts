@@ -277,6 +277,40 @@ describe('CardsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
+    it('should gracefully handle client-side/imported templateId without querying DB or failing', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue({ id: mockDeviceId });
+      prisma.hotspotProfile.findFirst.mockResolvedValue({ id: mockProfileId });
+      prisma.cardBatch.create.mockResolvedValue({
+        id: mockBatchId,
+        batchNumber: 'B-261003-ABCD',
+        status: CardBatchStatus.PROCESSING,
+      });
+      prisma.card.findMany.mockResolvedValue([]);
+      prisma.card.createMany.mockResolvedValue({ count: 2 });
+      prisma.cardBatch.findUnique.mockResolvedValue({
+        id: mockBatchId,
+        batchNumber: 'B-261003-ABCD',
+        totalCards: 2,
+        price: '500',
+        status: CardBatchStatus.COMPLETED,
+        createdAt: new Date(),
+        device: { name: 'Core Router' },
+        profile: { name: '1hour-unlimited' },
+      });
+
+      const result = await service.createBatch(mockTenantId, mockUserId, {
+        deviceId: mockDeviceId,
+        profileId: mockProfileId,
+        totalCards: 2,
+        price: 500,
+        templateId: 'media-1793045018436',
+        syncToRouter: false,
+      });
+
+      expect(prisma.cardTemplate.findFirst).not.toHaveBeenCalled();
+      expect(result.batch).toBeDefined();
+    });
+
     it('should link matchedTemplate and create PrintJob record when valid templateId is provided', async () => {
       prisma.mikroTikDevice.findFirst.mockResolvedValue({
         id: mockDeviceId,

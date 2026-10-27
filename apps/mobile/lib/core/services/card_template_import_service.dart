@@ -624,6 +624,7 @@ class CardTemplateImportService {
     String headerTitle = 'كرت إنترنت فائق السرعة',
     String instructions = 'امسح رمز QR أو أدخل رمز الدخول للاتصال',
     bool isPdf = false,
+    bool isDefault = false,
   }) {
     final base64Image = base64Encode(imageBytes);
 
@@ -651,7 +652,7 @@ class CardTemplateImportService {
         'headerTitle': headerTitle,
         'instructions': instructions,
       },
-      isDefault: false,
+      isDefault: isDefault,
     );
   }
 }

@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/storage/local_storage.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/services/card_pdf_generator_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -21,8 +22,13 @@ import '../../hotspot_profiles/presentation/create_hotspot_profile_screen.dart';
 
 class CardStudioScreen extends ConsumerStatefulWidget {
   final VoidCallback? onBatchCreated;
+  final CardTemplateModel? initialTemplate;
 
-  const CardStudioScreen({super.key, this.onBatchCreated});
+  const CardStudioScreen({
+    super.key,
+    this.onBatchCreated,
+    this.initialTemplate,
+  });
 
   @override
   ConsumerState<CardStudioScreen> createState() => _CardStudioScreenState();
@@ -58,8 +64,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   int _validityDaysValue = 30;
 
   // 3. Design Studio & Template Settings
-  final String _selectedThemePreset = 'FOOTBALL';
+  String _selectedThemePreset = 'FOOTBALL';
   CardTemplateModel? _selectedCustomTemplate;
+  bool _useCustomTemplate = false;
   final TextEditingController _networkNameController = TextEditingController(text: 'سودافاي | SudaFi Net');
   final TextEditingController _headerTitleController = TextEditingController(text: 'كرت إنترنت فائق السرعة');
   final TextEditingController _instructionsController = TextEditingController(text: 'امسح رمز QR أو أدخل الرمز للدخول');
@@ -97,6 +104,19 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    try {
+      final storage = ref.read(localStorageProvider);
+      final activeLoginMethod = storage.getHotspotLoginMethod();
+      if (activeLoginMethod == 'USER_PASS') {
+        _credentialMode = 1; // اسم مستخدم + كلمة مرور منفصلين
+      } else {
+        _credentialMode = 0; // رمز PIN موحد (User=Pass)
+      }
+    } catch (_) {}
+
+    if (widget.initialTemplate != null) {
+      _applyCustomTemplate(widget.initialTemplate!, notify: false);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadData();
     });
@@ -115,8 +135,132 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
   void _loadData() {
     ref.read(profilesProvider.notifier).fetchProfiles();
-    ref.read(cardTemplatesProvider.notifier).refresh();
+    ref.read(cardTemplatesProvider.notifier).refresh().then((_) {
+      if (mounted && widget.initialTemplate == null) {
+        _autoSelectDefaultOrPinnedTemplate();
+      }
+    });
     ref.invalidate(routersProvider);
+  }
+
+  void _autoSelectDefaultOrPinnedTemplate({bool force = false}) {
+    try {
+      final storage = ref.read(localStorageProvider);
+      final pinned = storage.getPinnedTemplate();
+      if (pinned != null) {
+        if (force || _selectedCustomTemplate == null || _selectedCustomTemplate!.id != pinned.id) {
+          _applyCustomTemplate(pinned);
+        }
+        return;
+      }
+      final allTemplates = ref.read(cardTemplatesProvider).value ?? [];
+      final def = allTemplates.where((t) => t.isDefault).firstOrNull;
+      if (def != null) {
+        if (force || _selectedCustomTemplate == null) {
+          _applyCustomTemplate(def);
+        }
+        return;
+      }
+      // If currently selected custom template was deleted and no longer exists anywhere, reset it
+      if (_selectedCustomTemplate != null) {
+        final customTpls = storage.getCustomTemplates();
+        final exists = customTpls.any((t) => t.id == _selectedCustomTemplate!.id) ||
+            allTemplates.any((t) => t.id == _selectedCustomTemplate!.id);
+        if (!exists) {
+          setState(() {
+            _selectedCustomTemplate = null;
+            _useCustomTemplate = false;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _applyCustomTemplate(CardTemplateModel tpl, {bool notify = true}) {
+    void updateState() {
+      _selectedCustomTemplate = tpl;
+      _useCustomTemplate = true;
+
+      // Primary color
+      if (tpl.primaryColor.isNotEmpty) {
+        try {
+          final hex = tpl.primaryColor.replaceAll('#', '');
+          _customPrimaryColor = Color(int.parse(hex.length == 6 ? 'FF$hex' : hex, radix: 16));
+        } catch (_) {}
+      }
+
+      // Accent color
+      if (tpl.accentColor.isNotEmpty) {
+        try {
+          final hex = tpl.accentColor.replaceAll('#', '');
+          _customAccentColor = Color(int.parse(hex.length == 6 ? 'FF$hex' : hex, radix: 16));
+        } catch (_) {}
+      }
+
+      // Preset theme
+      if (tpl.themePreset.isNotEmpty && _themes.containsKey(tpl.themePreset)) {
+        _selectedThemePreset = tpl.themePreset;
+      }
+
+      // Dimensions
+      if (tpl.widthMm > 0 && tpl.heightMm > 0) {
+        _cardWidthMm = tpl.widthMm;
+        _cardHeightMm = tpl.heightMm;
+      }
+
+      // Texts
+      if (tpl.networkName.isNotEmpty) {
+        _networkNameController.text = tpl.networkName;
+      }
+      if (tpl.headerTitle.isNotEmpty) {
+        _headerTitleController.text = tpl.headerTitle;
+      }
+      if (tpl.supportPhone.isNotEmpty) {
+        _supportPhoneController.text = tpl.supportPhone;
+      }
+      if (tpl.instructions.isNotEmpty) {
+        _instructionsController.text = tpl.instructions;
+      }
+
+      // Layout config toggles
+      final cfg = tpl.layoutConfig;
+      if (cfg['showQr'] is bool) _showQr = cfg['showQr'] as bool;
+      if (cfg['showPrice'] is bool) _showPrice = cfg['showPrice'] as bool;
+      if (cfg['showSpeed'] is bool) _showSpeed = cfg['showSpeed'] as bool;
+      if (cfg['showValidity'] is bool) _showValidity = cfg['showValidity'] as bool;
+      if (cfg['showSerial'] is bool) _showSerial = cfg['showSerial'] as bool;
+
+      // Background
+      if (tpl.backgroundImageBase64 != null && tpl.backgroundImageBase64!.isNotEmpty) {
+        _pickedImageBase64 = tpl.backgroundImageBase64;
+        try {
+          _pickedImageBytes = base64Decode(tpl.backgroundImageBase64!);
+        } catch (_) {}
+      } else {
+        _pickedImageBase64 = null;
+        _pickedImageBytes = null;
+      }
+    }
+
+    if (notify && mounted) {
+      setState(updateState);
+    } else {
+      updateState();
+    }
+  }
+
+  void _applyBuiltInTheme(String themeKey) {
+    final theme = _themes[themeKey];
+    if (theme == null) return;
+    setState(() {
+      _selectedThemePreset = themeKey;
+      _selectedCustomTemplate = null;
+      _useCustomTemplate = false;
+      _customPrimaryColor = theme.primaryColor;
+      _customAccentColor = theme.accentColor;
+      _pickedImageBase64 = null;
+      _pickedImageBytes = null;
+    });
   }
 
   Future<void> _handleAddNewProfile() async {
@@ -594,7 +738,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         'profileId': selectedProfile.id,
         'quantity': _selectedQuantity,
         'totalCards': _selectedQuantity,
-        'themePreset': _selectedThemePreset,
+        'themePreset': _selectedCustomTemplate?.themePreset.isNotEmpty == true
+            ? _selectedCustomTemplate!.themePreset
+            : _selectedThemePreset,
         'length': _usernameLength,
         'pattern': _usernamePattern,
       };
@@ -629,7 +775,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       }
 
       if (_selectedCustomTemplate != null && _selectedCustomTemplate!.id.trim().isNotEmpty) {
-        payload['templateId'] = _selectedCustomTemplate!.id.trim();
+        final tplId = _selectedCustomTemplate!.id.trim();
+        final isLocalId = RegExp(r'^(imported|media|local|tpl)-', caseSensitive: false).hasMatch(tplId);
+        if (!isLocalId) {
+          payload['templateId'] = tplId;
+          payload['cardTemplateId'] = tplId;
+        }
       }
 
       if (selectedRouterId != null) {
@@ -963,11 +1114,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 cards: cards,
                                 networkName: _networkNameController.text.trim().isNotEmpty
                                     ? _networkNameController.text.trim()
-                                    : 'سودافاي | SudaFi Net',
-                                supportPhone: _supportPhoneController.text.trim(),
+                                    : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+                                supportPhone: _supportPhoneController.text.trim().isNotEmpty
+                                    ? _supportPhoneController.text.trim()
+                                    : (_selectedCustomTemplate?.supportPhone ?? ''),
                                 layout: _selectedPrintLayout,
                                 batchNumber: batchId,
-                                themePreset: _selectedThemePreset,
+                                themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+                                    ? _selectedCustomTemplate!.themePreset
+                                    : _selectedThemePreset,
                                 customPrimaryColor: _customPrimaryColor != null
                                     ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
                                     : _selectedCustomTemplate?.primaryColor,
@@ -979,7 +1134,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 showQr: _showQr,
                                 showPrice: _showPrice,
                                 showSerial: _showSerial,
-                                instructions: _instructionsController.text.trim(),
+                                instructions: _instructionsController.text.trim().isNotEmpty
+                                    ? _instructionsController.text.trim()
+                                    : (_selectedCustomTemplate?.instructions ?? ''),
                               );
                             } catch (err) {
                               if (context.mounted) {
@@ -1015,11 +1172,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                           cards: cards,
                           networkName: _networkNameController.text.trim().isNotEmpty
                               ? _networkNameController.text.trim()
-                              : 'سودافاي | SudaFi Net',
-                          supportPhone: _supportPhoneController.text.trim(),
+                              : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+                          supportPhone: _supportPhoneController.text.trim().isNotEmpty
+                              ? _supportPhoneController.text.trim()
+                              : (_selectedCustomTemplate?.supportPhone ?? ''),
                           layout: _selectedPrintLayout,
                           batchNumber: batchId,
-                          themePreset: _selectedThemePreset,
+                          themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+                              ? _selectedCustomTemplate!.themePreset
+                              : _selectedThemePreset,
                           customPrimaryColor: _customPrimaryColor != null
                               ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
                               : _selectedCustomTemplate?.primaryColor,
@@ -1031,7 +1192,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                           showQr: _showQr,
                           showPrice: _showPrice,
                           showSerial: _showSerial,
-                          instructions: _instructionsController.text.trim(),
+                          instructions: _instructionsController.text.trim().isNotEmpty
+                              ? _instructionsController.text.trim()
+                              : (_selectedCustomTemplate?.instructions ?? ''),
                         );
                       } catch (err) {
                         if (context.mounted) {
@@ -1251,6 +1414,81 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Selected Template Quick Indicator
+          InkWell(
+            onTap: () {
+              // Switch to Tab 3 (Design Studio)
+              _tabController.animateTo(2);
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: _selectedCustomTemplate != null
+                    ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                    : context.bgCard,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _selectedCustomTemplate != null ? const Color(0xFF10B981) : context.borderColor,
+                  width: _selectedCustomTemplate != null ? 1.5 : 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.style,
+                    size: 18,
+                    color: _selectedCustomTemplate != null ? const Color(0xFF10B981) : context.skyColor,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _selectedCustomTemplate != null
+                                    ? 'قالب الكرت المحدد: ${_selectedCustomTemplate!.name}'
+                                    : 'ثيم الكرت: ${_themes[_selectedThemePreset]?.name ?? _selectedThemePreset}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: _selectedCustomTemplate != null ? const Color(0xFF10B981) : context.textPrimary,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (_selectedCustomTemplate?.isDefault == true) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text('افتراضي', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ],
+                        ),
+                        Text(
+                          _selectedCustomTemplate != null
+                              ? 'المقاس: $_cardWidthMm×$_cardHeightMm مم • ${_selectedCustomTemplate!.hasCustomBackground ? "خلفية مخصصة" : "تصميم كرت"}'
+                              : 'اضغط لتغيير القالب أو اختيار قالب مستورد من الهاتف',
+                          style: TextStyle(fontSize: 11, color: context.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFF38BDF8)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // 1. Router Target Selector
           if (routers.isNotEmpty) ...[
             Text(
@@ -1525,6 +1763,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               ],
             ),
           ),
+          const SizedBox(height: 10),
+
+          // Hotspot Portal Compatibility Banner & Auto-Sync
+          _buildHotspotCompatibilityBanner(),
 
           const SizedBox(height: 20),
 
@@ -1717,6 +1959,154 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildHotspotCompatibilityBanner() {
+    LocalStorage? storage;
+    try {
+      storage = ref.read(localStorageProvider);
+    } catch (_) {}
+
+    final hotspotLoginMethod = storage?.getHotspotLoginMethod() ?? 'VOUCHER';
+
+    final String statusTitle;
+    final String statusMessage;
+    final Color statusColor;
+    final IconData statusIcon;
+    final String? actionPrompt;
+    final String? targetSyncMethod;
+
+    if (hotspotLoginMethod == 'BOTH') {
+      statusColor = const Color(0xFF0EA5E9);
+      statusIcon = Icons.verified_rounded;
+      statusTitle = 'متوافق 100% مع صفحة الهوتسبوت (الوضع المزدوج)';
+      statusMessage = 'صفحة الهوتسبوت لديك تدعم كروت الـ PIN وكروت اسم المستخدم + كلمة المرور في آن واحد.';
+      actionPrompt = null;
+      targetSyncMethod = null;
+    } else if (_credentialMode == 1) {
+      // User selected Username + Password
+      if (hotspotLoginMethod == 'USER_PASS') {
+        statusColor = const Color(0xFF10B981);
+        statusIcon = Icons.check_circle_rounded;
+        statusTitle = 'متطابق مع صفحة الهوتسبوت (اسم مستخدم وكلمة مرور)';
+        statusMessage = 'صفحة تسجيل الدخول في الراوتر مضبوطة على استقبال اسم المستخدم وكلمة المرور.';
+        actionPrompt = null;
+        targetSyncMethod = null;
+      } else {
+        statusColor = const Color(0xFFF59E0B);
+        statusIcon = Icons.warning_amber_rounded;
+        statusTitle = 'تنبيه: صفحة الهوتسبوت تطلب كود الكرت فقط (PIN)!';
+        statusMessage = 'أنت تنشئ كروتاً باسم مستخدم وباسورد منفصلين، لكن صفحة الدخول الحالية في الراوتر تطلب كود الكرت فقط ولا تطلب كلمة مرور.';
+        actionPrompt = 'تحديث صفحة الهوتسبوت لتصبح متوافقة بنقرة واحدة';
+        targetSyncMethod = 'USER_PASS';
+      }
+    } else {
+      // User selected PIN or User-only
+      if (hotspotLoginMethod == 'VOUCHER') {
+        statusColor = const Color(0xFF10B981);
+        statusIcon = Icons.check_circle_rounded;
+        statusTitle = 'متطابق مع صفحة الهوتسبوت (رقم الكرت فقط / PIN)';
+        statusMessage = 'صفحة تسجيل الدخول في الراوتر مضبوطة على كود الكرت فقط بدون الحاجة لكلمة مرور مستقلة.';
+        actionPrompt = null;
+        targetSyncMethod = null;
+      } else {
+        statusColor = const Color(0xFFF59E0B);
+        statusIcon = Icons.warning_amber_rounded;
+        statusTitle = 'تنبيه: صفحة الهوتسبوت تتطلب كلمة مرور منفصلة!';
+        statusMessage = 'هذه الكروت تعتمد على رمز PIN فقط، بينما صفحة الدخول الحالية في الراوتر تتطلب إدخال كلمة مرور.';
+        actionPrompt = 'ضبط صفحة الهوتسبوت لتتوافق مع كود الكرت فقط';
+        targetSyncMethod = 'VOUCHER';
+      }
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: statusColor.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(statusIcon, color: statusColor, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  statusTitle,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            statusMessage,
+            style: TextStyle(
+              color: context.textSecondary,
+              fontSize: 11,
+              height: 1.4,
+            ),
+          ),
+          if (actionPrompt != null && targetSyncMethod != null) ...[
+            const SizedBox(height: 10),
+            () {
+              final String syncMethod = targetSyncMethod!;
+              final String prompt = actionPrompt!;
+              return InkWell(
+                onTap: () async {
+                  await storage?.setHotspotLoginMethod(syncMethod);
+                  if (mounted) {
+                    setState(() {});
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          syncMethod == 'USER_PASS'
+                              ? 'تمت مزامنة صفحة الهوتسبوت لتدعم (اسم مستخدم وكلمة مرور) بنجاح.'
+                              : 'تمت مزامنة صفحة الهوتسبوت لتدعم (كود الكرت فقط / PIN) بنجاح.',
+                        ),
+                        backgroundColor: const Color(0xFF10B981),
+                      ),
+                    );
+                  }
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: statusColor.withValues(alpha: 0.5)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.sync_rounded, size: 14, color: statusColor),
+                      const SizedBox(width: 6),
+                      Text(
+                        prompt,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }(),
+          ],
+        ],
       ),
     );
   }
@@ -2040,6 +2430,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
           const SizedBox(height: 18),
 
+          // Card Template Selection Section
+          _buildTemplateSelectorSection(),
+
+          const SizedBox(height: 18),
+
           // Background Image Picker From Phone
           Container(
             padding: const EdgeInsets.all(12),
@@ -2236,6 +2631,274 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       onSelected: (val) {
         if (val) setState(() { _cardWidthMm = w; _cardHeightMm = h; });
       },
+    );
+  }
+
+  Widget _buildTemplateSelectorSection() {
+    final templatesAsync = ref.watch(cardTemplatesProvider);
+    final allTemplates = templatesAsync.value ?? [];
+    final customTemplates = allTemplates.where((t) => !t.id.startsWith('builtin-')).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _selectedCustomTemplate != null
+              ? const Color(0xFF10B981).withValues(alpha: 0.6)
+              : context.borderColor,
+          width: _selectedCustomTemplate != null ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.style, color: Color(0xFF10B981), size: 18),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'قالب وتصميم الكرت للطباعة:',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
+                      ),
+                      Text(
+                        _selectedCustomTemplate != null
+                            ? 'قالب مخصص: ${_selectedCustomTemplate!.name}'
+                            : 'ثيم جاهز: ${_themes[_selectedThemePreset]?.name ?? _selectedThemePreset}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: _selectedCustomTemplate != null ? const Color(0xFF10B981) : context.skyColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.folder_open, size: 16, color: Color(0xFF38BDF8)),
+                label: const Text('إدارة واستيراد', style: TextStyle(fontSize: 12, color: Color(0xFF38BDF8))),
+                onPressed: () async {
+                  final picked = await Navigator.push<CardTemplateModel?>(
+                    context,
+                    MaterialPageRoute(builder: (_) => const CardTemplatesScreen()),
+                  );
+                  if (picked != null) {
+                    _applyCustomTemplate(picked);
+                  } else {
+                    ref.read(cardTemplatesProvider.notifier).refresh().then((_) {
+                      if (mounted) _autoSelectDefaultOrPinnedTemplate(force: true);
+                    });
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Custom / Imported Templates Horizontal List
+          Text(
+            'القوالب المخصصة والمستوردة (${customTemplates.length}):',
+            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: context.textSecondary),
+          ),
+          const SizedBox(height: 8),
+
+          if (customTemplates.isEmpty)
+            InkWell(
+              onTap: () async {
+                final picked = await Navigator.push<CardTemplateModel?>(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CardTemplatesScreen()),
+                );
+                if (picked != null) {
+                  _applyCustomTemplate(picked);
+                } else {
+                  ref.read(cardTemplatesProvider.notifier).refresh().then((_) {
+                    if (mounted) _autoSelectDefaultOrPinnedTemplate(force: true);
+                  });
+                }
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: context.bgCardAlt,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: context.borderColor, style: BorderStyle.solid),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.add_photo_alternate_outlined, color: Color(0xFF38BDF8), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'لا توجد قوالب مستوردة حالياً. اضغط هنا لاستيراد قالب من الهاتف (صورة أو PDF أو JSON)',
+                        style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward_ios, size: 12, color: Color(0xFF38BDF8)),
+                  ],
+                ),
+              ),
+            )
+          else
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ...customTemplates.map((tpl) {
+                    final isSelected = _selectedCustomTemplate?.id == tpl.id ||
+                        (_selectedCustomTemplate?.name == tpl.name && _useCustomTemplate);
+                    return GestureDetector(
+                      onTap: () => _applyCustomTemplate(tpl),
+                      child: Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isSelected ? const Color(0xFF10B981).withValues(alpha: 0.15) : context.bgCardAlt,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isSelected ? const Color(0xFF10B981) : context.borderColor,
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              tpl.isPdfBackground
+                                  ? Icons.picture_as_pdf_outlined
+                                  : (tpl.isImageBackground ? Icons.image_outlined : Icons.brush_outlined),
+                              size: 16,
+                              color: isSelected ? const Color(0xFF10B981) : context.textSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      tpl.name,
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                        color: isSelected ? const Color(0xFF10B981) : context.textPrimary,
+                                      ),
+                                    ),
+                                    if (tpl.isDefault) ...[
+                                      const SizedBox(width: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF10B981),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: const Text(
+                                          'افتراضي',
+                                          style: TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                Text(
+                                  '${tpl.widthMm}×${tpl.heightMm} مم',
+                                  style: TextStyle(fontSize: 9.5, color: context.textSecondary),
+                                ),
+                              ],
+                            ),
+                            if (isSelected) ...[
+                              const SizedBox(width: 6),
+                              const Icon(Icons.check_circle, size: 16, color: Color(0xFF10B981)),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                  // Add More Button
+                  InkWell(
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const CardTemplatesScreen()),
+                      );
+                      ref.read(cardTemplatesProvider.notifier).refresh().then((_) {
+                        if (mounted) _autoSelectDefaultOrPinnedTemplate();
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: context.bgCardAlt,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: context.borderColor, style: BorderStyle.solid),
+                      ),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.add_circle_outline, size: 16, color: Color(0xFF38BDF8)),
+                          SizedBox(width: 4),
+                          Text('+ استيراد المزيد', style: TextStyle(fontSize: 11, color: Color(0xFF38BDF8))),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 12),
+
+          // Built-in Themes
+          Text(
+            'أو اختر من الثيمات الجاهزة:',
+            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: context.textSecondary),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _themes.entries.map((e) {
+              final isSelected = !_useCustomTemplate && _selectedThemePreset == e.key;
+              return ChoiceChip(
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(e.value.icon, size: 14, color: isSelected ? Colors.white : e.value.primaryColor),
+                    const SizedBox(width: 4),
+                    Text(e.value.name, style: const TextStyle(fontSize: 11)),
+                  ],
+                ),
+                selected: isSelected,
+                selectedColor: e.value.primaryColor,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : context.textPrimary,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+                onSelected: (val) {
+                  if (val) _applyBuiltInTheme(e.key);
+                },
+              );
+            }).toList(),
+          ),
+        ],
+      ),
     );
   }
 

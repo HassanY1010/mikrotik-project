@@ -1209,6 +1209,14 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       }
     }
 
+    final pinnedId = storage.getPinnedTemplateId();
+    if (pinnedId != null && pinnedId.isNotEmpty) {
+      for (int i = 0; i < templates.length; i++) {
+        final matches = templates[i].id == pinnedId;
+        templates[i] = templates[i].copyWith(isDefault: matches);
+      }
+    }
+
     return templates;
   }
 
@@ -1217,6 +1225,24 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
     state = await AsyncValue.guard(() => _fetch());
   }
 
+  Future<Map<String, dynamic>> setTemplateAsDefault(String templateId) async {
+    final storage = ref.read(localStorageProvider);
+    await storage.setTemplateAsDefault(templateId);
+
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.patch(
+        ApiEndpoints.cardTemplateItem(templateId),
+        data: {'isDefault': true},
+      );
+    } catch (_) {}
+
+    await refresh();
+    return {
+      'success': true,
+      'message': 'تم تثبيت القالب كقالب افتراضي لطباعة الكروت بنجاح',
+    };
+  }
 
   Future<Map<String, dynamic>> createTemplate(CardTemplateModel tpl) async {
     final storage = ref.read(localStorageProvider);
@@ -1227,6 +1253,7 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
     await storage.saveCustomTemplate(savedTpl);
 
     final apiClient = ref.read(apiClientProvider);
+    var returnTpl = savedTpl;
     try {
       final res = await apiClient.post(
         ApiEndpoints.cardTemplates,
@@ -1236,14 +1263,19 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       if (raw is Map<String, dynamic>) {
         final serverId = raw['id']?.toString() ??
             (raw['data'] is Map ? raw['data']['id']?.toString() : null);
-        if (serverId != null && serverId.isNotEmpty) {
+        if (serverId != null && serverId.isNotEmpty && serverId != effectiveId) {
           final syncedTpl = savedTpl.copyWith(id: serverId);
+          await storage.deleteCustomTemplate(effectiveId);
           await storage.saveCustomTemplate(syncedTpl);
+          returnTpl = syncedTpl;
+          if (tpl.isDefault) {
+            await storage.setPinnedTemplateId(serverId);
+          }
         }
       }
       await refresh();
       final resMap = (raw is Map<String, dynamic>) ? raw : <String, dynamic>{};
-      return {'success': true, 'message': 'تم حفظ القالب بنجاح', ...resMap, 'template': savedTpl};
+      return {'success': true, 'message': 'تم حفظ القالب بنجاح', ...resMap, 'template': returnTpl};
     } catch (e) {
       await refresh();
       // Even if server request failed (offline / network error), the template is securely saved locally!
@@ -1848,19 +1880,102 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
     }
   }
 
-  Future<Map<String, dynamic>> bulkDeleteCards(List<String> cardIds) async {
+  Future<List<String>> fetchAllMatchingCardIds({String? search, String? status}) async {
     final apiClient = ref.read(apiClientProvider);
     try {
-      final res = await apiClient.post(
-        ApiEndpoints.cardsBulkDelete,
-        data: {'cardIds': cardIds},
+      final res = await apiClient.get(
+        ApiEndpoints.cardsMatchingIds,
+        queryParameters: {
+          if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+          if (status != null && status != 'ALL') 'status': status,
+        },
       );
-      await loadInventory(isRefresh: true);
       final raw = res.data;
-      if (raw is Map<String, dynamic>) {
-        return {'success': true, ...raw};
+      if (raw is Map && raw['cardIds'] is List) {
+        return (raw['cardIds'] as List).map((id) => id.toString()).toList();
       }
-      return {'success': true, 'message': 'تم حذف الكروت المحددة بنجاح'};
+      return [];
+    } catch (_) {
+      // Offline fallback: try reading from offline storage
+      final storage = ref.read(localStorageProvider);
+      final offline = storage.getOfflineCards();
+      final query = (search ?? '').trim().toLowerCase();
+      final filtered = offline.where((c) {
+        if (status != null && status != 'ALL' && c.status != status) return false;
+        if (query.isNotEmpty) {
+          return c.username.toLowerCase().contains(query) ||
+              c.serialNumber.toLowerCase().contains(query) ||
+              c.profileName.toLowerCase().contains(query);
+        }
+        return true;
+      });
+      return filtered.map((c) => c.id).toList();
+    }
+  }
+
+  Future<Map<String, dynamic>> bulkDeleteCards(List<String> cardIds) async {
+    if (cardIds.isEmpty) {
+      return {'success': false, 'message': 'لم يتم تحديد أي كروت للحذف'};
+    }
+
+    final apiClient = ref.read(apiClientProvider);
+    const chunkSize = 250;
+    int totalDeleted = 0;
+    int totalPending = 0;
+    int totalSkipped = 0;
+    int totalFailed = 0;
+    String lastMsg = '';
+
+    try {
+      for (var i = 0; i < cardIds.length; i += chunkSize) {
+        final chunk = cardIds.sublist(
+          i,
+          i + chunkSize > cardIds.length ? cardIds.length : i + chunkSize,
+        );
+
+        final res = await apiClient.post(
+          ApiEndpoints.cardsBulkDelete,
+          data: {'cardIds': chunk},
+        );
+
+        final raw = res.data;
+        if (raw is Map<String, dynamic>) {
+          totalDeleted += (raw['deletedCount'] as num?)?.toInt() ?? 0;
+          totalPending += (raw['pendingCount'] as num?)?.toInt() ?? 0;
+          totalSkipped += (raw['skippedCount'] as num?)?.toInt() ?? 0;
+          totalFailed += (raw['failedCount'] as num?)?.toInt() ?? 0;
+          if (raw['message'] != null) {
+            lastMsg = raw['message'].toString();
+          }
+        }
+      }
+
+      await loadInventory(isRefresh: true);
+
+      final hasSuccess = totalDeleted > 0 || (totalPending > 0 && totalFailed == 0);
+      String finalMsg = lastMsg;
+      if (totalDeleted > 0) {
+        finalMsg = 'تم حذف $totalDeleted كرت بنجاح من قاعدة البيانات والراوتر';
+        if (totalSkipped > 0) {
+          finalMsg += '، وتم استثناء $totalSkipped كرت مباع لحماية السجلات المالية';
+        }
+        if (totalPending > 0) {
+          finalMsg += '، وتعذر حذف $totalPending كرت من الراوتر وتم تعطيلها';
+        }
+      } else if (totalPending > 0) {
+        finalMsg = 'تعذر الاتصال بالراوتر لحذف $totalPending كرت، تم تعطيلها في النظام لحين عودة الاتصال';
+      } else if (totalSkipped > 0) {
+        finalMsg = 'تم استثناء $totalSkipped كرت مباع لحماية السجلات المالية والمحاسبية';
+      }
+
+      return {
+        'success': hasSuccess,
+        'deletedCount': totalDeleted,
+        'pendingCount': totalPending,
+        'skippedCount': totalSkipped,
+        'failedCount': totalFailed,
+        'message': finalMsg.isNotEmpty ? finalMsg : 'تمت عملية الحذف بنجاح',
+      };
     } catch (e) {
       String msg = 'فشل حذف الكروت المحددة';
       if (e is DioException && e.response?.data is Map) {
@@ -1876,18 +1991,63 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
   }
 
   Future<Map<String, dynamic>> bulkActivateCards(List<String> cardIds) async {
+    if (cardIds.isEmpty) {
+      return {'success': false, 'message': 'لم يتم تحديد أي كروت للتفعيل'};
+    }
+
     final apiClient = ref.read(apiClientProvider);
+    const chunkSize = 250;
+    int totalActivated = 0;
+    int totalAlreadyActive = 0;
+    int totalFailed = 0;
+    String lastMsg = '';
+
     try {
-      final res = await apiClient.post(
-        ApiEndpoints.cardsBulkActivate,
-        data: {'cardIds': cardIds},
-      );
-      await loadInventory(isRefresh: true);
-      final raw = res.data;
-      if (raw is Map<String, dynamic>) {
-        return {'success': raw['success'] == true, ...raw};
+      for (var i = 0; i < cardIds.length; i += chunkSize) {
+        final chunk = cardIds.sublist(
+          i,
+          i + chunkSize > cardIds.length ? cardIds.length : i + chunkSize,
+        );
+
+        final res = await apiClient.post(
+          ApiEndpoints.cardsBulkActivate,
+          data: {'cardIds': chunk},
+        );
+
+        final raw = res.data;
+        if (raw is Map<String, dynamic>) {
+          totalActivated += (raw['activatedCount'] as num?)?.toInt() ?? 0;
+          totalAlreadyActive += (raw['alreadyActiveCount'] as num?)?.toInt() ?? 0;
+          totalFailed += (raw['failedCount'] as num?)?.toInt() ?? 0;
+          if (raw['message'] != null) {
+            lastMsg = raw['message'].toString();
+          }
+        }
       }
-      return {'success': true, 'message': 'تم تفعيل الكروت المحددة بنجاح'};
+
+      await loadInventory(isRefresh: true);
+
+      final hasSuccess = totalActivated > 0 || totalAlreadyActive > 0;
+      String finalMsg = lastMsg;
+      if (totalActivated > 0) {
+        finalMsg = 'تم تفعيل $totalActivated كرت بنجاح على النظام والراوتر';
+        if (totalAlreadyActive > 0) {
+          finalMsg += '، و$totalAlreadyActive كرت مفعل مسبقاً';
+        }
+        if (totalFailed > 0) {
+          finalMsg += '، وفشل $totalFailed كرت';
+        }
+      } else if (totalAlreadyActive > 0) {
+        finalMsg = 'جميع الكروت المحددة ($totalAlreadyActive كرت) مفعلة وجاهزة للعمل مسبقاً';
+      }
+
+      return {
+        'success': hasSuccess,
+        'activatedCount': totalActivated,
+        'alreadyActiveCount': totalAlreadyActive,
+        'failedCount': totalFailed,
+        'message': finalMsg.isNotEmpty ? finalMsg : 'تمت عملية التفعيل بنجاح',
+      };
     } catch (e) {
       String msg = 'فشل تفعيل الكروت المحددة';
       if (e is DioException && e.response?.data is Map) {

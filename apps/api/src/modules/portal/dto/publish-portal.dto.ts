@@ -55,4 +55,34 @@ export class PublishPortalDto {
   @IsBoolean()
   @IsOptional()
   overwriteConfirmed?: boolean;
+
+  @ApiPropertyOptional({ description: 'Theme preset to compile if templateId not specified', example: 'MODERN_DARK' })
+  @IsString()
+  @IsOptional()
+  themePreset?: string;
+
+  @ApiPropertyOptional({ description: 'Custom network name to display on the portal', example: 'شبكة ستارلينك' })
+  @IsString()
+  @IsOptional()
+  networkName?: string;
+
+  @ApiPropertyOptional({ description: 'Login method (VOUCHER, USER_PASS, or BOTH)', example: 'VOUCHER' })
+  @IsString()
+  @IsOptional()
+  loginMethod?: string;
+
+  @ApiPropertyOptional({ description: 'Custom title to display on the portal' })
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @ApiPropertyOptional({ description: 'Custom subtitle to display on the portal' })
+  @IsString()
+  @IsOptional()
+  subtitle?: string;
+
+  @ApiPropertyOptional({ description: 'Custom footer text to display on the portal' })
+  @IsString()
+  @IsOptional()
+  footerText?: string;
 }

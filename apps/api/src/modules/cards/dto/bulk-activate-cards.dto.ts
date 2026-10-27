@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, ArrayNotEmpty, IsString } from 'class-validator';
+import { IsArray, ArrayNotEmpty, ArrayMaxSize, IsString } from 'class-validator';
 
 export class BulkActivateCardsDto {
   @ApiProperty({
@@ -9,6 +9,7 @@ export class BulkActivateCardsDto {
   })
   @IsArray()
   @ArrayNotEmpty({ message: 'يجب اختيار كرت واحد على الأقل لتنفيذ التفعيل' })
+  @ArrayMaxSize(5000, { message: 'الحد الأقصى للعملية الواحدة هو 5000 كرت' })
   @IsString({ each: true, message: 'معرف الكرت يجب أن يكون نصياً صالحاً' })
   cardIds!: string[];
 }

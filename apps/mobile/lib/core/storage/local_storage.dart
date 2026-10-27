@@ -358,6 +358,20 @@ class LocalStorage {
   }
 
   // --- Custom & Imported Card Templates Persistence ---
+  static const String _pinnedTemplateIdKey = 'pinned_card_template_id';
+
+  String? getPinnedTemplateId() {
+    return _prefs.getString(_pinnedTemplateIdKey);
+  }
+
+  Future<void> setPinnedTemplateId(String? id) async {
+    if (id == null || id.isEmpty) {
+      await _prefs.remove(_pinnedTemplateIdKey);
+    } else {
+      await _prefs.setString(_pinnedTemplateIdKey, id);
+    }
+  }
+
   List<CardTemplateModel> getCustomTemplates() {
     final raw = _prefs.getString(_customTemplatesKey);
     if (raw == null || raw.isEmpty) return [];
@@ -373,9 +387,41 @@ class LocalStorage {
     return [];
   }
 
+  CardTemplateModel? getPinnedTemplate() {
+    final templates = getCustomTemplates();
+    if (templates.isEmpty) return null;
+    final pinnedId = getPinnedTemplateId();
+    if (pinnedId != null && pinnedId.isNotEmpty) {
+      final found = templates.where((t) => t.id == pinnedId).firstOrNull;
+      if (found != null) return found;
+    }
+    return templates.where((t) => t.isDefault).firstOrNull;
+  }
+
+  Future<void> setTemplateAsDefault(String templateId) async {
+    final current = getCustomTemplates();
+    for (int i = 0; i < current.length; i++) {
+      final isDef = current[i].id == templateId;
+      current[i] = current[i].copyWith(isDefault: isDef);
+    }
+    final raw = jsonEncode(current.map((t) => t.toJson()).toList());
+    await _prefs.setString(_customTemplatesKey, raw);
+    await setPinnedTemplateId(templateId);
+  }
+
   Future<void> saveCustomTemplate(CardTemplateModel tpl) async {
     final current = getCustomTemplates();
     final idx = current.indexWhere((t) => (tpl.id.isNotEmpty && t.id == tpl.id) || t.name == tpl.name);
+    if (tpl.isDefault) {
+      for (int i = 0; i < current.length; i++) {
+        if (i != idx) {
+          current[i] = current[i].copyWith(isDefault: false);
+        }
+      }
+      if (tpl.id.isNotEmpty) {
+        await setPinnedTemplateId(tpl.id);
+      }
+    }
     if (idx != -1) {
       current[idx] = tpl;
     } else {
@@ -388,7 +434,39 @@ class LocalStorage {
   Future<void> deleteCustomTemplate(String id) async {
     final current = getCustomTemplates();
     current.removeWhere((t) => t.id == id);
+    if (getPinnedTemplateId() == id) {
+      await setPinnedTemplateId(null);
+    }
     final raw = jsonEncode(current.map((t) => t.toJson()).toList());
     await _prefs.setString(_customTemplatesKey, raw);
+  }
+
+  // --- Hotspot Portal Customization Persistence ---
+  static const String _hotspotCustomNetworkNameKey = 'hotspot_custom_network_name';
+  static const String _hotspotLoginMethodKey = 'hotspot_login_method';
+  static const String _hotspotPresetKey = 'hotspot_selected_preset';
+
+  String? getHotspotNetworkName() {
+    return _prefs.getString(_hotspotCustomNetworkNameKey);
+  }
+
+  Future<void> setHotspotNetworkName(String name) async {
+    await _prefs.setString(_hotspotCustomNetworkNameKey, name);
+  }
+
+  String? getHotspotLoginMethod() {
+    return _prefs.getString(_hotspotLoginMethodKey);
+  }
+
+  Future<void> setHotspotLoginMethod(String method) async {
+    await _prefs.setString(_hotspotLoginMethodKey, method);
+  }
+
+  String? getHotspotPreset() {
+    return _prefs.getString(_hotspotPresetKey);
+  }
+
+  Future<void> setHotspotPreset(String preset) async {
+    await _prefs.setString(_hotspotPresetKey, preset);
   }
 }
