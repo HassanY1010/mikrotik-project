@@ -42,6 +42,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   late bool _showPrice;
   late bool _showValidity;
   late bool _showSpeed;
+  late CardElementsLayout _elementsLayout;
 
   bool _isSaving = false;
 
@@ -191,6 +192,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     _showPrice = tpl?.showPrice ?? true;
     _showValidity = tpl?.showValidity ?? true;
     _showSpeed = tpl?.showSpeed ?? true;
+    _elementsLayout = tpl?.elementsLayout ?? const CardElementsLayout();
   }
 
   @override
@@ -251,27 +253,30 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
 
     setState(() => _isSaving = true);
 
+    final baseConfig = Map<String, dynamic>.from(widget.template?.layoutConfig ?? {});
+    baseConfig['showQr'] = _showQr;
+    baseConfig['showPin'] = _showPin;
+    baseConfig['showPrice'] = _showPrice;
+    baseConfig['showValidity'] = _showValidity;
+    baseConfig['showSpeed'] = _showSpeed;
+    baseConfig['networkName'] = _networkNameController.text.trim();
+    baseConfig['headerTitle'] = _headerTitleController.text.trim();
+    baseConfig['supportPhone'] = _supportPhoneController.text.trim();
+    baseConfig['instructions'] = _instructionsController.text.trim();
+    baseConfig['elements'] = _elementsLayout.toMap();
+
     final updatedTemplate = CardTemplateModel(
       id: widget.template?.id ?? '',
       name: _nameController.text.trim(),
       widthMm: widthVal,
       heightMm: heightVal,
       orientation: _orientation,
+      backgroundDesign: widget.template?.backgroundDesign,
       themePreset: _themePreset,
       primaryColor: _colorToHex(_primaryColor),
       accentColor: _colorToHex(_accentColor),
       isDefault: _isDefault,
-      layoutConfig: {
-        'showQr': _showQr,
-        'showPin': _showPin,
-        'showPrice': _showPrice,
-        'showValidity': _showValidity,
-        'showSpeed': _showSpeed,
-        'networkName': _networkNameController.text.trim(),
-        'headerTitle': _headerTitleController.text.trim(),
-        'supportPhone': _supportPhoneController.text.trim(),
-        'instructions': _instructionsController.text.trim(),
-      },
+      layoutConfig: baseConfig,
     );
 
     final notifier = ref.read(cardTemplatesProvider.notifier);
@@ -377,6 +382,12 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
             _buildSectionTitle('العناصر المرئية على الكرت:', Icons.visibility),
             const SizedBox(height: 10),
             _buildElementToggles(),
+            const SizedBox(height: 24),
+
+            // Card Element Positions & Alignment Customization
+            _buildSectionTitle('تخصيص مواضع ومحاذاة عناصر الكرت:', Icons.dashboard_customize_outlined),
+            const SizedBox(height: 10),
+            _buildElementPositioningSection(),
             const SizedBox(height: 32),
 
             // Bottom Save Button
@@ -724,8 +735,325 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   }
 
 
+  double _scaleFactorFlutter(String scale) {
+    switch (scale) {
+      case 'small':
+        return 0.82;
+      case 'large':
+        return 1.25;
+      case 'normal':
+      default:
+        return 1.0;
+    }
+  }
+
+  Widget _buildZoneFlutterRow(List<Widget> left, List<Widget> center, List<Widget> right) {
+    if (left.isEmpty && center.isEmpty && right.isEmpty) return const SizedBox.shrink();
+
+    final leftCol = left.isNotEmpty
+        ? (left.length == 1
+            ? left.first
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: left,
+              ))
+        : null;
+
+    final centerCol = center.isNotEmpty
+        ? (center.length == 1
+            ? center.first
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: center,
+              ))
+        : null;
+
+    final rightCol = right.isNotEmpty
+        ? (right.length == 1
+            ? right.first
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: right,
+              ))
+        : null;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        leftCol ?? const SizedBox.shrink(),
+        centerCol ?? const SizedBox.shrink(),
+        rightCol ?? const SizedBox.shrink(),
+      ],
+    );
+  }
+
   Widget _buildInteractiveCardPreview() {
     final isPortrait = _heightMm > _widthMm;
+    final scale = _scaleFactorFlutter;
+
+    // 1. Network Name
+    final netPlacement = _elementsLayout.networkName;
+    final Widget netWidget = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.wifi, color: _accentColor, size: 14 * scale(netPlacement.scale)),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            _networkNameController.text.trim().isEmpty ? 'سودافاي هوتسبوت' : _networkNameController.text.trim(),
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13 * scale(netPlacement.scale),
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+
+    // 2. Price
+    final pricePlacement = _elementsLayout.price;
+    final bool canShowPrice = _showPrice && pricePlacement.isVisible;
+    final Widget? priceWidget = canShowPrice
+        ? Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            decoration: BoxDecoration(
+              color: _accentColor,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '500 SDG',
+              style: TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.w900,
+                fontSize: 12 * scale(pricePlacement.scale),
+              ),
+            ),
+          )
+        : null;
+
+    // 3. Header title / Profile
+    final profPlacement = _elementsLayout.profileDetails;
+    final bool canShowProf = profPlacement.isVisible;
+    final Widget? profileWidget = canShowProf
+        ? Column(
+            crossAxisAlignment: profPlacement.align == 'left'
+                ? CrossAxisAlignment.start
+                : (profPlacement.align == 'center' ? CrossAxisAlignment.center : CrossAxisAlignment.end),
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _headerTitleController.text.trim().isEmpty ? 'باقة إنترنت فائقة السرعة' : _headerTitleController.text.trim(),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 11 * scale(profPlacement.scale),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_showSpeed || _showValidity) ...[
+                const SizedBox(height: 3),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_showSpeed)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        margin: const EdgeInsets.only(left: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '⚡ 5M/5M',
+                          style: TextStyle(color: Colors.white, fontSize: 8 * scale(profPlacement.scale)),
+                        ),
+                      ),
+                    if (_showValidity)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '⏳ 24 ساعة',
+                          style: TextStyle(color: Colors.white, fontSize: 8 * scale(profPlacement.scale)),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          )
+        : null;
+
+    // 4. Credentials
+    final credPlacement = _elementsLayout.credentials;
+    final bool canShowCred = credPlacement.isVisible;
+    final Widget? credWidget = canShowCred
+        ? Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A).withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('اسم المستخدم (User):', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 8)),
+                Text(
+                  '874291',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14 * scale(credPlacement.scale),
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+                if (_showPin) ...[
+                  const SizedBox(height: 3),
+                  const Text('الرمز السري (PIN):', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 8)),
+                  Text(
+                    '5541',
+                    style: TextStyle(
+                      color: const Color(0xFFFBBF24),
+                      fontSize: 12 * scale(credPlacement.scale),
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          )
+        : null;
+
+    // 5. QR Code
+    final qrPlacement = _elementsLayout.qrCode;
+    final bool canShowQr = _showQr && qrPlacement.isVisible;
+    final Widget? qrWidget = canShowQr
+        ? Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: QrImageView(
+              data: 'http://sudafi.hotspot/login?username=982341&password=123',
+              version: QrVersions.auto,
+              size: 58 * scale(qrPlacement.scale),
+            ),
+          )
+        : null;
+
+    // 6. Instructions & Support Phone
+    final instPlacement = _elementsLayout.instructions;
+    final bool canShowInst = instPlacement.isVisible;
+    final Widget? instWidget = canShowInst
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  _instructionsController.text.trim().isNotEmpty
+                      ? _instructionsController.text.trim()
+                      : 'امسح رمز QR للاتصال المباشر',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 8 * scale(instPlacement.scale)),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (_supportPhoneController.text.trim().isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Text(
+                  'دعم: ${_supportPhoneController.text.trim()}',
+                  style: TextStyle(color: _accentColor, fontSize: 8 * scale(instPlacement.scale), fontWeight: FontWeight.bold),
+                ),
+              ],
+            ],
+          )
+        : null;
+
+    // 7. Serial
+    final snPlacement = _elementsLayout.serialNumber;
+    final bool canShowSn = snPlacement.isVisible;
+    final Widget? snWidget = canShowSn
+        ? Text(
+            'S/N: 20261024-001',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.6),
+              fontSize: 8 * scale(snPlacement.scale),
+            ),
+          )
+        : null;
+
+    // Vertical zones
+    final List<_EditorZoneEntry> allEntries = [
+      _EditorZoneEntry(netWidget, netPlacement.vertical, netPlacement.align),
+      if (priceWidget != null) _EditorZoneEntry(priceWidget, pricePlacement.vertical, pricePlacement.align),
+      if (profileWidget != null) _EditorZoneEntry(profileWidget, profPlacement.vertical, profPlacement.align),
+      if (credWidget != null) _EditorZoneEntry(credWidget, credPlacement.vertical, credPlacement.align),
+      if (qrWidget != null) _EditorZoneEntry(qrWidget, qrPlacement.vertical, qrPlacement.align),
+      if (instWidget != null) _EditorZoneEntry(instWidget, instPlacement.vertical, instPlacement.align),
+      if (snWidget != null) _EditorZoneEntry(snWidget, snPlacement.vertical, snPlacement.align),
+    ];
+
+    final topEntries = allEntries.where((e) => e.vertical == 'top').toList();
+    final midEntries = allEntries.where((e) => e.vertical == 'middle').toList();
+    final botEntries = allEntries.where((e) => e.vertical == 'bottom').toList();
+
+    final topLeft = topEntries.where((e) => e.align == 'left').map((e) => e.widget).toList();
+    final topCenter = topEntries.where((e) => e.align == 'center').map((e) => e.widget).toList();
+    final topRight = topEntries.where((e) => e.align == 'right').map((e) => e.widget).toList();
+
+    final midLeft = midEntries.where((e) => e.align == 'left').map((e) => e.widget).toList();
+    final midCenter = midEntries.where((e) => e.align == 'center').map((e) => e.widget).toList();
+    final midRight = midEntries.where((e) => e.align == 'right').map((e) => e.widget).toList();
+
+    final botLeft = botEntries.where((e) => e.align == 'left').map((e) => e.widget).toList();
+    final botCenter = botEntries.where((e) => e.align == 'center').map((e) => e.widget).toList();
+    final botRight = botEntries.where((e) => e.align == 'right').map((e) => e.widget).toList();
+
+    Widget? topContainer;
+    if (topLeft.isNotEmpty || topCenter.isNotEmpty || topRight.isNotEmpty) {
+      topContainer = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: _buildZoneFlutterRow(topLeft, topCenter, topRight),
+      );
+    }
+
+    Widget? middleContainer;
+    if (midLeft.isNotEmpty || midCenter.isNotEmpty || midRight.isNotEmpty) {
+      middleContainer = Padding(
+        padding: const EdgeInsets.all(14),
+        child: _buildZoneFlutterRow(midLeft, midCenter, midRight),
+      );
+    }
+
+    Widget? bottomContainer;
+    if (botLeft.isNotEmpty || botCenter.isNotEmpty || botRight.isNotEmpty) {
+      bottomContainer = Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.25),
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(16),
+            bottomRight: Radius.circular(16),
+          ),
+        ),
+        child: _buildZoneFlutterRow(botLeft, botCenter, botRight),
+      );
+    }
+
     return Center(
       child: Container(
         width: double.infinity,
@@ -734,7 +1062,6 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
           minHeight: isPortrait ? 300 : 180,
         ),
         margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [_primaryColor, _primaryColor.withValues(alpha: 0.85)],
@@ -749,185 +1076,211 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
               offset: const Offset(0, 6),
             ),
           ],
-          border: Border.all(color: _accentColor.withValues(alpha: 0.2), width: 1.5),
+          border: Border.all(color: _accentColor.withValues(alpha: 0.4), width: 1.5),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Top Bar: Network Name & Price
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.wifi, color: Colors.white, size: 14),
-                      ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          _networkNameController.text.trim().isEmpty
-                              ? 'سودافاي هوتسبوت'
-                              : _networkNameController.text.trim(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_showPrice)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: _accentColor,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      '500 SDG',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // Card Title
-            Text(
-              _headerTitleController.text.trim().isEmpty
-                  ? 'باقة إنترنت فائقة السرعة'
-                  : _headerTitleController.text.trim(),
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.2),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 10),
-
-            // Middle: QR Code + Credentials
-            Row(
-              children: [
-                if (_showQr)
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: QrImageView(
-                      data: 'http://sudafi.hotspot/login?username=982341&password=123',
-                      version: QrVersions.auto,
-                      size: 64,
-                    ),
-                  ),
-                if (_showQr) const SizedBox(width: 12),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0F172A).withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('اسم المستخدم (User):', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 9)),
-                        const Text(
-                          '874291',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        if (_showPin) ...[
-                          const SizedBox(height: 4),
-                          const Text('الرمز السري (PIN):', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 9)),
-                          const Text(
-                            '5541',
-                            style: TextStyle(
-                              color: Color(0xFFFBBF24),
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.5,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // Speed & Validity Badges
-            Row(
-              children: [
-                if (_showSpeed)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    margin: const EdgeInsets.only(left: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text('⚡ سرعة: 5M/5M', style: TextStyle(color: Colors.white, fontSize: 9)),
-                  ),
-                if (_showValidity)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text('⏳ الصلاحية: 24 ساعة', style: TextStyle(color: Colors.white, fontSize: 9)),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-
-            // Footer instructions and Support Phone
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    _instructionsController.text.trim(),
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.2), fontSize: 8),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (_supportPhoneController.text.trim().isNotEmpty)
-                  Text(
-                    'دعم: ${_supportPhoneController.text.trim()}',
-                    style: TextStyle(color: _accentColor, fontSize: 8, fontWeight: FontWeight.bold),
-                  ),
-              ],
-            ),
+            if (topContainer != null) topContainer,
+            if (topContainer != null && (middleContainer != null || bottomContainer != null))
+              const Divider(color: Colors.white24, height: 1),
+            if (middleContainer != null) middleContainer,
+            if (bottomContainer != null) bottomContainer,
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildElementPositioningSection() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.tune, color: Color(0xFF38BDF8), size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'تخصيص مواضع ومحاذاة العناصر:',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'تحكم كامل في موضع ومحاذاة وحجم كل عنصر بشكل مستقل ليتم حفظه ضمن القالب واستخدامه في الطباعة',
+            style: TextStyle(fontSize: 11, color: context.textSecondary),
+          ),
+          const SizedBox(height: 12),
+          _buildElementPlacementRow(
+            title: 'اسم الشبكة',
+            icon: Icons.wifi,
+            placement: _elementsLayout.networkName,
+            onChanged: (p) => setState(() => _elementsLayout = _elementsLayout.copyWith(networkName: p)),
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'سعر الكرت',
+            icon: Icons.payments_outlined,
+            placement: _elementsLayout.price,
+            onChanged: (p) => setState(() => _elementsLayout = _elementsLayout.copyWith(price: p)),
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'بيانات الحساب (PIN / مستخدم)',
+            icon: Icons.lock_outline,
+            placement: _elementsLayout.credentials,
+            onChanged: (p) => setState(() => _elementsLayout = _elementsLayout.copyWith(credentials: p)),
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'تفاصيل الباقة والعنوان (العنوان / الصلاحية / السرعة)',
+            icon: Icons.speed,
+            placement: _elementsLayout.profileDetails,
+            onChanged: (p) => setState(() => _elementsLayout = _elementsLayout.copyWith(profileDetails: p)),
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'رمز QR',
+            icon: Icons.qr_code_2,
+            placement: _elementsLayout.qrCode,
+            onChanged: (p) => setState(() => _elementsLayout = _elementsLayout.copyWith(qrCode: p)),
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'التعليمات والدعم الفني',
+            icon: Icons.info_outline,
+            placement: _elementsLayout.instructions,
+            onChanged: (p) => setState(() => _elementsLayout = _elementsLayout.copyWith(instructions: p)),
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'الرقم التسلسلي (S/N)',
+            icon: Icons.tag,
+            placement: _elementsLayout.serialNumber,
+            onChanged: (p) => setState(() => _elementsLayout = _elementsLayout.copyWith(serialNumber: p)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildElementPlacementRow({
+    required String title,
+    required IconData icon,
+    required CardElementPlacement placement,
+    required ValueChanged<CardElementPlacement> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 15, color: context.textSecondary),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            // Vertical placement
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: context.bgCardAlt,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: context.borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: placement.vertical,
+                    isDense: true,
+                    style: TextStyle(fontSize: 11, color: context.textPrimary),
+                    dropdownColor: context.bgCard,
+                    items: const [
+                      DropdownMenuItem(value: 'top', child: Text('أعلى (Top)')),
+                      DropdownMenuItem(value: 'middle', child: Text('وسط (Middle)')),
+                      DropdownMenuItem(value: 'bottom', child: Text('أسفل (Bottom)')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) onChanged(placement.copyWith(vertical: v));
+                    },
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Horizontal alignment
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: context.bgCardAlt,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: context.borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: placement.align,
+                    isDense: true,
+                    style: TextStyle(fontSize: 11, color: context.textPrimary),
+                    dropdownColor: context.bgCard,
+                    items: const [
+                      DropdownMenuItem(value: 'right', child: Text('يمين (Right)')),
+                      DropdownMenuItem(value: 'center', child: Text('وسط (Center)')),
+                      DropdownMenuItem(value: 'left', child: Text('يسار (Left)')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) onChanged(placement.copyWith(align: v));
+                    },
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Scale
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: context.bgCardAlt,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: context.borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: placement.scale,
+                    isDense: true,
+                    style: TextStyle(fontSize: 11, color: context.textPrimary),
+                    dropdownColor: context.bgCard,
+                    items: const [
+                      DropdownMenuItem(value: 'small', child: Text('صغير (Small)')),
+                      DropdownMenuItem(value: 'normal', child: Text('عادي (Normal)')),
+                      DropdownMenuItem(value: 'large', child: Text('كبير (Large)')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) onChanged(placement.copyWith(scale: v));
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1175,4 +1528,12 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5)),
     );
   }
+}
+
+class _EditorZoneEntry {
+  final Widget widget;
+  final String vertical;
+  final String align;
+
+  _EditorZoneEntry(this.widget, this.vertical, this.align);
 }

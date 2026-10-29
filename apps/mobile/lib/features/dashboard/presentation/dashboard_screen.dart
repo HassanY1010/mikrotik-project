@@ -2769,19 +2769,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         _navigateToRadar,
       ),
       _ActionItem(
-        'راوتر MikroTik',
-        Icons.settings_input_antenna,
-        const Color(0xFF6366F1),
-        widget.onOpenRouterSetup,
-      ),
-      _ActionItem(
         'برمجة المايكروتيك',
         Icons.settings_suggest_rounded,
         const Color(0xFF8B5CF6),
         _navigateToRouterProvisioning,
       ),
       _ActionItem(
-        'الأجهزة المتصلة',
+        'أجهزة البث',
         Icons.devices_other_rounded,
         const Color(0xFF0284C7),
         _navigateToConnectedDevices,

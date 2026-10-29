@@ -86,9 +86,18 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
   Color? _customPrimaryColor;
   Color? _customAccentColor;
+  CardElementsLayout _elementsLayout = const CardElementsLayout();
 
-  // 4. Printing layout
+  // 4. Printing layout & orientation & custom grid
   CardPdfLayout _selectedPrintLayout = CardPdfLayout.a4Grid10;
+  bool _isPrintLandscape = false;
+  bool _isCustomPrintGrid = false;
+  int _customGridCols = 3;
+  int _customGridRows = 4;
+  double _customGridMargin = 3.0;
+
+  // Undo history for design adjustments
+  final List<_DesignSnapshot> _designUndoStack = [];
 
   bool _isGenerating = false;
 
@@ -146,21 +155,32 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   void _autoSelectDefaultOrPinnedTemplate({bool force = false}) {
     try {
       final storage = ref.read(localStorageProvider);
+      if (!force && _selectedCustomTemplate != null) {
+        return;
+      }
+
+      final selectedId = storage.getSelectedStudioTemplateId();
+      final allTemplates = ref.read(cardTemplatesProvider).value ?? [];
+      if (selectedId != null && selectedId.isNotEmpty) {
+        final found = allTemplates.where((t) => t.id == selectedId).firstOrNull;
+        if (found != null) {
+          _applyCustomTemplate(found);
+          return;
+        }
+      }
+
       final pinned = storage.getPinnedTemplate();
       if (pinned != null) {
-        if (force || _selectedCustomTemplate == null || _selectedCustomTemplate!.id != pinned.id) {
-          _applyCustomTemplate(pinned);
-        }
+        _applyCustomTemplate(pinned);
         return;
       }
-      final allTemplates = ref.read(cardTemplatesProvider).value ?? [];
-      final def = allTemplates.where((t) => t.isDefault).firstOrNull;
+
+      final def = allTemplates.where((t) => t.isDefault).firstOrNull ?? allTemplates.firstOrNull;
       if (def != null) {
-        if (force || _selectedCustomTemplate == null) {
-          _applyCustomTemplate(def);
-        }
+        _applyCustomTemplate(def);
         return;
       }
+
       // If currently selected custom template was deleted and no longer exists anywhere, reset it
       if (_selectedCustomTemplate != null) {
         final customTpls = storage.getCustomTemplates();
@@ -180,6 +200,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     void updateState() {
       _selectedCustomTemplate = tpl;
       _useCustomTemplate = true;
+      _elementsLayout = tpl.elementsLayout;
+
+      try {
+        if (tpl.id.isNotEmpty) {
+          ref.read(localStorageProvider).setSelectedStudioTemplateId(tpl.id);
+        }
+      } catch (_) {}
 
       // Primary color
       if (tpl.primaryColor.isNotEmpty) {
@@ -228,6 +255,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       if (cfg['showPrice'] is bool) _showPrice = cfg['showPrice'] as bool;
       if (cfg['showSpeed'] is bool) _showSpeed = cfg['showSpeed'] as bool;
       if (cfg['showValidity'] is bool) _showValidity = cfg['showValidity'] as bool;
+      if (cfg['showQuota'] is bool) _showQuota = cfg['showQuota'] as bool;
       if (cfg['showSerial'] is bool) _showSerial = cfg['showSerial'] as bool;
 
       // Background
@@ -252,6 +280,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   void _applyBuiltInTheme(String themeKey) {
     final theme = _themes[themeKey];
     if (theme == null) return;
+    _recordDesignSnapshot();
     setState(() {
       _selectedThemePreset = themeKey;
       _selectedCustomTemplate = null;
@@ -457,6 +486,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           'showValidity': _showValidity,
           'showQuota': _showQuota,
           'showPin': true,
+          'elements': _elementsLayout.toMap(),
           if (_pickedImageBase64 != null) 'backgroundImageBase64': _pickedImageBase64,
         },
       );
@@ -464,8 +494,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       final res = await ref.read(cardTemplatesProvider.notifier).createTemplate(newTpl);
       if (mounted) {
         if (res['success'] == true) {
+          final createdTpl = (res['template'] is CardTemplateModel) ? res['template'] as CardTemplateModel : newTpl;
+          _applyCustomTemplate(createdTpl);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('تم حفظ قالب الكروت الجديد بنجاح!'), backgroundColor: Color(0xFF10B981)),
+            const SnackBar(content: Text('تم حفظ وتطبيق قالب الكروت الجديد بنجاح!'), backgroundColor: Color(0xFF10B981)),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -589,6 +621,26 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                     _buildReviewRow(
                       'صلاحية الحساب',
                       _validityDaysEnabled ? '$_validityDaysValue يوم' : 'وفق الباقة (${formatValidityArabic(selectedProfile.validity)})',
+                    ),
+                    const Divider(color: Color(0xFF334155), height: 16),
+                    _buildReviewRow(
+                      'تنسيق ورق الطباعة',
+                      _isCustomPrintGrid
+                          ? 'شبكة مخصصة ($_customGridCols×$_customGridRows) • ${_isPrintLandscape ? "A4 أفقي" : "A4 عمودي"}'
+                          : '${_selectedPrintLayout == CardPdfLayout.a4Grid10 ? 10 : (_selectedPrintLayout == CardPdfLayout.a4Grid12 ? 12 : (_selectedPrintLayout == CardPdfLayout.a4Grid24 ? 24 : 100))} كرت/صفحة • ${_isPrintLandscape ? "A4 أفقي" : "A4 عمودي"}',
+                      icon: Icons.grid_on,
+                    ),
+                    _buildReviewRow(
+                      'عدد صفحات الطباعة المتوقع',
+                      () {
+                        final int cpp = _isCustomPrintGrid && _customGridCols > 0 && _customGridRows > 0
+                            ? (_customGridCols * _customGridRows)
+                            : (_selectedPrintLayout == CardPdfLayout.a4Grid10 ? 10 : (_selectedPrintLayout == CardPdfLayout.a4Grid12 ? 12 : (_selectedPrintLayout == CardPdfLayout.a4Grid24 ? 24 : 100)));
+                        final int pgs = (_selectedQuantity / cpp).ceil().clamp(1, 9999);
+                        return '$pgs ${pgs == 1 ? "صفحة A4 واحدة" : (pgs == 2 ? "صفحتان A4" : "صفحات A4")} ($cpp كرت/صفحة)';
+                      }(),
+                      icon: Icons.description_outlined,
+                      highlight: true,
                     ),
                   ],
                 ),
@@ -1137,6 +1189,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 instructions: _instructionsController.text.trim().isNotEmpty
                                     ? _instructionsController.text.trim()
                                     : (_selectedCustomTemplate?.instructions ?? ''),
+                                template: _selectedCustomTemplate,
+                                isLandscape: _isPrintLandscape,
+                                customCols: _isCustomPrintGrid ? _customGridCols : null,
+                                customRows: _isCustomPrintGrid ? _customGridRows : null,
+                                customMargin: _isCustomPrintGrid ? _customGridMargin : null,
                               );
                             } catch (err) {
                               if (context.mounted) {
@@ -1195,6 +1252,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                           instructions: _instructionsController.text.trim().isNotEmpty
                               ? _instructionsController.text.trim()
                               : (_selectedCustomTemplate?.instructions ?? ''),
+                          template: _selectedCustomTemplate,
+                          isLandscape: _isPrintLandscape,
+                          customCols: _isCustomPrintGrid ? _customGridCols : null,
+                          customRows: _isCustomPrintGrid ? _customGridRows : null,
+                          customMargin: _isCustomPrintGrid ? _customGridMargin : null,
                         );
                       } catch (err) {
                         if (context.mounted) {
@@ -2592,6 +2654,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
           const SizedBox(height: 16),
 
+          // Element Placement & Positioning Controls
+          _buildElementPositioningSection(),
+
+          const SizedBox(height: 16),
+
           // Save Template Action Button
           SizedBox(
             width: double.infinity,
@@ -2618,7 +2685,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       selected: value,
       selectedColor: const Color(0xFF2563EB).withValues(alpha: 0.3),
       checkmarkColor: context.skyColor,
-      onSelected: onChanged,
+      onSelected: (val) {
+        _recordDesignSnapshot();
+        onChanged(val);
+      },
     );
   }
 
@@ -2629,7 +2699,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       selected: isSelected,
       selectedColor: const Color(0xFF2563EB),
       onSelected: (val) {
-        if (val) setState(() { _cardWidthMm = w; _cardHeightMm = h; });
+        if (val) {
+          _recordDesignSnapshot();
+          setState(() { _cardWidthMm = w; _cardHeightMm = h; });
+        }
       },
     );
   }
@@ -2701,7 +2774,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                     _applyCustomTemplate(picked);
                   } else {
                     ref.read(cardTemplatesProvider.notifier).refresh().then((_) {
-                      if (mounted) _autoSelectDefaultOrPinnedTemplate(force: true);
+                      if (mounted && _selectedCustomTemplate == null) {
+                        _autoSelectDefaultOrPinnedTemplate();
+                      }
                     });
                   }
                 },
@@ -2728,7 +2803,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   _applyCustomTemplate(picked);
                 } else {
                   ref.read(cardTemplatesProvider.notifier).refresh().then((_) {
-                    if (mounted) _autoSelectDefaultOrPinnedTemplate(force: true);
+                    if (mounted && _selectedCustomTemplate == null) {
+                      _autoSelectDefaultOrPinnedTemplate();
+                    }
                   });
                 }
               },
@@ -2834,13 +2911,19 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   // Add More Button
                   InkWell(
                     onTap: () async {
-                      await Navigator.push(
+                      final picked = await Navigator.push<CardTemplateModel?>(
                         context,
                         MaterialPageRoute(builder: (_) => const CardTemplatesScreen()),
                       );
-                      ref.read(cardTemplatesProvider.notifier).refresh().then((_) {
-                        if (mounted) _autoSelectDefaultOrPinnedTemplate();
-                      });
+                      if (picked != null) {
+                        _applyCustomTemplate(picked);
+                      } else {
+                        ref.read(cardTemplatesProvider.notifier).refresh().then((_) {
+                          if (mounted && _selectedCustomTemplate == null) {
+                            _autoSelectDefaultOrPinnedTemplate();
+                          }
+                        });
+                      }
                     },
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
@@ -2904,55 +2987,306 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
   // --- TAB 4: PRINTING & PDF EXPORT ---
   Widget _buildTab4PrintingAndExport(HotspotProfileModel? profile, _ThemeConfig theme) {
+    final int cardsPerPage = _isCustomPrintGrid && _customGridCols > 0 && _customGridRows > 0
+        ? (_customGridCols * _customGridRows)
+        : (_selectedPrintLayout == CardPdfLayout.a4Grid10
+            ? 10
+            : (_selectedPrintLayout == CardPdfLayout.a4Grid12
+                ? 12
+                : (_selectedPrintLayout == CardPdfLayout.a4Grid24 ? 24 : 100)));
+    final int expectedPages = (_selectedQuantity / cardsPerPage).ceil().clamp(1, 9999);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'تنسيق ورق الطباعة A4 المعتمد:',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
-          ),
-          const SizedBox(height: 10),
-          RadioGroup<CardPdfLayout>(
-            groupValue: _selectedPrintLayout,
-            onChanged: (v) {
-              if (v != null) setState(() => _selectedPrintLayout = v);
-            },
+          // 1. Page Orientation (Portrait / Landscape)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.borderColor),
+            ),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildPrintLayoutCard(
-                  CardPdfLayout.a4Grid10,
-                  '10 كروت في الصفحة (2×5)',
-                  'حجم بطاقة الهوية المميز مع رمز QR كبير ومعلومات كاملة. أنسب خيار للمطابع والمكتبات.',
-                  Icons.grid_view,
+                Row(
+                  children: [
+                    const Icon(Icons.screen_rotation_outlined, color: Color(0xFF38BDF8), size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'اتجاه ورقة الطباعة A4 (Sheet Orientation):',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                _buildPrintLayoutCard(
-                  CardPdfLayout.a4Grid12,
-                  '12 كرت في الصفحة (3×4)',
-                  'تخطيط كروت قياسي متوازن للمقاهي والشبكات المتوسطة.',
-                  Icons.view_module,
-                ),
-                const SizedBox(height: 8),
-                _buildPrintLayoutCard(
-                  CardPdfLayout.a4Grid24,
-                  '24 كرت في الصفحة (3×8)',
-                  'تخطيط اقتصادي عالي الكفاءة يقلل استهلاك الورق إلى النصف.',
-                  Icons.apps,
-                ),
-                const SizedBox(height: 8),
-                _buildPrintLayoutCard(
-                  CardPdfLayout.a4Grid100,
-                  '100 كرت في الصفحة (5×20)',
-                  'شريط أكواد مكثف جداً للدفوعات الكبيرة وتوزيع الأكواد السريعة.',
-                  Icons.line_weight,
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () => setState(() => _isPrintLandscape = false),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          decoration: BoxDecoration(
+                            color: !_isPrintLandscape ? context.skyColor.withValues(alpha: 0.15) : context.bgScaffold,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: !_isPrintLandscape ? context.skyColor : context.borderColor, width: !_isPrintLandscape ? 2 : 1),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.portrait, size: 17, color: !_isPrintLandscape ? context.skyColor : context.textMuted),
+                              const SizedBox(width: 6),
+                              Text(
+                                'A4 عمودي (Portrait)',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: !_isPrintLandscape ? context.skyColor : context.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () => setState(() => _isPrintLandscape = true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          decoration: BoxDecoration(
+                            color: _isPrintLandscape ? context.skyColor.withValues(alpha: 0.15) : context.bgScaffold,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: _isPrintLandscape ? context.skyColor : context.borderColor, width: _isPrintLandscape ? 2 : 1),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.landscape, size: 17, color: _isPrintLandscape ? context.skyColor : context.textMuted),
+                              const SizedBox(width: 6),
+                              Text(
+                                'A4 أفقي (Landscape)',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: _isPrintLandscape ? context.skyColor : context.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 16),
 
-          const SizedBox(height: 24),
+          // 2. Custom Grid Option
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _isCustomPrintGrid ? context.skyColor.withValues(alpha: 0.15) : context.bgCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _isCustomPrintGrid ? context.skyColor : context.borderColor,
+                width: _isCustomPrintGrid ? 2 : 1,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.dashboard_customize, color: _isCustomPrintGrid ? context.skyColor : context.textMuted, size: 18),
+                        const SizedBox(width: 8),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'توزيع شبكي مخصص (أعمدة وصفوف وهوامش)',
+                              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                            Text(
+                              'تحكم حر بعدد الأعمدة والصفوف والهوامش لورقة A4',
+                              style: TextStyle(color: context.textMuted, fontSize: 10),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    Switch(
+                      value: _isCustomPrintGrid,
+                      activeThumbColor: context.skyColor,
+                      onChanged: (v) => setState(() => _isCustomPrintGrid = v),
+                    ),
+                  ],
+                ),
+                if (_isCustomPrintGrid) ...[
+                  const Divider(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('الأعمدة (Cols):', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+                            const SizedBox(height: 4),
+                            DropdownButtonFormField<int>(
+                              initialValue: _customGridCols,
+                              dropdownColor: context.bgCard,
+                              isDense: true,
+                              decoration: InputDecoration(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              items: [2, 3, 4, 5, 6].map((c) => DropdownMenuItem(value: c, child: Text('$c أعمدة'))).toList(),
+                              onChanged: (v) {
+                                if (v != null) setState(() => _customGridCols = v);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('الصفوف (Rows):', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+                            const SizedBox(height: 4),
+                            DropdownButtonFormField<int>(
+                              initialValue: _customGridRows,
+                              dropdownColor: context.bgCard,
+                              isDense: true,
+                              decoration: InputDecoration(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              items: [2, 3, 4, 5, 6, 8, 10, 12, 15, 20].map((r) => DropdownMenuItem(value: r, child: Text('$r صفوف'))).toList(),
+                              onChanged: (v) {
+                                if (v != null) setState(() => _customGridRows = v);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('الهامش (مم):', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+                            const SizedBox(height: 4),
+                            DropdownButtonFormField<double>(
+                              initialValue: _customGridMargin,
+                              dropdownColor: context.bgCard,
+                              isDense: true,
+                              decoration: InputDecoration(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              items: [1.0, 2.0, 3.0, 4.0, 5.0].map((m) => DropdownMenuItem(value: m, child: Text('$m مم'))).toList(),
+                              onChanged: (v) {
+                                if (v != null) setState(() => _customGridMargin = v);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 3. Header & Ready Presets
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'تنسيق ورق الطباعة A4 المعتمد:',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'المتوقع: $expectedPages ${expectedPages == 1 ? "صفحة" : "صفحات"} ($cardsPerPage كرت/صفحة)',
+                  style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          if (!_isCustomPrintGrid) ...[
+            _buildPrintLayoutCard(
+              CardPdfLayout.a4Grid10,
+              '10 كروت في الصفحة (2×5)',
+              'حجم بطاقة الهوية المميز مع رمز QR كبير ومعلومات كاملة. أنسب خيار للمطابع والمكتبات.',
+              Icons.grid_view,
+            ),
+            const SizedBox(height: 8),
+            _buildPrintLayoutCard(
+              CardPdfLayout.a4Grid12,
+              '12 كرت في الصفحة (3×4)',
+              'تخطيط كروت قياسي متوازن للمقاهي والشبكات المتوسطة.',
+              Icons.view_module,
+            ),
+            const SizedBox(height: 8),
+            _buildPrintLayoutCard(
+              CardPdfLayout.a4Grid24,
+              '24 كرت في الصفحة (3×8)',
+              'تخطيط اقتصادي عالي الكفاءة يقلل استهلاك الورق إلى النصف.',
+              Icons.apps,
+            ),
+            const SizedBox(height: 8),
+            _buildPrintLayoutCard(
+              CardPdfLayout.a4Grid100,
+              '100 كرت في الصفحة (5×20)',
+              'شريط أكواد مكثف جداً للدفوعات الكبيرة وتوزيع الأكواد السريعة.',
+              Icons.line_weight,
+            ),
+            const SizedBox(height: 14),
+          ],
+
+          // 4. Live Instant Preview Button for Current A4 Layout
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.print_outlined, size: 18, color: Colors.white),
+              label: const Text(
+                'معاينة صفحة الطباعة الحالية (A4)',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              onPressed: () => _previewCurrentLayoutSheet(profile),
+            ),
+          ),
+
+          const SizedBox(height: 20),
 
           // Template Manager Jump
           Container(
@@ -2973,10 +3307,19 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   ],
                 ),
                 TextButton(
-                  onPressed: () {
-                    Navigator.of(context).push(
+                  onPressed: () async {
+                    final picked = await Navigator.of(context).push<CardTemplateModel?>(
                       MaterialPageRoute(builder: (_) => const CardTemplatesScreen()),
                     );
+                    if (picked != null) {
+                      _applyCustomTemplate(picked);
+                    } else {
+                      ref.read(cardTemplatesProvider.notifier).refresh().then((_) {
+                        if (mounted && _selectedCustomTemplate == null) {
+                          _autoSelectDefaultOrPinnedTemplate();
+                        }
+                      });
+                    }
                   },
                   child: Text('فتح الاستوديو', style: TextStyle(color: context.skyColor, fontWeight: FontWeight.bold)),
                 ),
@@ -3096,6 +3439,61 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     );
   }
 
+  static double _scaleFactorFlutter(String scale) {
+    switch (scale) {
+      case 'small':
+        return 0.85;
+      case 'large':
+        return 1.2;
+      default:
+        return 1.0;
+    }
+  }
+
+  Widget _buildZoneFlutterRow(List<Widget> left, List<Widget> center, List<Widget> right) {
+    if (left.isEmpty && center.isEmpty && right.isEmpty) return const SizedBox.shrink();
+
+    final leftCol = left.isNotEmpty
+        ? (left.length == 1
+            ? left.first
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: left,
+              ))
+        : null;
+
+    final centerCol = center.isNotEmpty
+        ? (center.length == 1
+            ? center.first
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: center,
+              ))
+        : null;
+
+    final rightCol = right.isNotEmpty
+        ? (right.length == 1
+            ? right.first
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: right,
+              ))
+        : null;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        leftCol ?? const SizedBox.shrink(),
+        centerCol ?? const SizedBox.shrink(),
+        rightCol ?? const SizedBox.shrink(),
+      ],
+    );
+  }
+
   // --- LIVE CARD PREVIEW WIDGET ---
   Widget _buildLiveCardPreview(HotspotProfileModel? profile, _ThemeConfig theme) {
     final profileTitle = profile != null ? (profile.displayName ?? profile.name) : 'باقة هوتسبوت قياسية';
@@ -3113,6 +3511,214 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
     final cardPrimary = _customPrimaryColor ?? theme.primaryColor;
     final cardAccent = _customAccentColor ?? theme.accentColor;
+
+    // 1. Network Name
+    final netPlacement = _elementsLayout.networkName;
+    final Widget netWidget = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(theme.icon, color: cardAccent, size: 18 * _scaleFactorFlutter(netPlacement.scale)),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            _networkNameController.text.trim().isNotEmpty ? _networkNameController.text.trim() : 'سودافاي | SudaFi Net',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13 * _scaleFactorFlutter(netPlacement.scale),
+              letterSpacing: 0.5,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+
+    // 2. Price Badge
+    final pricePlacement = _elementsLayout.price;
+    final bool canShowPrice = _showPrice && pricePlacement.isVisible;
+    final Widget? priceWidget = canShowPrice
+        ? Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: cardAccent, width: 1),
+            ),
+            child: Text(
+              priceText,
+              style: TextStyle(
+                color: cardAccent,
+                fontWeight: FontWeight.bold,
+                fontSize: 12 * _scaleFactorFlutter(pricePlacement.scale),
+              ),
+            ),
+          )
+        : null;
+
+    // 3. Profile details
+    final profPlacement = _elementsLayout.profileDetails;
+    final bool canShowProf = profPlacement.isVisible;
+    final Widget? profileWidget = canShowProf
+        ? Column(
+            crossAxisAlignment: profPlacement.align == 'left'
+                ? CrossAxisAlignment.start
+                : (profPlacement.align == 'center' ? CrossAxisAlignment.center : CrossAxisAlignment.end),
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                profileTitle,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14 * _scaleFactorFlutter(profPlacement.scale),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                '${_showValidity ? "الصلاحية: $validityText • " : ""}${_showSpeed ? "السرعة: $speedText • " : ""}${_showQuota ? "السعة: $quotaText" : ""}',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 10 * _scaleFactorFlutter(profPlacement.scale),
+                ),
+              ),
+            ],
+          )
+        : null;
+
+    // 4. Credentials
+    final credPlacement = _elementsLayout.credentials;
+    final bool canShowCred = credPlacement.isVisible;
+    final Widget? credWidget = canShowCred
+        ? Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              _credentialMode == 0
+                  ? 'PIN: ${_prefixController.text.trim()}849204'
+                  : (_credentialMode == 2
+                      ? 'USER: ${_prefixController.text.trim()}849204'
+                      : 'U: ${_prefixController.text.trim()}849204 | P: 1039'),
+              style: TextStyle(
+                color: cardPrimary,
+                fontWeight: FontWeight.w900,
+                letterSpacing: _credentialMode == 0 ? 1.5 : 0.8,
+                fontSize: 13 * _scaleFactorFlutter(credPlacement.scale),
+              ),
+            ),
+          )
+        : null;
+
+    // 5. QR Code
+    final qrPlacement = _elementsLayout.qrCode;
+    final bool canShowQr = _showQr && qrPlacement.isVisible;
+    final Widget? qrWidget = canShowQr
+        ? Container(
+            width: 58 * _scaleFactorFlutter(qrPlacement.scale),
+            height: 58 * _scaleFactorFlutter(qrPlacement.scale),
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Center(
+              child: Icon(Icons.qr_code_2, size: 50, color: Colors.black),
+            ),
+          )
+        : null;
+
+    // 6. Instructions
+    final instPlacement = _elementsLayout.instructions;
+    final bool canShowInst = instPlacement.isVisible;
+    final Widget? instWidget = canShowInst
+        ? Text(
+            _instructionsController.text.trim().isNotEmpty
+                ? _instructionsController.text.trim()
+                : 'امسح رمز QR للاتصال المباشر بشبكة الواي فاي',
+            textAlign: instPlacement.align == 'left'
+                ? TextAlign.left
+                : (instPlacement.align == 'right' ? TextAlign.right : TextAlign.center),
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 10 * _scaleFactorFlutter(instPlacement.scale),
+            ),
+          )
+        : null;
+
+    // 7. Serial Number
+    final snPlacement = _elementsLayout.serialNumber;
+    final bool canShowSn = _showSerial && snPlacement.isVisible;
+    final Widget? snWidget = canShowSn
+        ? Text(
+            'S/N: 20261024-001',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.6),
+              fontSize: 9 * _scaleFactorFlutter(snPlacement.scale),
+            ),
+          )
+        : null;
+
+    // Distribute to 3 vertical zones
+    final List<_FlutterZoneEntry> allEntries = [
+      _FlutterZoneEntry(netWidget, netPlacement.vertical, netPlacement.align),
+      if (priceWidget != null) _FlutterZoneEntry(priceWidget, pricePlacement.vertical, pricePlacement.align),
+      if (profileWidget != null) _FlutterZoneEntry(profileWidget, profPlacement.vertical, profPlacement.align),
+      if (credWidget != null) _FlutterZoneEntry(credWidget, credPlacement.vertical, credPlacement.align),
+      if (qrWidget != null) _FlutterZoneEntry(qrWidget, qrPlacement.vertical, qrPlacement.align),
+      if (instWidget != null) _FlutterZoneEntry(instWidget, instPlacement.vertical, instPlacement.align),
+      if (snWidget != null) _FlutterZoneEntry(snWidget, snPlacement.vertical, snPlacement.align),
+    ];
+
+    final topEntries = allEntries.where((e) => e.vertical == 'top').toList();
+    final midEntries = allEntries.where((e) => e.vertical == 'middle').toList();
+    final botEntries = allEntries.where((e) => e.vertical == 'bottom').toList();
+
+    final topLeft = topEntries.where((e) => e.align == 'left').map((e) => e.widget).toList();
+    final topCenter = topEntries.where((e) => e.align == 'center').map((e) => e.widget).toList();
+    final topRight = topEntries.where((e) => e.align == 'right').map((e) => e.widget).toList();
+
+    final midLeft = midEntries.where((e) => e.align == 'left').map((e) => e.widget).toList();
+    final midCenter = midEntries.where((e) => e.align == 'center').map((e) => e.widget).toList();
+    final midRight = midEntries.where((e) => e.align == 'right').map((e) => e.widget).toList();
+
+    final botLeft = botEntries.where((e) => e.align == 'left').map((e) => e.widget).toList();
+    final botCenter = botEntries.where((e) => e.align == 'center').map((e) => e.widget).toList();
+    final botRight = botEntries.where((e) => e.align == 'right').map((e) => e.widget).toList();
+
+    Widget? topContainer;
+    if (topLeft.isNotEmpty || topCenter.isNotEmpty || topRight.isNotEmpty) {
+      topContainer = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: _buildZoneFlutterRow(topLeft, topCenter, topRight),
+      );
+    }
+
+    Widget? middleContainer;
+    if (midLeft.isNotEmpty || midCenter.isNotEmpty || midRight.isNotEmpty) {
+      middleContainer = Padding(
+        padding: const EdgeInsets.all(14),
+        child: _buildZoneFlutterRow(midLeft, midCenter, midRight),
+      );
+    }
+
+    Widget? bottomContainer;
+    if (botLeft.isNotEmpty || botCenter.isNotEmpty || botRight.isNotEmpty) {
+      bottomContainer = Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.25),
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(16),
+            bottomRight: Radius.circular(16),
+          ),
+        ),
+        child: _buildZoneFlutterRow(botLeft, botCenter, botRight),
+      );
+    }
 
     return Container(
       width: double.infinity,
@@ -3146,142 +3752,493 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         border: Border.all(color: cardAccent.withValues(alpha: 0.5), width: 1.5),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header Bar
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Icon(theme.icon, color: cardAccent, size: 18),
-                    const SizedBox(width: 6),
-                    Text(
-                      _networkNameController.text.trim().isNotEmpty ? _networkNameController.text.trim() : 'سودافاي | SudaFi Net',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
-                ),
-                if (_showPrice)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: cardAccent, width: 1),
-                    ),
-                    child: Text(
-                      priceText,
-                      style: TextStyle(
-                        color: cardAccent,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-              ],
+          if (topContainer != null) topContainer,
+          if (topContainer != null && (middleContainer != null || bottomContainer != null))
+            const Divider(color: Colors.white24, height: 1),
+          if (middleContainer != null) middleContainer,
+          if (bottomContainer != null) bottomContainer,
+        ],
+      ),
+    );
+  }
+
+  void _recordDesignSnapshot() {
+    if (_designUndoStack.length >= 25) {
+      _designUndoStack.removeAt(0);
+    }
+    _designUndoStack.add(_DesignSnapshot(
+      customPrimaryColor: _customPrimaryColor,
+      customAccentColor: _customAccentColor,
+      selectedThemePreset: _selectedThemePreset,
+      cardWidthMm: _cardWidthMm,
+      cardHeightMm: _cardHeightMm,
+      showQr: _showQr,
+      showPrice: _showPrice,
+      showSpeed: _showSpeed,
+      showValidity: _showValidity,
+      showQuota: _showQuota,
+      showSerial: _showSerial,
+      elementsLayout: _elementsLayout,
+      instructions: _instructionsController.text,
+      headerTitle: _headerTitleController.text,
+      supportPhone: _supportPhoneController.text,
+      pickedImageBytes: _pickedImageBytes,
+      pickedImageBase64: _pickedImageBase64,
+    ));
+  }
+
+  void _undoDesignChange() {
+    if (_designUndoStack.isEmpty) return;
+    final prev = _designUndoStack.removeLast();
+    setState(() {
+      _customPrimaryColor = prev.customPrimaryColor;
+      _customAccentColor = prev.customAccentColor;
+      _selectedThemePreset = prev.selectedThemePreset;
+      _cardWidthMm = prev.cardWidthMm;
+      _cardHeightMm = prev.cardHeightMm;
+      _showQr = prev.showQr;
+      _showPrice = prev.showPrice;
+      _showSpeed = prev.showSpeed;
+      _showValidity = prev.showValidity;
+      _showQuota = prev.showQuota;
+      _showSerial = prev.showSerial;
+      _elementsLayout = prev.elementsLayout;
+      _instructionsController.text = prev.instructions;
+      _headerTitleController.text = prev.headerTitle;
+      _supportPhoneController.text = prev.supportPhone;
+      _pickedImageBytes = prev.pickedImageBytes;
+      _pickedImageBase64 = prev.pickedImageBase64;
+      _syncCurrentTemplateLayout();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('تم التراجع عن التعديل الأخير بنجاح'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _handleResetDesign() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.restart_alt, color: Color(0xFFF59E0B), size: 22),
+            const SizedBox(width: 8),
+            Text(
+              'إعادة ضبط التصميم',
+              style: TextStyle(color: ctx.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
             ),
+          ],
+        ),
+        content: Text(
+          'هل تريد بالتأكيد إعادة ضبط ألوان ومواضع وحجم عناصر التصميم إلى الحالة القياسية الافتراضية؟\n\n(لن يتم حذف أي قوالب مخصصة أو ملفات مستوردة أو بيانات الكروت).',
+          style: TextStyle(color: ctx.textSecondary, fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
           ),
-
-          const Divider(color: Colors.white24, height: 1),
-
-          // Card Body
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        profileTitle,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${_showValidity ? "الصلاحية: $validityText • " : ""}${_showSpeed ? "السرعة: $speedText • " : ""}${_showQuota ? "السعة: $quotaText" : ""}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 10),
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          _credentialMode == 0
-                              ? 'PIN: ${_prefixController.text.trim()}849204'
-                              : (_credentialMode == 2
-                                  ? 'USER: ${_prefixController.text.trim()}849204'
-                                  : 'U: ${_prefixController.text.trim()}849204 | P: 1039'),
-                          style: TextStyle(
-                            color: cardPrimary,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: _credentialMode == 0 ? 1.5 : 0.8,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      if (_showSerial) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          'S/N: 20261024-001',
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 9),
-                        ),
-                      ],
-                    ],
-                  ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _recordDesignSnapshot();
+              setState(() {
+                _customPrimaryColor = null;
+                _customAccentColor = null;
+                _selectedThemePreset = 'FOOTBALL';
+                _cardWidthMm = 85;
+                _cardHeightMm = 54;
+                _showQr = true;
+                _showPrice = true;
+                _showSpeed = true;
+                _showValidity = true;
+                _showQuota = true;
+                _showSerial = true;
+                _elementsLayout = const CardElementsLayout();
+                _instructionsController.text = 'امسح رمز QR أو أدخل الرمز للدخول';
+                _headerTitleController.text = 'كرت إنترنت فائق السرعة';
+                _supportPhoneController.text = '';
+                _pickedImageBytes = null;
+                _pickedImageBase64 = null;
+                _syncCurrentTemplateLayout();
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('تمت إعادة ضبط التصميم إلى الحالة الافتراضية بنجاح'),
+                  backgroundColor: Color(0xFF10B981),
                 ),
-                if (_showQr)
-                  Container(
-                    width: 58,
-                    height: 58,
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.qr_code_2, size: 50, color: Colors.black),
-                    ),
-                  ),
-              ],
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF59E0B),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-          ),
-
-          // Footer
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.25),
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(16),
-                bottomRight: Radius.circular(16),
-              ),
-            ),
-            child: Text(
-              _instructionsController.text.trim().isNotEmpty
-                  ? _instructionsController.text.trim()
-                  : 'امسح رمز QR للاتصال المباشر بشبكة الواي فاي',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70, fontSize: 10),
-            ),
+            child: const Text('نعم، إعادة الضبط', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _previewCurrentLayoutSheet(HotspotProfileModel? profile) async {
+    final int sampleCount = _isCustomPrintGrid
+        ? (_customGridCols * _customGridRows)
+        : (_selectedPrintLayout == CardPdfLayout.a4Grid10
+            ? 10
+            : (_selectedPrintLayout == CardPdfLayout.a4Grid12
+                ? 12
+                : (_selectedPrintLayout == CardPdfLayout.a4Grid24 ? 24 : 100)));
+
+    final sampleCards = List.generate(
+      sampleCount,
+      (idx) => OfflineCardModel(
+        id: 'sample-$idx',
+        serialNumber: 'SN-2026-${(idx + 1).toString().padLeft(3, "0")}',
+        username: '${_prefixController.text.trim().isNotEmpty ? _prefixController.text.trim() : ""}${849200 + idx}',
+        clearPassword: _credentialMode == 0
+            ? '${_prefixController.text.trim().isNotEmpty ? _prefixController.text.trim() : ""}${849200 + idx}'
+            : (_credentialMode == 2 ? null : '${5540 + idx}'),
+        profileId: profile?.id ?? 'prof-preview',
+        profileName: profile?.displayName ?? profile?.name ?? 'باقة تجريبية',
+        deviceId: 'dev-1',
+        price: profile?.price ?? 500,
+        currency: 'SDG',
+      ),
+    );
+
+    try {
+      await CardPdfGeneratorService.previewAndPrint(
+        cards: sampleCards,
+        networkName: _networkNameController.text.trim().isNotEmpty
+            ? _networkNameController.text.trim()
+            : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+        supportPhone: _supportPhoneController.text.trim().isNotEmpty
+            ? _supportPhoneController.text.trim()
+            : (_selectedCustomTemplate?.supportPhone ?? ''),
+        layout: _selectedPrintLayout,
+        batchNumber: 'PREVIEW',
+        themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+            ? _selectedCustomTemplate!.themePreset
+            : _selectedThemePreset,
+        customPrimaryColor: _customPrimaryColor != null
+            ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
+            : _selectedCustomTemplate?.primaryColor,
+        customAccentColor: _customAccentColor != null
+            ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
+            : _selectedCustomTemplate?.accentColor,
+        customBackgroundImageBase64: _pickedImageBase64 ?? _selectedCustomTemplate?.backgroundImageBase64,
+        customBackgroundImageBytes: _pickedImageBytes,
+        showQr: _showQr,
+        showPrice: _showPrice,
+        showSerial: _showSerial,
+        instructions: _instructionsController.text.trim().isNotEmpty
+            ? _instructionsController.text.trim()
+            : (_selectedCustomTemplate?.instructions ?? ''),
+        template: _selectedCustomTemplate,
+        isLandscape: _isPrintLandscape,
+        customCols: _isCustomPrintGrid ? _customGridCols : null,
+        customRows: _isCustomPrintGrid ? _customGridRows : null,
+        customMargin: _isCustomPrintGrid ? _customGridMargin : null,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر معاينة الطباعة: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _syncCurrentTemplateLayout() {
+    if (_selectedCustomTemplate != null) {
+      _selectedCustomTemplate = _selectedCustomTemplate!.withElementsLayout(_elementsLayout);
+    }
+  }
+
+  Future<void> _saveElementPositionsToCurrentTemplate() async {
+    if (_selectedCustomTemplate == null) return;
+    _syncCurrentTemplateLayout();
+    final updated = _selectedCustomTemplate!;
+    final res = await ref.read(cardTemplatesProvider.notifier).updateTemplate(updated);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message']?.toString() ?? 'تم حفظ مواضع العناصر في القالب بنجاح!'),
+          backgroundColor: const Color(0xFF10B981),
+        ),
+      );
+    }
+  }
+
+  Widget _buildElementPositioningSection() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.tune, color: Color(0xFF38BDF8), size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    'تخصيص مواضع ومحاذاة العناصر:',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
+                  ),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_designUndoStack.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.undo, size: 18, color: Color(0xFF38BDF8)),
+                      tooltip: 'تراجع عن آخر تعديل',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _undoDesignChange,
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.restart_alt, size: 18, color: Color(0xFFF59E0B)),
+                    tooltip: 'إعادة ضبط التصميم للحالة الافتراضية',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _handleResetDesign,
+                  ),
+                  if (_selectedCustomTemplate != null) ...[
+                    const SizedBox(width: 4),
+                    TextButton.icon(
+                      onPressed: _saveElementPositionsToCurrentTemplate,
+                      icon: const Icon(Icons.save_outlined, size: 14, color: Color(0xFF10B981)),
+                      label: const Text('حفظ في القالب', style: TextStyle(fontSize: 11, color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'تحكم كامل في موضع ومحاذاة وحجم كل عنصر بشكل مستقل ليظهر في المعاينة والـ PDF',
+            style: TextStyle(fontSize: 11, color: context.textSecondary),
+          ),
+          const SizedBox(height: 12),
+          _buildElementPlacementRow(
+            title: 'اسم الشبكة',
+            icon: Icons.wifi,
+            placement: _elementsLayout.networkName,
+            onChanged: (p) {
+              _recordDesignSnapshot();
+              setState(() {
+                _elementsLayout = _elementsLayout.copyWith(networkName: p);
+                _syncCurrentTemplateLayout();
+              });
+            },
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'سعر الكرت',
+            icon: Icons.payments_outlined,
+            placement: _elementsLayout.price,
+            onChanged: (p) {
+              _recordDesignSnapshot();
+              setState(() {
+                _elementsLayout = _elementsLayout.copyWith(price: p);
+                _syncCurrentTemplateLayout();
+              });
+            },
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'بيانات الحساب (PIN / مستخدم)',
+            icon: Icons.lock_outline,
+            placement: _elementsLayout.credentials,
+            onChanged: (p) {
+              _recordDesignSnapshot();
+              setState(() {
+                _elementsLayout = _elementsLayout.copyWith(credentials: p);
+                _syncCurrentTemplateLayout();
+              });
+            },
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'تفاصيل الباقة (الاسم / الصلاحية / السرعة)',
+            icon: Icons.speed,
+            placement: _elementsLayout.profileDetails,
+            onChanged: (p) {
+              _recordDesignSnapshot();
+              setState(() {
+                _elementsLayout = _elementsLayout.copyWith(profileDetails: p);
+                _syncCurrentTemplateLayout();
+              });
+            },
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'رمز QR',
+            icon: Icons.qr_code_2,
+            placement: _elementsLayout.qrCode,
+            onChanged: (p) {
+              _recordDesignSnapshot();
+              setState(() {
+                _elementsLayout = _elementsLayout.copyWith(qrCode: p);
+                _syncCurrentTemplateLayout();
+              });
+            },
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'التعليمات والإرشادات',
+            icon: Icons.info_outline,
+            placement: _elementsLayout.instructions,
+            onChanged: (p) {
+              _recordDesignSnapshot();
+              setState(() {
+                _elementsLayout = _elementsLayout.copyWith(instructions: p);
+                _syncCurrentTemplateLayout();
+              });
+            },
+          ),
+          const Divider(height: 16),
+          _buildElementPlacementRow(
+            title: 'الرقم التسلسلي (S/N)',
+            icon: Icons.tag,
+            placement: _elementsLayout.serialNumber,
+            onChanged: (p) {
+              _recordDesignSnapshot();
+              setState(() {
+                _elementsLayout = _elementsLayout.copyWith(serialNumber: p);
+                _syncCurrentTemplateLayout();
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildElementPlacementRow({
+    required String title,
+    required IconData icon,
+    required CardElementPlacement placement,
+    required ValueChanged<CardElementPlacement> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 15, color: context.textSecondary),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            // Vertical placement
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: context.bgCardAlt,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: context.borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: placement.vertical,
+                    isDense: true,
+                    style: TextStyle(fontSize: 11, color: context.textPrimary),
+                    dropdownColor: context.bgCard,
+                    items: const [
+                      DropdownMenuItem(value: 'top', child: Text('أعلى (Top)')),
+                      DropdownMenuItem(value: 'middle', child: Text('وسط (Middle)')),
+                      DropdownMenuItem(value: 'bottom', child: Text('أسفل (Bottom)')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) onChanged(placement.copyWith(vertical: v));
+                    },
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Horizontal alignment
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: context.bgCardAlt,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: context.borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: placement.align,
+                    isDense: true,
+                    style: TextStyle(fontSize: 11, color: context.textPrimary),
+                    dropdownColor: context.bgCard,
+                    items: const [
+                      DropdownMenuItem(value: 'right', child: Text('يمين (Right)')),
+                      DropdownMenuItem(value: 'center', child: Text('وسط (Center)')),
+                      DropdownMenuItem(value: 'left', child: Text('يسار (Left)')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) onChanged(placement.copyWith(align: v));
+                    },
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Scale
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: context.bgCardAlt,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: context.borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: placement.scale,
+                    isDense: true,
+                    style: TextStyle(fontSize: 11, color: context.textPrimary),
+                    dropdownColor: context.bgCard,
+                    items: const [
+                      DropdownMenuItem(value: 'small', child: Text('صغير (Small)')),
+                      DropdownMenuItem(value: 'normal', child: Text('عادي (Normal)')),
+                      DropdownMenuItem(value: 'large', child: Text('كبير (Large)')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) onChanged(placement.copyWith(scale: v));
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -3429,4 +4386,52 @@ class _ThemeConfig {
   final IconData icon;
 
   _ThemeConfig(this.name, this.primaryColor, this.accentColor, this.icon);
+}
+
+class _FlutterZoneEntry {
+  final Widget widget;
+  final String vertical;
+  final String align;
+
+  _FlutterZoneEntry(this.widget, this.vertical, this.align);
+}
+
+class _DesignSnapshot {
+  final Color? customPrimaryColor;
+  final Color? customAccentColor;
+  final String selectedThemePreset;
+  final int cardWidthMm;
+  final int cardHeightMm;
+  final bool showQr;
+  final bool showPrice;
+  final bool showSpeed;
+  final bool showValidity;
+  final bool showQuota;
+  final bool showSerial;
+  final CardElementsLayout elementsLayout;
+  final String instructions;
+  final String headerTitle;
+  final String supportPhone;
+  final Uint8List? pickedImageBytes;
+  final String? pickedImageBase64;
+
+  _DesignSnapshot({
+    required this.customPrimaryColor,
+    required this.customAccentColor,
+    required this.selectedThemePreset,
+    required this.cardWidthMm,
+    required this.cardHeightMm,
+    required this.showQr,
+    required this.showPrice,
+    required this.showSpeed,
+    required this.showValidity,
+    required this.showQuota,
+    required this.showSerial,
+    required this.elementsLayout,
+    required this.instructions,
+    required this.headerTitle,
+    required this.supportPhone,
+    required this.pickedImageBytes,
+    required this.pickedImageBase64,
+  });
 }

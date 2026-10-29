@@ -359,6 +359,7 @@ class LocalStorage {
 
   // --- Custom & Imported Card Templates Persistence ---
   static const String _pinnedTemplateIdKey = 'pinned_card_template_id';
+  static const String _selectedStudioTemplateIdKey = 'selected_studio_template_id';
 
   String? getPinnedTemplateId() {
     return _prefs.getString(_pinnedTemplateIdKey);
@@ -369,6 +370,18 @@ class LocalStorage {
       await _prefs.remove(_pinnedTemplateIdKey);
     } else {
       await _prefs.setString(_pinnedTemplateIdKey, id);
+    }
+  }
+
+  String? getSelectedStudioTemplateId() {
+    return _prefs.getString(_selectedStudioTemplateIdKey);
+  }
+
+  Future<void> setSelectedStudioTemplateId(String? id) async {
+    if (id == null || id.isEmpty) {
+      await _prefs.remove(_selectedStudioTemplateIdKey);
+    } else {
+      await _prefs.setString(_selectedStudioTemplateIdKey, id);
     }
   }
 

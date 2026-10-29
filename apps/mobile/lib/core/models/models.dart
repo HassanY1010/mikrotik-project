@@ -1369,6 +1369,196 @@ class ActiveSessionModel {
   }
 }
 
+/// Represents individual element placement on the hotspot card
+class CardElementPlacement {
+  final String vertical; // 'top', 'middle', 'bottom'
+  final String align;    // 'right', 'center', 'left'
+  final String scale;    // 'small', 'normal', 'large'
+  final bool isVisible;
+
+  const CardElementPlacement({
+    this.vertical = 'middle',
+    this.align = 'right',
+    this.scale = 'normal',
+    this.isVisible = true,
+  });
+
+  factory CardElementPlacement.fromMap(
+    Map<String, dynamic>? map, {
+    String defaultVertical = 'middle',
+    String defaultAlign = 'right',
+    String defaultScale = 'normal',
+    bool defaultVisible = true,
+  }) {
+    if (map == null) {
+      return CardElementPlacement(
+        vertical: defaultVertical,
+        align: defaultAlign,
+        scale: defaultScale,
+        isVisible: defaultVisible,
+      );
+    }
+
+    String v = map['vertical']?.toString().toLowerCase().trim() ?? defaultVertical;
+    if (v != 'top' && v != 'middle' && v != 'bottom') v = defaultVertical;
+
+    String a = map['align']?.toString().toLowerCase().trim() ??
+        map['alignment']?.toString().toLowerCase().trim() ??
+        map['horizontal']?.toString().toLowerCase().trim() ??
+        defaultAlign;
+    if (a != 'right' && a != 'center' && a != 'left') a = defaultAlign;
+
+    String s = map['scale']?.toString().toLowerCase().trim() ??
+        map['size']?.toString().toLowerCase().trim() ??
+        defaultScale;
+    if (s != 'small' && s != 'normal' && s != 'large') s = defaultScale;
+
+    bool vis = map['isVisible'] as bool? ?? map['visible'] as bool? ?? defaultVisible;
+
+    return CardElementPlacement(
+      vertical: v,
+      align: a,
+      scale: s,
+      isVisible: vis,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'vertical': vertical,
+    'align': align,
+    'scale': scale,
+    'isVisible': isVisible,
+  };
+
+  CardElementPlacement copyWith({
+    String? vertical,
+    String? align,
+    String? scale,
+    bool? isVisible,
+  }) {
+    return CardElementPlacement(
+      vertical: vertical ?? this.vertical,
+      align: align ?? this.align,
+      scale: scale ?? this.scale,
+      isVisible: isVisible ?? this.isVisible,
+    );
+  }
+}
+
+/// Comprehensive layout of all elements on the card
+class CardElementsLayout {
+  final CardElementPlacement networkName;
+  final CardElementPlacement price;
+  final CardElementPlacement credentials;
+  final CardElementPlacement profileDetails;
+  final CardElementPlacement qrCode;
+  final CardElementPlacement instructions;
+  final CardElementPlacement serialNumber;
+
+  const CardElementsLayout({
+    this.networkName = const CardElementPlacement(vertical: 'top', align: 'right', scale: 'normal'),
+    this.price = const CardElementPlacement(vertical: 'top', align: 'left', scale: 'normal'),
+    this.credentials = const CardElementPlacement(vertical: 'middle', align: 'right', scale: 'normal'),
+    this.profileDetails = const CardElementPlacement(vertical: 'middle', align: 'right', scale: 'normal'),
+    this.qrCode = const CardElementPlacement(vertical: 'middle', align: 'left', scale: 'normal'),
+    this.instructions = const CardElementPlacement(vertical: 'bottom', align: 'center', scale: 'normal'),
+    this.serialNumber = const CardElementPlacement(vertical: 'bottom', align: 'right', scale: 'small'),
+  });
+
+  factory CardElementsLayout.fromConfig(Map<String, dynamic>? config) {
+    if (config == null || config.isEmpty) return const CardElementsLayout();
+
+    final elements = config['elements'] is Map ? (config['elements'] as Map) : null;
+
+    final netMap = elements?['networkName'] is Map ? Map<String, dynamic>.from(elements!['networkName'] as Map) : null;
+    final priceMap = elements?['price'] is Map ? Map<String, dynamic>.from(elements!['price'] as Map) : null;
+    final credMap = elements?['credentials'] is Map ? Map<String, dynamic>.from(elements!['credentials'] as Map) : null;
+    final profMap = elements?['profileDetails'] is Map ? Map<String, dynamic>.from(elements!['profileDetails'] as Map) : null;
+    final qrMap = elements?['qrCode'] is Map ? Map<String, dynamic>.from(elements!['qrCode'] as Map) : null;
+    final instMap = elements?['instructions'] is Map ? Map<String, dynamic>.from(elements!['instructions'] as Map) : null;
+    final snMap = elements?['serialNumber'] is Map ? Map<String, dynamic>.from(elements!['serialNumber'] as Map) : null;
+
+    final qrAlign = config['qrAlign']?.toString() ?? config['qrPosition']?.toString();
+    final priceAlign = config['priceAlign']?.toString();
+    final headerAlign = config['headerAlign']?.toString();
+
+    return CardElementsLayout(
+      networkName: CardElementPlacement.fromMap(
+        netMap,
+        defaultVertical: 'top',
+        defaultAlign: headerAlign ?? 'right',
+        defaultScale: 'normal',
+      ),
+      price: CardElementPlacement.fromMap(
+        priceMap,
+        defaultVertical: 'top',
+        defaultAlign: priceAlign ?? 'left',
+        defaultScale: 'normal',
+      ),
+      credentials: CardElementPlacement.fromMap(
+        credMap,
+        defaultVertical: 'middle',
+        defaultAlign: 'right',
+        defaultScale: 'normal',
+      ),
+      profileDetails: CardElementPlacement.fromMap(
+        profMap,
+        defaultVertical: 'middle',
+        defaultAlign: 'right',
+        defaultScale: 'normal',
+      ),
+      qrCode: CardElementPlacement.fromMap(
+        qrMap,
+        defaultVertical: 'middle',
+        defaultAlign: qrAlign ?? 'left',
+        defaultScale: 'normal',
+      ),
+      instructions: CardElementPlacement.fromMap(
+        instMap,
+        defaultVertical: 'bottom',
+        defaultAlign: 'center',
+        defaultScale: 'normal',
+      ),
+      serialNumber: CardElementPlacement.fromMap(
+        snMap,
+        defaultVertical: 'bottom',
+        defaultAlign: 'right',
+        defaultScale: 'small',
+      ),
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'networkName': networkName.toMap(),
+    'price': price.toMap(),
+    'credentials': credentials.toMap(),
+    'profileDetails': profileDetails.toMap(),
+    'qrCode': qrCode.toMap(),
+    'instructions': instructions.toMap(),
+    'serialNumber': serialNumber.toMap(),
+  };
+
+  CardElementsLayout copyWith({
+    CardElementPlacement? networkName,
+    CardElementPlacement? price,
+    CardElementPlacement? credentials,
+    CardElementPlacement? profileDetails,
+    CardElementPlacement? qrCode,
+    CardElementPlacement? instructions,
+    CardElementPlacement? serialNumber,
+  }) {
+    return CardElementsLayout(
+      networkName: networkName ?? this.networkName,
+      price: price ?? this.price,
+      credentials: credentials ?? this.credentials,
+      profileDetails: profileDetails ?? this.profileDetails,
+      qrCode: qrCode ?? this.qrCode,
+      instructions: instructions ?? this.instructions,
+      serialNumber: serialNumber ?? this.serialNumber,
+    );
+  }
+}
+
 /// Card print template model
 class CardTemplateModel {
   final String id;
@@ -1402,10 +1592,20 @@ class CardTemplateModel {
   bool get showPrice => layoutConfig['showPrice'] as bool? ?? true;
   bool get showValidity => layoutConfig['showValidity'] as bool? ?? true;
   bool get showSpeed => layoutConfig['showSpeed'] as bool? ?? true;
+  bool get showQuota => layoutConfig['showQuota'] as bool? ?? true;
+  bool get showSerial => layoutConfig['showSerial'] as bool? ?? true;
   String get networkName => layoutConfig['networkName'] as String? ?? 'سودافاي';
   String get supportPhone => layoutConfig['supportPhone'] as String? ?? '';
   String get headerTitle => layoutConfig['headerTitle'] as String? ?? 'كرت إنترنت فائق السرعة';
   String get instructions => layoutConfig['instructions'] as String? ?? 'امسح الرمز أو أدخل اسم المستخدم للدخول';
+
+  CardElementsLayout get elementsLayout => CardElementsLayout.fromConfig(layoutConfig);
+
+  CardTemplateModel withElementsLayout(CardElementsLayout layout) {
+    final newConfig = Map<String, dynamic>.from(layoutConfig);
+    newConfig['elements'] = layout.toMap();
+    return copyWith(layoutConfig: newConfig);
+  }
 
   bool get hasCustomBackground =>
       (backgroundImageBase64 != null && backgroundImageBase64!.isNotEmpty) ||
@@ -1433,6 +1633,9 @@ class CardTemplateModel {
     Map<String, dynamic> cfg = {};
     if (json['layoutConfig'] is Map) {
       cfg = Map<String, dynamic>.from(json['layoutConfig'] as Map);
+    }
+    if (json['elements'] is Map && !cfg.containsKey('elements')) {
+      cfg['elements'] = json['elements'];
     }
 
     return CardTemplateModel(

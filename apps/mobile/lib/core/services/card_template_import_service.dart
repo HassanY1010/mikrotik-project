@@ -338,15 +338,29 @@ class CardTemplateImportService {
       'networkName',
       'supportPhone',
       'headerTitle',
-      'instructions'
+      'instructions',
+      'elements',
+      'qrAlign',
+      'qrPosition',
+      'priceAlign',
+      'headerAlign',
     ]) {
       if (decoded.containsKey(key) && !layoutConfig.containsKey(key)) {
         layoutConfig[key] = decoded[key];
       }
     }
 
+    // Ensure elements layout is normalized and initialized
+    if (!layoutConfig.containsKey('elements')) {
+      layoutConfig['elements'] = CardElementsLayout.fromConfig(layoutConfig).toMap();
+    }
+
+    final stableId = (decoded['id'] != null && decoded['id'].toString().trim().isNotEmpty)
+        ? decoded['id'].toString().trim()
+        : 'imported-${DateTime.now().millisecondsSinceEpoch}';
+
     final template = CardTemplateModel(
-      id: 'imported-${DateTime.now().millisecondsSinceEpoch}',
+      id: stableId,
       name: name,
       widthMm: widthMm,
       heightMm: heightMm,
@@ -651,6 +665,7 @@ class CardTemplateImportService {
         'networkName': networkName,
         'headerTitle': headerTitle,
         'instructions': instructions,
+        'elements': const CardElementsLayout().toMap(),
       },
       isDefault: isDefault,
     );

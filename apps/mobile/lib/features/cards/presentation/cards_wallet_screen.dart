@@ -387,6 +387,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                       customPrimaryColor: pinnedTemplate?.primaryColor,
                       customAccentColor: pinnedTemplate?.accentColor,
                       customBackgroundImageBase64: pinnedTemplate?.backgroundImageBase64,
+                      template: pinnedTemplate,
                     );
                   } catch (e) {
                     if (context.mounted) {
@@ -423,6 +424,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                       customPrimaryColor: pinnedTemplate?.primaryColor,
                       customAccentColor: pinnedTemplate?.accentColor,
                       customBackgroundImageBase64: pinnedTemplate?.backgroundImageBase64,
+                      template: pinnedTemplate,
                     );
                   } catch (e) {
                     if (context.mounted) {
