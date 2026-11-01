@@ -100,10 +100,10 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: const Color(0xFF2563EB).withValues(alpha: 0.2),
+              color: AppTheme.primary.withValues(alpha: 0.2),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF38BDF8), size: 22),
+            child: const Icon(Icons.person_add_alt_1_rounded, color: AppTheme.primary, size: 22),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -214,7 +214,7 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
                     fillColor: context.bgCardAlt,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
                     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
                   ),
                   validator: (v) {
                     if (v == null || v.isEmpty) return 'الرجاء إدخال كلمة المرور';
@@ -239,8 +239,8 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
                       return FilterChip(
                         label: Text(r.name, style: const TextStyle(fontSize: 11)),
                         selected: isSelected,
-                        selectedColor: const Color(0xFF38BDF8).withValues(alpha: 0.25),
-                        checkmarkColor: const Color(0xFF38BDF8),
+                        selectedColor: AppTheme.primary.withValues(alpha: 0.25),
+                        checkmarkColor: AppTheme.primary,
                         onSelected: (sel) {
                           setState(() {
                             if (sel) {
@@ -350,7 +350,7 @@ class _CreateUserDialogState extends ConsumerState<CreateUserDialog> {
       fillColor: context.bgCardAlt,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8))),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
     );
   }
 }

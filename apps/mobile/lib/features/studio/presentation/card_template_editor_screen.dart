@@ -4,6 +4,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/card_pattern_overlay.dart';
+import '../../../core/widgets/interactive_3d_card_simulator.dart';
 
 class CardTemplateEditorScreen extends ConsumerStatefulWidget {
   final CardTemplateModel? template; // null for creating new
@@ -43,6 +45,8 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   late bool _showValidity;
   late bool _showSpeed;
   late CardElementsLayout _elementsLayout;
+  late CardPatternType _patternOverlay;
+  late double _patternOpacity;
 
   bool _isSaving = false;
 
@@ -105,7 +109,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     {
       'id': 'EID_MUBARAK',
       'name': 'عيد مبارك الملكي',
-      'primary': const Color(0xFF1E3A8A),
+      'primary': AppTheme.primary,
       'accent': const Color(0xFFD97706),
       'icon': Icons.nights_stay,
     },
@@ -131,6 +135,34 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
       'icon': Icons.grid_view,
     },
     {
+      'id': 'CYBERPUNK',
+      'name': 'الألعاب والجيمنج الرقمي',
+      'primary': const Color(0xFF090D16),
+      'accent': const Color(0xFF00FFCC),
+      'icon': Icons.sports_esports,
+    },
+    {
+      'id': 'ARTISAN_COFFEE',
+      'name': 'المقاهي والمطاعم الكلاسيكي',
+      'primary': const Color(0xFF3E2723),
+      'accent': const Color(0xFFD7CCC8),
+      'icon': Icons.local_cafe,
+    },
+    {
+      'id': 'RAMADAN',
+      'name': 'رمضان المبارك والأعياد',
+      'primary': const Color(0xFF0B192C),
+      'accent': const Color(0xFFF1C40F),
+      'icon': Icons.nights_stay,
+    },
+    {
+      'id': 'ACADEMIC',
+      'name': 'الدراسة والجامعات',
+      'primary': const Color(0xFF1E293B),
+      'accent': const Color(0xFF38BDF8),
+      'icon': Icons.school,
+    },
+    {
       'id': 'CUSTOM',
       'name': 'مخصص بالألوان',
       'primary': const Color(0xFF7C3AED),
@@ -141,7 +173,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
 
   final List<Color> _colorPalette = [
     const Color(0xFF065F46),
-    const Color(0xFF1E3A8A),
+    AppTheme.primary,
     const Color(0xFF0F766E),
     const Color(0xFF4338CA),
     const Color(0xFF334155),
@@ -193,6 +225,8 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     _showValidity = tpl?.showValidity ?? true;
     _showSpeed = tpl?.showSpeed ?? true;
     _elementsLayout = tpl?.elementsLayout ?? const CardElementsLayout();
+    _patternOverlay = CardPatternTypeExtension.fromString(tpl?.patternOverlay);
+    _patternOpacity = tpl?.patternOpacity ?? 0.12;
   }
 
   @override
@@ -264,6 +298,8 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     baseConfig['supportPhone'] = _supportPhoneController.text.trim();
     baseConfig['instructions'] = _instructionsController.text.trim();
     baseConfig['elements'] = _elementsLayout.toMap();
+    baseConfig['patternOverlay'] = _patternOverlay.id;
+    baseConfig['patternOpacity'] = _patternOpacity;
 
     final updatedTemplate = CardTemplateModel(
       id: widget.template?.id ?? '',
@@ -372,6 +408,12 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
             _buildColorPickers(),
             const SizedBox(height: 24),
 
+            // Luxury Pattern Overlays
+            _buildSectionTitle('الأنماط الزخرفية والطبقات الشفافة (Pattern Overlay):', Icons.texture),
+            const SizedBox(height: 10),
+            _buildPatternOverlaySection(),
+            const SizedBox(height: 24),
+
             // Card Content Fields
             _buildSectionTitle('نصوص وبيانات الكرت:', Icons.text_fields),
             const SizedBox(height: 12),
@@ -416,7 +458,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
       children: [
         Row(
           children: const [
-            Icon(Icons.remove_red_eye_outlined, color: Color(0xFF38BDF8), size: 20),
+            Icon(Icons.remove_red_eye_outlined, color: AppTheme.primary, size: 20),
             SizedBox(width: 8),
             Text(
               'معاينة الكرت الحية',
@@ -427,13 +469,13 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
-            color: const Color(0xFF0284C7).withValues(alpha: 0.2),
+            color: AppTheme.primary.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.2)),
+            border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
           ),
           child: Text(
             '$_widthMm × $_heightMm مم (${_orientation == 'portrait' ? 'عمودي' : 'أفقي'})',
-            style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
+            style: const TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.bold),
           ),
         ),
       ],
@@ -448,10 +490,10 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
           return Container(
             margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF1E3A8A).withValues(alpha: 0.35) : context.bgCard,
+              color: isSelected ? AppTheme.primary.withValues(alpha: 0.35) : context.bgCard,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
+                color: isSelected ? AppTheme.primary : context.borderColor,
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -476,17 +518,17 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
                       height: 40,
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? const Color(0xFF38BDF8).withValues(alpha: 0.2)
+                            ? AppTheme.primary.withValues(alpha: 0.2)
                             : const Color(0xFF334155).withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: isSelected ? const Color(0xFF38BDF8) : Colors.transparent,
+                          color: isSelected ? AppTheme.primary : Colors.transparent,
                           width: 1,
                         ),
                       ),
                       child: Icon(
                         preset['icon'] as IconData,
-                        color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                        color: isSelected ? AppTheme.primary : const Color(0xFF94A3B8),
                         size: 22,
                       ),
                     ),
@@ -509,16 +551,16 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: isSelected ? const Color(0xFF38BDF8).withValues(alpha: 0.2) : const Color(0xFF0F172A),
+                                  color: isSelected ? AppTheme.primary.withValues(alpha: 0.2) : const Color(0xFF0F172A),
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                    color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+                                    color: isSelected ? AppTheme.primary : const Color(0xFF334155),
                                   ),
                                 ),
                                 child: Text(
                                   '${preset['width']}×${preset['height']} مم',
                                   style: TextStyle(
-                                    color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                                    color: isSelected ? AppTheme.primary : const Color(0xFF94A3B8),
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -537,7 +579,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
                     const SizedBox(width: 8),
                     Icon(
                       isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-                      color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF64748B),
+                      color: isSelected ? AppTheme.primary : const Color(0xFF64748B),
                       size: 20,
                     ),
                   ],
@@ -551,10 +593,10 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
         Container(
           margin: const EdgeInsets.only(bottom: 8),
           decoration: BoxDecoration(
-            color: _isCustomSize ? const Color(0xFF1E3A8A).withValues(alpha: 0.35) : context.bgCard,
+            color: _isCustomSize ? AppTheme.primary.withValues(alpha: 0.35) : context.bgCard,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: _isCustomSize ? const Color(0xFF38BDF8) : context.borderColor,
+              color: _isCustomSize ? AppTheme.primary : context.borderColor,
               width: _isCustomSize ? 2 : 1,
             ),
           ),
@@ -578,17 +620,17 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
                         height: 40,
                         decoration: BoxDecoration(
                           color: _isCustomSize
-                              ? const Color(0xFF38BDF8).withValues(alpha: 0.2)
+                              ? AppTheme.primary.withValues(alpha: 0.2)
                               : const Color(0xFF334155).withValues(alpha: 0.5),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: _isCustomSize ? const Color(0xFF38BDF8) : Colors.transparent,
+                            color: _isCustomSize ? AppTheme.primary : Colors.transparent,
                             width: 1,
                           ),
                         ),
                         child: Icon(
                           Icons.straighten,
-                          color: _isCustomSize ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                          color: _isCustomSize ? AppTheme.primary : const Color(0xFF94A3B8),
                           size: 22,
                         ),
                       ),
@@ -611,16 +653,16 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
-                                    color: _isCustomSize ? const Color(0xFF38BDF8).withValues(alpha: 0.2) : const Color(0xFF0F172A),
+                                    color: _isCustomSize ? AppTheme.primary.withValues(alpha: 0.2) : const Color(0xFF0F172A),
                                     borderRadius: BorderRadius.circular(6),
                                     border: Border.all(
-                                      color: _isCustomSize ? const Color(0xFF38BDF8) : const Color(0xFF334155),
+                                      color: _isCustomSize ? AppTheme.primary : const Color(0xFF334155),
                                     ),
                                   ),
                                   child: Text(
                                     '$_widthMm×$_heightMm مم',
                                     style: TextStyle(
-                                      color: _isCustomSize ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8),
+                                      color: _isCustomSize ? AppTheme.primary : const Color(0xFF94A3B8),
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -639,7 +681,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
                       const SizedBox(width: 8),
                       Icon(
                         _isCustomSize ? Icons.check_circle : Icons.radio_button_unchecked,
-                        color: _isCustomSize ? const Color(0xFF38BDF8) : const Color(0xFF64748B),
+                        color: _isCustomSize ? AppTheme.primary : const Color(0xFF64748B),
                         size: 20,
                       ),
                     ],
@@ -788,6 +830,84 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
         centerCol ?? const SizedBox.shrink(),
         rightCol ?? const SizedBox.shrink(),
       ],
+    );
+  }
+
+  Widget _buildPatternOverlaySection() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'اختر النمط الزخرفي للخلفية:',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textSecondary),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: CardPatternType.values.map((type) {
+              final isSelected = _patternOverlay == type;
+              return ChoiceChip(
+                selected: isSelected,
+                avatar: Icon(
+                  type.icon,
+                  size: 16,
+                  color: isSelected ? Colors.white : AppTheme.primary,
+                ),
+                label: Text(
+                  type.labelAr,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected ? Colors.white : context.textPrimary,
+                  ),
+                ),
+                selectedColor: AppTheme.primary,
+                backgroundColor: context.bgCardAlt,
+                onSelected: (selected) {
+                  if (selected) {
+                    setState(() => _patternOverlay = type);
+                  }
+                },
+              );
+            }).toList(),
+          ),
+          if (_patternOverlay != CardPatternType.none) ...[
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'درجة شفافية النمط (الحدة):',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textSecondary),
+                ),
+                Text(
+                  '${(_patternOpacity * 100).toInt()}%',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primary),
+                ),
+              ],
+            ),
+            Slider(
+              value: _patternOpacity,
+              min: 0.04,
+              max: 0.25,
+              divisions: 21,
+              label: '${(_patternOpacity * 100).toInt()}%',
+              activeColor: AppTheme.primary,
+              onChanged: (val) {
+                setState(() => _patternOpacity = val);
+              },
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1054,41 +1174,168 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
       );
     }
 
-    return Center(
-      child: Container(
-        width: double.infinity,
-        constraints: BoxConstraints(
-          maxWidth: isPortrait ? 260 : 360,
-          minHeight: isPortrait ? 300 : 180,
+    final frontCard = Container(
+      width: double.infinity,
+      constraints: BoxConstraints(
+        maxWidth: isPortrait ? 260 : 360,
+        minHeight: isPortrait ? 300 : 180,
+      ),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_primaryColor, _primaryColor.withValues(alpha: 0.85)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [_primaryColor, _primaryColor.withValues(alpha: 0.85)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: _primaryColor.withValues(alpha: 0.25),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: _primaryColor.withValues(alpha: 0.2),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
+        ],
+        border: Border.all(color: _accentColor.withValues(alpha: 0.4), width: 1.5),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          children: [
+            if (_patternOverlay != CardPatternType.none)
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: CardPatternPainter(
+                    patternType: _patternOverlay,
+                    opacity: _patternOpacity,
+                    strokeColor: Colors.white,
+                  ),
+                ),
+              ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (topContainer != null) topContainer,
+                if (topContainer != null && (middleContainer != null || bottomContainer != null))
+                  const Divider(color: Colors.white24, height: 1),
+                if (middleContainer != null) middleContainer,
+                if (bottomContainer != null) bottomContainer,
+              ],
             ),
           ],
-          border: Border.all(color: _accentColor.withValues(alpha: 0.4), width: 1.5),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      ),
+    );
+
+    // Build Reverse / Back Card Side (Terms, Instructions, Support)
+    final backCard = Container(
+      width: double.infinity,
+      constraints: BoxConstraints(
+        maxWidth: isPortrait ? 260 : 360,
+        minHeight: isPortrait ? 300 : 180,
+      ),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_primaryColor.withValues(alpha: 0.95), _primaryColor],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: _primaryColor.withValues(alpha: 0.25),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+        border: Border.all(color: _accentColor.withValues(alpha: 0.5), width: 1.5),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
           children: [
-            if (topContainer != null) topContainer,
-            if (topContainer != null && (middleContainer != null || bottomContainer != null))
-              const Divider(color: Colors.white24, height: 1),
-            if (middleContainer != null) middleContainer,
-            if (bottomContainer != null) bottomContainer,
+            if (_patternOverlay != CardPatternType.none)
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: CardPatternPainter(
+                    patternType: _patternOverlay,
+                    opacity: _patternOpacity * 0.7,
+                    strokeColor: Colors.white,
+                  ),
+                ),
+              ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.info_outline, color: _accentColor, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'شروط وتعليمات استخدام الشبكة',
+                      style: TextStyle(
+                        color: _accentColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(color: Colors.white24, height: 16),
+                const Text(
+                  '1. الكرت صالح للاستخدام على جهاز واحد فقط في نفس الوقت.',
+                  style: TextStyle(color: Colors.white, fontSize: 10),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '2. يبدأ احتساب الوقت فور أول عملية تسجيل دخول بالشبكة.',
+                  style: TextStyle(color: Colors.white, fontSize: 10),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '3. للحفاظ على سرعة اتصالك، تجنب مشاركة الرمز مع الآخرين.',
+                  style: TextStyle(color: Colors.white, fontSize: 10),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'دعم العملاء:',
+                        style: TextStyle(color: _accentColor, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        _supportPhoneController.text.trim().isNotEmpty
+                            ? _supportPhoneController.text.trim()
+                            : 'سودافاي | شبكة معتمدة',
+                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
+      ),
+    );
+
+    return Center(
+      child: Interactive3dCardSimulator(
+        frontChild: frontCard,
+        backChild: backCard,
+        maxWidth: isPortrait ? 260 : 360,
+        minHeight: isPortrait ? 300 : 180,
       ),
     );
   }
@@ -1106,7 +1353,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
         children: [
           Row(
             children: [
-              const Icon(Icons.tune, color: Color(0xFF38BDF8), size: 18),
+              const Icon(Icons.tune, color: AppTheme.primary, size: 18),
               const SizedBox(width: 8),
               Text(
                 'تخصيص مواضع ومحاذاة العناصر:',
@@ -1287,7 +1534,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   Widget _buildSectionTitle(String title, IconData icon) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: const Color(0xFF38BDF8)),
+        Icon(icon, size: 18, color: AppTheme.primary),
         const SizedBox(width: 8),
         Text(
           title,
@@ -1321,7 +1568,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
               color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
+                color: isSelected ? AppTheme.primary : context.borderColor,
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -1525,7 +1772,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
       fillColor: context.bgCard,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
     );
   }
 }

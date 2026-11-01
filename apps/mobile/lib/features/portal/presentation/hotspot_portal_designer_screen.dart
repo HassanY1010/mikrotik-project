@@ -81,7 +81,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
       'network': 'شبكة المدينة للإنترنت',
       'title': 'أهلاً بك',
       'subtitle': 'أدخل رقم الكرت لبدء التصفح المباشر',
-      'primary': const Color(0xFF2563EB),
+      'primary': AppTheme.primary,
       'accent': const Color(0xFF10B981),
       'bg': const Color(0xFFF8FAFC),
       'card': const Color(0xFFFFFFFF),
@@ -468,7 +468,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                   const SizedBox(height: 4),
                   Text('عدد الملفات التي تم التحقق منها: $filesCount', style: TextStyle(color: ctx.textSecondary, fontSize: 11)),
                   const SizedBox(height: 4),
-                  Text('المجلد المرحلي النشط: ${stagingDirectory ?? "hotspot-staging"}', style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11)),
+                  Text('المجلد المرحلي النشط: ${stagingDirectory ?? "hotspot-staging"}', style: const TextStyle(color: AppTheme.primary, fontSize: 11)),
                   if (originalHtmlDirectory != null && profileName != null) ...[
                     const SizedBox(height: 4),
                     Text('الإعداد الأصلي المحفوظ: $originalHtmlDirectory (بروفايل $profileName)', style: TextStyle(color: ctx.textSecondary, fontSize: 11)),
@@ -602,7 +602,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                 end: Alignment.bottomLeft,
               ),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.2)),
+              border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -615,7 +615,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                         color: const Color(0xFF0EA5E9).withOpacity(0.15),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.wifi_tethering_rounded, color: Color(0xFF38BDF8), size: 26),
+                      child: const Icon(Icons.wifi_tethering_rounded, color: AppTheme.primary, size: 26),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -647,7 +647,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
             badgeText: 'قوالب جاهزة ومتوافقة',
             badgeColor: const Color(0xFF10B981),
             icon: Icons.palette_rounded,
-            iconColor: const Color(0xFF38BDF8),
+            iconColor: AppTheme.primary,
             description:
                 'اختر من بين نماذج تسجيل الدخول العصرية المصممة مسبقاً، عاين شكلها فورياً، وأضفها لراوترك بضغطة زر مع رفع كافة الموارد المتوافقة.',
             bulletPoints: [
@@ -1501,7 +1501,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
                 title: 'إجمالي الملفات',
                 value: '${bundle.files.length} ملف',
                 icon: Icons.folder_rounded,
-                color: const Color(0xFF38BDF8),
+                color: AppTheme.primary,
               ),
               const SizedBox(width: 10),
               _buildStatBadge(

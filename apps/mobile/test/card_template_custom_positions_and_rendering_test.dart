@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mobile/core/models/models.dart';
 import 'package:mobile/core/storage/local_storage.dart';
@@ -454,6 +455,135 @@ void main() {
       // 55 cards with custom 4 cols * 5 rows (20 per page) -> 3 pages
       int customCpp = 4 * 5;
       expect((55 / customCpp).ceil(), 3);
+    });
+
+    test('Template with image background renders cleanly into PDF without crashing', () async {
+      // Create a valid 200x120 test PNG image
+      final testImage = img.Image(width: 200, height: 120);
+      img.fill(testImage, color: img.ColorRgb8(30, 45, 60));
+      final pngBytes = Uint8List.fromList(img.encodePng(testImage));
+
+      final templateWithImage = CardTemplateModel(
+        id: 'tmpl-image-bg-001',
+        name: 'Silver Texture Custom',
+        themePreset: 'MODERN_DARK',
+        primaryColor: '#0F172A',
+        accentColor: '#38BDF8',
+        widthMm: 85,
+        heightMm: 54,
+        backgroundDesign: 'custom_image',
+        layoutConfig: {
+          'backgroundDesign': 'custom_image',
+          'backgroundImageBase64': base64Encode(pngBytes),
+        },
+      );
+
+      expect(templateWithImage.hasCustomBackground, isTrue);
+      expect(templateWithImage.isImageBackground, isTrue);
+      expect(templateWithImage.getSyncBackgroundBytes(), isNotNull);
+
+      final pdfBytes = await CardPdfGeneratorService.generateCardsPdf(
+        cards: sampleCards,
+        networkName: 'SudaFi Net | سودافاي',
+        template: templateWithImage,
+        customBackgroundImageBytes: templateWithImage.getSyncBackgroundBytes(),
+        layout: CardPdfLayout.a4Grid10,
+      );
+
+      expect(pdfBytes, isNotEmpty);
+      expect(String.fromCharCodes(pdfBytes.sublist(0, 5)), '%PDF-');
+    });
+
+    test('LocalStorage getActiveOrPinnedTemplate resolves active studio template first', () async {
+      final tpl1 = CardTemplateModel(
+        id: 'tpl-pinned',
+        name: 'Pinned Template',
+        themePreset: 'CLASSIC_BLUE',
+        isDefault: true,
+      );
+      final tpl2 = CardTemplateModel(
+        id: 'tpl-studio-selected',
+        name: 'Studio Selected Template',
+        themePreset: 'EMERALD_GREEN',
+        isDefault: false,
+      );
+
+      await localStorage.saveCustomTemplate(tpl1);
+      await localStorage.saveCustomTemplate(tpl2);
+
+      // Initially, active studio is null -> returns pinned template
+      expect(localStorage.getActiveOrPinnedTemplate()?.id, 'tpl-pinned');
+
+      // When studio selects tpl2 -> returns tpl2
+      await localStorage.setSelectedStudioTemplateId('tpl-studio-selected');
+      expect(localStorage.getActiveOrPinnedTemplate()?.id, 'tpl-studio-selected');
+
+      // Clear studio selection -> falls back to pinned
+      await localStorage.setSelectedStudioTemplateId(null);
+      expect(localStorage.getActiveOrPinnedTemplate()?.id, 'tpl-pinned');
+    });
+
+    test('CardTemplateImportService optimizeImageForPrint scales oversized camera photos', () {
+      // Create a 2400x1600 camera photo simulation
+      final bigPhoto = img.Image(width: 2400, height: 1600);
+      img.fill(bigPhoto, color: img.ColorRgb8(100, 150, 200));
+      final bigJpeg = Uint8List.fromList(img.encodeJpg(bigPhoto));
+
+      final optimizedBytes = CardTemplateImportService.optimizeImageForPrint(bigJpeg);
+      final decodedOptimized = img.decodeImage(optimizedBytes);
+
+      expect(decodedOptimized, isNotNull);
+      // Width should be resized down to max 1004px (300 DPI 85mm standard)
+      expect(decodedOptimized!.width, lessThanOrEqualTo(1004));
+      // Encoded as PNG
+      expect(optimizedBytes.sublist(0, 8), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    });
+
+    test('100 cards layout (a4Grid100) with custom image background renders transparent header without green theme bar', () async {
+      final testImage = img.Image(width: 200, height: 120);
+      img.fill(testImage, color: img.ColorRgb8(240, 240, 240));
+      final pngBytes = Uint8List.fromList(img.encodePng(testImage));
+
+      final templateWithImage = CardTemplateModel(
+        id: 'tmpl-100-custom',
+        name: 'Custom 100 Grid Card',
+        themePreset: 'CLASSIC', // Emerald green theme by default
+        primaryColor: '#065F46', // Emerald
+        accentColor: '#F59E0B',
+        widthMm: 85,
+        heightMm: 54,
+        backgroundDesign: 'custom_image',
+        layoutConfig: {
+          'backgroundDesign': 'custom_image',
+          'backgroundImageBase64': base64Encode(pngBytes),
+        },
+      );
+
+      final cards100 = List.generate(
+        100,
+        (i) => OfflineCardModel(
+          id: 'card-$i',
+          serialNumber: 'SN-100-${i + 1}',
+          username: '${35000000 + i}',
+          clearPassword: '${6000 + i}',
+          profileId: 'prof-hr',
+          profileName: 'HR 500 SDG',
+          deviceId: 'dev-1',
+          price: 500.0,
+          currency: 'SDG',
+        ),
+      );
+
+      final pdfBytes = await CardPdfGeneratorService.generateCardsPdf(
+        cards: cards100,
+        networkName: 'SudaFi Net',
+        template: templateWithImage,
+        customBackgroundImageBytes: templateWithImage.getSyncBackgroundBytes(),
+        layout: CardPdfLayout.a4Grid100,
+      );
+
+      expect(pdfBytes, isNotEmpty);
+      expect(String.fromCharCodes(pdfBytes.sublist(0, 5)), '%PDF-');
     });
   });
 }

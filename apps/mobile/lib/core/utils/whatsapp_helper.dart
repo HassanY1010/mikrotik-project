@@ -119,7 +119,7 @@ class WhatsAppHelper {
                     const SnackBar(content: Text('تم نسخ رقم الواتساب إلى الحافظة')),
                   );
                 },
-                child: const Text('نسخ الرقم', style: TextStyle(color: Color(0xFF38BDF8))),
+                child: const Text('نسخ الرقم', style: TextStyle(color: AppTheme.primary)),
               ),
             ],
           ),

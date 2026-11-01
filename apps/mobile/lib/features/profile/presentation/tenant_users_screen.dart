@@ -169,7 +169,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
-                  const Icon(Icons.router_outlined, color: Color(0xFF38BDF8), size: 22),
+                  const Icon(Icons.router_outlined, color: AppTheme.primary, size: 22),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -213,7 +213,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                               r.host,
                               style: TextStyle(color: context.textSecondary, fontSize: 12),
                             ),
-                            activeColor: const Color(0xFF38BDF8),
+                            activeColor: AppTheme.primary,
                             checkColor: Colors.black,
                             onChanged: (val) {
                               setDialogState(() {
@@ -238,7 +238,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                 ),
                 ElevatedButton(
                   onPressed: () => Navigator.pop(ctx, selectedIds),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
                   child: const Text('حفظ التخصيص', style: TextStyle(color: Colors.white)),
                 ),
               ],
@@ -437,7 +437,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
-                  const Icon(Icons.mail_outline_rounded, color: Color(0xFF38BDF8), size: 22),
+                  const Icon(Icons.mail_outline_rounded, color: AppTheme.primary, size: 22),
                   const SizedBox(width: 8),
                   Text(
                     'إرسال دعوة انضمام لموظف',
@@ -573,7 +573,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                       Navigator.pop(ctx, res);
                     }
                   },
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38BDF8)),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
                   child: const Text('إرسال الدعوة', style: TextStyle(color: Colors.black)),
                 ),
               ],
@@ -620,7 +620,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                     ),
                     child: SelectableText(
                       url,
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8)),
+                      style: const TextStyle(fontSize: 11, color: AppTheme.primary),
                     ),
                   ),
               ],
@@ -666,7 +666,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
       case 'ADMIN':
         return const Color(0xFFF59E0B);
       case 'MANAGER':
-        return const Color(0xFF38BDF8);
+        return AppTheme.primary;
       case 'CASHIER':
       default:
         return const Color(0xFF10B981);
@@ -689,7 +689,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
         ),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: const Color(0xFF38BDF8),
+          indicatorColor: AppTheme.primary,
           tabs: [
             Tab(
               child: Row(
@@ -762,7 +762,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                       icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
                       label: const Text('إضافة موظف مباشر'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
+                        backgroundColor: AppTheme.primary,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -776,8 +776,8 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                       icon: const Icon(Icons.send_rounded, size: 18),
                       label: const Text('إرسال رابط دعوة'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF38BDF8),
-                        side: const BorderSide(color: Color(0xFF38BDF8)),
+                        foregroundColor: AppTheme.primary,
+                        side: const BorderSide(color: AppTheme.primary),
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
@@ -815,7 +815,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFF38BDF8)),
+                    borderSide: const BorderSide(color: AppTheme.primary),
                   ),
                 ),
                 onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
@@ -828,7 +828,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
         Expanded(
           child: usersAsync.when(
             loading: () => const Center(
-              child: CircularProgressIndicator(color: Color(0xFF38BDF8)),
+              child: CircularProgressIndicator(color: AppTheme.primary),
             ),
             error: (err, _) => Center(
               child: Padding(
@@ -1021,7 +1021,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.router_outlined, size: 16, color: Color(0xFF38BDF8)),
+              const Icon(Icons.router_outlined, size: 16, color: AppTheme.primary),
               const SizedBox(width: 6),
               const Text(
                 'الراوترات المخصصة:',
@@ -1046,13 +1046,13 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                               return Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF38BDF8).withValues(alpha: 0.1),
+                                  color: AppTheme.primary.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.3)),
+                                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
                                 ),
                                 child: Text(
                                   d.name,
-                                  style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 10),
+                                  style: const TextStyle(color: AppTheme.primary, fontSize: 10),
                                 ),
                               );
                             }).toList(),
@@ -1115,8 +1115,8 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                     label: const Text('تخصيص الأجهزة', style: TextStyle(fontSize: 11)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 6),
-                      foregroundColor: const Color(0xFF38BDF8),
-                      side: const BorderSide(color: Color(0xFF38BDF8)),
+                      foregroundColor: AppTheme.primary,
+                      side: const BorderSide(color: AppTheme.primary),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
@@ -1172,7 +1172,7 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
   Widget _buildInvitationsTab(AsyncValue<List<StaffInvitationModel>> invitationsAsync) {
     return invitationsAsync.when(
       loading: () => const Center(
-        child: CircularProgressIndicator(color: Color(0xFF38BDF8)),
+        child: CircularProgressIndicator(color: AppTheme.primary),
       ),
       error: (err, _) => Center(
         child: Padding(
@@ -1254,8 +1254,8 @@ class _TenantUsersScreenState extends ConsumerState<TenantUsersScreen>
                     children: [
                       CircleAvatar(
                         radius: 20,
-                        backgroundColor: const Color(0xFF38BDF8).withValues(alpha: 0.15),
-                        child: const Icon(Icons.mail_outline, color: Color(0xFF38BDF8), size: 20),
+                        backgroundColor: AppTheme.primary.withValues(alpha: 0.15),
+                        child: const Icon(Icons.mail_outline, color: AppTheme.primary, size: 20),
                       ),
                       const SizedBox(width: 10),
                       Expanded(

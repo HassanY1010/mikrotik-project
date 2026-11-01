@@ -78,7 +78,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(successMsg),
-            backgroundColor: const Color(0xFF0D9488),
+            backgroundColor: AppTheme.primary,
             duration: const Duration(seconds: 4),
           ),
         );
@@ -144,16 +144,16 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                         height: 60,
                         margin: const EdgeInsets.only(bottom: 16),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0D9488).withValues(alpha: 0.15),
+                          color: AppTheme.primary.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: const Color(0xFF0D9488).withValues(alpha: 0.4),
+                            color: AppTheme.primary.withValues(alpha: 0.4),
                           ),
                         ),
                         child: const Icon(
                           Icons.key_rounded,
                           size: 32,
-                          color: Color(0xFF0D9488),
+                          color: AppTheme.primary,
                         ),
                       ),
                       Text(

@@ -186,9 +186,9 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: _isCheckingHealth
-                                ? Colors.blue.withValues(alpha: 0.4)
+                                ? AppTheme.primary.withValues(alpha: 0.4)
                                 : isOnline
-                                    ? const Color(0xFF0D9488).withValues(alpha: 0.3)
+                                    ? AppTheme.primary.withValues(alpha: 0.3)
                                     : Colors.amber.withValues(alpha: 0.3),
                           ),
                         ),
@@ -203,7 +203,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                                       : (isOnline ? Icons.cloud_done : Icons.cloud_off),
                                   size: 18,
                                   color: _isCheckingHealth
-                                      ? Colors.blueAccent
+                                      ? AppTheme.accent
                                       : (isOnline ? const Color(0xFF10B981) : Colors.amber),
                                 ),
                                 const SizedBox(width: 6),
@@ -247,7 +247,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: localReadyCount > 0
-                                ? const Color(0xFF0D9488).withValues(alpha: 0.4)
+                                ? AppTheme.primary.withValues(alpha: 0.4)
                                 : context.borderColor,
                           ),
                         ),
@@ -256,7 +256,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                           children: [
                             Row(
                               children: const [
-                                Icon(Icons.inventory_2_outlined, size: 18, color: Color(0xFF0D9488)),
+                                Icon(Icons.inventory_2_outlined, size: 18, color: AppTheme.primary),
                                 SizedBox(width: 6),
                                 Expanded(
                                   child: Text(
@@ -316,7 +316,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                       children: [
                         Row(
                           children: const [
-                            Icon(Icons.sync_alt, size: 20, color: Color(0xFF0D9488)),
+                            Icon(Icons.sync_alt, size: 20, color: AppTheme.primary),
                             SizedBox(width: 8),
                             Text(
                               'حالة رتل المزامنة المحلي',
@@ -328,12 +328,12 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: _isSyncing
-                                ? Colors.blue.withValues(alpha: 0.2)
+                                ? AppTheme.primary.withValues(alpha: 0.2)
                                 : conflictCount > 0
                                     ? Colors.red.withValues(alpha: 0.2)
                                     : pendingCount > 0
                                         ? Colors.amber.withValues(alpha: 0.2)
-                                        : const Color(0xFF0D9488).withValues(alpha: 0.2),
+                                        : AppTheme.primary.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
@@ -348,7 +348,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                               color: _isSyncing
-                                  ? Colors.blueAccent
+                                  ? AppTheme.accent
                                   : conflictCount > 0
                                       ? Colors.redAccent
                                       : pendingCount > 0
@@ -440,7 +440,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                       height: 48,
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0D9488),
+                          backgroundColor: AppTheme.primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -466,12 +466,12 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: _isSuccessMessage
-                              ? const Color(0xFF0D9488).withValues(alpha: 0.15)
+                              ? AppTheme.primary.withValues(alpha: 0.15)
                               : Colors.red.shade900.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: _isSuccessMessage
-                                ? const Color(0xFF0D9488).withValues(alpha: 0.4)
+                                ? AppTheme.primary.withValues(alpha: 0.4)
                                 : Colors.redAccent.withValues(alpha: 0.4),
                           ),
                         ),
@@ -583,7 +583,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                               : isPending
                                   ? Colors.amber.withValues(alpha: 0.2)
                                   : isApplied
-                                      ? Colors.teal.withValues(alpha: 0.2)
+                                      ? AppTheme.primary.withValues(alpha: 0.2)
                                       : Colors.green.withValues(alpha: 0.2),
                           child: Icon(
                             isConflict
@@ -615,7 +615,7 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
                                     ? Colors.red.shade900
                                     : isPending
                                         ? Colors.amber.shade900
-                                        : Colors.teal.shade900,
+                                        : AppTheme.primaryDark,
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
@@ -675,11 +675,11 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF0D9488).withValues(alpha: 0.3)
+              ? AppTheme.primary.withValues(alpha: 0.3)
               : context.bgCard,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFF0D9488) : context.borderColor,
+            color: isSelected ? AppTheme.primary : context.borderColor,
           ),
         ),
         child: Text(

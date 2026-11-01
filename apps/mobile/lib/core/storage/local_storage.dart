@@ -411,6 +411,16 @@ class LocalStorage {
     return templates.where((t) => t.isDefault).firstOrNull;
   }
 
+  CardTemplateModel? getActiveOrPinnedTemplate() {
+    final studioId = getSelectedStudioTemplateId();
+    if (studioId != null && studioId.isNotEmpty) {
+      final templates = getCustomTemplates();
+      final found = templates.where((t) => t.id == studioId).firstOrNull;
+      if (found != null) return found;
+    }
+    return getPinnedTemplate();
+  }
+
   Future<void> setTemplateAsDefault(String templateId) async {
     final current = getCustomTemplates();
     for (int i = 0; i < current.length; i++) {

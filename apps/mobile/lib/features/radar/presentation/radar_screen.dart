@@ -87,7 +87,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                   ),
                   const SizedBox(height: 4),
                   Text('عنوان IP: ${session.address}',
-                      style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
+                      style: const TextStyle(color: AppTheme.primary, fontSize: 12)),
                   if (session.macAddress.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text('عنوان MAC: ${session.macAddress}',
@@ -157,7 +157,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('تم نسخ $label: $text'),
-        backgroundColor: const Color(0xFF0284C7),
+        backgroundColor: AppTheme.primary,
         duration: const Duration(seconds: 2),
       ),
     );
@@ -208,7 +208,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
+            icon: const Icon(Icons.refresh, color: AppTheme.primary),
             onPressed: () => ref.read(activeSessionsProvider.notifier).refresh(),
             tooltip: 'تحديث البيانات الآن',
           ),
@@ -231,7 +231,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
               decoration: InputDecoration(
                 hintText: 'بحث باسم المشترك، الكرت، IP، MAC أو البروفايل...',
                 hintStyle: TextStyle(color: context.textSecondary, fontSize: 13),
-                prefixIcon: const Icon(Icons.search, color: Color(0xFF38BDF8)),
+                prefixIcon: const Icon(Icons.search, color: AppTheme.primary),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: Icon(Icons.clear, color: context.textSecondary, size: 18),
@@ -312,7 +312,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                               const SizedBox(height: 14),
                               ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0284C7),
+                                  backgroundColor: AppTheme.primary,
                                   foregroundColor: Colors.white,
                                 ),
                                 icon: const Icon(Icons.sync, size: 18),
@@ -359,7 +359,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                           const SizedBox(height: 14),
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0284C7),
+                              backgroundColor: AppTheme.primary,
                               foregroundColor: Colors.white,
                             ),
                             icon: const Icon(Icons.refresh, size: 18),
@@ -648,7 +648,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                 _buildBadge(
                   icon: Icons.router,
                   text: session.deviceName!,
-                  color: const Color(0xFF38BDF8),
+                  color: AppTheme.primary,
                 ),
               _buildBadge(
                 icon: Icons.card_membership,
@@ -742,7 +742,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
             children: [
               Row(
                 children: [
-                  const Icon(Icons.timer_outlined, color: Color(0xFF38BDF8), size: 15),
+                  const Icon(Icons.timer_outlined, color: AppTheme.primary, size: 15),
                   const SizedBox(width: 4),
                   Text(
                     'الجلسة: ${session.uptime}',
@@ -783,7 +783,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                       const SizedBox(width: 4),
                       Text(
                         'IP: ${session.address}',
-                        style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.w600),
+                        style: const TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.w600),
                       ),
                     ],
                   ),
@@ -832,11 +832,11 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
                 children: [
                   Text(
                     isExpanded ? 'طي التفاصيل الإضافية' : 'عرض التفاصيل الإضافية',
-                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.w600),
                   ),
                   Icon(
                     isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: const Color(0xFF38BDF8),
+                    color: AppTheme.primary,
                     size: 16,
                   ),
                 ],

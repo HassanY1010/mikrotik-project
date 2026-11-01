@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/providers.dart';
 import 'reset_password_screen.dart';
+import 'package:mobile/core/theme/app_theme.dart';
 
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
   final String? initialEmail;
@@ -122,16 +123,16 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                         height: 60,
                         margin: const EdgeInsets.only(bottom: 16),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0D9488).withValues(alpha: 0.15),
+                          color: AppTheme.primary.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: const Color(0xFF0D9488).withValues(alpha: 0.4),
+                            color: AppTheme.primary.withValues(alpha: 0.4),
                           ),
                         ),
                         child: const Icon(
                           Icons.lock_reset_rounded,
                           size: 32,
-                          color: Color(0xFF0D9488),
+                          color: AppTheme.primary,
                         ),
                       ),
                       Text(

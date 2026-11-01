@@ -236,7 +236,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('تم اختيار [${router.identity}] (${router.ip}). أدخل كلمة المرور واضغط اختبار الاتصال.'),
-        backgroundColor: const Color(0xFF0284C7),
+        backgroundColor: AppTheme.primary,
         duration: const Duration(seconds: 4),
       ),
     );
@@ -875,7 +875,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
           Color itemColor = Colors.grey.shade500;
           if (isCurrent) {
-            itemColor = const Color(0xFF0284C7);
+            itemColor = AppTheme.primary;
           } else if (isPassed) {
             itemColor = Colors.green;
           }
@@ -893,7 +893,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 CircleAvatar(
                   radius: 14,
                   backgroundColor: isCurrent
-                      ? const Color(0xFF0284C7)
+                      ? AppTheme.primary
                       : (isPassed ? Colors.green.withValues(alpha: 0.15) : Colors.transparent),
                   child: Icon(
                     isPassed ? Icons.check : (steps[index]['icon'] as IconData),
@@ -970,7 +970,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
-                        color: _setupMode == 'ACCOUNT' ? const Color(0xFF0284C7) : Colors.transparent,
+                        color: _setupMode == 'ACCOUNT' ? AppTheme.primary : Colors.transparent,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
@@ -1002,7 +1002,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
-                        color: _setupMode == 'DISCOVERY' ? const Color(0xFF0284C7) : Colors.transparent,
+                        color: _setupMode == 'DISCOVERY' ? AppTheme.primary : Colors.transparent,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
@@ -1034,7 +1034,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
-                        color: _setupMode == 'MANUAL' ? const Color(0xFF0284C7) : Colors.transparent,
+                        color: _setupMode == 'MANUAL' ? AppTheme.primary : Colors.transparent,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
@@ -1088,7 +1088,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           padding: EdgeInsets.all(32),
           child: Column(
             children: [
-              CircularProgressIndicator(color: Color(0xFF0284C7)),
+              CircularProgressIndicator(color: AppTheme.primary),
               SizedBox(height: 12),
               Text('جارِ جلب راوترات الحساب...'),
             ],
@@ -1200,11 +1200,11 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? const Color(0xFF0284C7).withValues(alpha: 0.1)
+                      ? AppTheme.primary.withValues(alpha: 0.1)
                       : context.bgCard,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isSelected ? const Color(0xFF0284C7) : context.borderColor,
+                    color: isSelected ? AppTheme.primary : context.borderColor,
                     width: isSelected ? 1.5 : 1,
                   ),
                 ),
@@ -1214,7 +1214,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   leading: CircleAvatar(
                     radius: 18,
                     backgroundColor: isSelected
-                        ? const Color(0xFF0284C7)
+                        ? AppTheme.primary
                         : (isConnected ? Colors.green.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.15)),
                     child: Icon(
                       Icons.router,
@@ -1259,7 +1259,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   ),
                   trailing: Icon(
                     isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-                    color: isSelected ? const Color(0xFF0284C7) : Colors.grey,
+                    color: isSelected ? AppTheme.primary : Colors.grey,
                     size: 20,
                   ),
                 ),
@@ -1282,7 +1282,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.verified_user_outlined, size: 18, color: Color(0xFF38BDF8)),
+                        const Icon(Icons.verified_user_outlined, size: 18, color: AppTheme.primary),
                         const SizedBox(width: 8),
                         Text(
                           'التحقق من الاتصال بالراوتر: [${selectedRouter.name}]',
@@ -1305,7 +1305,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                       child: OutlinedButton.icon(
                         onPressed: _isTesting ? null : _handleTestConnection,
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFF0284C7)),
+                          side: const BorderSide(color: AppTheme.primary),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
@@ -1313,12 +1313,12 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                               )
-                            : const Icon(Icons.network_check, color: Color(0xFF0284C7), size: 18),
+                            : const Icon(Icons.network_check, color: AppTheme.primary, size: 18),
                         label: Text(
                           _isTesting ? 'جارِ فحص الاتصال واكتشاف القدرات...' : 'اختبار الاتصال والمصادقة الآن',
-                          style: const TextStyle(color: Color(0xFF0284C7), fontWeight: FontWeight.bold, fontSize: 12),
+                          style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 12),
                         ),
                       ),
                     ),
@@ -1359,7 +1359,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             child: ElevatedButton.icon(
               onPressed: _startNetworkDiscovery,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0284C7),
+                backgroundColor: AppTheme.primary,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               icon: const Icon(Icons.radar, color: Colors.white),
@@ -1376,7 +1376,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             decoration: BoxDecoration(
               color: context.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF0284C7)),
+              border: Border.all(color: AppTheme.primary),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1389,7 +1389,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                         const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                         ),
                         const SizedBox(width: 10),
                         Text(
@@ -1411,7 +1411,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   child: LinearProgressIndicator(
                     value: _scanProgress.clamp(0.0, 1.0),
                     backgroundColor: Colors.grey.withValues(alpha: 0.2),
-                    color: const Color(0xFF0284C7),
+                    color: AppTheme.primary,
                     minHeight: 6,
                   ),
                 ),
@@ -1488,7 +1488,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                     const SizedBox(width: 10),
                     ElevatedButton.icon(
                       onPressed: () => setState(() => _setupMode = 'MANUAL'),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
                       icon: const Icon(Icons.tune, size: 16, color: Colors.white),
                       label: const Text('الانتقال للإضافة اليدوية', style: TextStyle(color: Colors.white)),
                     ),
@@ -1510,8 +1510,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               children: [
                 CircleAvatar(
                   radius: 20,
-                  backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.12),
-                  child: const Icon(Icons.wifi_find, color: Color(0xFF0284C7)),
+                  backgroundColor: AppTheme.primary.withValues(alpha: 0.12),
+                  child: const Icon(Icons.wifi_find, color: AppTheme.primary),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1555,8 +1555,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             children: [
               CircleAvatar(
                 radius: 20,
-                backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.15),
-                child: const Icon(Icons.router, color: Color(0xFF0284C7), size: 22),
+                backgroundColor: AppTheme.primary.withValues(alpha: 0.15),
+                child: const Icon(Icons.router, color: AppTheme.primary, size: 22),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1599,7 +1599,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                     Text(
                       'عنوان IP: ${router.ip}',
                       style: const TextStyle(
-                        color: Color(0xFF0284C7),
+                        color: AppTheme.primary,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
                       ),
@@ -1635,7 +1635,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               _buildInfoBadge(
                 Icons.travel_explore,
                 router.discoveryMethod == 'MNDP' ? 'بروتوكول MNDP' : 'فحص المنافذ',
-                color: const Color(0xFF0284C7),
+                color: AppTheme.primary,
               ),
             ],
           ),
@@ -1648,7 +1648,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             child: ElevatedButton.icon(
               onPressed: () => _selectDiscoveredRouter(router),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0284C7),
+                backgroundColor: AppTheme.primary,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 padding: const EdgeInsets.symmetric(vertical: 10),
               ),
@@ -1695,13 +1695,13 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF0284C7).withValues(alpha: 0.1),
+              color: AppTheme.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF0284C7)),
+              border: Border.all(color: AppTheme.primary),
             ),
             child: Row(
               children: [
-                const Icon(Icons.check_circle, color: Color(0xFF0284C7), size: 20),
+                const Icon(Icons.check_circle, color: AppTheme.primary, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -1816,7 +1816,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             style: TextStyle(color: context.textSecondary, fontSize: 11),
           ),
           value: _useSsl,
-          activeThumbColor: const Color(0xFF0284C7),
+          activeThumbColor: AppTheme.primary,
           onChanged: (v) => setState(() => _useSsl = v),
         ),
         const SizedBox(height: 18),
@@ -1827,7 +1827,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           child: OutlinedButton.icon(
             onPressed: _isTesting ? null : _handleTestConnection,
             style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Color(0xFF0284C7)),
+              side: const BorderSide(color: AppTheme.primary),
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
@@ -1835,12 +1835,12 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                   )
-                : const Icon(Icons.network_check, color: Color(0xFF0284C7)),
+                : const Icon(Icons.network_check, color: AppTheme.primary),
             label: Text(
               _isTesting ? 'جارِ فحص الاتصال ومصافحة الراوتر...' : 'اختبار الاتصال المباشر والمصادقة',
-              style: const TextStyle(color: Color(0xFF0284C7), fontWeight: FontWeight.bold),
+              style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold),
             ),
           ),
         ),
@@ -1901,7 +1901,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               padding: EdgeInsets.all(32),
               child: Column(
                 children: [
-                  CircularProgressIndicator(color: Color(0xFF0284C7)),
+                  CircularProgressIndicator(color: AppTheme.primary),
                   SizedBox(height: 14),
                   Text('جارِ فحص منافذ الراوتر وقراءة الجسور والعناوين...'),
                 ],
@@ -2020,20 +2020,20 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF0284C7).withValues(alpha: 0.08),
+                color: AppTheme.primary.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Row(
                     children: [
-                      Icon(Icons.info_outline, size: 16, color: Color(0xFF38BDF8)),
+                      Icon(Icons.info_outline, size: 16, color: AppTheme.primary),
                       SizedBox(width: 6),
                       Text(
                         'عناوين IP والخدمات المسجلة حالياً على الراوتر:',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8)),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primary),
                       ),
                     ],
                   ),
@@ -2101,7 +2101,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           description:
               'يحافظ على إعدادات الإنترنت والتوجيه الحالية كما هي، ويفعل خادم الهوتسبوت على المنافذ المختارة فقط دون أي تعارض.',
           badge: 'غير هدّام',
-          badgeColor: Colors.blue,
+          badgeColor: AppTheme.primary,
         ),
         const SizedBox(height: 10),
         _buildTemplateCard(
@@ -2136,7 +2136,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           title: 'نظام البرودباند المنزلي (PPPoE Server)',
           description: 'اشتراكات شهرية مخصصة، حسابات مستقلة (يوزر وباسورد)، وتحديد السرعات والحصص عبر شاشة اشتراكات PPPoE.',
           badge: 'مدعوم بالكامل',
-          badgeColor: Colors.blue,
+          badgeColor: AppTheme.primary,
           icon: Icons.vpn_key,
         ),
         const SizedBox(height: 10),
@@ -2227,7 +2227,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             style: TextStyle(color: context.textSecondary, fontSize: 11),
           ),
           value: _enableNat,
-          activeColor: const Color(0xFF0284C7),
+          activeColor: AppTheme.primary,
           onChanged: (v) => setState(() => _enableNat = v ?? true),
         ),
       ],
@@ -2303,8 +2303,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             return FilterChip(
               label: Text(port + (isWan ? ' (WAN)' : '')),
               selected: isSelected,
-              selectedColor: const Color(0xFF0284C7).withValues(alpha: 0.25),
-              checkmarkColor: const Color(0xFF0284C7),
+              selectedColor: AppTheme.primary.withValues(alpha: 0.25),
+              checkmarkColor: AppTheme.primary,
               onSelected: isWan
                   ? null
                   : (selected) {
@@ -2392,7 +2392,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               padding: EdgeInsets.all(32),
               child: Column(
                 children: [
-                  CircularProgressIndicator(color: Color(0xFF0284C7)),
+                  CircularProgressIndicator(color: AppTheme.primary),
                   SizedBox(height: 12),
                   Text('جارِ تحليل الإعدادات وكشف التعارضات وتوليد الأوامر...'),
                 ],
@@ -2526,7 +2526,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.arrow_left, color: Color(0xFF0284C7)),
+                    const Icon(Icons.arrow_left, color: AppTheme.primary),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Column(
@@ -2550,7 +2550,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               tilePadding: EdgeInsets.zero,
               title: const Text(
                 'عرض أوامر RouterOS الفعلية (RouterOS Script)',
-                style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontWeight: FontWeight.bold),
+                style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold),
               ),
               children: [
                 Container(
@@ -2615,11 +2615,11 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               decoration: BoxDecoration(
                 color: context.bgCard,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF0284C7)),
+                border: Border.all(color: AppTheme.primary),
               ),
               child: const Column(
                 children: [
-                  CircularProgressIndicator(color: Color(0xFF0284C7)),
+                  CircularProgressIndicator(color: AppTheme.primary),
                   SizedBox(height: 16),
                   Text(
                     'جارِ تطبيق الإعدادات على راوتر MikroTik...',
@@ -2726,13 +2726,13 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.blue.withValues(alpha: 0.1),
+              color: AppTheme.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
-                const Icon(Icons.backup_outlined, size: 20, color: Colors.blue),
+                const Icon(Icons.backup_outlined, size: 20, color: AppTheme.primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -3016,14 +3016,14 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                           );
                         },
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFF0284C7)),
+                          side: const BorderSide(color: AppTheme.primary),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           padding: const EdgeInsets.symmetric(vertical: 10),
                         ),
-                        icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF0284C7), size: 16),
+                        icon: const Icon(Icons.inventory_2_outlined, color: AppTheme.primary, size: 16),
                         label: const Text(
                           'مخزن الكروت',
-                          style: TextStyle(color: Color(0xFF0284C7), fontSize: 11, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
@@ -3115,7 +3115,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       decoration: BoxDecoration(
         color: context.bgCard,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.35)),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3125,10 +3125,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                  color: AppTheme.primary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.security, color: Color(0xFF38BDF8), size: 20),
+                child: const Icon(Icons.security, color: AppTheme.primary, size: 20),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -3228,7 +3228,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 20, color: value ? const Color(0xFF38BDF8) : Colors.grey),
+        Icon(icon, size: 20, color: value ? AppTheme.primary : Colors.grey),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
@@ -3253,7 +3253,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         const SizedBox(width: 6),
         Switch(
           value: value,
-          activeThumbColor: const Color(0xFF0284C7),
+          activeThumbColor: AppTheme.primary,
           onChanged: onChanged,
         ),
       ],
@@ -3269,19 +3269,19 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       decoration: BoxDecoration(
         color: context.bgCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.shield_outlined, color: Color(0xFF38BDF8), size: 20),
+              const Icon(Icons.shield_outlined, color: AppTheme.primary, size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'تقرير سياسات الحماية والحدود الفنية للراوتر (${reports.length}):',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF38BDF8)),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primary),
                 ),
               ),
             ],
@@ -3296,7 +3296,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 statusText = 'مفعلة على الراوتر';
                 break;
               case 'PROPOSED':
-                statusColor = Colors.blue;
+                statusColor = AppTheme.primary;
                 statusText = 'سيتم تطبيقها';
                 break;
               case 'DISABLED':
@@ -3414,7 +3414,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             ElevatedButton.icon(
               onPressed: _canAdvance() ? _handleNextStep : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0284C7),
+                backgroundColor: AppTheme.primary,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
               icon: const Icon(Icons.arrow_back, size: 16, color: Colors.white),
@@ -3481,8 +3481,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         children: [
           CircleAvatar(
             radius: 18,
-            backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.15),
-            child: Icon(icon, color: const Color(0xFF0284C7), size: 20),
+            backgroundColor: AppTheme.primary.withValues(alpha: 0.15),
+            child: Icon(icon, color: AppTheme.primary, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -3540,7 +3540,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
       ),
     );
   }
@@ -3553,9 +3553,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0284C7) : context.bgCard,
+          color: isSelected ? AppTheme.primary : context.bgCard,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: isSelected ? const Color(0xFF0284C7) : context.borderColor),
+          border: Border.all(color: isSelected ? AppTheme.primary : context.borderColor),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -3591,10 +3591,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0284C7).withValues(alpha: 0.1) : context.bgCard,
+          color: isSelected ? AppTheme.primary.withValues(alpha: 0.1) : context.bgCard,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF0284C7) : context.borderColor,
+            color: isSelected ? AppTheme.primary : context.borderColor,
             width: isSelected ? 1.5 : 1,
           ),
         ),
@@ -3605,7 +3605,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               children: [
                 Icon(
                   isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-                  color: isSelected ? const Color(0xFF0284C7) : Colors.grey,
+                  color: isSelected ? AppTheme.primary : Colors.grey,
                   size: 18,
                 ),
                 const SizedBox(width: 8),
@@ -3655,10 +3655,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0284C7).withValues(alpha: 0.1) : context.bgCard,
+          color: isSelected ? AppTheme.primary.withValues(alpha: 0.1) : context.bgCard,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF0284C7) : context.borderColor,
+            color: isSelected ? AppTheme.primary : context.borderColor,
             width: isSelected ? 1.5 : 1,
           ),
         ),
@@ -3667,7 +3667,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           children: [
             Row(
               children: [
-                Icon(icon, size: 20, color: isSelected ? const Color(0xFF0284C7) : context.textSecondary),
+                Icon(icon, size: 20, color: isSelected ? AppTheme.primary : context.textSecondary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -3735,9 +3735,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0284C7) : context.bgCard,
+          color: isSelected ? AppTheme.primary : context.bgCard,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: isSelected ? const Color(0xFF0284C7) : context.borderColor),
+          border: Border.all(color: isSelected ? AppTheme.primary : context.borderColor),
         ),
         child: Column(
           children: [
@@ -3797,7 +3797,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(6)),
-                  child: Text('${latencyMs}ms', style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11)),
+                  child: Text('${latencyMs}ms', style: const TextStyle(color: AppTheme.primary, fontSize: 11)),
                 ),
             ],
           ),

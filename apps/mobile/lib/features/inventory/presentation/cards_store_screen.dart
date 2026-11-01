@@ -87,7 +87,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           actions: [
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2563EB),
+                backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
@@ -356,7 +356,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           actions: [
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2563EB),
+                backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
@@ -490,7 +490,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('حسناً', style: TextStyle(color: Color(0xFF38BDF8))),
+              child: const Text('حسناً', style: TextStyle(color: AppTheme.primary)),
             ),
           ],
         ),
@@ -692,7 +692,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                             (state.cards.isNotEmpty && state.cards.every((c) => _selectedCardIds.contains(c.id))))
                     ? Icons.deselect
                     : Icons.select_all,
-                color: const Color(0xFF38BDF8),
+                color: AppTheme.primary,
               ),
               onPressed: () {
                 final hasAllVisible = state.cards.isNotEmpty && state.cards.every((c) => _selectedCardIds.contains(c.id));
@@ -720,7 +720,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           ] else ...[
             IconButton(
               onPressed: _toggleSelectionMode,
-              icon: const Icon(Icons.checklist_rtl_rounded, color: Color(0xFF38BDF8)),
+              icon: const Icon(Icons.checklist_rtl_rounded, color: AppTheme.primary),
               tooltip: 'تحديد كروت متعددة للعمليات الجماعية',
             ),
             IconButton(
@@ -800,7 +800,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           : null,
       body: RefreshIndicator(
         onRefresh: () => ref.read(cardsInventoryProvider.notifier).refresh(),
-        color: const Color(0xFF38BDF8),
+        color: AppTheme.primary,
         backgroundColor: context.bgCard,
         child: Column(
           children: [
@@ -813,7 +813,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                 decoration: InputDecoration(
                   hintText: 'بحث بالرمز، الرقم التسلسلي، أو الباقة...',
                   hintStyle: TextStyle(color: context.textSecondary, fontSize: 13),
-                  prefixIcon: const Icon(Icons.search, color: Color(0xFF38BDF8)),
+                  prefixIcon: const Icon(Icons.search, color: AppTheme.primary),
                   suffixIcon: _searchController.text.isNotEmpty
                       ? IconButton(
                           icon: Icon(Icons.clear, color: context.textSecondary, size: 18),
@@ -832,7 +832,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF38BDF8)),
+                    borderSide: const BorderSide(color: AppTheme.primary),
                   ),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 ),
@@ -868,7 +868,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                     child: FilterChip(
                       label: Text('${f['label']!}$countSuffix'),
                       selected: isSelected,
-                      selectedColor: const Color(0xFF2563EB),
+                      selectedColor: AppTheme.primary,
                       backgroundColor: context.bgCard,
                       labelStyle: TextStyle(
                         color: isSelected ? Colors.white : context.textSecondary,
@@ -911,12 +911,12 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                     ),
                     Row(
                       children: [
-                        const Icon(Icons.storage_rounded, size: 14, color: Color(0xFF38BDF8)),
+                        const Icon(Icons.storage_rounded, size: 14, color: AppTheme.primary),
                         const SizedBox(width: 4),
                         Text(
                           'إجمالي الكروت: ${state.totalInventory} كرت',
                           style: const TextStyle(
-                            color: Color(0xFF38BDF8),
+                            color: AppTheme.primary,
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),
@@ -934,13 +934,13 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E3A8A).withValues(alpha: 0.3),
+                  color: AppTheme.primary.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.4)),
+                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.4)),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline, color: Color(0xFF38BDF8), size: 16),
+                    const Icon(Icons.info_outline, color: AppTheme.primary, size: 16),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -957,12 +957,12 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                             ? const SizedBox(
                                 width: 14,
                                 height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                               )
                             : Text(
                                 'تحديد جميع النتائج (${state.totalMatching})',
                                 style: const TextStyle(
-                                  color: Color(0xFF38BDF8),
+                                  color: AppTheme.primary,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
                                 ),
@@ -984,7 +984,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             if (state.isLoading && state.cards.isNotEmpty)
               LinearProgressIndicator(
                 backgroundColor: context.bgCardAlt,
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
+                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
                 minHeight: 2,
               ),
 
@@ -1009,7 +1009,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
+              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
             ),
             SizedBox(height: 16),
             Text(
@@ -1044,7 +1044,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
               const SizedBox(height: 18),
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2563EB),
+                  backgroundColor: AppTheme.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -1130,8 +1130,8 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             const SizedBox(height: 14),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF38BDF8),
-                side: const BorderSide(color: Color(0xFF38BDF8)),
+                foregroundColor: AppTheme.primary,
+                side: const BorderSide(color: AppTheme.primary),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               onPressed: _clearSearch,
@@ -1166,8 +1166,8 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             const SizedBox(height: 14),
             OutlinedButton(
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF38BDF8),
-                side: const BorderSide(color: Color(0xFF38BDF8)),
+                foregroundColor: AppTheme.primary,
+                side: const BorderSide(color: AppTheme.primary),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               onPressed: () => _onStatusChanged('ALL'),
@@ -1224,11 +1224,11 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF1E3A8A).withValues(alpha: 0.35)
+              ? AppTheme.primary.withValues(alpha: 0.35)
               : context.bgCard,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
+            color: isSelected ? AppTheme.primary : context.borderColor,
             width: isSelected ? 1.5 : 1.0,
           ),
         ),
@@ -1240,7 +1240,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                   Checkbox(
                     value: isSelected,
                     onChanged: (_) => _toggleCardSelection(card.id),
-                    activeColor: const Color(0xFF38BDF8),
+                    activeColor: AppTheme.primary,
                     checkColor: context.bgScaffold,
                     side: BorderSide(color: context.borderColor),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
@@ -1250,7 +1250,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                 // QR Code Quick Viewer Button
                 IconButton(
                   onPressed: () => _showCardDetailsDialog(card),
-                  icon: const Icon(Icons.qr_code_2, color: Color(0xFF38BDF8), size: 28),
+                  icon: const Icon(Icons.qr_code_2, color: AppTheme.primary, size: 28),
                   tooltip: 'عرض تفاصيل الكرت والـ QR',
                 ),
                 const SizedBox(width: 8),
@@ -1413,7 +1413,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                               value: 'details',
                               child: Row(
                                 children: [
-                                  Icon(Icons.visibility_outlined, size: 16, color: Color(0xFF38BDF8)),
+                                  Icon(Icons.visibility_outlined, size: 16, color: AppTheme.primary),
                                   SizedBox(width: 8),
                                   Text('عرض التفاصيل والـ QR', style: TextStyle(color: Colors.white, fontSize: 12)),
                                 ],
@@ -1483,7 +1483,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.speed_rounded, size: 12, color: Color(0xFF38BDF8)),
+                      const Icon(Icons.speed_rounded, size: 12, color: AppTheme.primary),
                       const SizedBox(width: 3),
                       Text(
                         card.formattedSpeedLabel,
@@ -1565,7 +1565,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             icon: const Icon(Icons.chevron_right, size: 18),
             label: const Text('السابق'),
             style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFF38BDF8),
+              foregroundColor: AppTheme.primary,
               disabledForegroundColor: const Color(0xFF64748B),
             ),
           ),
@@ -1578,7 +1578,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             icon: const Icon(Icons.chevron_left, size: 18),
             label: const Text('التالي'),
             style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFF38BDF8),
+              foregroundColor: AppTheme.primary,
               disabledForegroundColor: const Color(0xFF64748B),
             ),
           ),
@@ -1614,10 +1614,10 @@ class _CardDetailsDialog extends ConsumerWidget {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                      color: AppTheme.primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.credit_card, color: Color(0xFF38BDF8), size: 20),
+                    child: const Icon(Icons.credit_card, color: AppTheme.primary, size: 20),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1687,7 +1687,7 @@ class _CardDetailsDialog extends ConsumerWidget {
                 const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                 ),
             ],
           ),
@@ -1735,13 +1735,13 @@ class _CardDetailsDialog extends ConsumerWidget {
                             Icon(
                               showCredentials ? Icons.visibility_off : Icons.visibility,
                               size: 14,
-                              color: const Color(0xFF38BDF8),
+                              color: AppTheme.primary,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               showCredentials ? 'إخفاء' : 'كشف الرموز',
                               style: const TextStyle(
-                                color: Color(0xFF38BDF8),
+                                color: AppTheme.primary,
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -1757,7 +1757,7 @@ class _CardDetailsDialog extends ConsumerWidget {
                       _buildDetailRow(
                         'اسم المستخدم / الرمز:',
                         c.username,
-                        textColor: const Color(0xFF38BDF8),
+                        textColor: AppTheme.primary,
                         isMonospace: true,
                         canCopy: true,
                         context: context,
@@ -1780,7 +1780,7 @@ class _CardDetailsDialog extends ConsumerWidget {
                         _buildDetailRow(
                           'رمز PIN:',
                           showCredentials ? c.pinCode! : '••••',
-                          textColor: const Color(0xFFA78BFA),
+                          textColor: AppTheme.primary,
                           isMonospace: true,
                           canCopy: showCredentials,
                           context: context,
@@ -1813,7 +1813,7 @@ class _CardDetailsDialog extends ConsumerWidget {
                       _buildDetailRow(
                         'السرعة المطبقة:',
                         c.formattedSpeedLabel,
-                        textColor: const Color(0xFF38BDF8),
+                        textColor: AppTheme.primary,
                         context: context,
                       ),
                       Divider(color: context.borderColor),
@@ -1905,7 +1905,7 @@ class _CardDetailsDialog extends ConsumerWidget {
                         _buildDetailRow(
                           'مدة الجلسة النشطة:',
                           c.sessionUptime!,
-                          textColor: const Color(0xFF38BDF8),
+                          textColor: AppTheme.primary,
                           context: context,
                         ),
                       ],
@@ -1980,7 +1980,7 @@ ${c.clearPassword != null ? 'كلمة المرور: ${c.clearPassword}' : ''}
 '''.trim();
                     Share.share(textToShare);
                   },
-                  icon: const Icon(Icons.share, color: Color(0xFF38BDF8)),
+                  icon: const Icon(Icons.share, color: AppTheme.primary),
                   tooltip: 'مشاركة بيانات الكرت',
                 ),
                 const Spacer(),
@@ -2003,12 +2003,12 @@ ${c.clearPassword != null ? 'كلمة المرور: ${c.clearPassword}' : ''}
       padding: const EdgeInsets.only(bottom: 6, top: 4),
       child: Row(
         children: [
-          Icon(icon, size: 14, color: const Color(0xFF38BDF8)),
+          Icon(icon, size: 14, color: AppTheme.primary),
           const SizedBox(width: 6),
           Text(
             title,
             style: const TextStyle(
-              color: Color(0xFF38BDF8),
+              color: AppTheme.primary,
               fontSize: 11.5,
               fontWeight: FontWeight.bold,
             ),

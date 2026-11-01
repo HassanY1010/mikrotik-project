@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 /// Authenticated user representation
@@ -1572,6 +1573,7 @@ class CardTemplateModel {
   final String accentColor;
   final Map<String, dynamic> layoutConfig;
   final bool isDefault;
+  final Uint8List? backgroundImageBytes;
 
   CardTemplateModel({
     required this.id,
@@ -1585,7 +1587,23 @@ class CardTemplateModel {
     this.accentColor = '#10B981',
     this.layoutConfig = const {},
     this.isDefault = false,
+    this.backgroundImageBytes,
   });
+
+  Uint8List? getSyncBackgroundBytes() {
+    if (backgroundImageBytes != null && backgroundImageBytes!.isNotEmpty) {
+      return backgroundImageBytes;
+    }
+    final b64 = backgroundImageBase64;
+    if (b64 != null && b64.isNotEmpty) {
+      try {
+        return base64Decode(b64);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
 
   bool get showQr => layoutConfig['showQr'] as bool? ?? true;
   bool get showPin => layoutConfig['showPin'] as bool? ?? true;
@@ -1628,6 +1646,10 @@ class CardTemplateModel {
   String get backgroundFit => layoutConfig['backgroundFit'] as String? ?? 'cover';
   bool get isImageBackground => layoutConfig['isImageBackground'] as bool? ?? (backgroundImageBase64 != null);
   bool get isPdfBackground => layoutConfig['isPdfBackground'] as bool? ?? false;
+
+  /// Decorative Luxury Pattern Overlays (CIRCUIT, ISLAMIC, CARBON, NONE)
+  String get patternOverlay => layoutConfig['patternOverlay'] as String? ?? 'NONE';
+  double get patternOpacity => (layoutConfig['patternOpacity'] as num?)?.toDouble() ?? 0.12;
 
   factory CardTemplateModel.fromJson(Map<String, dynamic> json) {
     Map<String, dynamic> cfg = {};
@@ -1693,6 +1715,7 @@ class CardTemplateModel {
     String? accentColor,
     Map<String, dynamic>? layoutConfig,
     bool? isDefault,
+    Uint8List? backgroundImageBytes,
   }) {
     return CardTemplateModel(
       id: id ?? this.id,
@@ -1706,6 +1729,7 @@ class CardTemplateModel {
       accentColor: accentColor ?? this.accentColor,
       layoutConfig: layoutConfig ?? this.layoutConfig,
       isDefault: isDefault ?? this.isDefault,
+      backgroundImageBytes: backgroundImageBytes ?? this.backgroundImageBytes,
     );
   }
 }

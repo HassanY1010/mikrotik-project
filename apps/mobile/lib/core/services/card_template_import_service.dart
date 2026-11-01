@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:printing/printing.dart';
 import '../models/models.dart';
 
@@ -85,6 +86,26 @@ class CardTemplateMediaImportResult {
 }
 
 class CardTemplateImportService {
+  /// Optimizes large camera photos or raster images for PDF printing
+  static Uint8List optimizeImageForPrint(Uint8List imageBytes, {int maxDimension = 1004}) {
+    try {
+      final decoded = img.decodeImage(imageBytes);
+      if (decoded == null) return imageBytes;
+      if (decoded.width <= maxDimension && decoded.height <= maxDimension) {
+        return imageBytes;
+      }
+      final resized = img.copyResize(
+        decoded,
+        width: decoded.width > decoded.height ? maxDimension : null,
+        height: decoded.height >= decoded.width ? maxDimension : null,
+        interpolation: img.Interpolation.linear,
+      );
+      return Uint8List.fromList(img.encodePng(resized));
+    } catch (_) {
+      return imageBytes;
+    }
+  }
+
   /// Maximum allowed file size for template JSON files (200 KB)
   static const int maxFileSizeBytes = 200 * 1024;
 
@@ -250,6 +271,94 @@ class CardTemplateImportService {
           'networkName': 'شبكة سودافي العمودية',
           'headerTitle': 'بطاقة مستخدم الهوتسبوت',
           'instructions': 'امسح الرمز للاتصال',
+        },
+      ),
+      CardTemplateModel(
+        id: 'builtin-cyberpunk',
+        name: 'الألعاب والجيمنج الرقمي (85×54 مم)',
+        themePreset: 'CYBERPUNK',
+        primaryColor: '#090D16',
+        accentColor: '#00FFCC',
+        widthMm: 85,
+        heightMm: 54,
+        orientation: 'landscape',
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': true,
+          'patternOverlay': 'CIRCUIT',
+          'patternOpacity': 0.16,
+          'networkName': '⚡ سايبر نت جيمنج | CyberNet',
+          'headerTitle': 'باقة الألعاب والـ Ping المنخفض',
+          'instructions': 'امسح الرمز واستمتع بأقصى سرعة بدون لاج',
+        },
+      ),
+      CardTemplateModel(
+        id: 'builtin-artisan-coffee',
+        name: 'المقاهي والمطاعم الكلاسيكي (85×54 مم)',
+        themePreset: 'ARTISAN_COFFEE',
+        primaryColor: '#3E2723',
+        accentColor: '#D7CCC8',
+        widthMm: 85,
+        heightMm: 54,
+        orientation: 'landscape',
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': true,
+          'patternOverlay': 'CARBON',
+          'patternOpacity': 0.10,
+          'networkName': '☕ مقهى الأصدقاء | Friends Cafe',
+          'headerTitle': 'استمتع بقهوتك وتصفح بأقصى سرعة',
+          'instructions': 'شبكة مجانية لرواد المقهى - نتمنى لكم وقتاً ممتعاً',
+        },
+      ),
+      CardTemplateModel(
+        id: 'builtin-ramadan',
+        name: 'رمضان المبارك والأعياد (85×54 مم)',
+        themePreset: 'RAMADAN',
+        primaryColor: '#0B192C',
+        accentColor: '#F1C40F',
+        widthMm: 85,
+        heightMm: 54,
+        orientation: 'landscape',
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': true,
+          'patternOverlay': 'ISLAMIC',
+          'patternOpacity': 0.18,
+          'networkName': '🌙 نفحات رمضانية مباركة',
+          'headerTitle': 'رمضان كريم وكل عام وأنتم بخير',
+          'instructions': 'سجل الدخول بالرمز وشارك اللحظات الجميلة مع أحبابك',
+        },
+      ),
+      CardTemplateModel(
+        id: 'builtin-academic',
+        name: 'الدراسة والجامعات (85×54 مم)',
+        themePreset: 'ACADEMIC',
+        primaryColor: '#1E293B',
+        accentColor: '#38BDF8',
+        widthMm: 85,
+        heightMm: 54,
+        orientation: 'landscape',
+        layoutConfig: {
+          'showQr': true,
+          'showPin': true,
+          'showPrice': true,
+          'showValidity': true,
+          'showSpeed': true,
+          'patternOverlay': 'NONE',
+          'patternOpacity': 0.08,
+          'networkName': '🎓 مجمع الطلاب الأكاديمي',
+          'headerTitle': 'شبكة البحوث والتعليم فائق السرعة',
+          'instructions': 'مخصص للأغراض التعليمية والبحثية للطلاب',
         },
       ),
     ];

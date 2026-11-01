@@ -5,6 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../models/models.dart';
 import 'pdf_font_service.dart';
+import 'card_pattern_image_generator.dart';
 
 enum CardPdfLayout {
   a4Grid10,  // 2 cols x 5 rows = 10 cards (Large, premium with big QR and details)
@@ -70,6 +71,42 @@ class CardDesignTheme {
     badgeTextColor: PdfColors.white,
   );
 
+  static const CardDesignTheme cyberpunk = CardDesignTheme(
+    id: 'CYBERPUNK',
+    name: 'الألعاب والجيمنج الرقمي',
+    primaryColor: PdfColor.fromInt(0xFF090D16), // Midnight Black
+    accentColor: PdfColor.fromInt(0xFF00FFCC),  // Neon Cyan / Mint
+    headerTextColor: PdfColor.fromInt(0xFF00FFCC),
+    badgeTextColor: PdfColors.black,
+  );
+
+  static const CardDesignTheme artisanCoffee = CardDesignTheme(
+    id: 'ARTISAN_COFFEE',
+    name: 'المقاهي والمطاعم الكلاسيكي',
+    primaryColor: PdfColor.fromInt(0xFF3E2723), // Dark Roast Brown
+    accentColor: PdfColor.fromInt(0xFFD7CCC8),  // Warm Craft Paper
+    headerTextColor: PdfColor.fromInt(0xFFD7CCC8),
+    badgeTextColor: PdfColors.black,
+  );
+
+  static const CardDesignTheme ramadan = CardDesignTheme(
+    id: 'RAMADAN',
+    name: 'رمضان المبارك والأعياد',
+    primaryColor: PdfColor.fromInt(0xFF0B192C), // Deep Indigo / Navy
+    accentColor: PdfColor.fromInt(0xFFF1C40F),  // Warm Golden Crescent
+    headerTextColor: PdfColor.fromInt(0xFFF1C40F),
+    badgeTextColor: PdfColors.black,
+  );
+
+  static const CardDesignTheme academic = CardDesignTheme(
+    id: 'ACADEMIC',
+    name: 'الدراسة والجامعات',
+    primaryColor: PdfColor.fromInt(0xFF1E293B), // Slate Slate
+    accentColor: PdfColor.fromInt(0xFF38BDF8),  // Sky Blue
+    headerTextColor: PdfColors.white,
+    badgeTextColor: PdfColors.white,
+  );
+
   static CardDesignTheme fromId(String? id, {String? customPrimaryHex, String? customAccentHex, String? customName}) {
     if (customPrimaryHex != null && customPrimaryHex.isNotEmpty) {
       PdfColor parseHex(String hex, PdfColor fallback) {
@@ -101,6 +138,17 @@ class CardDesignTheme {
         return ticket;
       case 'COMPACT':
         return compact;
+      case 'CYBERPUNK':
+      case 'GAMING':
+        return cyberpunk;
+      case 'ARTISAN_COFFEE':
+      case 'COFFEE':
+        return artisanCoffee;
+      case 'RAMADAN':
+        return ramadan;
+      case 'ACADEMIC':
+      case 'UNIVERSITY':
+        return academic;
       default:
         return football;
     }
@@ -167,6 +215,24 @@ class CardPdfGeneratorService {
       } catch (_) {
         bgImage = null;
       }
+    }
+
+    // Generate Luxury Decorative Pattern Overlay image if enabled
+    pw.MemoryImage? patternOverlayImage;
+    final patternType = template?.patternOverlay ?? 'NONE';
+    final patternOpacity = template?.patternOpacity ?? 0.12;
+    if (patternType != 'NONE' && patternOpacity > 0.001) {
+      try {
+        final patternBytes = CardPatternImageGenerator.generatePatternPng(
+          patternId: patternType,
+          widthPx: 320,
+          heightPx: 200,
+          opacity: patternOpacity,
+        );
+        if (patternBytes != null && patternBytes.isNotEmpty) {
+          patternOverlayImage = pw.MemoryImage(patternBytes);
+        }
+      } catch (_) {}
     }
 
     final pdf = pw.Document(
@@ -318,6 +384,7 @@ class CardPdfGeneratorService {
                               cardMargin: cardMargin,
                               index: startIndex + cardIdx + 1,
                               bgImage: bgImage,
+                              patternOverlayImage: patternOverlayImage,
                               showPrice: effectiveShowPrice,
                               showSerial: effectiveShowSerial,
                             )
@@ -336,6 +403,7 @@ class CardPdfGeneratorService {
                               instructions: effectiveInstructions,
                               index: startIndex + cardIdx + 1,
                               bgImage: bgImage,
+                              patternOverlayImage: patternOverlayImage,
                               elementsLayout: elementsLayout,
                             );
                     }),
@@ -428,6 +496,7 @@ class CardPdfGeneratorService {
     bool showSerial = true,
     String? instructions,
     pw.MemoryImage? bgImage,
+    pw.MemoryImage? patternOverlayImage,
     CardElementsLayout? elementsLayout,
   }) {
     final hasPin = card.clearPassword != null &&
@@ -881,26 +950,29 @@ class CardPdfGeneratorService {
       child: pw.ClipRRect(
         horizontalRadius: 4,
         verticalRadius: 4,
-        child: bgImage != null
-            ? pw.Stack(
-                children: [
-                  pw.Positioned.fill(
-                    child: pw.Image(
-                      bgImage,
-                      fit: pw.BoxFit.cover,
-                    ),
-                  ),
-                  pw.Container(
-                    padding: const pw.EdgeInsets.all(3.5),
-                    color: const PdfColor(1, 1, 1, 0.25),
-                    child: cardContent,
-                  ),
-                ],
-              )
-            : pw.Padding(
-                padding: const pw.EdgeInsets.all(3.5),
-                child: cardContent,
+        child: pw.Stack(
+          children: [
+            if (bgImage != null)
+              pw.Positioned.fill(
+                child: pw.Image(
+                  bgImage,
+                  fit: pw.BoxFit.cover,
+                ),
               ),
+            if (patternOverlayImage != null)
+              pw.Positioned.fill(
+                child: pw.Image(
+                  patternOverlayImage,
+                  fit: pw.BoxFit.cover,
+                ),
+              ),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(3.5),
+              color: bgImage != null ? const PdfColor(1, 1, 1, 0.25) : null,
+              child: cardContent,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -916,6 +988,7 @@ class CardPdfGeneratorService {
     bool showPrice = true,
     bool showSerial = true,
     pw.MemoryImage? bgImage,
+    pw.MemoryImage? patternOverlayImage,
   }) {
     final hasPin = card.clearPassword != null &&
         card.clearPassword!.isNotEmpty &&
@@ -1034,26 +1107,29 @@ class CardPdfGeneratorService {
       child: pw.ClipRRect(
         horizontalRadius: 1.5,
         verticalRadius: 1.5,
-        child: bgImage != null
-            ? pw.Stack(
-                children: [
-                  pw.Positioned.fill(
-                    child: pw.Image(
-                      bgImage,
-                      fit: pw.BoxFit.cover,
-                    ),
-                  ),
-                  pw.Container(
-                    padding: const pw.EdgeInsets.all(1.5),
-                    color: const PdfColor(1, 1, 1, 0.25),
-                    child: miniCardContent,
-                  ),
-                ],
-              )
-            : pw.Padding(
-                padding: const pw.EdgeInsets.all(1.5),
-                child: miniCardContent,
+        child: pw.Stack(
+          children: [
+            if (bgImage != null)
+              pw.Positioned.fill(
+                child: pw.Image(
+                  bgImage,
+                  fit: pw.BoxFit.cover,
+                ),
               ),
+            if (patternOverlayImage != null)
+              pw.Positioned.fill(
+                child: pw.Image(
+                  patternOverlayImage,
+                  fit: pw.BoxFit.cover,
+                ),
+              ),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(1.5),
+              color: bgImage != null ? const PdfColor(1, 1, 1, 0.25) : null,
+              child: miniCardContent,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -142,24 +142,24 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
             margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             decoration: BoxDecoration(
               color: context.isDarkMode
-                  ? const Color(0xFF0369A1).withValues(alpha: 0.15)
+                  ? AppTheme.primary.withValues(alpha: 0.15)
                   : const Color(0xFFE0F2FE),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: context.isDarkMode
-                    ? const Color(0xFF0284C7).withValues(alpha: 0.3)
+                    ? AppTheme.primary.withValues(alpha: 0.3)
                     : const Color(0xFFBAE6FD),
               ),
             ),
             child: Row(
               children: [
-                const Icon(Icons.info_outline, color: Color(0xFF0284C7), size: 18),
+                const Icon(Icons.info_outline, color: AppTheme.primary, size: 18),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     'تُنفذ عمليات PPPoE عبر وكيل LAN مشفر. لا تُعتبر العملية مكتملة على الراوتر حتى تصبح الحالة COMPLETED.',
                     style: TextStyle(
-                      color: context.isDarkMode ? const Color(0xFFBAE6FD) : const Color(0xFF0369A1),
+                      color: context.isDarkMode ? const Color(0xFFBAE6FD) : AppTheme.primary,
                       fontSize: 11,
                       height: 1.4,
                     ),
@@ -201,9 +201,9 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                         )
-                      : const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
+                      : const Icon(Icons.refresh, color: AppTheme.primary),
                   tooltip: 'تحديث جميع الأوامر',
                   onPressed: _isPolling ? null : _refreshAllCommands,
                 ),
@@ -267,7 +267,7 @@ class _PppoeCommandsTabState extends ConsumerState<PppoeCommandsTab> {
                             ],
                           ),
                           trailing: IconButton(
-                            icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8), size: 18),
+                            icon: const Icon(Icons.refresh, color: AppTheme.primary, size: 18),
                             tooltip: 'تحديث حالة الأمر',
                             onPressed: () => ref.read(pppoeCommandsProvider.notifier).fetchStatus(item.commandId),
                           ),

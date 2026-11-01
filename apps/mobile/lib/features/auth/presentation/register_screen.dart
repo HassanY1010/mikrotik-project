@@ -144,7 +144,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           const Icon(
                             Icons.wifi_tethering_rounded,
                             size: 44,
-                            color: Color(0xFF38BDF8),
+                            color: AppTheme.primary,
                           ),
                           const SizedBox(height: 8),
                           Text(
@@ -192,12 +192,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         labelStyle: TextStyle(color: context.textSecondary),
                         hintText: 'مثال: شبكة النور هوت سبوت',
                         hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
-                        prefixIcon: const Icon(Icons.business_rounded, color: Color(0xFF38BDF8)),
+                        prefixIcon: const Icon(Icons.business_rounded, color: AppTheme.primary),
                         filled: true,
                         fillColor: context.bgCard,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
                         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
                       ),
                       onChanged: _generateSlugFromName,
                       validator: (val) {
@@ -217,12 +217,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         labelStyle: TextStyle(color: context.textSecondary),
                         hintText: 'مثال: al-noor-wifi',
                         hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
-                        prefixIcon: const Icon(Icons.link_rounded, color: Color(0xFF38BDF8)),
+                        prefixIcon: const Icon(Icons.link_rounded, color: AppTheme.primary),
                         filled: true,
                         fillColor: context.bgCard,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
                         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
                       ),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) return 'معرف الشبكة مطلوب';
@@ -244,12 +244,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         labelStyle: TextStyle(color: context.textSecondary),
                         hintText: 'مثال: أحمد محمد علي',
                         hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
-                        prefixIcon: const Icon(Icons.person_rounded, color: Color(0xFF38BDF8)),
+                        prefixIcon: const Icon(Icons.person_rounded, color: AppTheme.primary),
                         filled: true,
                         fillColor: context.bgCard,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
                         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
                       ),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) return 'اسم المسؤول مطلوب';
@@ -269,12 +269,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         labelStyle: TextStyle(color: context.textSecondary),
                         hintText: 'admin@example.com',
                         hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
-                        prefixIcon: const Icon(Icons.email_rounded, color: Color(0xFF38BDF8)),
+                        prefixIcon: const Icon(Icons.email_rounded, color: AppTheme.primary),
                         filled: true,
                         fillColor: context.bgCard,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
                         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
                       ),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) return 'البريد الإلكتروني مطلوب';
@@ -294,12 +294,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         labelStyle: TextStyle(color: context.textSecondary),
                         hintText: '+249912345678',
                         hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6)),
-                        prefixIcon: const Icon(Icons.phone_rounded, color: Color(0xFF38BDF8)),
+                        prefixIcon: const Icon(Icons.phone_rounded, color: AppTheme.primary),
                         filled: true,
                         fillColor: context.bgCard,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
                         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -312,7 +312,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       decoration: InputDecoration(
                         labelText: 'كلمة المرور * (8 خانات على الأقل)',
                         labelStyle: TextStyle(color: context.textSecondary),
-                        prefixIcon: const Icon(Icons.lock_rounded, color: Color(0xFF38BDF8)),
+                        prefixIcon: const Icon(Icons.lock_rounded, color: AppTheme.primary),
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword ? Icons.visibility_off : Icons.visibility,
@@ -324,7 +324,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         fillColor: context.bgCard,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
                         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: context.borderColor)),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
                       ),
                       validator: (val) {
                         if (val == null || val.isEmpty) return 'كلمة المرور مطلوبة';
@@ -339,7 +339,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       height: 50,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0284C7),
+                          backgroundColor: AppTheme.primary,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
                         onPressed: _isLoading ? null : _handleRegister,
@@ -366,7 +366,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       onPressed: () => Navigator.of(context).pop(),
                       child: const Text(
                         'لديك حساب بالفعل؟ تسجيل الدخول',
-                        style: TextStyle(color: Color(0xFF38BDF8)),
+                        style: TextStyle(color: AppTheme.primary),
                       ),
                     ),
                   ],

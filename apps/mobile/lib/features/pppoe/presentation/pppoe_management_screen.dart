@@ -161,7 +161,7 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
                       child: _buildKpiChip(
                         title: 'المشتركون',
                         value: '$accountsCount',
-                        color: const Color(0xFF38BDF8),
+                        color: AppTheme.primary,
                         icon: Icons.people_alt,
                       ),
                     ),

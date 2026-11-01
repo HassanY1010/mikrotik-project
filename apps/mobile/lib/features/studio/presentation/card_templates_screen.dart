@@ -675,7 +675,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                 title: 'قالب SudaFi قابل للتعديل (JSON)',
                 subtitle: 'ملف قالب كامل (.json, .sudafi, .template) يحتوي على الأبعاد والألوان والحقول',
                 icon: Icons.data_object_rounded,
-                iconColor: const Color(0xFF0284C7),
+                iconColor: AppTheme.primary,
                 onTap: () {
                   Navigator.pop(sheetCtx);
                   _handleImportTemplateFromDevice();
@@ -922,7 +922,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.info_outline, color: Color(0xFF0284C7), size: 18),
+                            const Icon(Icons.info_outline, color: AppTheme.primary, size: 18),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -960,10 +960,10 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                   margin: const EdgeInsets.only(left: 8),
                                   padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
-                                    color: isSel ? const Color(0xFF0284C7).withValues(alpha: 0.15) : context.bgCardAlt,
+                                    color: isSel ? AppTheme.primary.withValues(alpha: 0.15) : context.bgCardAlt,
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                      color: isSel ? const Color(0xFF0284C7) : context.borderColor,
+                                      color: isSel ? AppTheme.primary : context.borderColor,
                                       width: isSel ? 2 : 1,
                                     ),
                                   ),
@@ -984,7 +984,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
-                                          color: isSel ? const Color(0xFF0284C7) : context.textSecondary,
+                                          color: isSel ? AppTheme.primary : context.textSecondary,
                                         ),
                                       ),
                                     ],
@@ -1096,7 +1096,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                                     child: const Text(
                                                       'PIN: 849204',
                                                       style: TextStyle(
-                                                        color: Color(0xFF1E3A8A),
+                                                        color: AppTheme.primary,
                                                         fontWeight: FontWeight.bold,
                                                         fontSize: 11,
                                                       ),
@@ -1365,7 +1365,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
           // Templates List
           Expanded(
             child: templatesAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8))),
+              loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.primary)),
               error: (err, _) => Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -1420,7 +1420,7 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                   itemCount: templates.length,
                   itemBuilder: (ctx, i) {
                     final tpl = templates[i];
-                    final primary = _hexToColor(tpl.primaryColor, const Color(0xFF1E3A8A));
+                    final primary = _hexToColor(tpl.primaryColor, AppTheme.primary);
                     final accent = _hexToColor(tpl.accentColor, const Color(0xFF10B981));
 
                     return Container(
@@ -1506,11 +1506,11 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                                 child: Row(
                                                   mainAxisSize: MainAxisSize.min,
                                                   children: const [
-                                                    Icon(Icons.push_pin_outlined, size: 11, color: Color(0xFF38BDF8)),
+                                                    Icon(Icons.push_pin_outlined, size: 11, color: AppTheme.primary),
                                                     SizedBox(width: 3),
                                                     Text(
                                                       'تثبيت كافتراضي',
-                                                      style: TextStyle(color: Color(0xFF38BDF8), fontSize: 10, fontWeight: FontWeight.bold),
+                                                      style: TextStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.bold),
                                                     ),
                                                   ],
                                                 ),
@@ -1573,13 +1573,13 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                       ref.read(cardTemplatesProvider.notifier).refresh();
                                     }
                                   },
-                                  icon: const Icon(Icons.edit_outlined, size: 16, color: Color(0xFF38BDF8)),
-                                  label: const Text('تعديل', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
+                                  icon: const Icon(Icons.edit_outlined, size: 16, color: AppTheme.primary),
+                                  label: const Text('تعديل', style: TextStyle(color: AppTheme.primary, fontSize: 12)),
                                 ),
                                 TextButton.icon(
                                   onPressed: () => _handleDuplicate(tpl),
-                                  icon: const Icon(Icons.copy_outlined, size: 16, color: Color(0xFFA78BFA)),
-                                  label: const Text('نسخ', style: TextStyle(color: Color(0xFFA78BFA), fontSize: 12)),
+                                  icon: const Icon(Icons.copy_outlined, size: 16, color: AppTheme.primary),
+                                  label: const Text('نسخ', style: TextStyle(color: AppTheme.primary, fontSize: 12)),
                                 ),
                                 TextButton.icon(
                                   onPressed: () => _handleExportTemplate(tpl),

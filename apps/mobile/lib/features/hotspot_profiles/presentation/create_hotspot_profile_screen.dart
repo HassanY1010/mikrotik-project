@@ -229,7 +229,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
           ),
         ),
       body: routersAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8))),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.primary)),
         error: (err, _) => Center(
           child: Text('فشل تحميل الراوترات: $err', style: const TextStyle(color: Color(0xFFEF4444))),
         ),
@@ -343,7 +343,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                     return ChoiceChip(
                       label: Text(rate),
                       selected: isSel,
-                      selectedColor: const Color(0xFF0284C7),
+                      selectedColor: AppTheme.primary,
                       backgroundColor: context.bgCard,
                       labelStyle: TextStyle(
                         color: isSel ? Colors.white : context.textPrimary,
@@ -540,7 +540,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.info_outline, size: 16, color: Color(0xFF38BDF8)),
+                              const Icon(Icons.info_outline, size: 16, color: AppTheme.primary),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
@@ -645,12 +645,12 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                                     padding: const EdgeInsets.symmetric(vertical: 10),
                                     decoration: BoxDecoration(
                                       color: _dataUnit == 'GB'
-                                          ? const Color(0xFF0284C7).withValues(alpha: 0.2)
+                                          ? AppTheme.primary.withValues(alpha: 0.2)
                                           : context.bgCard,
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
                                         color: _dataUnit == 'GB'
-                                            ? const Color(0xFF0284C7)
+                                            ? AppTheme.primary
                                             : context.borderColor,
                                         width: _dataUnit == 'GB' ? 1.5 : 1.0,
                                       ),
@@ -660,7 +660,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                                         'جيجابايت (GB)',
                                         style: TextStyle(
                                           color: _dataUnit == 'GB'
-                                              ? const Color(0xFF38BDF8)
+                                              ? AppTheme.primary
                                               : context.textSecondary,
                                           fontWeight: FontWeight.bold,
                                           fontSize: 13,
@@ -687,12 +687,12 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                                     padding: const EdgeInsets.symmetric(vertical: 10),
                                     decoration: BoxDecoration(
                                       color: _dataUnit == 'MB'
-                                          ? const Color(0xFF0284C7).withValues(alpha: 0.2)
+                                          ? AppTheme.primary.withValues(alpha: 0.2)
                                           : context.bgCard,
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
                                         color: _dataUnit == 'MB'
-                                            ? const Color(0xFF0284C7)
+                                            ? AppTheme.primary
                                             : context.borderColor,
                                         width: _dataUnit == 'MB' ? 1.5 : 1.0,
                                       ),
@@ -702,7 +702,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                                         'ميجابايت (MB)',
                                         style: TextStyle(
                                           color: _dataUnit == 'MB'
-                                              ? const Color(0xFF38BDF8)
+                                              ? AppTheme.primary
                                               : context.textSecondary,
                                           fontWeight: FontWeight.bold,
                                           fontSize: 13,
@@ -726,7 +726,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                                 key: Key('${_dataUnit.toLowerCase()}_preset_$val'),
                                 label: Text('$val $_dataUnit'),
                                 selected: isSel,
-                                selectedColor: const Color(0xFF0284C7),
+                                selectedColor: AppTheme.primary,
                                 backgroundColor: context.bgCard,
                                 labelStyle: TextStyle(
                                   color: isSel ? Colors.white : context.textPrimary,
@@ -760,14 +760,14 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                                 margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                                  color: AppTheme.primary.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.4)),
+                                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.4)),
                                 ),
                                 child: Text(
                                   _dataUnit == 'GB' ? 'GB جيجابايت' : 'MB ميجابايت',
                                   style: const TextStyle(
-                                    color: Color(0xFF38BDF8),
+                                    color: AppTheme.primary,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 13,
                                   ),
@@ -919,7 +919,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
   Widget _buildSectionTitle(String title, IconData icon) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: context.isDarkMode ? const Color(0xFF38BDF8) : AppTheme.primaryLight),
+        Icon(icon, size: 18, color: context.isDarkMode ? AppTheme.primary : AppTheme.primaryLight),
         const SizedBox(width: 6),
         Text(
           title,
@@ -939,7 +939,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
       fillColor: context.bgCard,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.isDarkMode ? const Color(0xFF38BDF8) : AppTheme.primary, width: 1.5)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.isDarkMode ? AppTheme.primary : AppTheme.primary, width: 1.5)),
     );
   }
 
@@ -1053,12 +1053,12 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
           decoration: BoxDecoration(
             color: isSelected
                 ? (context.isDarkMode
-                    ? const Color(0xFF0284C7).withValues(alpha: 0.18)
-                    : const Color(0xFF0284C7).withValues(alpha: 0.10))
+                    ? AppTheme.primary.withValues(alpha: 0.18)
+                    : AppTheme.primary.withValues(alpha: 0.10))
                 : context.bgCard,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? (context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)) : context.borderColor,
+              color: isSelected ? (context.isDarkMode ? AppTheme.primary : AppTheme.primary) : context.borderColor,
               width: isSelected ? 2 : 1,
             ),
           ),
@@ -1071,7 +1071,7 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                   Icon(
                     icon,
                     size: 20,
-                    color: isSelected ? (context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)) : context.textSecondary,
+                    color: isSelected ? (context.isDarkMode ? AppTheme.primary : AppTheme.primary) : context.textSecondary,
                   ),
                   Container(
                     width: 18,
@@ -1079,10 +1079,10 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: isSelected ? (context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)) : context.borderColor,
+                        color: isSelected ? (context.isDarkMode ? AppTheme.primary : AppTheme.primary) : context.borderColor,
                         width: 2,
                       ),
-                      color: isSelected ? (context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)) : Colors.transparent,
+                      color: isSelected ? (context.isDarkMode ? AppTheme.primary : AppTheme.primary) : Colors.transparent,
                     ),
                     child: isSelected
                         ? const Center(

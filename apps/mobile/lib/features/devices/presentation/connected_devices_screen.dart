@@ -240,7 +240,7 @@ class _ConnectedDevicesScreenState extends ConsumerState<ConnectedDevicesScreen>
                                   'إعادة التعيين',
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: Color(0xFF38BDF8),
+                                    color: AppTheme.primary,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -291,13 +291,13 @@ class _ConnectedDevicesScreenState extends ConsumerState<ConnectedDevicesScreen>
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: const Color(0xFF0284C7).withValues(alpha: 0.1),
+                color: AppTheme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
                 Icons.router_outlined,
                 size: 56,
-                color: Color(0xFF0284C7),
+                color: AppTheme.primary,
               ),
             ),
             const SizedBox(height: 18),
@@ -379,12 +379,12 @@ class _ConnectedDevicesScreenState extends ConsumerState<ConnectedDevicesScreen>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                  color: AppTheme.primary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
                   Icons.settings_input_antenna_rounded,
-                  color: Color(0xFF0284C7),
+                  color: AppTheme.primary,
                   size: 20,
                 ),
               ),
@@ -657,12 +657,12 @@ class _ConnectedDevicesScreenState extends ConsumerState<ConnectedDevicesScreen>
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF0284C7)
+              ? AppTheme.primary
               : context.bgCard,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isSelected
-                ? const Color(0xFF0284C7)
+                ? AppTheme.primary
                 : context.borderColor,
           ),
         ),
@@ -915,7 +915,7 @@ class _ConnectedDevicesScreenState extends ConsumerState<ConnectedDevicesScreen>
                             fontSize: 11.5,
                             fontFamily: 'monospace',
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF38BDF8),
+                            color: AppTheme.primary,
                           ),
                         ),
                         const SizedBox(width: 4),
@@ -1116,7 +1116,7 @@ class _ConnectedDevicesScreenState extends ConsumerState<ConnectedDevicesScreen>
             icon: const Icon(Icons.refresh, size: 16),
             label: const Text('إعادة المحاولة', style: TextStyle(fontSize: 12)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0284C7),
+              backgroundColor: AppTheme.primary,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

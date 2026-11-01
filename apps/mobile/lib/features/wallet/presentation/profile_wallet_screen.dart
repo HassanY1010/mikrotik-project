@@ -93,7 +93,7 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
                         ),
                         child: Text(
                           '+$preset',
-                          style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
+                          style: const TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.bold),
                         ),
                       ),
                     );
@@ -332,7 +332,7 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
+            icon: const Icon(Icons.refresh, color: AppTheme.primary),
             onPressed: () => ref.read(walletProvider.notifier).refresh(),
             tooltip: 'تحديث الرصيد الفعلي',
           ),
@@ -355,7 +355,7 @@ class _ProfileWalletScreenState extends ConsumerState<ProfileWalletScreen> {
                 onPressed: () => ref.read(walletProvider.notifier).refresh(),
                 icon: const Icon(Icons.refresh),
                 label: const Text('إعادة المحاولة'),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38BDF8)),
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
               ),
             ],
           ),

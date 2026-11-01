@@ -3,6 +3,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:intl/intl.dart' as intl;
 import '../../../core/models/models.dart';
 import '../../../core/services/thermal_printer_service.dart';
+import 'package:mobile/core/theme/app_theme.dart';
 
 class ReceiptDialog extends StatefulWidget {
   final SaleReceiptModel receipt;
@@ -39,7 +40,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
         children: [
           Row(
             children: [
-              const Icon(Icons.receipt_long, color: Color(0xFF0D9488), size: 22),
+              const Icon(Icons.receipt_long, color: AppTheme.primary, size: 22),
               const SizedBox(width: 8),
               const Text('إيصال البيع الحراري', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ],
@@ -134,7 +135,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                           const Text('المستخدم: ', style: TextStyle(fontSize: 13, color: Colors.black87)),
                           SelectableText(
                             receipt.username,
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0284C7)),
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.primary),
                           ),
                         ],
                       ),
@@ -228,7 +229,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
             // 4. Primary Thermal Print button
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0D9488),
+                backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               ),
@@ -262,14 +263,14 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.print, color: Color(0xFF0D9488)),
+                leading: const Icon(Icons.print, color: AppTheme.primary),
                 title: const Text('طباعة النظام (بلوتوث / USB / واي فاي)'),
                 subtitle: const Text('تحديد الطابعة عبر نافذة النظام القياسية ومكتبة الطباعة'),
                 onTap: () => Navigator.pop(ctx, 'SYSTEM'),
               ),
               const Divider(),
               ListTile(
-                leading: const Icon(Icons.wifi_tethering, color: Colors.blueAccent),
+                leading: const Icon(Icons.wifi_tethering, color: AppTheme.accent),
                 title: const Text('طابعة شبكية مباشرة (Port 9100)'),
                 subtitle: const Text('إرسال أوامر ESC/POS مباشرة عبر الشبكة المحلية'),
                 onTap: () => Navigator.pop(ctx, 'NETWORK'),
@@ -290,7 +291,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(success ? 'تم إرسال مهمة الطباعة للنظام بنجاح' : 'تم إلغاء عملية الطباعة'),
-            backgroundColor: success ? const Color(0xFF0D9488) : Colors.grey.shade700,
+            backgroundColor: success ? AppTheme.primary : Colors.grey.shade700,
           ),
         );
       } else if (choice == 'NETWORK') {
@@ -320,7 +321,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488)),
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
                 onPressed: () => Navigator.pop(ctx, true),
                 child: const Text('إرسال للطابعة', style: TextStyle(color: Colors.white)),
               ),
@@ -340,7 +341,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result.message),
-              backgroundColor: result.isSuccess ? const Color(0xFF0D9488) : Colors.redAccent,
+              backgroundColor: result.isSuccess ? AppTheme.primary : Colors.redAccent,
             ),
           );
         }
@@ -363,7 +364,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('تم تصدير الإيصال كملف PDF بنجاح:\n$path'),
-          backgroundColor: const Color(0xFF0D9488),
+          backgroundColor: AppTheme.primary,
           duration: const Duration(seconds: 4),
         ),
       );
@@ -427,7 +428,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
             style: TextStyle(
               fontSize: isHighlight ? 14 : 12,
               fontWeight: isHighlight ? FontWeight.w900 : FontWeight.bold,
-              color: isHighlight ? const Color(0xFF0D9488) : Colors.black87,
+              color: isHighlight ? AppTheme.primary : Colors.black87,
             ),
           ),
         ],

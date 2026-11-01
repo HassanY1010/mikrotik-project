@@ -49,10 +49,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         bgColor = Colors.amber.shade800;
       } else if (pushResult.appliedCount > 0) {
         message = 'تمت المزامنة بنجاح! تم اعتماد ${pushResult.appliedCount} عملية بيع في الخادم وتحديث الباقات.';
-        bgColor = const Color(0xFF0D9488);
+        bgColor = AppTheme.primary;
       } else {
         message = 'تم تحديث قائمة الباقات والكروت بنجاح.';
-        bgColor = const Color(0xFF0D9488);
+        bgColor = AppTheme.primary;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -234,7 +234,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
               ),
               Switch(
                 value: isOnline,
-                activeThumbColor: const Color(0xFF0D9488),
+                activeThumbColor: AppTheme.primary,
                 inactiveThumbColor: Colors.amber,
                 onChanged: (val) => ref.read(isOnlineModeProvider.notifier).setMode(val),
               ),
@@ -318,13 +318,13 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFF0D9488).withValues(alpha: 0.15),
+                color: AppTheme.primary.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 '${profiles.length} باقات',
                 style: const TextStyle(
-                  color: Color(0xFF0D9488),
+                  color: AppTheme.primary,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
@@ -345,7 +345,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.wifi_tethering, size: 48, color: Color(0xFF0D9488)),
+                  const Icon(Icons.wifi_tethering, size: 48, color: AppTheme.primary),
                   const SizedBox(height: 12),
                   const Text(
                     'جاري مزامنة الباقات من الخادم...',
@@ -386,19 +386,19 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                   duration: const Duration(milliseconds: 200),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? const Color(0xFF0D9488).withValues(alpha: 0.18)
+                        ? AppTheme.primary.withValues(alpha: 0.18)
                         : context.bgCard,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: isSelected
-                          ? const Color(0xFF0D9488)
+                          ? AppTheme.primary
                           : context.borderColor,
                       width: isSelected ? 2 : 1,
                     ),
                     boxShadow: isSelected
                         ? [
                             BoxShadow(
-                              color: const Color(0xFF0D9488).withValues(alpha: 0.25),
+                              color: AppTheme.primary.withValues(alpha: 0.25),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             ),
@@ -419,7 +419,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
-                                color: isSelected ? const Color(0xFF0D9488) : context.textPrimary,
+                                color: isSelected ? AppTheme.primary : context.textPrimary,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -429,7 +429,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                             const Icon(
                               Icons.check_circle,
                               size: 18,
-                              color: Color(0xFF0D9488),
+                              color: AppTheme.primary,
                             )
                           else
                             Container(
@@ -494,7 +494,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.point_of_sale, size: 20, color: Color(0xFF0D9488)),
+              const Icon(Icons.point_of_sale, size: 20, color: AppTheme.primary),
               const SizedBox(width: 8),
               Text(
                 'تفاصيل العملية وإتمام البيع',
@@ -512,7 +512,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _selectedProfile != null
-                    ? const Color(0xFF0D9488).withValues(alpha: 0.5)
+                    ? AppTheme.primary.withValues(alpha: 0.5)
                     : context.borderColor,
               ),
             ),
@@ -685,7 +685,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             height: 52,
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0D9488),
+                backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),

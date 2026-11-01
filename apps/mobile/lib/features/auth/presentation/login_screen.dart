@@ -368,7 +368,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           child: const Text(
                             'نسيت كلمة المرور؟',
                             style: TextStyle(
-                              color: Color(0xFF0D9488),
+                              color: AppTheme.primary,
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
                             ),
@@ -392,8 +392,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
                         label: const Text('صاحب شبكة جديد؟ إنشاء حساب الآن'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF38BDF8),
-                          side: const BorderSide(color: Color(0xFF0284C7)),
+                          foregroundColor: AppTheme.primary,
+                          side: const BorderSide(color: AppTheme.primary),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),

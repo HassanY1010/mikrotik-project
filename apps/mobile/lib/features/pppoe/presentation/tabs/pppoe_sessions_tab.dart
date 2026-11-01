@@ -54,7 +54,7 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('عنوان IP: ${session.ipAddress}', style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontFamily: 'monospace')),
+                  Text('عنوان IP: ${session.ipAddress}', style: const TextStyle(color: AppTheme.primary, fontSize: 12, fontFamily: 'monospace')),
                   const SizedBox(height: 4),
                   Text('مدة الاتصال: ${session.formattedUptime}', style: TextStyle(color: ctx.textSecondary, fontSize: 12)),
                 ],
@@ -316,11 +316,11 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
                 // IP Address
                 Row(
                   children: [
-                    const Icon(Icons.alt_route, color: Color(0xFF38BDF8), size: 14),
+                    const Icon(Icons.alt_route, color: AppTheme.primary, size: 14),
                     const SizedBox(width: 4),
                     Text(
                       s.ipAddress,
-                      style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontFamily: 'monospace'),
+                      style: const TextStyle(color: AppTheme.primary, fontSize: 12, fontFamily: 'monospace'),
                     ),
                   ],
                 ),
@@ -360,11 +360,11 @@ class _PppoeSessionsTabState extends ConsumerState<PppoeSessionsTab> {
                 // Upload
                 Row(
                   children: [
-                    const Icon(Icons.arrow_upward, color: Color(0xFFA78BFA), size: 14),
+                    const Icon(Icons.arrow_upward, color: AppTheme.primary, size: 14),
                     const SizedBox(width: 4),
                     Text(
                       'رفع: ${s.formattedBytesIn}',
-                      style: const TextStyle(color: Color(0xFFA78BFA), fontSize: 11, fontWeight: FontWeight.w600),
+                      style: const TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                   ],
                 ),

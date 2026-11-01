@@ -134,7 +134,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showCreateEditDialog(),
-        backgroundColor: const Color(0xFF38BDF8),
+        backgroundColor: AppTheme.primary,
         icon: const Icon(Icons.person_add, color: Colors.white),
         label: const Text(
           'إضافة مشترك',
@@ -180,7 +180,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8)),
+                  icon: const Icon(Icons.refresh, color: AppTheme.primary),
                   tooltip: 'تحديث الحسابات',
                   onPressed: () => ref.read(pppoeAccountsProvider.notifier).refresh(),
                 ),
@@ -208,7 +208,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
           Expanded(
             child: accountsAsync.when(
               loading: () => const Center(
-                child: CircularProgressIndicator(color: Color(0xFF38BDF8)),
+                child: CircularProgressIndicator(color: AppTheme.primary),
               ),
               error: (err, _) => Center(
                 child: Padding(
@@ -274,7 +274,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                 }
 
                 return RefreshIndicator(
-                  color: const Color(0xFF38BDF8),
+                  color: AppTheme.primary,
                   backgroundColor: context.bgCard,
                   onRefresh: () => ref.read(pppoeAccountsProvider.notifier).refresh(),
                   child: ListView.builder(
@@ -304,7 +304,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
         label: Text(label),
         selected: isSelected,
         onSelected: (_) => setState(() => _statusFilter = value),
-        selectedColor: const Color(0xFF38BDF8),
+        selectedColor: AppTheme.primary,
         backgroundColor: context.bgCard,
         labelStyle: TextStyle(
           color: isSelected ? Colors.white : context.textSecondary,
@@ -314,7 +314,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: BorderSide(
-            color: isSelected ? const Color(0xFF38BDF8) : context.borderColor,
+            color: isSelected ? AppTheme.primary : context.borderColor,
           ),
         ),
       ),
@@ -441,7 +441,7 @@ class _PppoeAccountsTabState extends ConsumerState<PppoeAccountsTab> {
                       value: 'edit',
                       child: Row(
                         children: [
-                          const Icon(Icons.edit_outlined, color: Color(0xFF38BDF8), size: 18),
+                          const Icon(Icons.edit_outlined, color: AppTheme.primary, size: 18),
                           const SizedBox(width: 8),
                           Text('تعديل البيانات', style: TextStyle(color: context.textPrimary, fontSize: 13)),
                         ],

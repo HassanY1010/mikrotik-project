@@ -232,7 +232,7 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.people_alt, color: Color(0xFF38BDF8), size: 13),
+                      const Icon(Icons.people_alt, color: AppTheme.primary, size: 13),
                       const SizedBox(width: 4),
                       Text(
                         '${p.accountsCount}',
@@ -266,7 +266,7 @@ class _PppoeProfilesTabState extends ConsumerState<PppoeProfilesTab> {
                       value: 'edit',
                       child: Row(
                         children: [
-                          const Icon(Icons.edit_outlined, color: Color(0xFF38BDF8), size: 18),
+                          const Icon(Icons.edit_outlined, color: AppTheme.primary, size: 18),
                           const SizedBox(width: 8),
                           Text('تعديل الإعدادات', style: TextStyle(color: ctx.textPrimary, fontSize: 13)),
                         ],

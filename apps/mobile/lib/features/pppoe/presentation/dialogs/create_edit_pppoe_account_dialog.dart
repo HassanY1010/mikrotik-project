@@ -171,10 +171,10 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                        color: AppTheme.primary.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.person_add_alt_1, color: Color(0xFF38BDF8), size: 22),
+                      child: const Icon(Icons.person_add_alt_1, color: AppTheme.primary, size: 22),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -308,7 +308,7 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5),
+                      borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
                     ),
                   ),
                 ),
@@ -431,12 +431,12 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                           data: Theme.of(ctx).copyWith(
                             colorScheme: ctx.isDarkMode
                                 ? const ColorScheme.dark(
-                                    primary: Color(0xFF38BDF8),
+                                    primary: AppTheme.primary,
                                     surface: Color(0xFF1E293B),
                                     onSurface: Colors.white,
                                   )
                                 : const ColorScheme.light(
-                                    primary: Color(0xFF0284C7),
+                                    primary: AppTheme.primary,
                                     surface: Colors.white,
                                     onSurface: Color(0xFF0F172A),
                                   ),
@@ -518,7 +518,7 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
                       child: ElevatedButton(
                         onPressed: _isSubmitting ? null : _handleSubmit,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF38BDF8),
+                          backgroundColor: AppTheme.primary,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           padding: const EdgeInsets.symmetric(vertical: 13),
                         ),
@@ -568,7 +568,7 @@ class _CreateEditPppoeAccountDialogState extends ConsumerState<CreateEditPppoeAc
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5),
+        borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
       ),
     );
   }

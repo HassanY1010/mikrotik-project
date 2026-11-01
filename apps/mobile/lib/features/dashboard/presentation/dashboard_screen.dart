@@ -360,7 +360,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.router, color: Color(0xFF38BDF8), size: 20),
+                          const Icon(Icons.router, color: AppTheme.primary, size: 20),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
@@ -589,12 +589,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                         children: [
                           Row(
                             children: const [
-                              Icon(Icons.folder_zip_outlined, color: Color(0xFF38BDF8), size: 16),
+                              Icon(Icons.folder_zip_outlined, color: AppTheme.primary, size: 16),
                               SizedBox(width: 6),
                               Text(
                                 'عرض النسخ المحفوظة على الراوتر',
                                 style: TextStyle(
-                                  color: Color(0xFF38BDF8),
+                                  color: AppTheme.primary,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -606,11 +606,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                               width: 14,
                               height: 14,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Color(0xFF38BDF8)),
+                                  strokeWidth: 2, color: AppTheme.primary),
                             )
                           else
                             const Icon(Icons.keyboard_arrow_down,
-                                color: Color(0xFF38BDF8), size: 18),
+                                color: AppTheme.primary, size: 18),
                         ],
                       ),
                     ),
@@ -683,7 +683,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                                       ),
                                       IconButton(
                                         icon: const Icon(Icons.download_rounded,
-                                            size: 18, color: Color(0xFF38BDF8)),
+                                            size: 18, color: AppTheme.primary),
                                         tooltip: 'تنزيل وحفظ النسخة',
                                         onPressed: () async {
                                           final dlRes = await ref
@@ -882,7 +882,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             const SizedBox(height: 12),
             Row(
               children: [
-                const Icon(Icons.info_outline, color: Color(0xFF38BDF8), size: 16),
+                const Icon(Icons.info_outline, color: AppTheme.primary, size: 16),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -937,10 +937,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     ),
                   );
                 },
-                icon: const Icon(Icons.download_rounded, size: 16, color: Color(0xFF38BDF8)),
-                label: const Text('تنزيل النسخة', style: TextStyle(color: Color(0xFF38BDF8))),
+                icon: const Icon(Icons.download_rounded, size: 16, color: AppTheme.primary),
+                label: const Text('تنزيل النسخة', style: TextStyle(color: AppTheme.primary)),
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFF38BDF8)),
+                  side: const BorderSide(color: AppTheme.primary),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 ),
@@ -1300,7 +1300,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           child: Text(
             value,
             style: TextStyle(
-              color: isBold ? const Color(0xFF38BDF8) : context.textPrimary,
+              color: isBold ? AppTheme.primary : context.textPrimary,
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
               fontSize: 12,
             ),
@@ -1397,7 +1397,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           children: [
             Icon(
               Icons.shield_outlined,
-              color: willEnable ? const Color(0xFF38BDF8) : Colors.amber,
+              color: willEnable ? AppTheme.primary : Colors.amber,
             ),
             const SizedBox(width: 8),
             Text(
@@ -1420,7 +1420,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: willEnable ? const Color(0xFF2563EB) : Colors.amber.shade800,
+              backgroundColor: willEnable ? AppTheme.primary : Colors.amber.shade800,
               foregroundColor: Colors.white,
             ),
             child: Text(willEnable ? 'تفعيل الحماية' : 'تعطيل الحظر'),
@@ -1449,7 +1449,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         SnackBar(
           content: Text(msg),
           backgroundColor: success
-              ? (willEnable ? Colors.blue.shade700 : Colors.grey.shade800)
+              ? (willEnable ? AppTheme.primary : Colors.grey.shade800)
               : Colors.red.shade900,
           duration: const Duration(seconds: 4),
         ),
@@ -1481,10 +1481,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: const Color(0xFF2563EB).withValues(alpha: 0.2),
+                color: AppTheme.primary.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.router, color: Color(0xFF38BDF8), size: 22),
+              child: const Icon(Icons.router, color: AppTheme.primary, size: 22),
             ),
             const SizedBox(width: 10),
             Column(
@@ -1512,9 +1512,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                   )
-                : const Icon(Icons.sync, color: Color(0xFF38BDF8)),
+                : const Icon(Icons.sync, color: AppTheme.primary),
             tooltip: 'مزامنة وتحديث البيانات',
             onPressed: _isSyncing ? null : _handleSyncAndRefresh,
           ),
@@ -1524,7 +1524,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               decoration: BoxDecoration(
                 color: (ref.watch(themeModeProvider) == ThemeMode.light
                         ? const Color(0xFFF59E0B)
-                        : const Color(0xFF38BDF8))
+                        : AppTheme.primary)
                     .withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
@@ -1534,7 +1534,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     : Icons.light_mode_outlined,
                 color: ref.watch(themeModeProvider) == ThemeMode.light
                     ? const Color(0xFFF59E0B)
-                    : const Color(0xFF38BDF8),
+                    : AppTheme.primary,
                 size: 18,
               ),
             ),
@@ -1550,10 +1550,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               icon: Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                  color: AppTheme.primary.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.person_outline, color: Color(0xFF38BDF8), size: 18),
+                child: const Icon(Icons.person_outline, color: AppTheme.primary, size: 18),
               ),
               tooltip: 'حسابي وإعدادات الأمان',
               onPressed: widget.onOpenUserProfile,
@@ -1619,14 +1619,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                         gradient: LinearGradient(
                           colors: [
                             const Color(0xFF0F766E).withValues(alpha: 0.25),
-                            const Color(0xFF0369A1).withValues(alpha: 0.20),
+                            AppTheme.primary.withValues(alpha: 0.20),
                           ],
                           begin: Alignment.topRight,
                           end: Alignment.bottomLeft,
                         ),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: const Color(0xFF0D9488).withValues(alpha: 0.5),
+                          color: AppTheme.primary.withValues(alpha: 0.5),
                         ),
                       ),
                       child: Row(
@@ -1635,7 +1635,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF0D9488).withValues(alpha: 0.3),
+                              color: AppTheme.primary.withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: const Icon(
@@ -1721,7 +1721,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                       border: Border.all(
                         color: isExpired || isSuspended
                             ? const Color(0xFFEF4444).withValues(alpha: 0.4)
-                            : const Color(0xFF0D9488).withValues(alpha: 0.4),
+                            : AppTheme.primary.withValues(alpha: 0.4),
                       ),
                     ),
                     child: Row(
@@ -1732,7 +1732,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                           decoration: BoxDecoration(
                             color: isExpired || isSuspended
                                 ? const Color(0xFFEF4444).withValues(alpha: 0.2)
-                                : const Color(0xFF0D9488).withValues(alpha: 0.2),
+                                : AppTheme.primary.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
@@ -1848,7 +1848,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                                 child: Text(
                                   'تحديث الآن',
                                   style: TextStyle(
-                                    color: context.isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                                    color: context.isDarkMode ? AppTheme.primary : AppTheme.primary,
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -1946,7 +1946,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                   ),
                   const Text(
                     'جميع الوظائف',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF38BDF8)),
+                    style: TextStyle(fontSize: 12, color: AppTheme.primary),
                   ),
                 ],
               ),
@@ -1971,8 +1971,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                   ),
                   TextButton.icon(
                     onPressed: _navigateToRadar,
-                    icon: const Icon(Icons.arrow_back, size: 16, color: Color(0xFF38BDF8)),
-                    label: const Text('عرض الكل', style: TextStyle(color: Color(0xFF38BDF8))),
+                    icon: const Icon(Icons.arrow_back, size: 16, color: AppTheme.primary),
+                    label: const Text('عرض الكل', style: TextStyle(color: AppTheme.primary)),
                   ),
                 ],
               ),
@@ -2079,7 +2079,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             icon: const Icon(Icons.refresh, size: 16, color: Colors.white),
             label: const Text('إعادة المحاولة', style: TextStyle(color: Colors.white, fontSize: 12)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2563EB),
+              backgroundColor: AppTheme.primary,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             ),
           ),
@@ -2118,7 +2118,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           ElevatedButton(
             onPressed: widget.onOpenRouterSetup,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2563EB),
+              backgroundColor: AppTheme.primary,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
             child: const Text('تهيئة', style: TextStyle(color: Colors.white)),
@@ -2138,7 +2138,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       ),
       child: Row(
         children: [
-          const Icon(Icons.dns, color: Color(0xFF38BDF8), size: 20),
+          const Icon(Icons.dns, color: AppTheme.primary, size: 20),
           const SizedBox(width: 8),
           Expanded(
             child: DropdownButtonHideUnderline(
@@ -2182,14 +2182,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     const SizedBox(
                       width: 12,
                       height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                     )
                   else
-                    const Icon(Icons.wifi_find, size: 14, color: Color(0xFF38BDF8)),
+                    const Icon(Icons.wifi_find, size: 14, color: AppTheme.primary),
                   const SizedBox(width: 4),
                   Text(
                     _isTestingConnection ? 'جارٍ الفحص' : 'فحص',
-                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11),
+                    style: const TextStyle(color: AppTheme.primary, fontSize: 11),
                   ),
                 ],
               ),
@@ -2241,19 +2241,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2563EB).withValues(alpha: 0.25),
+                  color: AppTheme.primary.withValues(alpha: 0.25),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.5)),
+                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.5)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: const [
-                    Icon(Icons.add, size: 14, color: Color(0xFF38BDF8)),
+                    Icon(Icons.add, size: 14, color: AppTheme.primary),
                     SizedBox(width: 2),
                     Text(
                       'إضافة',
                       style: TextStyle(
-                        color: Color(0xFF38BDF8),
+                        color: AppTheme.primary,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
@@ -2363,7 +2363,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             children: [
               Row(
                 children: [
-                  const Icon(Icons.developer_board, color: Color(0xFF38BDF8), size: 18),
+                  const Icon(Icons.developer_board, color: AppTheme.primary, size: 18),
                   const SizedBox(width: 6),
                   Text(
                     router.modelName ?? 'MikroTik RouterOS',
@@ -2378,7 +2378,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2563EB).withValues(alpha: 0.2),
+                  color: AppTheme.primary.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -2533,12 +2533,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       color: router.antiTetheringEnabled
-                          ? const Color(0xFF2563EB).withValues(alpha: 0.2)
+                          ? AppTheme.primary.withValues(alpha: 0.2)
                           : context.bgCardAlt,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
                         color: router.antiTetheringEnabled
-                            ? const Color(0xFF38BDF8)
+                            ? AppTheme.primary
                             : Colors.transparent,
                       ),
                     ),
@@ -2549,7 +2549,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                               ? Icons.shield
                               : Icons.shield_outlined,
                           color: router.antiTetheringEnabled
-                              ? const Color(0xFF38BDF8)
+                              ? AppTheme.primary
                               : Colors.grey,
                           size: 18,
                         ),
@@ -2561,7 +2561,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                               color: router.antiTetheringEnabled
-                                  ? const Color(0xFF38BDF8)
+                                  ? AppTheme.primary
                                   : context.textPrimary,
                             ),
                           ),
@@ -2668,7 +2668,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF1D4ED8), Color(0xFF1E3A8A)],
+          colors: [Color(0xFF1D4ED8), AppTheme.primary],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -2723,7 +2723,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       _ActionItem(
         'إنشاء كروت',
         Icons.auto_awesome,
-        const Color(0xFF8B5CF6),
+        AppTheme.primary,
         () => widget.onNavigateTab?.call(2),
       ),
       _ActionItem(
@@ -2771,13 +2771,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       _ActionItem(
         'برمجة المايكروتيك',
         Icons.settings_suggest_rounded,
-        const Color(0xFF8B5CF6),
+        AppTheme.primary,
         _navigateToRouterProvisioning,
       ),
       _ActionItem(
         'أجهزة البث',
         Icons.devices_other_rounded,
-        const Color(0xFF0284C7),
+        AppTheme.primary,
         _navigateToConnectedDevices,
       ),
       _ActionItem(
@@ -2813,7 +2813,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       _ActionItem(
         'حسابي والأمان',
         Icons.person_pin_outlined,
-        const Color(0xFF38BDF8),
+        AppTheme.primary,
         widget.onOpenUserProfile,
       ),
     ];

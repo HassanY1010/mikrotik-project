@@ -54,7 +54,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Row(
             children: [
-              const Icon(Icons.lock_reset_rounded, color: Color(0xFF38BDF8), size: 22),
+              const Icon(Icons.lock_reset_rounded, color: AppTheme.primary, size: 22),
               const SizedBox(width: 10),
               Text('تغيير كلمة المرور', style: TextStyle(color: ctx.textPrimary, fontSize: 16)),
             ],
@@ -166,7 +166,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                         }
                       }
                     },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
               child: isSubmitting
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Text('تأكيد التغيير', style: TextStyle(color: Colors.white)),
@@ -513,8 +513,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               children: [
                 CircleAvatar(
                   radius: 34,
-                  backgroundColor: const Color(0xFF2563EB).withValues(alpha: 0.2),
-                  child: const Icon(Icons.person, size: 38, color: Color(0xFF38BDF8)),
+                  backgroundColor: AppTheme.primary.withValues(alpha: 0.2),
+                  child: const Icon(Icons.person, size: 38, color: AppTheme.primary),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -534,13 +534,13 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0284C7).withValues(alpha: 0.2),
+                          color: AppTheme.primary.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFF0284C7)),
+                          border: Border.all(color: AppTheme.primary),
                         ),
                         child: Text(
                           _formatRole(user?.role ?? 'CASHIER'),
-                          style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
+                          style: const TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
@@ -620,10 +620,10 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                               MaterialPageRoute(builder: (_) => const TenantUsersScreen()),
                             );
                           },
-                          icon: const Icon(Icons.people_alt_outlined, size: 18, color: Color(0xFF38BDF8)),
-                          label: const Text('عرض المستخدمين', style: TextStyle(color: Color(0xFF38BDF8))),
+                          icon: const Icon(Icons.people_alt_outlined, size: 18, color: AppTheme.primary),
+                          label: const Text('عرض المستخدمين', style: TextStyle(color: AppTheme.primary)),
                           style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFF0284C7)),
+                            side: const BorderSide(color: AppTheme.primary),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
@@ -654,7 +654,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.style_outlined, color: Color(0xFFA78BFA)),
+                  leading: const Icon(Icons.style_outlined, color: AppTheme.primary),
                   title: Text('قوالب وتصاميم الطباعة', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14)),
                   subtitle: Text('اختيار وتخصيص القوالب الجاهزة ومقاسات الطباعة', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFF64748B)),
@@ -664,7 +664,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 ),
                 Divider(color: context.borderColor, height: 1),
                 ListTile(
-                  leading: const Icon(Icons.speed_outlined, color: Color(0xFF38BDF8)),
+                  leading: const Icon(Icons.speed_outlined, color: AppTheme.primary),
                   title: Text('بروفايلات', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 14)),
                   subtitle: Text('إنشاء باقات جديدة ومزامنتها مع أجهزة MikroTik', style: TextStyle(color: context.textSecondary, fontSize: 11)),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFF64748B)),
@@ -830,7 +830,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 decoration: BoxDecoration(
                   color: (currentMode == ThemeMode.light
                           ? const Color(0xFFF59E0B)
-                          : const Color(0xFF0D9488))
+                          : AppTheme.primary)
                       .withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
@@ -844,7 +844,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                       ? const Color(0xFFF59E0B)
                       : (currentMode == ThemeMode.system
                           ? const Color(0xFF6366F1)
-                          : const Color(0xFF38BDF8)),
+                          : AppTheme.primary),
                   size: 20,
                 ),
               ),
@@ -881,7 +881,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                   icon: Icons.dark_mode_rounded,
                   mode: ThemeMode.dark,
                   isSelected: currentMode == ThemeMode.dark,
-                  activeColor: const Color(0xFF38BDF8),
+                  activeColor: AppTheme.primary,
                 ),
               ),
               const SizedBox(width: 8),
@@ -892,7 +892,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                   icon: Icons.light_mode_rounded,
                   mode: ThemeMode.light,
                   isSelected: currentMode == ThemeMode.light,
-                  activeColor: const Color(0xFF0D9488),
+                  activeColor: AppTheme.primary,
                 ),
               ),
               const SizedBox(width: 8),
@@ -980,7 +980,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   Widget _buildSectionHeader(String title, IconData icon) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: const Color(0xFF0D9488)),
+        Icon(icon, size: 18, color: AppTheme.primary),
         const SizedBox(width: 8),
         Text(
           title,
@@ -1074,7 +1074,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                   : (isExpired
                       ? const Color(0xFFEF4444).withValues(alpha: 0.3)
                       : (context.isDarkMode
-                          ? const Color(0xFF0284C7).withValues(alpha: 0.3)
+                          ? AppTheme.primary.withValues(alpha: 0.3)
                           : context.borderColor)),
             ),
           ),
@@ -1087,7 +1087,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     Icons.card_membership_rounded,
                     color: isNotSubscribed
                         ? const Color(0xFFFBBF24)
-                        : (isExpired ? const Color(0xFFF87171) : const Color(0xFF38BDF8)),
+                        : (isExpired ? const Color(0xFFF87171) : AppTheme.primary),
                     size: 20,
                   ),
                   const SizedBox(width: 8),
@@ -1166,7 +1166,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 Icons.all_inclusive_rounded,
                 valueColor: isNotSubscribed
                     ? context.textSecondary
-                    : (isUnlimited ? const Color(0xFF38BDF8) : context.textPrimary),
+                    : (isUnlimited ? AppTheme.primary : context.textPrimary),
               ),
               Divider(color: context.borderColor, height: 16),
               _buildInfoRow(
@@ -1184,7 +1184,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 Icons.hourglass_bottom_rounded,
                 valueColor: isNotSubscribed
                     ? const Color(0xFFEF4444)
-                    : (isUnlimited ? const Color(0xFF38BDF8) : const Color(0xFF10B981)),
+                    : (isUnlimited ? AppTheme.primary : const Color(0xFF10B981)),
               ),
               if (isActive && !isUnlimited && limit != null && limit > 0) ...[
                 const SizedBox(height: 12),
@@ -1195,7 +1195,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     minHeight: 6,
                     backgroundColor: context.isDarkMode ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
                     valueColor: AlwaysStoppedAnimation<Color>(
-                      usagePercent > 0.9 ? const Color(0xFFEF4444) : const Color(0xFF0284C7),
+                      usagePercent > 0.9 ? const Color(0xFFEF4444) : AppTheme.primary,
                     ),
                   ),
                 ),
@@ -1255,7 +1255,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
       loading: () => const Center(
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 12),
-          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
         ),
       ),
       error: (err, stack) => const SizedBox.shrink(),

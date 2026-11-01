@@ -82,7 +82,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
           return Theme(
             data: Theme.of(context).copyWith(
               colorScheme: ColorScheme.dark(
-                primary: const Color(0xFF38BDF8),
+                primary: AppTheme.primary,
                 onPrimary: Colors.white,
                 surface: context.bgCard,
                 onSurface: context.textPrimary,
@@ -388,7 +388,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                 value: 'sales',
                 child: Row(
                   children: [
-                    Icon(Icons.point_of_sale, size: 18, color: Color(0xFF38BDF8)),
+                    Icon(Icons.point_of_sale, size: 18, color: AppTheme.primary),
                     SizedBox(width: 8),
                     Text('تصدير المبيعات (CSV)'),
                   ],
@@ -421,9 +421,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                   )
-                : const Icon(Icons.sync, color: Color(0xFF38BDF8)),
+                : const Icon(Icons.sync, color: AppTheme.primary),
             onPressed: _isSyncing ? null : _handleRefreshAndSync,
             tooltip: 'مزامنة وتحديث التقرير',
           ),
@@ -454,7 +454,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                           ),
                         ),
                         selected: isSelected,
-                        selectedColor: const Color(0xFF2563EB),
+                        selectedColor: AppTheme.primary,
                         backgroundColor: context.bgCardAlt,
                         onSelected: (selected) {
                           if (selected) _handlePeriodChange(item['key']!);
@@ -468,9 +468,9 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
               TabBar(
                 controller: _tabController,
                 isScrollable: true,
-                labelColor: const Color(0xFF38BDF8),
+                labelColor: AppTheme.primary,
                 unselectedLabelColor: context.textSecondary,
-                indicatorColor: const Color(0xFF38BDF8),
+                indicatorColor: AppTheme.primary,
                 indicatorWeight: 3,
                 tabs: const [
                   Tab(icon: Icon(Icons.dashboard_outlined, size: 18), text: 'الملخص'),
@@ -491,31 +491,31 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
             RefreshIndicator(
               onRefresh: _handleRefreshAndSync,
               backgroundColor: context.bgCard,
-              color: const Color(0xFF38BDF8),
+              color: AppTheme.primary,
               child: _buildSummaryTab(report),
             ),
             RefreshIndicator(
               onRefresh: _handleRefreshAndSync,
               backgroundColor: context.bgCard,
-              color: const Color(0xFF38BDF8),
+              color: AppTheme.primary,
               child: _buildSalesTab(report),
             ),
             RefreshIndicator(
               onRefresh: _handleRefreshAndSync,
               backgroundColor: context.bgCard,
-              color: const Color(0xFF38BDF8),
+              color: AppTheme.primary,
               child: _buildInventoryTab(report),
             ),
             RefreshIndicator(
               onRefresh: _handleRefreshAndSync,
               backgroundColor: context.bgCard,
-              color: const Color(0xFF38BDF8),
+              color: AppTheme.primary,
               child: _buildExpensesTab(report),
             ),
             RefreshIndicator(
               onRefresh: _handleRefreshAndSync,
               backgroundColor: context.bgCard,
-              color: const Color(0xFF38BDF8),
+              color: AppTheme.primary,
               child: _buildProfitTab(report),
             ),
           ],
@@ -556,7 +556,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                 const SizedBox(height: 18),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
+                    backgroundColor: AppTheme.primary,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
@@ -596,18 +596,18 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF2563EB).withValues(alpha: 0.12),
+              color: AppTheme.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF2563EB).withValues(alpha: 0.3)),
+              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
-                const Icon(Icons.calendar_today_outlined, size: 18, color: Color(0xFF38BDF8)),
+                const Icon(Icons.calendar_today_outlined, size: 18, color: AppTheme.primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'الفترة المحددة: ${period.label} ${period.startDate.isNotEmpty ? "(${period.startDate} إلى ${period.endDate})" : ""}',
-                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -629,10 +629,10 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                      color: AppTheme.primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.point_of_sale, color: Color(0xFF38BDF8), size: 24),
+                    child: const Icon(Icons.point_of_sale, color: AppTheme.primary, size: 24),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -655,7 +655,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                     onPressed: () {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const PosScreen()));
                     },
-                    child: const Text('فتح POS', style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold)),
+                    child: const Text('فتح POS', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
@@ -724,7 +724,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                   title: 'الربح الإجمالي (Gross)',
                   value: _formatAmount(period.grossProfit, report.currency),
                   subtitle: period.hasCostData ? 'المبيعات - تكلفة الكروت' : 'دون تكلفة كروت مسجلة',
-                  color: const Color(0xFF8B5CF6),
+                  color: AppTheme.primary,
                   icon: Icons.trending_up,
                 ),
               ),
@@ -777,7 +777,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline, size: 16, color: Color(0xFF38BDF8)),
+                  const Icon(Icons.info_outline, size: 16, color: AppTheme.primary),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -802,7 +802,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
               ),
               Text(
                 'إجمالي: ${_formatAmount(report.dailyRevenueLast30Days.fold<double>(0, (sum, d) => sum + (double.tryParse(d['amount']?.toString() ?? '0') ?? 0)), report.currency)}',
-                style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
+                style: const TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -976,7 +976,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               IconButton(
-                icon: const Icon(Icons.refresh, size: 18, color: Color(0xFF38BDF8)),
+                icon: const Icon(Icons.refresh, size: 18, color: AppTheme.primary),
                 onPressed: () => ref.read(salesTransactionsProvider.notifier).refresh(),
               ),
             ],
@@ -1103,7 +1103,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                           const SizedBox(height: 4),
                           Text(
                             'الموزع/نقطة البيع: $distributor',
-                            style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11),
+                            style: const TextStyle(color: AppTheme.primary, fontSize: 11),
                           ),
                         ],
                         if (remaining > 0) ...[
@@ -1149,7 +1149,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: context.isDarkMode
-                    ? const [Color(0xFF1E3A8A), Color(0xFF0F172A)]
+                    ? const [AppTheme.primary, Color(0xFF0F172A)]
                     : const [Color(0xFFEFF6FF), Color(0xFFDBEAFE)],
               ),
               borderRadius: BorderRadius.circular(14),
@@ -1265,7 +1265,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                     Text(
                       inv.stockCostValue > 0 ? _formatAmount(inv.stockCostValue, report.currency) : 'غير مسجلة',
                       style: TextStyle(
-                        color: inv.stockCostValue > 0 ? const Color(0xFF38BDF8) : Colors.grey,
+                        color: inv.stockCostValue > 0 ? AppTheme.primary : Colors.grey,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
                       ),
@@ -1437,7 +1437,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
               IconButton(
-                icon: const Icon(Icons.refresh, size: 18, color: Color(0xFF38BDF8)),
+                icon: const Icon(Icons.refresh, size: 18, color: AppTheme.primary),
                 onPressed: () => ref.read(expensesProvider.notifier).refresh(),
               ),
             ],
@@ -1566,7 +1566,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.account_balance, color: Color(0xFF38BDF8), size: 20),
+                    const Icon(Icons.account_balance, color: AppTheme.primary, size: 20),
                     const SizedBox(width: 8),
                     Text(
                       'قائمة الدخل والأرباح للفترة (${period.label})',
@@ -1754,7 +1754,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
     }
 
     String trendLabel = 'مستقر';
-    Color trendColor = const Color(0xFF38BDF8);
+    Color trendColor = AppTheme.primary;
     IconData trendIcon = Icons.trending_flat;
 
     if (report.trend == 'UP') {
@@ -1926,7 +1926,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
               decoration: BoxDecoration(
                 color: context.bgCardAlt,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFF38BDF8), width: 0.8),
+                border: Border.all(color: AppTheme.primary, width: 0.8),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1937,7 +1937,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                   ),
                   Text(
                     '${_formatAmount(double.tryParse(selectedItem['amount']?.toString() ?? '0') ?? 0, currency)} • ${selectedItem['count'] ?? 0} مبيعة',
-                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -1975,7 +1975,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                             ? LinearGradient(
                                 colors: isSelected
                                     ? [const Color(0xFFFBBF24), const Color(0xFFD97706)]
-                                    : [const Color(0xFF38BDF8), const Color(0xFF1D4ED8)],
+                                    : [AppTheme.primary, const Color(0xFF1D4ED8)],
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
                               )
@@ -2000,7 +2000,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
               ),
               Text(
                 'اليوم (${daily.last['date'] ?? ''})',
-                style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 10, fontWeight: FontWeight.bold),
+                style: const TextStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -2136,10 +2136,10 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                       Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                          color: AppTheme.primary.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: const Icon(Icons.router_rounded, color: Color(0xFF38BDF8), size: 16),
+                        child: const Icon(Icons.router_rounded, color: AppTheme.primary, size: 16),
                       ),
                       const SizedBox(width: 8),
                       Text(name, style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
@@ -2147,7 +2147,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                   ),
                   Text(
                     _formatAmount(rev, currency),
-                    style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 13),
+                    style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                 ],
               ),
@@ -2167,7 +2167,7 @@ class _FinanceReportsScreenState extends ConsumerState<FinanceReportsScreen>
                   child: LinearProgressIndicator(
                     value: (pct / 100).clamp(0.0, 1.0),
                     backgroundColor: context.bgCardAlt,
-                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
+                    valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
                     minHeight: 4,
                   ),
                 ),

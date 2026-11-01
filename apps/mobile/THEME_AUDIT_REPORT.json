@@ -1,0 +1,179 @@
+{
+  "timestamp": "2026-11-01T16:01:51.388827",
+  "metrics": {
+    "totalFilesScanned": 58,
+    "totalScreensAnalyzed": 33,
+    "violationsDetected": 0,
+    "filesRefactored": 0,
+    "replacementsApplied": 0,
+    "flutterAnalyzePassed": true
+  },
+  "contrastResults": [
+    {
+      "foreground": "#1A2A2B",
+      "background": "#F8F6F0",
+      "ratio": 13.78,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": true,
+      "description": "Light Mode: Primary Text on Scaffold Background"
+    },
+    {
+      "foreground": "#1A2A2B",
+      "background": "#FFFFFF",
+      "ratio": 14.89,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": true,
+      "description": "Light Mode: Primary Text on Card Surface"
+    },
+    {
+      "foreground": "#1A2A2B",
+      "background": "#F3EFE7",
+      "ratio": 12.99,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": true,
+      "description": "Light Mode: Primary Text on Card Alt Surface"
+    },
+    {
+      "foreground": "#5E6F6F",
+      "background": "#F8F6F0",
+      "ratio": 4.88,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": false,
+      "description": "Light Mode: Secondary Text on Scaffold Background"
+    },
+    {
+      "foreground": "#5E6F6F",
+      "background": "#FFFFFF",
+      "ratio": 5.28,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": false,
+      "description": "Light Mode: Secondary Text on Card Surface"
+    },
+    {
+      "foreground": "#136D6F",
+      "background": "#FFFFFF",
+      "ratio": 6.1,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": false,
+      "description": "Light Mode: Brand Primary on White Card (Accent/Icon)"
+    },
+    {
+      "foreground": "#FFFFFF",
+      "background": "#136D6F",
+      "ratio": 6.1,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": false,
+      "description": "Light Mode: Button Text (White) on Brand Primary Button"
+    },
+    {
+      "foreground": "#C9A46A",
+      "background": "#136D6F",
+      "ratio": 2.61,
+      "passesNormalAA": false,
+      "passesLargeAA": false,
+      "passesAAA": false,
+      "description": "Light Mode: Gold Accent on Brand Primary (KPI / Pill)"
+    },
+    {
+      "foreground": "#F3F4F6",
+      "background": "#0B1118",
+      "ratio": 17.23,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": true,
+      "description": "Dark Mode: Primary Text on Scaffold Background"
+    },
+    {
+      "foreground": "#F3F4F6",
+      "background": "#121B24",
+      "ratio": 15.8,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": true,
+      "description": "Dark Mode: Primary Text on Card Surface"
+    },
+    {
+      "foreground": "#94A3B8",
+      "background": "#121B24",
+      "ratio": 6.78,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": false,
+      "description": "Dark Mode: Secondary Text on Card Surface"
+    },
+    {
+      "foreground": "#FFFFFF",
+      "background": "#178587",
+      "ratio": 4.43,
+      "passesNormalAA": false,
+      "passesLargeAA": true,
+      "passesAAA": false,
+      "description": "Dark Mode: White Text on Brand Primary Button"
+    },
+    {
+      "foreground": "#DFBE86",
+      "background": "#121B24",
+      "ratio": 9.81,
+      "passesNormalAA": true,
+      "passesLargeAA": true,
+      "passesAAA": true,
+      "description": "Dark Mode: Gold Accent on Card Surface"
+    }
+  ],
+  "testResults": {
+    "totalRan": 36,
+    "totalPassed": 36,
+    "failed": 0,
+    "suites": [
+      {
+        "name": "theme_system_test.dart",
+        "passed": 4,
+        "total": 4
+      },
+      {
+        "name": "card_custom_grid_and_credential_modes_test.dart",
+        "passed": 6,
+        "total": 6
+      },
+      {
+        "name": "card_template_custom_positions_and_rendering_test.dart",
+        "passed": 18,
+        "total": 18
+      },
+      {
+        "name": "session_and_router_recovery_acceptance_test.dart",
+        "passed": 8,
+        "total": 8
+      }
+    ]
+  },
+  "preservedColors": {
+    "semanticSuccess": [
+      "#10B981",
+      "#059669",
+      "#34D399",
+      "#047857"
+    ],
+    "semanticError": [
+      "#EF4444",
+      "#DC2626",
+      "#F87171"
+    ],
+    "semanticWarning": [
+      "#F59E0B",
+      "#D97706",
+      "#FBBF24"
+    ],
+    "cardUsedBadge": "#38BDF8 (models.dart)",
+    "templatePresets": "Football, Eid, Turquoise, Ticket, Compact (User choice preservation)",
+    "darkModeConstants": "Dark mode surface and text tokens"
+  },
+  "violationsSummary": []
+}

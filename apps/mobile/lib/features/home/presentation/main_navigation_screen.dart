@@ -215,7 +215,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                   style: TextStyle(color: context.textSecondary),
                 ),
                 currentAccountPicture: const CircleAvatar(
-                  backgroundColor: Color(0xFF2563EB),
+                  backgroundColor: AppTheme.primary,
                   child: Icon(Icons.person, color: Colors.white, size: 36),
                 ),
                 decoration: BoxDecoration(
@@ -265,7 +265,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                   decoration: BoxDecoration(
                     color: (ref.watch(themeModeProvider) == ThemeMode.light
                             ? const Color(0xFFF59E0B)
-                            : const Color(0xFF38BDF8))
+                            : AppTheme.primary)
                         .withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
@@ -275,7 +275,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                         : Icons.dark_mode,
                     color: ref.watch(themeModeProvider) == ThemeMode.light
                         ? const Color(0xFFF59E0B)
-                        : const Color(0xFF38BDF8),
+                        : AppTheme.primary,
                     size: 18,
                   ),
                 ),
@@ -293,7 +293,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                 ),
                 trailing: Switch(
                   value: ref.watch(themeModeProvider) == ThemeMode.light,
-                  activeThumbColor: const Color(0xFF0D9488),
+                  activeThumbColor: AppTheme.primary,
                   onChanged: (_) {
                     ref.read(themeModeProvider.notifier).toggleTheme();
                   },
@@ -305,7 +305,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
             Divider(color: context.borderColor),
             ListTile(
-              leading: const Icon(Icons.dashboard_outlined, color: Color(0xFF38BDF8)),
+              leading: const Icon(Icons.dashboard_outlined, color: AppTheme.primary),
               title: Text('لوحة التحكم الرئيسية', style: TextStyle(color: context.textPrimary)),
               selected: _currentIndex == 0,
               onTap: () {
@@ -323,7 +323,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.auto_awesome_outlined, color: Color(0xFFA78BFA)),
+              leading: const Icon(Icons.auto_awesome_outlined, color: AppTheme.primary),
               title: Text('إنشاء كروت', style: TextStyle(color: context.textPrimary)),
               selected: _currentIndex == 2,
               onTap: () {
@@ -412,7 +412,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.person_pin_outlined, color: Color(0xFF38BDF8)),
+              leading: const Icon(Icons.person_pin_outlined, color: AppTheme.primary),
               title: Text('حسابي وإعدادات الأمان', style: TextStyle(color: context.textPrimary)),
               onTap: () {
                 Navigator.pop(context);

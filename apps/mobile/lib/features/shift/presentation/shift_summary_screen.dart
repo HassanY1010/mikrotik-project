@@ -96,10 +96,10 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
         bgColor = Colors.amber.shade800;
       } else if (pushResult.appliedCount > 0) {
         message = 'تمت المزامنة بنجاح! تم اعتماد ${pushResult.appliedCount} عملية في الخادم وتحديث تقرير الوردية.';
-        bgColor = const Color(0xFF0D9488);
+        bgColor = AppTheme.primary;
       } else {
         message = 'تم التحقق من المزامنة: جميع العمليات محدثة ومتطابقة مع الخادم.';
-        bgColor = const Color(0xFF0D9488);
+        bgColor = AppTheme.primary;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -159,7 +159,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('تم إغلاق الوردية المالية واعتماد السجلات بنجاح!'),
-          backgroundColor: Color(0xFF0D9488),
+          backgroundColor: AppTheme.primary,
           duration: Duration(seconds: 3),
         ),
       );
@@ -262,7 +262,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: const [
-            Icon(Icons.point_of_sale, color: Color(0xFF0D9488)),
+            Icon(Icons.point_of_sale, color: AppTheme.primary),
             SizedBox(width: 8),
             Text('إغلاق وطباعة الوردية', style: TextStyle(fontSize: 16)),
           ],
@@ -343,7 +343,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFF5EEAD4),
-              side: const BorderSide(color: Color(0xFF0D9488)),
+              side: const BorderSide(color: AppTheme.primary),
             ),
             icon: const Icon(Icons.picture_as_pdf, size: 16),
             label: const Text('تقرير PDF'),
@@ -367,7 +367,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
           ),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0D9488),
+              backgroundColor: AppTheme.primary,
               foregroundColor: Colors.white,
             ),
             icon: _isClosingShift
@@ -517,7 +517,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0D9488)))
+          ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
           : RefreshIndicator(
               onRefresh: _handleSyncAndRefresh,
               child: SingleChildScrollView(
@@ -565,7 +565,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                             decoration: BoxDecoration(
                               color: context.bgCard,
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: const Color(0xFF0D9488).withValues(alpha: 0.3)),
+                              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -738,8 +738,8 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                             height: 42,
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF0D9488),
-                                side: const BorderSide(color: Color(0xFF0D9488)),
+                                foregroundColor: AppTheme.primary,
+                                side: const BorderSide(color: AppTheme.primary),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                               ),
                               icon: const Icon(Icons.receipt_long, size: 18),
@@ -866,10 +866,10 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                               leading: CircleAvatar(
                                 backgroundColor: isLocalOnly
                                     ? Colors.amber.withValues(alpha: 0.2)
-                                    : const Color(0xFF0D9488).withValues(alpha: 0.2),
+                                    : AppTheme.primary.withValues(alpha: 0.2),
                                 child: Icon(
                                   isLocalOnly ? Icons.offline_bolt : Icons.receipt_long,
-                                  color: isLocalOnly ? Colors.amber : const Color(0xFF0D9488),
+                                  color: isLocalOnly ? Colors.amber : AppTheme.primary,
                                   size: 20,
                                 ),
                               ),
@@ -887,7 +887,7 @@ class _ShiftSummaryScreenState extends ConsumerState<ShiftSummaryScreen> {
                                     decoration: BoxDecoration(
                                       color: isLocalOnly
                                           ? Colors.amber.shade900
-                                          : Colors.teal.shade900,
+                                          : AppTheme.primary,
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     child: Text(

@@ -54,10 +54,10 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
         bgColor = Colors.amber.shade800;
       } else if (pushResult.appliedCount > 0) {
         message = 'تمت المزامنة بنجاح! تم اعتماد ${pushResult.appliedCount} عملية وتحديث كروت المحفظة.';
-        bgColor = const Color(0xFF0D9488);
+        bgColor = AppTheme.primary;
       } else {
         message = 'تمت مزامنة وتحديث محفظة الكروت بنجاح.';
-        bgColor = const Color(0xFF0D9488);
+        bgColor = AppTheme.primary;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -107,7 +107,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
         title: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.wifi, color: Color(0xFF0D9488), size: 20),
+            const Icon(Icons.wifi, color: AppTheme.primary, size: 20),
             const SizedBox(width: 8),
             Text(
               'كرت #${card.serialNumber}',
@@ -180,8 +180,8 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
         ),
         actions: [
           TextButton.icon(
-            icon: const Icon(Icons.copy, size: 16, color: Color(0xFF38BDF8)),
-            label: const Text('نسخ البيانات', style: TextStyle(color: Color(0xFF38BDF8))),
+            icon: const Icon(Icons.copy, size: 16, color: AppTheme.primary),
+            label: const Text('نسخ البيانات', style: TextStyle(color: AppTheme.primary)),
             onPressed: () {
               final text = 'المستخدم: ${card.username}\nكلمة المرور: ${card.clearPassword ?? card.username}';
               Clipboard.setData(ClipboardData(text: text));
@@ -313,7 +313,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                   ChoiceChip(
                     label: const Text('عيد مبارك الملكي'),
                     selected: selectedTheme == 'EID_MUBARAK',
-                    selectedColor: const Color(0xFF1E3A8A),
+                    selectedColor: AppTheme.primary,
                     onSelected: (val) {
                       if (val) setModalState(() => selectedTheme = 'EID_MUBARAK');
                     },
@@ -342,6 +342,38 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                       if (val) setModalState(() => selectedTheme = 'COMPACT');
                     },
                   ),
+                  ChoiceChip(
+                    label: const Text('ألعاب وجيمنج'),
+                    selected: selectedTheme == 'CYBERPUNK',
+                    selectedColor: const Color(0xFF090D16),
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedTheme = 'CYBERPUNK');
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('مقاهي وكافيهات'),
+                    selected: selectedTheme == 'ARTISAN_COFFEE',
+                    selectedColor: const Color(0xFF3E2723),
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedTheme = 'ARTISAN_COFFEE');
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('رمضان والأعياد'),
+                    selected: selectedTheme == 'RAMADAN',
+                    selectedColor: const Color(0xFF0B192C),
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedTheme = 'RAMADAN');
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('دراسة وجامعات'),
+                    selected: selectedTheme == 'ACADEMIC',
+                    selectedColor: const Color(0xFF1E293B),
+                    onSelected: (val) {
+                      if (val) setModalState(() => selectedTheme = 'ACADEMIC');
+                    },
+                  ),
                 ],
               ),
               const SizedBox(height: 14),
@@ -358,7 +390,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0D9488),
+                  backgroundColor: AppTheme.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -401,8 +433,8 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
               const SizedBox(height: 8),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF38BDF8),
-                  side: const BorderSide(color: Color(0xFF38BDF8)),
+                  foregroundColor: AppTheme.primary,
+                  side: const BorderSide(color: AppTheme.primary),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
@@ -471,9 +503,9 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0D9488)),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
                   )
-                : const Icon(Icons.sync, color: Color(0xFF0D9488)),
+                : const Icon(Icons.sync, color: AppTheme.primary),
             tooltip: 'مزامنة الكروت والعمليات',
             onPressed: _isSyncing ? null : _handleSync,
           ),
@@ -483,7 +515,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
             onPressed: filtered.isEmpty ? null : () => _showExportPdfDialog(filtered),
           ),
           IconButton(
-            icon: const Icon(Icons.add_shopping_cart, color: Color(0xFF0D9488)),
+            icon: const Icon(Icons.add_shopping_cart, color: AppTheme.primary),
             tooltip: 'حجز كروت للمحفظة غير المتصلة',
             onPressed: _showReserveCardsModal,
           ),
@@ -596,7 +628,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                               const SizedBox(height: 24),
                               ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0D9488),
+                                  backgroundColor: AppTheme.primary,
                                   foregroundColor: Colors.white,
                                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -624,7 +656,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: isAvailable
-                                  ? const Color(0xFF0D9488).withValues(alpha: 0.3)
+                                  ? AppTheme.primary.withValues(alpha: 0.3)
                                   : context.borderColor,
                             ),
                           ),
@@ -632,11 +664,11 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                             contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                             leading: CircleAvatar(
                               backgroundColor: isAvailable
-                                  ? const Color(0xFF0D9488).withValues(alpha: 0.2)
+                                  ? AppTheme.primary.withValues(alpha: 0.2)
                                   : Colors.grey.withValues(alpha: 0.2),
                               child: Icon(
                                 isAvailable ? Icons.wifi : Icons.check_circle_outline,
-                                color: isAvailable ? const Color(0xFF0D9488) : Colors.grey,
+                                color: isAvailable ? AppTheme.primary : Colors.grey,
                               ),
                             ),
                             title: Row(
@@ -765,7 +797,7 @@ class _ReserveCardsBottomSheetState extends ConsumerState<_ReserveCardsBottomShe
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('تم حجز ${cards.length} كرت بنجاح ونقلها لمحفظتك غير المتصلة'),
-            backgroundColor: const Color(0xFF0D9488),
+            backgroundColor: AppTheme.primary,
           ),
         );
       }
@@ -883,7 +915,7 @@ class _ReserveCardsBottomSheetState extends ConsumerState<_ReserveCardsBottomShe
             height: 48,
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0D9488),
+                backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),

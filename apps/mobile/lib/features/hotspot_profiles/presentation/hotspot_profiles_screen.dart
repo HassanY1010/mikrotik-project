@@ -188,10 +188,10 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                     const SizedBox(width: 10),
                     OutlinedButton.icon(
                       onPressed: _isSyncing ? null : () => _handleSyncRouter(routers),
-                      icon: const Icon(Icons.download_rounded, size: 18, color: Color(0xFF38BDF8)),
-                      label: const Text('مزامنة الراوتر', style: TextStyle(color: Color(0xFF38BDF8))),
+                      icon: const Icon(Icons.download_rounded, size: 18, color: AppTheme.primary),
+                      label: const Text('مزامنة الراوتر', style: TextStyle(color: AppTheme.primary)),
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFF0284C7)),
+                        side: const BorderSide(color: AppTheme.primary),
                         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
@@ -223,7 +223,7 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
                     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.borderColor)),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF38BDF8))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary)),
                   ),
                   onChanged: (v) => setState(() => _searchQuery = v.trim()),
                 ),
@@ -274,11 +274,11 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                                     width: 44,
                                     height: 44,
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF0284C7).withValues(alpha: 0.2),
+                                      color: AppTheme.primary.withValues(alpha: 0.2),
                                       borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.2)),
+                                      border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
                                     ),
-                                    child: const Icon(Icons.speed, color: Color(0xFF38BDF8), size: 22),
+                                    child: const Icon(Icons.speed, color: AppTheme.primary, size: 22),
                                   ),
                                   const SizedBox(width: 12),
 
@@ -333,10 +333,10 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
                                                 const Color(0xFFEC4899),
                                               ),
                                             if (p.rateLimit != null)
-                                              _buildBadge('⚡ ${p.rateLimit}', const Color(0xFF38BDF8)),
+                                              _buildBadge('⚡ ${p.rateLimit}', AppTheme.primary),
                                             if (p.validity != null && !p.isOpenCard)
                                               _buildBadge('⏳ ${formatValidityArabic(p.validity)}', const Color(0xFF10B981)),
-                                            _buildBadge('🎟️ كروت جاهزة: ${p.availableCards}', const Color(0xFFA78BFA)),
+                                            _buildBadge('🎟️ كروت جاهزة: ${p.availableCards}', AppTheme.primary),
                                             if (p.deviceName != null)
                                               _buildBadge('📡 ${p.deviceName}', const Color(0xFFF97316)),
                                           ],
@@ -393,11 +393,11 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
   Widget _buildBadge(String text, Color color) {
     final textColor = context.isDarkMode
         ? color
-        : (color == const Color(0xFF38BDF8)
-            ? const Color(0xFF0284C7)
+        : (color == AppTheme.primary
+            ? AppTheme.primary
             : color == const Color(0xFF10B981)
                 ? const Color(0xFF047857)
-                : color == const Color(0xFFA78BFA)
+                : color == AppTheme.primary
                     ? const Color(0xFF6D28D9)
                     : color == const Color(0xFFF97316)
                         ? const Color(0xFFC2410C)
