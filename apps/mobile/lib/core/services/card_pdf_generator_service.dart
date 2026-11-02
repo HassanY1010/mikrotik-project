@@ -178,6 +178,8 @@ class CardPdfGeneratorService {
     int? customRows,
     double? customMargin,
     double? customSpacing,
+    CardColorCustomization? customColors,
+    CardElementsLayout? elementsLayout,
   }) async {
     final effectiveNetworkName = networkName.trim().isNotEmpty
         ? networkName.trim()
@@ -192,7 +194,9 @@ class CardPdfGeneratorService {
     final effectiveShowPrice = template != null ? template.showPrice : showPrice;
     final effectiveShowSerial = template != null ? template.showSerial : showSerial;
     final templateShowQr = template?.showQr;
-    final elementsLayout = template?.elementsLayout;
+    final effectiveElementsLayout = elementsLayout ?? template?.elementsLayout;
+    final effectiveCustomColors = customColors ?? template?.customColors;
+    final effectiveDesignStyle = template?.designStyle ?? effectiveThemePreset;
 
     final theme = CardDesignTheme.fromId(
       effectiveThemePreset,
@@ -201,7 +205,9 @@ class CardPdfGeneratorService {
     );
     final fontBundle = await PdfFontService.loadArabicFonts();
 
-    Uint8List? bgBytes = customBackgroundImageBytes;
+    Uint8List? bgBytes = customBackgroundImageBytes ??
+        template?.getSyncBackgroundBytes() ??
+        template?.backgroundImageBytes;
     if (bgBytes == null && effectiveBackgroundImageBase64 != null && effectiveBackgroundImageBase64.isNotEmpty) {
       try {
         bgBytes = base64Decode(effectiveBackgroundImageBase64);
@@ -297,18 +303,33 @@ class CardPdfGeneratorService {
           cols = 5;
           rows = 20;
           cardMargin = 1.0;
-          fontSizeTitle = 5.5;
-          fontSizeCode = 7.0;
-          qrSize = 0.0;
-          layoutDefaultShowQr = false;
+          fontSizeTitle = 5.0;
+          fontSizeCode = 6.5;
+          qrSize = 22.0;
+          layoutDefaultShowQr = true;
           break;
       }
     }
 
-    final bool effectiveShowQr = (layout == CardPdfLayout.a4Grid100 && customCols == null) ? false : (templateShowQr ?? showQr ?? layoutDefaultShowQr);
+    final bool effectiveShowQr = (templateShowQr ?? showQr ?? layoutDefaultShowQr);
 
     final cardsPerPage = cols * rows;
     final totalPages = (cards.length / cardsPerPage).ceil().clamp(1, 9999);
+
+    final double targetAspectRatio = (template?.widthMm != null && template?.heightMm != null && template!.heightMm > 0)
+        ? (template.widthMm / template.heightMm)
+        : (85.0 / 54.0);
+
+    final double pageMargin = (customSpacing ?? (layout == CardPdfLayout.a4Grid100 ? 5.0 : 8.0));
+    final double headerHeight = 16.0;
+    final double availableWidth = effectivePageFormat.width - (2 * pageMargin);
+    final double availableHeight = effectivePageFormat.height - (2 * pageMargin) - headerHeight;
+
+    final double gapX = (cols > 4 ? 1.0 : 2.0);
+    final double gapY = (rows > 10 ? 1.0 : 2.0);
+
+    final double cardCellWidth = ((availableWidth - ((cols - 1) * gapX)) / cols).clamp(10.0, 500.0);
+    final double cardCellHeight = ((availableHeight - ((rows - 1) * gapY)) / rows).clamp(10.0, 500.0);
 
     for (int pageIndex = 0; pageIndex < totalPages; pageIndex++) {
       final startIndex = pageIndex * cardsPerPage;
@@ -317,17 +338,19 @@ class CardPdfGeneratorService {
       pdf.addPage(
         pw.Page(
           pageFormat: effectivePageFormat,
-          margin: pw.EdgeInsets.all(customSpacing ?? 10),
+          margin: pw.EdgeInsets.all(pageMargin),
           theme: pw.ThemeData.withFont(
             base: fontBundle.regular,
             bold: fontBundle.bold,
           ),
           build: (pw.Context context) {
             return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
               children: [
                 // Page Header with print marks and batch metadata in Arabic RTL
                 pw.Container(
-                  padding: const pw.EdgeInsets.only(bottom: 4),
+                  height: headerHeight,
+                  padding: const pw.EdgeInsets.only(bottom: 3),
                   decoration: const pw.BoxDecoration(
                     border: pw.Border(
                       bottom: pw.BorderSide(color: PdfColors.grey400, width: 0.5),
@@ -341,7 +364,7 @@ class CardPdfGeneratorService {
                         child: pw.Text(
                           'شبكة: $effectiveNetworkName ${batchNumber != null ? ' | دفعة: $batchNumber' : ''}',
                           style: pw.TextStyle(
-                            fontSize: 8,
+                            fontSize: 7.5,
                             color: PdfColors.grey700,
                             fontWeight: pw.FontWeight.bold,
                           ),
@@ -352,60 +375,86 @@ class CardPdfGeneratorService {
                           textDirection: pw.TextDirection.ltr,
                           child: pw.Text(
                             'Support: $effectiveSupportPhone',
-                            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                            style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700),
                           ),
                         ),
                       pw.Directionality(
                         textDirection: pw.TextDirection.rtl,
                         child: pw.Text(
                           'صفحة ${pageIndex + 1} من $totalPages | الكروت (${startIndex + 1} - ${startIndex + pageCards.length})',
-                          style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+                          style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
                         ),
                       ),
                     ],
                   ),
                 ),
-                pw.SizedBox(height: 3),
+                pw.SizedBox(height: 1),
 
-                // Cards Grid Matrix
+                // Precision Cards Grid Matrix (Pure Mathematical Geometry)
                 pw.Expanded(
-                  child: pw.GridView(
-                    crossAxisCount: cols,
-                    childAspectRatio: (effectivePageFormat.availableWidth / cols) /
-                        ((effectivePageFormat.availableHeight - 16) / rows),
-                    children: List.generate(pageCards.length, (cardIdx) {
-                      final card = pageCards[cardIdx];
-                      return layout == CardPdfLayout.a4Grid100
-                          ? _buildMiniCardItem(
-                              card: card,
-                              networkName: effectiveNetworkName,
-                              theme: theme,
-                              fontBundle: fontBundle,
-                              cardMargin: cardMargin,
-                              index: startIndex + cardIdx + 1,
-                              bgImage: bgImage,
-                              patternOverlayImage: patternOverlayImage,
-                              showPrice: effectiveShowPrice,
-                              showSerial: effectiveShowSerial,
-                            )
-                          : _buildCardItem(
-                              card: card,
-                              networkName: effectiveNetworkName,
-                              theme: theme,
-                              fontBundle: fontBundle,
-                              cardMargin: cardMargin,
-                              fontSizeTitle: fontSizeTitle,
-                              fontSizeCode: fontSizeCode,
-                              qrSize: qrSize,
-                              showQr: effectiveShowQr,
-                              showPrice: effectiveShowPrice,
-                              showSerial: effectiveShowSerial,
-                              instructions: effectiveInstructions,
-                              index: startIndex + cardIdx + 1,
-                              bgImage: bgImage,
-                              patternOverlayImage: patternOverlayImage,
-                              elementsLayout: elementsLayout,
+                  child: pw.Column(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: List.generate(rows, (r) {
+                      return pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: List.generate(cols, (c) {
+                          final cardIdx = r * cols + c;
+                          if (cardIdx < pageCards.length) {
+                            final card = pageCards[cardIdx];
+                            final isDense = cols > 4 || rows > 10 || layout == CardPdfLayout.a4Grid100;
+                            final cardWidget = (layout == CardPdfLayout.a4Grid100 && effectiveElementsLayout == null)
+                                ? _buildMiniCardItem(
+                                    card: card,
+                                    networkName: effectiveNetworkName,
+                                    theme: theme,
+                                    fontBundle: fontBundle,
+                                    cardMargin: cardMargin,
+                                    index: startIndex + cardIdx + 1,
+                                    bgImage: bgImage,
+                                    patternOverlayImage: patternOverlayImage,
+                                    showPrice: effectiveShowPrice,
+                                    showSerial: effectiveShowSerial,
+                                    targetAspectRatio: targetAspectRatio,
+                                    customColors: effectiveCustomColors,
+                                    designStyle: effectiveDesignStyle,
+                                  )
+                                : _buildCardItem(
+                                    card: card,
+                                    networkName: effectiveNetworkName,
+                                    theme: theme,
+                                    fontBundle: fontBundle,
+                                    cardMargin: cardMargin,
+                                    fontSizeTitle: fontSizeTitle,
+                                    fontSizeCode: fontSizeCode,
+                                    qrSize: effectiveShowQr ? (qrSize > 0 ? qrSize : 22.0) : 0.0,
+                                    showQr: effectiveShowQr,
+                                    showPrice: effectiveShowPrice,
+                                    showSerial: effectiveShowSerial,
+                                    instructions: effectiveInstructions,
+                                    index: startIndex + cardIdx + 1,
+                                    bgImage: bgImage,
+                                    patternOverlayImage: patternOverlayImage,
+                                    elementsLayout: effectiveElementsLayout,
+                                    targetAspectRatio: targetAspectRatio,
+                                    customColors: effectiveCustomColors,
+                                    designStyle: effectiveDesignStyle,
+                                    isDenseGrid: isDense,
+                                  );
+
+                            return pw.SizedBox(
+                              width: cardCellWidth,
+                              height: cardCellHeight,
+                              child: cardWidget,
                             );
+                          } else {
+                            // Empty placeholder cell preserving exact grid alignment on last page
+                            return pw.SizedBox(
+                              width: cardCellWidth,
+                              height: cardCellHeight,
+                            );
+                          }
+                        }),
+                      );
                     }),
                   ),
                 ),
@@ -480,6 +529,17 @@ class CardPdfGeneratorService {
     );
   }
 
+  static PdfColor? _parsePdfHex(String? hex) {
+    if (hex == null || hex.trim().isEmpty) return null;
+    try {
+      final clean = hex.replaceAll('#', '').trim();
+      final val = int.tryParse(clean.length == 6 ? 'FF$clean' : clean, radix: 16);
+      return val != null ? PdfColor.fromInt(val) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Builds a standard hotspot card preserving the selected design theme, colors, borders & credentials
   static pw.Widget _buildCardItem({
     required OfflineCardModel card,
@@ -498,10 +558,31 @@ class CardPdfGeneratorService {
     pw.MemoryImage? bgImage,
     pw.MemoryImage? patternOverlayImage,
     CardElementsLayout? elementsLayout,
+    double targetAspectRatio = 85.0 / 54.0,
+    CardColorCustomization? customColors,
+    String? designStyle,
+    bool isDenseGrid = false,
   }) {
-    final hasPin = card.clearPassword != null &&
+    final bool isSeparateUserPass = card.clearPassword != null &&
         card.clearPassword!.isNotEmpty &&
         card.clearPassword != card.username;
+    final bool isUsernameOnly = card.clearPassword == null || card.clearPassword!.isEmpty;
+    final bool isUnifiedPin = !isSeparateUserPass && !isUsernameOnly;
+
+    final headerTextColor = _parsePdfHex(customColors?.headerTextColor) ??
+        (bgImage != null ? PdfColors.white : theme.headerTextColor);
+    final bodyTextColor = _parsePdfHex(customColors?.bodyTextColor) ??
+        (bgImage != null ? PdfColors.white : PdfColors.white);
+    final usernameColor = _parsePdfHex(customColors?.usernameColor) ??
+        (bgImage != null ? PdfColors.black : PdfColors.white);
+    final passwordColor = _parsePdfHex(customColors?.passwordColor) ??
+        const PdfColor.fromInt(0xFFDC2626);
+    final pinColor = _parsePdfHex(customColors?.pinColor) ?? usernameColor;
+    final borderColor = _parsePdfHex(customColors?.borderColor) ??
+        (bgImage != null ? PdfColors.grey300 : theme.accentColor);
+    final secondaryColor = _parsePdfHex(customColors?.secondaryColor) ?? theme.accentColor;
+    final cardBgColor = _parsePdfHex(customColors?.cardBackgroundColor) ??
+        (bgImage == null ? theme.primaryColor : PdfColors.white);
 
     pw.Widget cardContent;
 
@@ -516,7 +597,7 @@ class CardPdfGeneratorService {
           overflow: pw.TextOverflow.clip,
           style: pw.TextStyle(
             fontSize: fontSizeTitle * _scaleMultiplier(netPlacement.scale),
-            color: theme.headerTextColor,
+            color: headerTextColor,
             fontWeight: pw.FontWeight.bold,
           ),
         ),
@@ -529,7 +610,7 @@ class CardPdfGeneratorService {
           ? pw.Container(
               padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
               decoration: pw.BoxDecoration(
-                color: theme.accentColor,
+                color: secondaryColor,
                 borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
               ),
               child: pw.Directionality(
@@ -557,7 +638,7 @@ class CardPdfGeneratorService {
                 maxLines: 1,
                 style: pw.TextStyle(
                   fontSize: (fontSizeTitle - 0.5) * _scaleMultiplier(profPlacement.scale),
-                  color: theme.primaryColor,
+                  color: bodyTextColor,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
@@ -571,9 +652,14 @@ class CardPdfGeneratorService {
           ? pw.Container(
               padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               decoration: pw.BoxDecoration(
-                color: const PdfColor.fromInt(0xFFF1F5F9),
+                color: bgImage != null
+                    ? const PdfColor.fromInt(0xFFF1F5F9)
+                    : const PdfColor(0, 0, 0, 0.35),
                 borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2.5)),
-                border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+                border: pw.Border.all(
+                  color: borderColor,
+                  width: 0.5,
+                ),
               ),
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -582,10 +668,10 @@ class CardPdfGeneratorService {
                   pw.Directionality(
                     textDirection: pw.TextDirection.rtl,
                     child: pw.Text(
-                      hasPin ? 'اسم المستخدم:' : 'رمز الدخول (PIN):',
+                      isUnifiedPin ? 'رمز الدخول (PIN):' : 'اسم المستخدم:',
                       style: pw.TextStyle(
                         fontSize: 6 * _scaleMultiplier(credPlacement.scale),
-                        color: PdfColors.grey700,
+                        color: bgImage != null ? PdfColors.grey700 : PdfColors.grey300,
                       ),
                     ),
                   ),
@@ -597,11 +683,11 @@ class CardPdfGeneratorService {
                         fontSize: fontSizeCode * _scaleMultiplier(credPlacement.scale),
                         fontWeight: pw.FontWeight.bold,
                         letterSpacing: 1.0,
-                        color: PdfColors.black,
+                        color: isUnifiedPin ? pinColor : usernameColor,
                       ),
                     ),
                   ),
-                  if (hasPin) ...[
+                  if (isSeparateUserPass) ...[
                     pw.SizedBox(height: 1),
                     pw.Directionality(
                       textDirection: pw.TextDirection.ltr,
@@ -610,7 +696,7 @@ class CardPdfGeneratorService {
                         style: pw.TextStyle(
                           fontSize: (fontSizeCode - 1.5) * _scaleMultiplier(credPlacement.scale),
                           fontWeight: pw.FontWeight.bold,
-                          color: const PdfColor.fromInt(0xFFDC2626),
+                          color: passwordColor,
                         ),
                       ),
                     ),
@@ -630,7 +716,7 @@ class CardPdfGeneratorService {
               height: effectiveQrSize,
               padding: const pw.EdgeInsets.all(1.5),
               decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+                border: pw.Border.all(color: borderColor, width: 0.5),
                 borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
                 color: PdfColors.white,
               ),
@@ -654,7 +740,7 @@ class CardPdfGeneratorService {
                 overflow: pw.TextOverflow.clip,
                 style: pw.TextStyle(
                   fontSize: 5.5 * _scaleMultiplier(instPlacement.scale),
-                  color: PdfColors.grey700,
+                  color: bodyTextColor,
                 ),
               ),
             )
@@ -670,7 +756,7 @@ class CardPdfGeneratorService {
                 'SN: ${card.serialNumber.isNotEmpty ? card.serialNumber : '#$index'}',
                 style: pw.TextStyle(
                   fontSize: 5.5 * _scaleMultiplier(snPlacement.scale),
-                  color: PdfColors.grey600,
+                  color: bodyTextColor,
                 ),
               ),
             )
@@ -706,11 +792,13 @@ class CardPdfGeneratorService {
       pw.Widget? topContainer;
       if (topLeft.isNotEmpty || topCenter.isNotEmpty || topRight.isNotEmpty) {
         topContainer = pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2.5),
-          decoration: pw.BoxDecoration(
-            color: theme.primaryColor,
-            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
-          ),
+          padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2 : 4, vertical: isDenseGrid ? 1 : 2.5),
+          decoration: bgImage != null
+              ? null
+              : pw.BoxDecoration(
+                  color: const PdfColor(0, 0, 0, 0.2),
+                  borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
+                ),
           child: _buildZoneRow(topLeft, topCenter, topRight),
         );
       }
@@ -718,7 +806,7 @@ class CardPdfGeneratorService {
       pw.Widget? middleContainer;
       if (midLeft.isNotEmpty || midCenter.isNotEmpty || midRight.isNotEmpty) {
         middleContainer = pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 2),
+          padding: pw.EdgeInsets.symmetric(vertical: isDenseGrid ? 0.8 : 2),
           child: _buildZoneRow(midLeft, midCenter, midRight),
         );
       }
@@ -726,10 +814,12 @@ class CardPdfGeneratorService {
       pw.Widget? bottomContainer;
       if (botLeft.isNotEmpty || botCenter.isNotEmpty || botRight.isNotEmpty) {
         bottomContainer = pw.Container(
-          padding: const pw.EdgeInsets.only(top: 1.5),
-          decoration: const pw.BoxDecoration(
-            border: pw.Border(top: pw.BorderSide(color: PdfColors.grey300, width: 0.5)),
-          ),
+          padding: pw.EdgeInsets.only(top: isDenseGrid ? 0.8 : 1.5),
+          decoration: bgImage != null
+              ? null
+              : const pw.BoxDecoration(
+                  border: pw.Border(top: pw.BorderSide(color: PdfColors.white, width: 0.3)),
+                ),
           child: _buildZoneRow(botLeft, botCenter, botRight),
         );
       }
@@ -751,10 +841,12 @@ class CardPdfGeneratorService {
           // Theme Header Bar: Network Name + Price Badge
           pw.Container(
             padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2.5),
-            decoration: pw.BoxDecoration(
-              color: theme.primaryColor,
-              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
-            ),
+            decoration: bgImage != null
+                ? null
+                : pw.BoxDecoration(
+                    color: const PdfColor(0, 0, 0, 0.2),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+                  ),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
@@ -767,7 +859,7 @@ class CardPdfGeneratorService {
                       overflow: pw.TextOverflow.clip,
                       style: pw.TextStyle(
                         fontSize: fontSizeTitle,
-                        color: theme.headerTextColor,
+                        color: headerTextColor,
                         fontWeight: pw.FontWeight.bold,
                       ),
                     ),
@@ -777,7 +869,7 @@ class CardPdfGeneratorService {
                   pw.Container(
                     padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                     decoration: pw.BoxDecoration(
-                      color: theme.accentColor,
+                      color: secondaryColor,
                       borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
                     ),
                     child: pw.Directionality(
@@ -816,7 +908,7 @@ class CardPdfGeneratorService {
                           maxLines: 1,
                           style: pw.TextStyle(
                             fontSize: fontSizeTitle - 0.5,
-                            color: theme.primaryColor,
+                            color: bodyTextColor,
                             fontWeight: pw.FontWeight.bold,
                           ),
                         ),
@@ -827,9 +919,14 @@ class CardPdfGeneratorService {
                       pw.Container(
                         padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                         decoration: pw.BoxDecoration(
-                          color: const PdfColor.fromInt(0xFFF1F5F9), // Light grey
+                          color: bgImage != null
+                              ? const PdfColor.fromInt(0xFFF1F5F9)
+                              : const PdfColor(0, 0, 0, 0.35),
                           borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2.5)),
-                          border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+                          border: pw.Border.all(
+                            color: borderColor,
+                            width: 0.5,
+                          ),
                         ),
                         child: pw.Column(
                           crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -837,10 +934,10 @@ class CardPdfGeneratorService {
                             pw.Directionality(
                               textDirection: pw.TextDirection.rtl,
                               child: pw.Text(
-                                hasPin ? 'اسم المستخدم:' : 'رمز الدخول (PIN):',
-                                style: const pw.TextStyle(
+                                isUnifiedPin ? 'رمز الدخول (PIN):' : 'اسم المستخدم:',
+                                style: pw.TextStyle(
                                   fontSize: 6,
-                                  color: PdfColors.grey700,
+                                  color: bgImage != null ? PdfColors.grey700 : PdfColors.grey300,
                                 ),
                               ),
                             ),
@@ -852,11 +949,11 @@ class CardPdfGeneratorService {
                                   fontSize: fontSizeCode,
                                   fontWeight: pw.FontWeight.bold,
                                   letterSpacing: 1.0,
-                                  color: PdfColors.black,
+                                  color: isUnifiedPin ? pinColor : usernameColor,
                                 ),
                               ),
                             ),
-                            if (hasPin) ...[
+                            if (isSeparateUserPass) ...[
                               pw.SizedBox(height: 1),
                               pw.Directionality(
                                 textDirection: pw.TextDirection.ltr,
@@ -865,7 +962,7 @@ class CardPdfGeneratorService {
                                   style: pw.TextStyle(
                                     fontSize: fontSizeCode - 1.5,
                                     fontWeight: pw.FontWeight.bold,
-                                    color: const PdfColor.fromInt(0xFFDC2626), // Red
+                                    color: passwordColor,
                                   ),
                                 ),
                               ),
@@ -885,7 +982,7 @@ class CardPdfGeneratorService {
                     height: qrSize,
                     padding: const pw.EdgeInsets.all(1.5),
                     decoration: pw.BoxDecoration(
-                      border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+                      border: pw.Border.all(color: borderColor, width: 0.5),
                       borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
                       color: PdfColors.white,
                     ),
@@ -904,9 +1001,11 @@ class CardPdfGeneratorService {
           if (showSerial || (instructions != null && instructions.isNotEmpty))
             pw.Container(
               padding: const pw.EdgeInsets.only(top: 1.5),
-              decoration: const pw.BoxDecoration(
-                border: pw.Border(top: pw.BorderSide(color: PdfColors.grey300, width: 0.5)),
-              ),
+              decoration: bgImage != null
+                  ? null
+                  : const pw.BoxDecoration(
+                      border: pw.Border(top: pw.BorderSide(color: PdfColors.white, width: 0.3)),
+                    ),
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
@@ -915,7 +1014,10 @@ class CardPdfGeneratorService {
                       textDirection: pw.TextDirection.ltr,
                       child: pw.Text(
                         'SN: ${card.serialNumber.isNotEmpty ? card.serialNumber : '#$index'}',
-                        style: const pw.TextStyle(fontSize: 5.5, color: PdfColors.grey600),
+                        style: pw.TextStyle(
+                          fontSize: 5.5,
+                          color: bodyTextColor,
+                        ),
                       ),
                     )
                   else
@@ -926,7 +1028,10 @@ class CardPdfGeneratorService {
                       (instructions != null && instructions.isNotEmpty)
                           ? instructions
                           : 'امسح الرمز أو ادخل الكود',
-                      style: const pw.TextStyle(fontSize: 5.5, color: PdfColors.grey600),
+                      style: pw.TextStyle(
+                        fontSize: 5.5,
+                        color: bodyTextColor,
+                      ),
                     ),
                   ),
                 ],
@@ -936,20 +1041,21 @@ class CardPdfGeneratorService {
       );
     }
 
-    return pw.Container(
+    final cardWidget = pw.Container(
+      width: double.infinity,
+      height: double.infinity,
       margin: pw.EdgeInsets.all(cardMargin),
       decoration: pw.BoxDecoration(
-        color: PdfColors.white,
-        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+        color: cardBgColor,
+        borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 4)),
         border: pw.Border.all(
-          color: PdfColors.grey400,
-          width: 0.6,
-          style: pw.BorderStyle.dashed, // Precision dotted cut guidelines for print shops
+          color: borderColor,
+          width: isDenseGrid ? 0.35 : (designStyle == 'MINIMALIST' ? 0.4 : (designStyle == 'LUXURY_ROYAL' ? 0.8 : 0.5)),
         ),
       ),
       child: pw.ClipRRect(
-        horizontalRadius: 4,
-        verticalRadius: 4,
+        horizontalRadius: isDenseGrid ? 1.5 : 4,
+        verticalRadius: isDenseGrid ? 1.5 : 4,
         child: pw.Stack(
           children: [
             if (bgImage != null)
@@ -957,6 +1063,7 @@ class CardPdfGeneratorService {
                 child: pw.Image(
                   bgImage,
                   fit: pw.BoxFit.cover,
+                  alignment: pw.Alignment.center,
                 ),
               ),
             if (patternOverlayImage != null)
@@ -966,15 +1073,28 @@ class CardPdfGeneratorService {
                   fit: pw.BoxFit.cover,
                 ),
               ),
+            if (designStyle == 'LUXURY_ROYAL')
+              pw.Positioned.fill(
+                child: pw.Container(
+                  margin: pw.EdgeInsets.all(isDenseGrid ? 0.8 : 1.5),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(
+                      color: borderColor,
+                      width: isDenseGrid ? 0.3 : 0.5,
+                    ),
+                  ),
+                ),
+              ),
             pw.Container(
-              padding: const pw.EdgeInsets.all(3.5),
-              color: bgImage != null ? const PdfColor(1, 1, 1, 0.25) : null,
+              padding: pw.EdgeInsets.all(isDenseGrid ? 1.5 : 3.5),
               child: cardContent,
             ),
           ],
         ),
       ),
     );
+
+    return cardWidget;
   }
 
   /// Builds a dense mini card (100 cards per A4 page)
@@ -989,10 +1109,25 @@ class CardPdfGeneratorService {
     bool showSerial = true,
     pw.MemoryImage? bgImage,
     pw.MemoryImage? patternOverlayImage,
+    double targetAspectRatio = 85.0 / 54.0,
+    CardColorCustomization? customColors,
+    String? designStyle,
   }) {
     final hasPin = card.clearPassword != null &&
         card.clearPassword!.isNotEmpty &&
         card.clearPassword != card.username;
+
+    final headerTextColor = _parsePdfHex(customColors?.headerTextColor) ??
+        (bgImage != null ? PdfColors.white : theme.headerTextColor);
+    final usernameColor = _parsePdfHex(customColors?.usernameColor) ??
+        (bgImage != null ? PdfColors.black : PdfColors.white);
+    final passwordColor = _parsePdfHex(customColors?.passwordColor) ??
+        const PdfColor.fromInt(0xFFDC2626);
+    final borderColor = _parsePdfHex(customColors?.borderColor) ??
+        (bgImage != null ? PdfColors.grey400 : theme.accentColor);
+    final secondaryColor = _parsePdfHex(customColors?.secondaryColor) ?? theme.accentColor;
+    final cardBgColor = _parsePdfHex(customColors?.cardBackgroundColor) ??
+        (bgImage == null ? theme.primaryColor : PdfColors.white);
 
     final miniCardContent = pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -1001,10 +1136,12 @@ class CardPdfGeneratorService {
         // Mini Header
         pw.Container(
           padding: const pw.EdgeInsets.symmetric(horizontal: 1.5, vertical: 0.8),
-          decoration: pw.BoxDecoration(
-            color: theme.primaryColor,
-            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(1)),
-          ),
+          decoration: bgImage != null
+              ? null
+              : pw.BoxDecoration(
+                  color: const PdfColor(0, 0, 0, 0.2),
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(1)),
+                ),
           child: pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
@@ -1017,7 +1154,7 @@ class CardPdfGeneratorService {
                     overflow: pw.TextOverflow.clip,
                     style: pw.TextStyle(
                       fontSize: 4.5,
-                      color: theme.headerTextColor,
+                      color: headerTextColor,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
@@ -1030,7 +1167,7 @@ class CardPdfGeneratorService {
                     '${card.price.toStringAsFixed(0)} ${card.currency}',
                     style: pw.TextStyle(
                       fontSize: 4.5,
-                      color: theme.accentColor,
+                      color: secondaryColor,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
@@ -1049,7 +1186,7 @@ class CardPdfGeneratorService {
                 fontSize: 7.0,
                 fontWeight: pw.FontWeight.bold,
                 letterSpacing: 0.6,
-                color: PdfColors.black,
+                color: usernameColor,
               ),
             ),
           ),
@@ -1064,7 +1201,7 @@ class CardPdfGeneratorService {
                 style: pw.TextStyle(
                   fontSize: 4.5,
                   fontWeight: pw.FontWeight.bold,
-                  color: const PdfColor.fromInt(0xFFDC2626),
+                  color: passwordColor,
                 ),
               ),
             ),
@@ -1079,7 +1216,10 @@ class CardPdfGeneratorService {
                 textDirection: pw.TextDirection.ltr,
                 child: pw.Text(
                   '#${card.serialNumber.isNotEmpty ? card.serialNumber.substring(card.serialNumber.length > 5 ? card.serialNumber.length - 5 : 0) : index}',
-                  style: const pw.TextStyle(fontSize: 4, color: PdfColors.grey600),
+                  style: pw.TextStyle(
+                    fontSize: 4,
+                    color: bgImage != null ? PdfColors.grey600 : PdfColors.white,
+                  ),
                 ),
               )
             else
@@ -1089,7 +1229,10 @@ class CardPdfGeneratorService {
               child: pw.Text(
                 networkName,
                 maxLines: 1,
-                style: const pw.TextStyle(fontSize: 4, color: PdfColors.grey600),
+                style: pw.TextStyle(
+                  fontSize: 4,
+                  color: bgImage != null ? PdfColors.grey600 : PdfColors.white,
+                ),
               ),
             ),
           ],
@@ -1097,12 +1240,17 @@ class CardPdfGeneratorService {
       ],
     );
 
-    return pw.Container(
+    final miniCard = pw.Container(
+      width: double.infinity,
+      height: double.infinity,
       margin: pw.EdgeInsets.all(cardMargin),
       decoration: pw.BoxDecoration(
-        color: PdfColors.white,
+        color: cardBgColor,
         borderRadius: const pw.BorderRadius.all(pw.Radius.circular(1.5)),
-        border: pw.Border.all(color: PdfColors.grey400, width: 0.4, style: pw.BorderStyle.dashed),
+        border: pw.Border.all(
+          color: borderColor,
+          width: 0.4,
+        ),
       ),
       child: pw.ClipRRect(
         horizontalRadius: 1.5,
@@ -1114,6 +1262,7 @@ class CardPdfGeneratorService {
                 child: pw.Image(
                   bgImage,
                   fit: pw.BoxFit.cover,
+                  alignment: pw.Alignment.center,
                 ),
               ),
             if (patternOverlayImage != null)
@@ -1125,13 +1274,14 @@ class CardPdfGeneratorService {
               ),
             pw.Container(
               padding: const pw.EdgeInsets.all(1.5),
-              color: bgImage != null ? const PdfColor(1, 1, 1, 0.25) : null,
               child: miniCardContent,
             ),
           ],
         ),
       ),
     );
+
+    return miniCard;
   }
 
   /// Exports and opens the native OS Share dialog (WhatsApp, Telegram, Save to Files, Print)
@@ -1156,6 +1306,8 @@ class CardPdfGeneratorService {
     int? customRows,
     double? customMargin,
     double? customSpacing,
+    CardColorCustomization? customColors,
+    CardElementsLayout? elementsLayout,
   }) async {
     final bytes = await generateCardsPdf(
       cards: cards,
@@ -1178,6 +1330,8 @@ class CardPdfGeneratorService {
       customRows: customRows,
       customMargin: customMargin,
       customSpacing: customSpacing,
+      customColors: customColors,
+      elementsLayout: elementsLayout,
     );
 
     final cleanBatch = batchNumber != null ? '_$batchNumber' : '';
@@ -1211,6 +1365,8 @@ class CardPdfGeneratorService {
     int? customRows,
     double? customMargin,
     double? customSpacing,
+    CardColorCustomization? customColors,
+    CardElementsLayout? elementsLayout,
   }) async {
     await Printing.layoutPdf(
       name: 'كروت هوتسبوت - $networkName',
@@ -1236,6 +1392,8 @@ class CardPdfGeneratorService {
           customRows: customRows,
           customMargin: customMargin,
           customSpacing: customSpacing,
+          customColors: customColors,
+          elementsLayout: elementsLayout,
         );
       },
     );

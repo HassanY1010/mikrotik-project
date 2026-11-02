@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -47,6 +48,8 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
   late CardElementsLayout _elementsLayout;
   late CardPatternType _patternOverlay;
   late double _patternOpacity;
+  Uint8List? _backgroundImageBytes;
+  String? _backgroundImageBase64;
 
   bool _isSaving = false;
 
@@ -227,6 +230,8 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     _elementsLayout = tpl?.elementsLayout ?? const CardElementsLayout();
     _patternOverlay = CardPatternTypeExtension.fromString(tpl?.patternOverlay);
     _patternOpacity = tpl?.patternOpacity ?? 0.12;
+    _backgroundImageBase64 = tpl?.backgroundImageBase64;
+    _backgroundImageBytes = tpl?.getSyncBackgroundBytes();
   }
 
   @override
@@ -300,6 +305,9 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
     baseConfig['elements'] = _elementsLayout.toMap();
     baseConfig['patternOverlay'] = _patternOverlay.id;
     baseConfig['patternOpacity'] = _patternOpacity;
+    if (_backgroundImageBase64 != null && _backgroundImageBase64!.isNotEmpty) {
+      baseConfig['backgroundImageBase64'] = _backgroundImageBase64;
+    }
 
     final updatedTemplate = CardTemplateModel(
       id: widget.template?.id ?? '',
@@ -313,6 +321,7 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
       accentColor: _colorToHex(_accentColor),
       isDefault: _isDefault,
       layoutConfig: baseConfig,
+      backgroundImageBytes: _backgroundImageBytes,
     );
 
     final notifier = ref.read(cardTemplatesProvider.notifier);
@@ -1158,13 +1167,15 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
       );
     }
 
+    final double cardAspect = (_widthMm > 0 && _heightMm > 0) ? (_widthMm / _heightMm) : (85.0 / 54.0);
+
     Widget? bottomContainer;
     if (botLeft.isNotEmpty || botCenter.isNotEmpty || botRight.isNotEmpty) {
       bottomContainer = Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.25),
+          color: _backgroundImageBytes != null ? Colors.transparent : Colors.black.withValues(alpha: 0.25),
           borderRadius: const BorderRadius.only(
             bottomLeft: Radius.circular(16),
             bottomRight: Radius.circular(16),
@@ -1174,158 +1185,171 @@ class _CardTemplateEditorScreenState extends ConsumerState<CardTemplateEditorScr
       );
     }
 
-    final frontCard = Container(
-      width: double.infinity,
-      constraints: BoxConstraints(
-        maxWidth: isPortrait ? 260 : 360,
-        minHeight: isPortrait ? 300 : 180,
-      ),
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [_primaryColor, _primaryColor.withValues(alpha: 0.85)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: _primaryColor.withValues(alpha: 0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-        border: Border.all(color: _accentColor.withValues(alpha: 0.4), width: 1.5),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          children: [
-            if (_patternOverlay != CardPatternType.none)
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: CardPatternPainter(
-                    patternType: _patternOverlay,
-                    opacity: _patternOpacity,
-                    strokeColor: Colors.white,
-                  ),
-                ),
-              ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (topContainer != null) topContainer,
-                if (topContainer != null && (middleContainer != null || bottomContainer != null))
-                  const Divider(color: Colors.white24, height: 1),
-                if (middleContainer != null) middleContainer,
-                if (bottomContainer != null) bottomContainer,
-              ],
+    final frontCard = AspectRatio(
+      aspectRatio: cardAspect,
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        decoration: BoxDecoration(
+          color: _primaryColor,
+          image: _backgroundImageBytes != null
+              ? DecorationImage(
+                  image: MemoryImage(_backgroundImageBytes!),
+                  fit: BoxFit.fill,
+                )
+              : null,
+          gradient: _backgroundImageBytes == null
+              ? LinearGradient(
+                  colors: [_primaryColor, _primaryColor.withValues(alpha: 0.85)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: _primaryColor.withValues(alpha: 0.25),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
             ),
           ],
+          border: Border.all(
+            color: _backgroundImageBytes != null ? Colors.white24 : _accentColor.withValues(alpha: 0.4),
+            width: _backgroundImageBytes != null ? 0.8 : 1.5,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            children: [
+              if (_patternOverlay != CardPatternType.none)
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: CardPatternPainter(
+                      patternType: _patternOverlay,
+                      opacity: _patternOpacity,
+                      strokeColor: Colors.white,
+                    ),
+                  ),
+                ),
+              Column(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (topContainer != null) topContainer else const SizedBox(),
+                  if (middleContainer != null)
+                    Expanded(child: Center(child: middleContainer))
+                  else
+                    const SizedBox(),
+                  if (bottomContainer != null) bottomContainer else const SizedBox(),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
 
     // Build Reverse / Back Card Side (Terms, Instructions, Support)
-    final backCard = Container(
-      width: double.infinity,
-      constraints: BoxConstraints(
-        maxWidth: isPortrait ? 260 : 360,
-        minHeight: isPortrait ? 300 : 180,
-      ),
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [_primaryColor.withValues(alpha: 0.95), _primaryColor],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: _primaryColor.withValues(alpha: 0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+    final backCard = AspectRatio(
+      aspectRatio: cardAspect,
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _primaryColor,
+          gradient: LinearGradient(
+            colors: [_primaryColor.withValues(alpha: 0.95), _primaryColor],
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
           ),
-        ],
-        border: Border.all(color: _accentColor.withValues(alpha: 0.5), width: 1.5),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          children: [
-            if (_patternOverlay != CardPatternType.none)
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: CardPatternPainter(
-                    patternType: _patternOverlay,
-                    opacity: _patternOpacity * 0.7,
-                    strokeColor: Colors.white,
-                  ),
-                ),
-              ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.info_outline, color: _accentColor, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      'شروط وتعليمات استخدام الشبكة',
-                      style: TextStyle(
-                        color: _accentColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: _primaryColor.withValues(alpha: 0.25),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+          border: Border.all(color: _accentColor.withValues(alpha: 0.5), width: 1.5),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            children: [
+              if (_patternOverlay != CardPatternType.none)
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: CardPatternPainter(
+                      patternType: _patternOverlay,
+                      opacity: _patternOpacity * 0.7,
+                      strokeColor: Colors.white,
                     ),
-                  ],
-                ),
-                const Divider(color: Colors.white24, height: 16),
-                const Text(
-                  '1. الكرت صالح للاستخدام على جهاز واحد فقط في نفس الوقت.',
-                  style: TextStyle(color: Colors.white, fontSize: 10),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  '2. يبدأ احتساب الوقت فور أول عملية تسجيل دخول بالشبكة.',
-                  style: TextStyle(color: Colors.white, fontSize: 10),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  '3. للحفاظ على سرعة اتصالك، تجنب مشاركة الرمز مع الآخرين.',
-                  style: TextStyle(color: Colors.white, fontSize: 10),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white12),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                ),
+              Column(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
                     children: [
+                      Icon(Icons.info_outline, color: _accentColor, size: 18),
+                      const SizedBox(width: 8),
                       Text(
-                        'دعم العملاء:',
-                        style: TextStyle(color: _accentColor, fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        _supportPhoneController.text.trim().isNotEmpty
-                            ? _supportPhoneController.text.trim()
-                            : 'سودافاي | شبكة معتمدة',
-                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                        'شروط وتعليمات استخدام الشبكة',
+                        style: TextStyle(
+                          color: _accentColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ],
+                  const Divider(color: Colors.white24, height: 12),
+                  const Text(
+                    '1. الكرت صالح للاستخدام على جهاز واحد فقط في نفس الوقت.',
+                    style: TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    '2. يبدأ احتساب الوقت فور أول عملية تسجيل دخول بالشبكة.',
+                    style: TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    '3. للحفاظ على سرعة اتصالك، تجنب مشاركة الرمز مع الآخرين.',
+                    style: TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'دعم العملاء:',
+                          style: TextStyle(color: _accentColor, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          _supportPhoneController.text.trim().isNotEmpty
+                              ? _supportPhoneController.text.trim()
+                              : 'سودافاي | شبكة معتمدة',
+                          style: const TextStyle(color: Colors.white, fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

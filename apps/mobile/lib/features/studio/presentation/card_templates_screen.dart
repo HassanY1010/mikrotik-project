@@ -41,6 +41,9 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
   }
 
   void _handleUseTemplateInStudio(CardTemplateModel tpl) {
+    if (tpl.id.isNotEmpty) {
+      ref.read(localStorageProvider).setSelectedStudioTemplateId(tpl.id);
+    }
     if (Navigator.canPop(context)) {
       Navigator.pop(context, tpl);
     } else {
@@ -1448,7 +1451,12 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(color: accent, width: 2),
                                   ),
-                                  child: const Icon(Icons.style, color: Colors.white, size: 20),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: tpl.hasCustomBackground && tpl.getSyncBackgroundBytes() != null
+                                        ? Image.memory(tpl.getSyncBackgroundBytes()!, fit: BoxFit.cover)
+                                        : const Icon(Icons.style, color: Colors.white, size: 20),
+                                  ),
                                 ),
                                 const SizedBox(width: 12),
 

@@ -1446,6 +1446,108 @@ class CardElementPlacement {
   }
 }
 
+/// In-depth color customization for individual card elements
+class CardColorCustomization {
+  final String? headerTextColor;
+  final String? bodyTextColor;
+  final String? usernameColor;
+  final String? passwordColor;
+  final String? pinColor;
+  final String? borderColor;
+  final String? secondaryColor;
+  final String? cardBackgroundColor;
+
+  const CardColorCustomization({
+    this.headerTextColor,
+    this.bodyTextColor,
+    this.usernameColor,
+    this.passwordColor,
+    this.pinColor,
+    this.borderColor,
+    this.secondaryColor,
+    this.cardBackgroundColor,
+  });
+
+  factory CardColorCustomization.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return const CardColorCustomization();
+    return CardColorCustomization(
+      headerTextColor: map['headerTextColor'] as String?,
+      bodyTextColor: map['bodyTextColor'] as String?,
+      usernameColor: map['usernameColor'] as String?,
+      passwordColor: map['passwordColor'] as String?,
+      pinColor: map['pinColor'] as String?,
+      borderColor: map['borderColor'] as String?,
+      secondaryColor: map['secondaryColor'] as String?,
+      cardBackgroundColor: map['cardBackgroundColor'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    if (headerTextColor != null) 'headerTextColor': headerTextColor,
+    if (bodyTextColor != null) 'bodyTextColor': bodyTextColor,
+    if (usernameColor != null) 'usernameColor': usernameColor,
+    if (passwordColor != null) 'passwordColor': passwordColor,
+    if (pinColor != null) 'pinColor': pinColor,
+    if (borderColor != null) 'borderColor': borderColor,
+    if (secondaryColor != null) 'secondaryColor': secondaryColor,
+    if (cardBackgroundColor != null) 'cardBackgroundColor': cardBackgroundColor,
+  };
+
+  bool get isEmpty =>
+      headerTextColor == null &&
+      bodyTextColor == null &&
+      usernameColor == null &&
+      passwordColor == null &&
+      pinColor == null &&
+      borderColor == null &&
+      secondaryColor == null &&
+      cardBackgroundColor == null;
+
+  bool get isNotEmpty => !isEmpty;
+
+  static Color? parseHex(String? hex) {
+    if (hex == null || hex.trim().isEmpty) return null;
+    try {
+      final clean = hex.replaceAll('#', '').trim();
+      final val = int.tryParse(clean.length == 6 ? 'FF$clean' : clean, radix: 16);
+      return val != null ? Color(val) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Color? get headerTextColorFlutter => parseHex(headerTextColor);
+  Color? get bodyTextColorFlutter => parseHex(bodyTextColor);
+  Color? get usernameColorFlutter => parseHex(usernameColor);
+  Color? get passwordColorFlutter => parseHex(passwordColor);
+  Color? get pinColorFlutter => parseHex(pinColor);
+  Color? get borderColorFlutter => parseHex(borderColor);
+  Color? get secondaryColorFlutter => parseHex(secondaryColor);
+  Color? get cardBackgroundColorFlutter => parseHex(cardBackgroundColor);
+
+  CardColorCustomization copyWith({
+    String? headerTextColor,
+    String? bodyTextColor,
+    String? usernameColor,
+    String? passwordColor,
+    String? pinColor,
+    String? borderColor,
+    String? secondaryColor,
+    String? cardBackgroundColor,
+  }) {
+    return CardColorCustomization(
+      headerTextColor: headerTextColor ?? this.headerTextColor,
+      bodyTextColor: bodyTextColor ?? this.bodyTextColor,
+      usernameColor: usernameColor ?? this.usernameColor,
+      passwordColor: passwordColor ?? this.passwordColor,
+      pinColor: pinColor ?? this.pinColor,
+      borderColor: borderColor ?? this.borderColor,
+      secondaryColor: secondaryColor ?? this.secondaryColor,
+      cardBackgroundColor: cardBackgroundColor ?? this.cardBackgroundColor,
+    );
+  }
+}
+
 /// Comprehensive layout of all elements on the card
 class CardElementsLayout {
   final CardElementPlacement networkName;
@@ -1625,6 +1727,18 @@ class CardTemplateModel {
     return copyWith(layoutConfig: newConfig);
   }
 
+  CardColorCustomization get customColors => CardColorCustomization.fromMap(
+    layoutConfig['customColors'] is Map ? Map<String, dynamic>.from(layoutConfig['customColors'] as Map) : null,
+  );
+
+  CardTemplateModel withCustomColors(CardColorCustomization colors) {
+    final newConfig = Map<String, dynamic>.from(layoutConfig);
+    newConfig['customColors'] = colors.toMap();
+    return copyWith(layoutConfig: newConfig);
+  }
+
+  String get designStyle => layoutConfig['designStyle'] as String? ?? themePreset;
+
   bool get hasCustomBackground =>
       (backgroundImageBase64 != null && backgroundImageBase64!.isNotEmpty) ||
       (backgroundDesign != null &&
@@ -1651,6 +1765,9 @@ class CardTemplateModel {
   String get patternOverlay => layoutConfig['patternOverlay'] as String? ?? 'NONE';
   double get patternOpacity => (layoutConfig['patternOpacity'] as num?)?.toDouble() ?? 0.12;
 
+  /// Card aspect ratio (Width / Height)
+  double get aspectRatio => (widthMm > 0 && heightMm > 0) ? (widthMm / heightMm) : (85.0 / 54.0);
+
   factory CardTemplateModel.fromJson(Map<String, dynamic> json) {
     Map<String, dynamic> cfg = {};
     if (json['layoutConfig'] is Map) {
@@ -1658,6 +1775,17 @@ class CardTemplateModel {
     }
     if (json['elements'] is Map && !cfg.containsKey('elements')) {
       cfg['elements'] = json['elements'];
+    }
+
+    Uint8List? bgBytes;
+    final b64 = (cfg['backgroundImageBase64'] as String?) ??
+        (json['backgroundDesign'] is String && (json['backgroundDesign'] as String).startsWith('data:image')
+            ? (json['backgroundDesign'] as String).split(',').last
+            : null);
+    if (b64 != null && b64.isNotEmpty) {
+      try {
+        bgBytes = base64Decode(b64);
+      } catch (_) {}
     }
 
     return CardTemplateModel(
@@ -1672,6 +1800,7 @@ class CardTemplateModel {
       accentColor: json['accentColor'] as String? ?? '#10B981',
       layoutConfig: cfg,
       isDefault: json['isDefault'] as bool? ?? false,
+      backgroundImageBytes: bgBytes,
     );
   }
 

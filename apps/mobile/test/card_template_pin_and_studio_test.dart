@@ -161,4 +161,42 @@ void main() {
       expect(utf8.decode(pdfBytes.sublist(0, 5)), '%PDF-');
     });
   });
+
+  group('Studio State & Settings Persistence in LocalStorage', () {
+    test('Persists and restores quantity across cold restarts', () async {
+      expect(storage.getStudioQuantity(), isNull);
+      await storage.setStudioQuantity(250);
+      expect(storage.getStudioQuantity(), equals(250));
+      await storage.setStudioQuantity(1000);
+      expect(storage.getStudioQuantity(), equals(1000));
+    });
+
+    test('Persists and restores credential mode across cold restarts', () async {
+      expect(storage.getStudioCredentialMode(), isNull);
+      await storage.setStudioCredentialMode(0); // PIN موحد
+      expect(storage.getStudioCredentialMode(), equals(0));
+      await storage.setStudioCredentialMode(1); // منفصلين
+      expect(storage.getStudioCredentialMode(), equals(1));
+      await storage.setStudioCredentialMode(2); // مستخدم فقط
+      expect(storage.getStudioCredentialMode(), equals(2));
+    });
+
+    test('Persists and restores print layout and custom grid matrix', () async {
+      expect(storage.getStudioPrintLayout(), isNull);
+      expect(storage.getStudioIsCustomGrid(), isNull);
+
+      await storage.setStudioPrintLayout('a4Grid24');
+      expect(storage.getStudioPrintLayout(), equals('a4Grid24'));
+
+      await storage.setStudioIsCustomGrid(true);
+      await storage.setStudioCustomCols(4);
+      await storage.setStudioCustomRows(5);
+      await storage.setStudioCustomMargin(2.5);
+
+      expect(storage.getStudioIsCustomGrid(), isTrue);
+      expect(storage.getStudioCustomCols(), equals(4));
+      expect(storage.getStudioCustomRows(), equals(5));
+      expect(storage.getStudioCustomMargin(), equals(2.5));
+    });
+  });
 }

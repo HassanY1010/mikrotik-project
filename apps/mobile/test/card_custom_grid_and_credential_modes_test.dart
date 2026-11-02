@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:mobile/core/models/models.dart';
 import 'package:mobile/core/services/card_pdf_generator_service.dart';
+import 'package:mobile/core/services/card_template_import_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -153,7 +154,7 @@ void main() {
       // - 120 cards -> 1 page
       // - 250 cards -> 3 pages (120 + 120 + 10)
       // - 500 cards -> 5 pages (120 + 120 + 120 + 120 + 20)
-      final quantities = [50, 100, 120, 250, 500];
+      final quantities = [50, 100, 120, 250, 500, 1000];
 
       for (final q in quantities) {
         final cards = createCards(q, credentialMode: 0);
@@ -196,6 +197,161 @@ void main() {
       final outputDir = Directory('C:/Users/HP/.gemini/antigravity/brain/450c6bde-fe47-4463-9a02-0800f71fe6ce/scratch');
       if (!outputDir.existsSync()) outputDir.createSync(recursive: true);
       File('${outputDir.path}/test_120_cards_100_per_page_two_pages.pdf').writeAsBytesSync(pdfBytes);
+    });
+
+    test('7. Four A4 Layout Presets (10, 12, 24, 100 cards) with 250 cards batch', () async {
+      final cards = createCards(250, credentialMode: 0);
+
+      // 10 cards per page -> 25 pages
+      final pdf10 = await CardPdfGeneratorService.generateCardsPdf(
+        cards: cards,
+        layout: CardPdfLayout.a4Grid10,
+        networkName: 'سودافاي 10 كروت',
+      );
+      expect(pdf10, isNotNull);
+      final count10 = RegExp(r'/Count\s+(\d+)').firstMatch(String.fromCharCodes(pdf10));
+      expect(count10 != null ? int.parse(count10.group(1)!) : 0, equals(25));
+
+      // 12 cards per page -> ceil(250/12) = 21 pages
+      final pdf12 = await CardPdfGeneratorService.generateCardsPdf(
+        cards: cards,
+        layout: CardPdfLayout.a4Grid12,
+        networkName: 'سودافاي 12 كرت',
+      );
+      expect(pdf12, isNotNull);
+      final count12 = RegExp(r'/Count\s+(\d+)').firstMatch(String.fromCharCodes(pdf12));
+      expect(count12 != null ? int.parse(count12.group(1)!) : 0, equals(21));
+
+      // 24 cards per page -> ceil(250/24) = 11 pages
+      final pdf24 = await CardPdfGeneratorService.generateCardsPdf(
+        cards: cards,
+        layout: CardPdfLayout.a4Grid24,
+        networkName: 'سودافاي 24 كرت',
+      );
+      expect(pdf24, isNotNull);
+      final count24 = RegExp(r'/Count\s+(\d+)').firstMatch(String.fromCharCodes(pdf24));
+      expect(count24 != null ? int.parse(count24.group(1)!) : 0, equals(11));
+
+      // 100 cards per page -> ceil(250/100) = 3 pages
+      final pdf100 = await CardPdfGeneratorService.generateCardsPdf(
+        cards: cards,
+        layout: CardPdfLayout.a4Grid100,
+        networkName: 'سودافاي 100 كرت',
+      );
+      expect(pdf100, isNotNull);
+      final count100 = RegExp(r'/Count\s+(\d+)').firstMatch(String.fromCharCodes(pdf100));
+      expect(count100 != null ? int.parse(count100.group(1)!) : 0, equals(3));
+    });
+
+    test('8. Custom Grid combinations with margins 1mm to 5mm and cols 2-6, rows 2-20', () async {
+      final customMatrix = [
+        {'cols': 2, 'rows': 2, 'margin': 5.0, 'cards': 4},
+        {'cols': 3, 'rows': 4, 'margin': 3.0, 'cards': 12},
+        {'cols': 4, 'rows': 5, 'margin': 2.0, 'cards': 20},
+        {'cols': 5, 'rows': 10, 'margin': 1.0, 'cards': 50},
+        {'cols': 6, 'rows': 15, 'margin': 1.5, 'cards': 90},
+        {'cols': 6, 'rows': 20, 'margin': 2.0, 'cards': 120},
+      ];
+
+      for (final cfg in customMatrix) {
+        final c = cfg['cols'] as int;
+        final r = cfg['rows'] as int;
+        final m = cfg['margin'] as double;
+        final cardCount = cfg['cards'] as int;
+
+        final cards = createCards(cardCount, credentialMode: 1);
+        final pdfBytes = await CardPdfGeneratorService.generateCardsPdf(
+          cards: cards,
+          networkName: 'شبكة مخصصة ${c}x$r',
+          customCols: c,
+          customRows: r,
+          customMargin: m,
+        );
+        expect(pdfBytes, isNotNull);
+        expect(pdfBytes.length, greaterThan(1000));
+        final count = RegExp(r'/Count\s+(\d+)').firstMatch(String.fromCharCodes(pdfBytes));
+        expect(count != null ? int.parse(count.group(1)!) : 0, equals(1));
+      }
+    });
+
+    test('9. Credential Mode 3 (Username Only): PDF omits password and PIN lines without empty holes', () async {
+      final cards = createCards(10, credentialMode: 2); // Mode 2 = Username only
+      final pdfBytes = await CardPdfGeneratorService.generateCardsPdf(
+        cards: cards,
+        layout: CardPdfLayout.a4Grid10,
+        networkName: 'سودافاي مستخدم فقط',
+      );
+      expect(pdfBytes, isNotNull);
+      expect(pdfBytes.length, greaterThan(1000));
+      expect(String.fromCharCodes(pdfBytes.take(5)), equals('%PDF-'));
+    });
+
+    test('10. Custom Imported PDF Template (isPdfBackground) generates valid multi-page document', () async {
+      final sampleImage = createSampleImageBytes();
+      final pdfTemplate = CardTemplateModel(
+        id: 'pdf-imported-tpl',
+        name: 'قالب مستند PDF مستورد',
+        themePreset: 'CLASSIC',
+        widthMm: 85,
+        heightMm: 54,
+        backgroundDesign: 'custom_pdf_page',
+        backgroundImageBytes: sampleImage,
+        layoutConfig: {
+          'isPdfBackground': true,
+          'backgroundImageBase64': base64Encode(sampleImage),
+          'networkName': 'سودافاي PDF مستورد',
+        },
+      );
+
+      final cards = createCards(24, credentialMode: 0);
+      final pdfBytes = await CardPdfGeneratorService.generateCardsPdf(
+        cards: cards,
+        networkName: 'سودافاي PDF مستورد',
+        template: pdfTemplate,
+        layout: CardPdfLayout.a4Grid12,
+      );
+      expect(pdfBytes, isNotNull);
+      expect(pdfBytes.length, greaterThan(1000));
+      final count = RegExp(r'/Count\s+(\d+)').firstMatch(String.fromCharCodes(pdfBytes));
+      expect(count != null ? int.parse(count.group(1)!) : 0, equals(2)); // 24 cards / 12 per page = 2 pages
+    });
+
+    test('11. JSON Imported Template verification with custom colors and dimensions', () async {
+      const jsonTemplateStr = '''
+      {
+        "name": "قالب JSON معتمد للشبكة",
+        "widthMm": 85,
+        "heightMm": 54,
+        "orientation": "landscape",
+        "primaryColor": "#0F766E",
+        "accentColor": "#F59E0B",
+        "themePreset": "TURQUOISE",
+        "layoutConfig": {
+          "networkName": "سودافاي JSON نت",
+          "showQr": true,
+          "showPrice": true,
+          "showPin": true
+        }
+      }
+      ''';
+
+      final validation = CardTemplateImportService.validateAndParseTemplateJson(jsonTemplateStr);
+      expect(validation.isSuccess, isTrue);
+      final parsedTemplate = validation.template!;
+      expect(parsedTemplate.name, equals('قالب JSON معتمد للشبكة'));
+      expect(parsedTemplate.primaryColor, equals('#0F766E'));
+      expect(parsedTemplate.accentColor, equals('#F59E0B'));
+
+      final cards = createCards(50, credentialMode: 0);
+      final pdfBytes = await CardPdfGeneratorService.generateCardsPdf(
+        cards: cards,
+        networkName: 'سودافاي JSON نت',
+        template: parsedTemplate,
+        layout: CardPdfLayout.a4Grid10,
+      );
+      expect(pdfBytes, isNotNull);
+      final count = RegExp(r'/Count\s+(\d+)').firstMatch(String.fromCharCodes(pdfBytes));
+      expect(count != null ? int.parse(count.group(1)!) : 0, equals(5)); // 50 cards / 10 per page = 5 pages
     });
   });
 }

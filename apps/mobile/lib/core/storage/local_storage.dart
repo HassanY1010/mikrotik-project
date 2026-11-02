@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import '../constants/api_endpoints.dart';
+import '../services/card_template_import_service.dart';
 
 class LocalStorage {
   static const String _tokenKey = 'auth_token';
@@ -360,6 +361,53 @@ class LocalStorage {
   // --- Custom & Imported Card Templates Persistence ---
   static const String _pinnedTemplateIdKey = 'pinned_card_template_id';
   static const String _selectedStudioTemplateIdKey = 'selected_studio_template_id';
+  static const String _studioQuantityKey = 'card_studio_quantity';
+  static const String _studioCredentialModeKey = 'card_studio_credential_mode';
+  static const String _studioPrintLayoutKey = 'card_studio_print_layout';
+  static const String _studioIsCustomGridKey = 'card_studio_is_custom_grid';
+  static const String _studioCustomColsKey = 'card_studio_custom_cols';
+  static const String _studioCustomRowsKey = 'card_studio_custom_rows';
+  static const String _studioCustomMarginKey = 'card_studio_custom_margin';
+  static const String _studioCustomColorsKey = 'card_studio_custom_colors';
+
+  int? getStudioQuantity() => _prefs.getInt(_studioQuantityKey);
+  Future<void> setStudioQuantity(int qty) => _prefs.setInt(_studioQuantityKey, qty);
+
+  int? getStudioCredentialMode() => _prefs.getInt(_studioCredentialModeKey);
+  Future<void> setStudioCredentialMode(int mode) => _prefs.setInt(_studioCredentialModeKey, mode);
+
+  String? getStudioPrintLayout() => _prefs.getString(_studioPrintLayoutKey);
+  Future<void> setStudioPrintLayout(String layout) => _prefs.setString(_studioPrintLayoutKey, layout);
+
+  bool? getStudioIsCustomGrid() => _prefs.getBool(_studioIsCustomGridKey);
+  Future<void> setStudioIsCustomGrid(bool isCustom) => _prefs.setBool(_studioIsCustomGridKey, isCustom);
+
+  int? getStudioCustomCols() => _prefs.getInt(_studioCustomColsKey);
+  Future<void> setStudioCustomCols(int cols) => _prefs.setInt(_studioCustomColsKey, cols);
+
+  int? getStudioCustomRows() => _prefs.getInt(_studioCustomRowsKey);
+  Future<void> setStudioCustomRows(int rows) => _prefs.setInt(_studioCustomRowsKey, rows);
+
+  double? getStudioCustomMargin() => _prefs.getDouble(_studioCustomMarginKey);
+  Future<void> setStudioCustomMargin(double margin) => _prefs.setDouble(_studioCustomMarginKey, margin);
+
+  Map<String, dynamic>? getStudioCustomColors() {
+    final raw = _prefs.getString(_studioCustomColorsKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setStudioCustomColors(Map<String, dynamic>? colors) async {
+    if (colors == null || colors.isEmpty) {
+      await _prefs.remove(_studioCustomColorsKey);
+    } else {
+      await _prefs.setString(_studioCustomColorsKey, jsonEncode(colors));
+    }
+  }
 
   String? getPinnedTemplateId() {
     return _prefs.getString(_pinnedTemplateIdKey);
@@ -402,11 +450,14 @@ class LocalStorage {
 
   CardTemplateModel? getPinnedTemplate() {
     final templates = getCustomTemplates();
-    if (templates.isEmpty) return null;
     final pinnedId = getPinnedTemplateId();
     if (pinnedId != null && pinnedId.isNotEmpty) {
       final found = templates.where((t) => t.id == pinnedId).firstOrNull;
       if (found != null) return found;
+      // Also check built-in catalog if pinned template is a built-in template
+      final builtInCatalog = CardTemplateImportService.getBuiltInCatalog();
+      final foundBuiltIn = builtInCatalog.where((t) => t.id == pinnedId).firstOrNull;
+      if (foundBuiltIn != null) return foundBuiltIn;
     }
     return templates.where((t) => t.isDefault).firstOrNull;
   }
@@ -417,8 +468,16 @@ class LocalStorage {
       final templates = getCustomTemplates();
       final found = templates.where((t) => t.id == studioId).firstOrNull;
       if (found != null) return found;
+      final builtInCatalog = CardTemplateImportService.getBuiltInCatalog();
+      final foundBuiltIn = builtInCatalog.where((t) => t.id == studioId).firstOrNull;
+      if (foundBuiltIn != null) return foundBuiltIn;
     }
-    return getPinnedTemplate();
+    final pinned = getPinnedTemplate();
+    if (pinned != null) return pinned;
+
+    // Fallback to built-in default catalog template
+    final builtInCatalog = CardTemplateImportService.getBuiltInCatalog();
+    return builtInCatalog.where((t) => t.isDefault).firstOrNull ?? builtInCatalog.firstOrNull;
   }
 
   Future<void> setTemplateAsDefault(String templateId) async {

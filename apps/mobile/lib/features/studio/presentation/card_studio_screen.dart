@@ -13,8 +13,10 @@ import '../../../core/providers.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/services/card_pdf_generator_service.dart';
+import '../../../core/services/card_template_import_service.dart';
 import '../../../core/theme/app_theme.dart';
 import 'card_templates_screen.dart';
+import 'pdf_viewer_screen.dart';
 import '../../../core/widgets/whatsapp_button.dart';
 import '../../../core/widgets/card_pattern_overlay.dart';
 import '../../../core/widgets/interactive_3d_card_simulator.dart';
@@ -88,6 +90,36 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
   Color? _customPrimaryColor;
   Color? _customAccentColor;
+  Color? _customHeaderTextColor;
+  Color? _customBodyTextColor;
+  Color? _customUsernameColor;
+  Color? _customPasswordColor;
+  Color? _customPinColor;
+  Color? _customBorderColor;
+  Color? _customSecondaryColor;
+  Color? _customCardBgColor;
+
+  CardColorCustomization _getEffectiveCustomColors() {
+    String? toHex(Color? c) => c != null ? '#${c.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}' : null;
+    return CardColorCustomization(
+      headerTextColor: toHex(_customHeaderTextColor),
+      bodyTextColor: toHex(_customBodyTextColor),
+      usernameColor: toHex(_customUsernameColor),
+      passwordColor: toHex(_customPasswordColor),
+      pinColor: toHex(_customPinColor),
+      borderColor: toHex(_customBorderColor),
+      secondaryColor: toHex(_customSecondaryColor),
+      cardBackgroundColor: toHex(_customCardBgColor),
+    );
+  }
+
+  void _saveColorsToStorage() {
+    try {
+      final cust = _getEffectiveCustomColors();
+      ref.read(localStorageProvider).setStudioCustomColors(cust.toMap());
+    } catch (_) {}
+  }
+
   CardElementsLayout _elementsLayout = const CardElementsLayout();
   CardPatternType _selectedPatternOverlay = CardPatternType.none;
   double _selectedPatternOpacity = 0.12;
@@ -106,6 +138,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   bool _isGenerating = false;
 
   final Map<String, _ThemeConfig> _themes = {
+    'GEOMETRIC': _ThemeConfig('هندسي ديناميكي', const Color(0xFF0F172A), const Color(0xFFF59E0B), Icons.architecture),
+    'MODERN': _ThemeConfig('عصري عائم', const Color(0xFF0D9488), const Color(0xFF06B6D4), Icons.auto_awesome),
+    'CORPORATE_ISP': _ThemeConfig('مزود خدمة احترافي ISP Pro', const Color(0xFF1E3A8A), const Color(0xFF2563EB), Icons.business_center),
+    'MINIMALIST': _ThemeConfig('بسيط وأنيق Clean Minimal', const Color(0xFF1E293B), const Color(0xFF64748B), Icons.crop_portrait),
+    'TECH_CIRCUIT': _ThemeConfig('تقني ودوائر إلكترونية', const Color(0xFF090D16), const Color(0xFF00FFCC), Icons.memory),
+    'LUXURY_ROYAL': _ThemeConfig('ملكي فاخر وذهبي', const Color(0xFF1A102F), const Color(0xFFD4AF37), Icons.workspace_premium),
+    'CREATIVE_ASYMMETRIC': _ThemeConfig('إبداعي غير متماثل', const Color(0xFF4F46E5), const Color(0xFFEC4899), Icons.dashboard_customize),
     'FOOTBALL': _ThemeConfig('ثيم كرة القدم الذهبي', const Color(0xFF065F46), const Color(0xFFF59E0B), Icons.sports_soccer),
     'EID_MUBARAK': _ThemeConfig('عيد مبارك الملكي', AppTheme.primary, const Color(0xFFD97706), Icons.nights_stay),
     'TURQUOISE': _ThemeConfig('الفيروزي الحديث', const Color(0xFF0F766E), const Color(0xFF06B6D4), Icons.wifi),
@@ -123,11 +162,47 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     _tabController = TabController(length: 4, vsync: this);
     try {
       final storage = ref.read(localStorageProvider);
-      final activeLoginMethod = storage.getHotspotLoginMethod();
-      if (activeLoginMethod == 'USER_PASS') {
-        _credentialMode = 1; // اسم مستخدم + كلمة مرور منفصلين
+      final savedQty = storage.getStudioQuantity();
+      if (savedQty != null && savedQty > 0) {
+        _selectedQuantity = savedQty;
+      }
+      final savedCredMode = storage.getStudioCredentialMode();
+      if (savedCredMode != null) {
+        _credentialMode = savedCredMode;
       } else {
-        _credentialMode = 0; // رمز PIN موحد (User=Pass)
+        final activeLoginMethod = storage.getHotspotLoginMethod();
+        if (activeLoginMethod == 'USER_PASS') {
+          _credentialMode = 1; // اسم مستخدم + كلمة مرور منفصلين
+        } else {
+          _credentialMode = 0; // رمز PIN موحد (User=Pass)
+        }
+      }
+      final savedLayoutStr = storage.getStudioPrintLayout();
+      if (savedLayoutStr != null) {
+        _selectedPrintLayout = CardPdfLayout.values.firstWhere(
+          (l) => l.name == savedLayoutStr,
+          orElse: () => CardPdfLayout.a4Grid10,
+        );
+      }
+      final savedIsCustom = storage.getStudioIsCustomGrid();
+      if (savedIsCustom != null) _isCustomPrintGrid = savedIsCustom;
+      final savedCols = storage.getStudioCustomCols();
+      if (savedCols != null) _customGridCols = savedCols;
+      final savedRows = storage.getStudioCustomRows();
+      if (savedRows != null) _customGridRows = savedRows;
+      final savedMargin = storage.getStudioCustomMargin();
+      if (savedMargin != null) _customGridMargin = savedMargin;
+      final savedColors = storage.getStudioCustomColors();
+      if (savedColors != null) {
+        final cust = CardColorCustomization.fromMap(savedColors);
+        _customHeaderTextColor = cust.headerTextColorFlutter;
+        _customBodyTextColor = cust.bodyTextColorFlutter;
+        _customUsernameColor = cust.usernameColorFlutter;
+        _customPasswordColor = cust.passwordColorFlutter;
+        _customPinColor = cust.pinColorFlutter;
+        _customBorderColor = cust.borderColorFlutter;
+        _customSecondaryColor = cust.secondaryColorFlutter;
+        _customCardBgColor = cust.cardBackgroundColorFlutter;
       }
     } catch (_) {}
 
@@ -280,6 +355,19 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       // Pattern overlay
       _selectedPatternOverlay = CardPatternTypeExtension.fromString(tpl.patternOverlay);
       _selectedPatternOpacity = tpl.patternOpacity;
+
+      // Custom colors if present
+      if (tpl.customColors.isNotEmpty) {
+        final cc = tpl.customColors;
+        _customHeaderTextColor = cc.headerTextColorFlutter;
+        _customBodyTextColor = cc.bodyTextColorFlutter;
+        _customUsernameColor = cc.usernameColorFlutter;
+        _customPasswordColor = cc.passwordColorFlutter;
+        _customPinColor = cc.pinColorFlutter;
+        _customBorderColor = cc.borderColorFlutter;
+        _customSecondaryColor = cc.secondaryColorFlutter;
+        _customCardBgColor = cc.cardBackgroundColorFlutter;
+      }
     }
 
     if (notify && mounted) {
@@ -394,6 +482,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
     if (result != null) {
       setState(() => _selectedQuantity = result);
+      try {
+        ref.read(localStorageProvider).setStudioQuantity(result);
+      } catch (_) {}
     }
   }
 
@@ -410,9 +501,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           bytes = await File(file.path!).readAsBytes();
         }
         if (bytes != null) {
-          final b64 = base64Encode(bytes);
+          final optimized = CardTemplateImportService.optimizeImageForPrint(bytes);
+          final b64 = base64Encode(optimized);
           setState(() {
-            _pickedImageBytes = bytes;
+            _pickedImageBytes = optimized;
             _pickedImageBase64 = b64;
           });
           if (mounted) {
@@ -1145,7 +1237,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   ),
                   const SizedBox(height: 14),
 
-                  // Quick Action Buttons (CSV + PDF + Print)
+                  // Quick Action Buttons (CSV + Preview PDF + Print + Share)
                   Row(
                     children: [
                       Expanded(
@@ -1165,13 +1257,90 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       Expanded(
                         child: OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF0F766E),
+                            side: const BorderSide(color: Color(0xFF0F766E)),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
+                          label: const Text('معاينة PDF الفعلي', style: TextStyle(fontSize: 11)),
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            widget.onBatchCreated?.call();
+                            try {
+                              final pdfBytes = await CardPdfGeneratorService.generateCardsPdf(
+                                cards: cards,
+                                networkName: _networkNameController.text.trim().isNotEmpty
+                                    ? _networkNameController.text.trim()
+                                    : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+                                supportPhone: _supportPhoneController.text.trim().isNotEmpty
+                                    ? _supportPhoneController.text.trim()
+                                    : (_selectedCustomTemplate?.supportPhone ?? ''),
+                                layout: _selectedPrintLayout,
+                                batchNumber: batchId,
+                                themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+                                    ? _selectedCustomTemplate!.themePreset
+                                    : _selectedThemePreset,
+                                customPrimaryColor: _customPrimaryColor != null
+                                    ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
+                                    : _selectedCustomTemplate?.primaryColor,
+                                customAccentColor: _customAccentColor != null
+                                    ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
+                                    : _selectedCustomTemplate?.accentColor,
+                                customBackgroundImageBase64: _pickedImageBase64 ?? _selectedCustomTemplate?.backgroundImageBase64,
+                                customBackgroundImageBytes: _pickedImageBytes ?? _selectedCustomTemplate?.getSyncBackgroundBytes(),
+                                showQr: _showQr,
+                                showPrice: _showPrice,
+                                showSerial: _showSerial,
+                                instructions: _instructionsController.text.trim().isNotEmpty
+                                    ? _instructionsController.text.trim()
+                                    : (_selectedCustomTemplate?.instructions ?? ''),
+                                template: _getEffectiveTemplate(),
+                                isLandscape: _isPrintLandscape,
+                                customCols: _isCustomPrintGrid ? _customGridCols : null,
+                                customRows: _isCustomPrintGrid ? _customGridRows : null,
+                                customMargin: _isCustomPrintGrid ? _customGridMargin : null,
+                                customColors: _getEffectiveCustomColors(),
+                                elementsLayout: _elementsLayout,
+                              );
+                              if (context.mounted) {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => PdfViewerScreen(
+                                      pdfBytes: pdfBytes,
+                                      title: 'معاينة PDF للدفعة ($quantity كرت)',
+                                      filename: 'SudaFi_Batch_$batchId.pdf',
+                                      totalCards: quantity,
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (err) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('تعذر فتح المعاينة: $err'), backgroundColor: Colors.red),
+                                );
+                              }
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.primary,
                             side: const BorderSide(color: AppTheme.primary),
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           icon: const Icon(Icons.print, size: 16),
-                          label: const Text('معاينة وطباعة', style: TextStyle(fontSize: 11)),
+                          label: const Text('طباعة مباشرة', style: TextStyle(fontSize: 11)),
                           onPressed: () async {
                             Navigator.pop(ctx);
                             widget.onBatchCreated?.call();
@@ -1196,28 +1365,20 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                     ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
                                     : _selectedCustomTemplate?.accentColor,
                                 customBackgroundImageBase64: _pickedImageBase64 ?? _selectedCustomTemplate?.backgroundImageBase64,
-                                customBackgroundImageBytes: _pickedImageBytes,
+                                customBackgroundImageBytes: _pickedImageBytes ?? _selectedCustomTemplate?.getSyncBackgroundBytes(),
                                 showQr: _showQr,
                                 showPrice: _showPrice,
                                 showSerial: _showSerial,
                                 instructions: _instructionsController.text.trim().isNotEmpty
                                     ? _instructionsController.text.trim()
                                     : (_selectedCustomTemplate?.instructions ?? ''),
-                                template: (_selectedCustomTemplate ?? CardTemplateModel(
-                                  id: '',
-                                  name: 'قالب الاستوديو',
-                                  themePreset: _selectedThemePreset,
-                                )).copyWith(
-                                  layoutConfig: {
-                                    ...(_selectedCustomTemplate?.layoutConfig ?? {}),
-                                    'patternOverlay': _selectedPatternOverlay.id,
-                                    'patternOpacity': _selectedPatternOpacity,
-                                  },
-                                ),
+                                template: _getEffectiveTemplate(),
                                 isLandscape: _isPrintLandscape,
                                 customCols: _isCustomPrintGrid ? _customGridCols : null,
                                 customRows: _isCustomPrintGrid ? _customGridRows : null,
                                 customMargin: _isCustomPrintGrid ? _customGridMargin : null,
+                                customColors: _getEffectiveCustomColors(),
+                                elementsLayout: _elementsLayout,
                               );
                             } catch (err) {
                               if (context.mounted) {
@@ -1229,77 +1390,67 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                           },
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    icon: const Icon(Icons.share, size: 18),
-                    label: const Text(
-                      'مشاركة PDF لمركز الطباعة (WhatsApp / ملفات)',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    onPressed: () async {
-                      Navigator.pop(ctx);
-                      widget.onBatchCreated?.call();
-                      try {
-                        await CardPdfGeneratorService.shareCardsPdf(
-                          cards: cards,
-                          networkName: _networkNameController.text.trim().isNotEmpty
-                              ? _networkNameController.text.trim()
-                              : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
-                          supportPhone: _supportPhoneController.text.trim().isNotEmpty
-                              ? _supportPhoneController.text.trim()
-                              : (_selectedCustomTemplate?.supportPhone ?? ''),
-                          layout: _selectedPrintLayout,
-                          batchNumber: batchId,
-                          themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
-                              ? _selectedCustomTemplate!.themePreset
-                              : _selectedThemePreset,
-                          customPrimaryColor: _customPrimaryColor != null
-                              ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
-                              : _selectedCustomTemplate?.primaryColor,
-                          customAccentColor: _customAccentColor != null
-                              ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
-                              : _selectedCustomTemplate?.accentColor,
-                          customBackgroundImageBase64: _pickedImageBase64 ?? _selectedCustomTemplate?.backgroundImageBase64,
-                          customBackgroundImageBytes: _pickedImageBytes,
-                          showQr: _showQr,
-                          showPrice: _showPrice,
-                          showSerial: _showSerial,
-                          instructions: _instructionsController.text.trim().isNotEmpty
-                              ? _instructionsController.text.trim()
-                              : (_selectedCustomTemplate?.instructions ?? ''),
-                          template: (_selectedCustomTemplate ?? CardTemplateModel(
-                            id: '',
-                            name: 'قالب الاستوديو',
-                            themePreset: _selectedThemePreset,
-                          )).copyWith(
-                            layoutConfig: {
-                              ...(_selectedCustomTemplate?.layoutConfig ?? {}),
-                              'patternOverlay': _selectedPatternOverlay.id,
-                              'patternOpacity': _selectedPatternOpacity,
-                            },
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          isLandscape: _isPrintLandscape,
-                          customCols: _isCustomPrintGrid ? _customGridCols : null,
-                          customRows: _isCustomPrintGrid ? _customGridRows : null,
-                          customMargin: _isCustomPrintGrid ? _customGridMargin : null,
-                        );
-                      } catch (err) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('تعذر استخراج ملف الـ PDF: $err'), backgroundColor: Colors.red),
-                          );
-                        }
-                      }
-                    },
+                          icon: const Icon(Icons.share, size: 16),
+                          label: const Text('مشاركة PDF', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            widget.onBatchCreated?.call();
+                            try {
+                              await CardPdfGeneratorService.shareCardsPdf(
+                                cards: cards,
+                                networkName: _networkNameController.text.trim().isNotEmpty
+                                    ? _networkNameController.text.trim()
+                                    : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+                                supportPhone: _supportPhoneController.text.trim().isNotEmpty
+                                    ? _supportPhoneController.text.trim()
+                                    : (_selectedCustomTemplate?.supportPhone ?? ''),
+                                layout: _selectedPrintLayout,
+                                batchNumber: batchId,
+                                themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+                                    ? _selectedCustomTemplate!.themePreset
+                                    : _selectedThemePreset,
+                                customPrimaryColor: _customPrimaryColor != null
+                                    ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
+                                    : _selectedCustomTemplate?.primaryColor,
+                                customAccentColor: _customAccentColor != null
+                                    ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
+                                    : _selectedCustomTemplate?.accentColor,
+                                customBackgroundImageBase64: _pickedImageBase64 ?? _selectedCustomTemplate?.backgroundImageBase64,
+                                customBackgroundImageBytes: _pickedImageBytes ?? _selectedCustomTemplate?.getSyncBackgroundBytes(),
+                                showQr: _showQr,
+                                showPrice: _showPrice,
+                                showSerial: _showSerial,
+                                instructions: _instructionsController.text.trim().isNotEmpty
+                                    ? _instructionsController.text.trim()
+                                    : (_selectedCustomTemplate?.instructions ?? ''),
+                                template: _getEffectiveTemplate(),
+                                isLandscape: _isPrintLandscape,
+                                customCols: _isCustomPrintGrid ? _customGridCols : null,
+                                customRows: _isCustomPrintGrid ? _customGridRows : null,
+                                customMargin: _isCustomPrintGrid ? _customGridMargin : null,
+                                customColors: _getEffectiveCustomColors(),
+                                elementsLayout: _elementsLayout,
+                              );
+                            } catch (err) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('تعذر استخراج ملف الـ PDF: $err'), backgroundColor: Colors.red),
+                                );
+                              }
+                            }
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 14),
 
@@ -1816,7 +1967,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                         color: isSelected ? Colors.white : context.textPrimary,
                         fontWeight: FontWeight.bold,
                       ),
-                      onSelected: (_) => setState(() => _selectedQuantity = qty),
+                      onSelected: (_) {
+                        setState(() => _selectedQuantity = qty);
+                        try {
+                          ref.read(localStorageProvider).setStudioQuantity(qty);
+                        } catch (_) {}
+                      },
                     ),
                   );
                 }),
@@ -2027,7 +2183,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     final isSelected = _credentialMode == mode;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _credentialMode = mode),
+        onTap: () {
+          setState(() => _credentialMode = mode);
+          try {
+            ref.read(localStorageProvider).setStudioCredentialMode(mode);
+          } catch (_) {}
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
@@ -2578,6 +2739,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               ],
             ),
           ),
+
+          const SizedBox(height: 16),
+
+          // Element Colors Customization Section
+          _buildElementColorsSection(theme),
 
           const SizedBox(height: 16),
 
@@ -3254,7 +3420,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                     Switch(
                       value: _isCustomPrintGrid,
                       activeThumbColor: context.skyColor,
-                      onChanged: (v) => setState(() => _isCustomPrintGrid = v),
+                      onChanged: (v) {
+                        setState(() => _isCustomPrintGrid = v);
+                        try {
+                          ref.read(localStorageProvider).setStudioIsCustomGrid(v);
+                        } catch (_) {}
+                      },
                     ),
                   ],
                 ),
@@ -3278,7 +3449,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                               ),
                               items: [2, 3, 4, 5, 6].map((c) => DropdownMenuItem(value: c, child: Text('$c أعمدة'))).toList(),
                               onChanged: (v) {
-                                if (v != null) setState(() => _customGridCols = v);
+                                if (v != null) {
+                                  setState(() => _customGridCols = v);
+                                  try {
+                                    ref.read(localStorageProvider).setStudioCustomCols(v);
+                                  } catch (_) {}
+                                }
                               },
                             ),
                           ],
@@ -3299,9 +3475,16 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                               ),
-                              items: [2, 3, 4, 5, 6, 8, 10, 12, 15, 20].map((r) => DropdownMenuItem(value: r, child: Text('$r صفوف'))).toList(),
+                              items: List.generate(19, (i) => i + 2)
+                                  .map((r) => DropdownMenuItem(value: r, child: Text('$r ${r <= 10 ? "صفوف" : "صفاً"}')))
+                                  .toList(),
                               onChanged: (v) {
-                                if (v != null) setState(() => _customGridRows = v);
+                                if (v != null) {
+                                  setState(() => _customGridRows = v);
+                                  try {
+                                    ref.read(localStorageProvider).setStudioCustomRows(v);
+                                  } catch (_) {}
+                                }
                               },
                             ),
                           ],
@@ -3324,7 +3507,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                               ),
                               items: [1.0, 2.0, 3.0, 4.0, 5.0].map((m) => DropdownMenuItem(value: m, child: Text('$m مم'))).toList(),
                               onChanged: (v) {
-                                if (v != null) setState(() => _customGridMargin = v);
+                                if (v != null) {
+                                  setState(() => _customGridMargin = v);
+                                  try {
+                                    ref.read(localStorageProvider).setStudioCustomMargin(v);
+                                  } catch (_) {}
+                                }
                               },
                             ),
                           ],
@@ -3332,6 +3520,74 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       ),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  // Live Printable Area & Dimension Metrics Box
+                  () {
+                    final usableWidth = (_isPrintLandscape ? 297.0 : 210.0) - (2 * _customGridMargin);
+                    final usableHeight = (_isPrintLandscape ? 210.0 : 297.0) - (2 * _customGridMargin);
+                    final cellWidth = usableWidth / _customGridCols;
+                    final cellHeight = usableHeight / _customGridRows;
+                    final totalPerSheet = _customGridCols * _customGridRows;
+                    final isVeryCompact = cellHeight < 12.0 || cellWidth < 30.0;
+
+                    return Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: context.bgScaffold,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: context.borderColor),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('أبعاد خلية الكرت المحسوبة:', style: TextStyle(fontSize: 11, color: context.textSecondary)),
+                              Text(
+                                '${cellWidth.toStringAsFixed(1)} × ${cellHeight.toStringAsFixed(1)} مم',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: context.textPrimary),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('السعة في صفحة A4:', style: TextStyle(fontSize: 11, color: context.textSecondary)),
+                              Text(
+                                '$totalPerSheet كرت / صفحة',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                              ),
+                            ],
+                          ),
+                          if (isVeryCompact) ...[
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFFF59E0B)),
+                              ),
+                              child: Row(
+                                children: const [
+                                  Icon(Icons.info_outline, size: 14, color: Color(0xFFF59E0B)),
+                                  SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'توزيع مكثف: سيتم تصغير الخطوط وعناصر الكرت آلياً لتلائم المساحة بدقة دون تشويه التصميم.',
+                                      style: TextStyle(fontSize: 10, color: Color(0xFFF59E0B)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }(),
                 ],
               ],
             ),
@@ -3392,7 +3648,44 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             const SizedBox(height: 14),
           ],
 
-          // 4. Live Instant Preview Button for Current A4 Layout
+          // 4. Live Instant Preview & Dedicated Real PDF Viewer & Batch Generation Buttons
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    side: BorderSide(color: context.borderColor),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: Icon(Icons.print_outlined, size: 17, color: context.textPrimary),
+                  label: Text(
+                    'معاينة صفحة الطباعة',
+                    style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 11),
+                  ),
+                  onPressed: () => _previewCurrentLayoutSheet(profile),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F766E),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.picture_as_pdf_outlined, size: 17, color: Colors.white),
+                  label: const Text(
+                    'معاينة PDF الفعلي',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                  ),
+                  onPressed: () => _openPdfViewer(profile),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -3401,12 +3694,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              icon: const Icon(Icons.print_outlined, size: 18, color: Colors.white),
-              label: const Text(
-                'معاينة صفحة الطباعة الحالية (A4)',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+              icon: const Icon(Icons.bolt, size: 18, color: Colors.white),
+              label: Text(
+                'توليد وتصدير دفعة PDF ($_selectedQuantity كرت)',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
               ),
-              onPressed: () => _previewCurrentLayoutSheet(profile),
+              onPressed: () => _previewAndGenerateBatchPdf(profile),
             ),
           ),
 
@@ -3458,7 +3751,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   Widget _buildPrintLayoutCard(CardPdfLayout layout, String title, String subtitle, IconData icon) {
     final isSelected = _selectedPrintLayout == layout;
     return GestureDetector(
-      onTap: () => setState(() => _selectedPrintLayout = layout),
+      onTap: () {
+        setState(() => _selectedPrintLayout = layout);
+        try {
+          ref.read(localStorageProvider).setStudioPrintLayout(layout.name);
+        } catch (_) {}
+      },
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -3633,8 +3931,14 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       } catch (_) {}
     }
 
-    final cardPrimary = _customPrimaryColor ?? theme.primaryColor;
-    final cardAccent = _customAccentColor ?? theme.accentColor;
+    final cardPrimary = _customCardBgColor ?? (_customPrimaryColor ?? theme.primaryColor);
+    final cardAccent = _customSecondaryColor ?? (_customAccentColor ?? theme.accentColor);
+    final headerColor = _customHeaderTextColor ?? Colors.white;
+    final bodyColor = _customBodyTextColor ?? Colors.white70;
+    final userColor = _customUsernameColor ?? (_customPrimaryColor ?? theme.primaryColor);
+    final passColor = _customPasswordColor ?? const Color(0xFFEF4444);
+    final pinColor = _customPinColor ?? userColor;
+    final borderColor = _customBorderColor ?? cardAccent;
 
     // 1. Network Name
     final netPlacement = _elementsLayout.networkName;
@@ -3647,7 +3951,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           child: Text(
             _networkNameController.text.trim().isNotEmpty ? _networkNameController.text.trim() : 'سودافاي | SudaFi Net',
             style: TextStyle(
-              color: Colors.white,
+              color: headerColor,
               fontWeight: FontWeight.bold,
               fontSize: 13 * _scaleFactorFlutter(netPlacement.scale),
               letterSpacing: 0.5,
@@ -3667,7 +3971,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: cardAccent, width: 1),
+              border: Border.all(color: borderColor, width: 1),
             ),
             child: Text(
               priceText,
@@ -3693,7 +3997,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               Text(
                 profileTitle,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: headerColor,
                   fontWeight: FontWeight.bold,
                   fontSize: 14 * _scaleFactorFlutter(profPlacement.scale),
                 ),
@@ -3702,7 +4006,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               Text(
                 '${_showValidity ? "الصلاحية: $validityText • " : ""}${_showSpeed ? "السرعة: $speedText • " : ""}${_showQuota ? "السعة: $quotaText" : ""}',
                 style: TextStyle(
-                  color: Colors.white70,
+                  color: bodyColor,
                   fontSize: 10 * _scaleFactorFlutter(profPlacement.scale),
                 ),
               ),
@@ -3719,20 +4023,42 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: borderColor.withValues(alpha: 0.5), width: 1),
             ),
-            child: Text(
-              _credentialMode == 0
-                  ? 'PIN: ${_prefixController.text.trim()}849204'
-                  : (_credentialMode == 2
-                      ? 'USER: ${_prefixController.text.trim()}849204'
-                      : 'U: ${_prefixController.text.trim()}849204 | P: 1039'),
-              style: TextStyle(
-                color: cardPrimary,
-                fontWeight: FontWeight.w900,
-                letterSpacing: _credentialMode == 0 ? 1.5 : 0.8,
-                fontSize: 13 * _scaleFactorFlutter(credPlacement.scale),
-              ),
-            ),
+            child: _credentialMode == 1
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'U: ${_prefixController.text.trim()}849204',
+                        style: TextStyle(
+                          color: userColor,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12 * _scaleFactorFlutter(credPlacement.scale),
+                        ),
+                      ),
+                      Text(
+                        'P: 1039',
+                        style: TextStyle(
+                          color: passColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11 * _scaleFactorFlutter(credPlacement.scale),
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    _credentialMode == 0
+                        ? 'PIN: ${_prefixController.text.trim()}849204'
+                        : 'USER: ${_prefixController.text.trim()}849204',
+                    style: TextStyle(
+                      color: _credentialMode == 0 ? pinColor : userColor,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: _credentialMode == 0 ? 1.5 : 0.8,
+                      fontSize: 13 * _scaleFactorFlutter(credPlacement.scale),
+                    ),
+                  ),
           )
         : null;
 
@@ -3747,6 +4073,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: borderColor.withValues(alpha: 0.4), width: 1),
             ),
             child: const Center(
               child: Icon(Icons.qr_code_2, size: 50, color: Colors.black),
@@ -3766,7 +4093,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                 ? TextAlign.left
                 : (instPlacement.align == 'right' ? TextAlign.right : TextAlign.center),
             style: TextStyle(
-              color: Colors.white70,
+              color: bodyColor,
               fontSize: 10 * _scaleFactorFlutter(instPlacement.scale),
             ),
           )
@@ -3779,7 +4106,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         ? Text(
             'S/N: 20261024-001',
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.6),
+              color: bodyColor.withValues(alpha: 0.6),
               fontSize: 9 * _scaleFactorFlutter(snPlacement.scale),
             ),
           )
@@ -3828,13 +4155,17 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       );
     }
 
+    final double cardAspect = (_cardWidthMm > 0 && _cardHeightMm > 0)
+        ? (_cardWidthMm / _cardHeightMm)
+        : (85.0 / 54.0);
+
     Widget? bottomContainer;
     if (botLeft.isNotEmpty || botCenter.isNotEmpty || botRight.isNotEmpty) {
       bottomContainer = Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.25),
+          color: bgImgBytes != null ? Colors.transparent : Colors.black.withValues(alpha: 0.25),
           borderRadius: const BorderRadius.only(
             bottomLeft: Radius.circular(16),
             bottomRight: Radius.circular(16),
@@ -3844,162 +4175,179 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       );
     }
 
-    final frontWidget = Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: cardPrimary,
-        image: bgImgBytes != null
-            ? DecorationImage(
-                image: MemoryImage(bgImgBytes),
-                fit: BoxFit.cover,
-                colorFilter: ColorFilter.mode(
-                  Colors.black.withValues(alpha: 0.35),
-                  BlendMode.darken,
-                ),
-              )
-            : null,
-        gradient: bgImgBytes == null
-            ? LinearGradient(
-                colors: [cardPrimary, cardPrimary.withValues(alpha: 0.85)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-            : null,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: cardPrimary.withValues(alpha: 0.4),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-        border: Border.all(color: cardAccent.withValues(alpha: 0.5), width: 1.5),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          children: [
-            if (_selectedPatternOverlay != CardPatternType.none)
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: CardPatternPainter(
-                    patternType: _selectedPatternOverlay,
-                    opacity: _selectedPatternOpacity,
-                    strokeColor: Colors.white,
-                  ),
-                ),
-              ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (topContainer != null) topContainer,
-                if (topContainer != null && (middleContainer != null || bottomContainer != null))
-                  const Divider(color: Colors.white24, height: 1),
-                if (middleContainer != null) middleContainer,
-                if (bottomContainer != null) bottomContainer,
-              ],
+    final frontWidget = AspectRatio(
+      aspectRatio: cardAspect,
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: cardPrimary,
+          image: bgImgBytes != null
+              ? DecorationImage(
+                  image: MemoryImage(bgImgBytes),
+                  fit: BoxFit.fill,
+                )
+              : null,
+          gradient: bgImgBytes == null
+              ? LinearGradient(
+                  colors: [cardPrimary, cardPrimary.withValues(alpha: 0.85)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: cardPrimary.withValues(alpha: 0.4),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
             ),
           ],
+          border: Border.all(
+            color: _customBorderColor ?? (bgImgBytes != null ? Colors.white24 : borderColor.withValues(alpha: 0.8)),
+            width: bgImgBytes != null ? 0.8 : (_selectedThemePreset == 'LUXURY_ROYAL' ? 2.0 : 1.5),
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            children: [
+              if (_selectedThemePreset == 'LUXURY_ROYAL')
+                Positioned.fill(
+                  child: Container(
+                    margin: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: const Color(0xFFD4AF37), width: 1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              if (_selectedPatternOverlay != CardPatternType.none)
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: CardPatternPainter(
+                      patternType: _selectedPatternOverlay,
+                      opacity: _selectedPatternOpacity,
+                      strokeColor: Colors.white,
+                    ),
+                  ),
+                ),
+              Column(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (topContainer != null) topContainer else const SizedBox(),
+                  if (middleContainer != null)
+                    Expanded(child: Center(child: middleContainer))
+                  else
+                    const SizedBox(),
+                  if (bottomContainer != null) bottomContainer else const SizedBox(),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
 
     // Build Reverse / Back Card Side for Studio
-    final backWidget = Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: cardPrimary,
-        gradient: LinearGradient(
-          colors: [cardPrimary.withValues(alpha: 0.95), cardPrimary],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: cardPrimary.withValues(alpha: 0.4),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+    final backWidget = AspectRatio(
+      aspectRatio: cardAspect,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: cardPrimary,
+          gradient: LinearGradient(
+            colors: [cardPrimary.withValues(alpha: 0.95), cardPrimary],
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
           ),
-        ],
-        border: Border.all(color: cardAccent.withValues(alpha: 0.5), width: 1.5),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          children: [
-            if (_selectedPatternOverlay != CardPatternType.none)
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: CardPatternPainter(
-                    patternType: _selectedPatternOverlay,
-                    opacity: _selectedPatternOpacity * 0.7,
-                    strokeColor: Colors.white,
-                  ),
-                ),
-              ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.wifi_tethering, color: cardAccent, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      'تعليمات تسجيل الدخول بالشبكة',
-                      style: TextStyle(
-                        color: cardAccent,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: cardPrimary.withValues(alpha: 0.4),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+          border: Border.all(color: cardAccent.withValues(alpha: 0.5), width: 1.5),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            children: [
+              if (_selectedPatternOverlay != CardPatternType.none)
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: CardPatternPainter(
+                      patternType: _selectedPatternOverlay,
+                      opacity: _selectedPatternOpacity * 0.7,
+                      strokeColor: Colors.white,
                     ),
-                  ],
-                ),
-                const Divider(color: Colors.white24, height: 16),
-                const Text(
-                  '1. اتصل بشبكة الواي فاي وافتح المتصفح للوصول لصفحة الدخول.',
-                  style: TextStyle(color: Colors.white, fontSize: 10),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  '2. امسح رمز الـ QR من الوجه الأمامي لتسجيل الدخول التلقائي.',
-                  style: TextStyle(color: Colors.white, fontSize: 10),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  '3. في حال وجود مشكلة، تواصل مع فريق الدعم الموضح أدناه.',
-                  style: TextStyle(color: Colors.white, fontSize: 10),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white12),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                ),
+              Column(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
                     children: [
+                      Icon(Icons.wifi_tethering, color: cardAccent, size: 18),
+                      const SizedBox(width: 8),
                       Text(
-                        'دعم الشبكة:',
-                        style: TextStyle(color: cardAccent, fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        _supportPhoneController.text.trim().isNotEmpty
-                            ? _supportPhoneController.text.trim()
-                            : 'سودافاي | شبكة معتمدة',
-                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                        'تعليمات تسجيل الدخول بالشبكة',
+                        style: TextStyle(
+                          color: cardAccent,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ],
+                  const Divider(color: Colors.white24, height: 12),
+                  const Text(
+                    '1. اتصل بشبكة الواي فاي وافتح المتصفح للوصول لصفحة الدخول.',
+                    style: TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    '2. امسح رمز الـ QR من الوجه الأمامي لتسجيل الدخول التلقائي.',
+                    style: TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    '3. في حال وجود مشكلة، تواصل مع فريق الدعم الموضح أدناه.',
+                    style: TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'دعم الشبكة:',
+                          style: TextStyle(color: cardAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          _supportPhoneController.text.trim().isNotEmpty
+                              ? _supportPhoneController.text.trim()
+                              : 'سودافاي | شبكة معتمدة',
+                          style: const TextStyle(color: Colors.white, fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -4161,18 +4509,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       ),
     );
 
-    // Build effective template ensuring pattern overlay is reflected even if not saved yet
-    final effectiveTemplate = (_selectedCustomTemplate ?? CardTemplateModel(
-      id: '',
-      name: 'قالب الاستوديو',
-      themePreset: _selectedThemePreset,
-    )).copyWith(
-      layoutConfig: {
-        ...(_selectedCustomTemplate?.layoutConfig ?? {}),
-        'patternOverlay': _selectedPatternOverlay.id,
-        'patternOpacity': _selectedPatternOpacity,
-      },
-    );
+    final effectiveTemplate = _getEffectiveTemplate();
 
     try {
       await CardPdfGeneratorService.previewAndPrint(
@@ -4195,7 +4532,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
             : _selectedCustomTemplate?.accentColor,
         customBackgroundImageBase64: _pickedImageBase64 ?? _selectedCustomTemplate?.backgroundImageBase64,
-        customBackgroundImageBytes: _pickedImageBytes,
+        customBackgroundImageBytes: _pickedImageBytes ?? _selectedCustomTemplate?.getSyncBackgroundBytes(),
         showQr: _showQr,
         showPrice: _showPrice,
         showSerial: _showSerial,
@@ -4207,6 +4544,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         customCols: _isCustomPrintGrid ? _customGridCols : null,
         customRows: _isCustomPrintGrid ? _customGridRows : null,
         customMargin: _isCustomPrintGrid ? _customGridMargin : null,
+        customColors: _getEffectiveCustomColors(),
+        elementsLayout: _elementsLayout,
       );
     } catch (e) {
       if (mounted) {
@@ -4217,10 +4556,538 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     }
   }
 
-  void _syncCurrentTemplateLayout() {
-    if (_selectedCustomTemplate != null) {
-      _selectedCustomTemplate = _selectedCustomTemplate!.withElementsLayout(_elementsLayout);
+  Future<void> _previewAndGenerateBatchPdf(HotspotProfileModel? profile) async {
+    final int totalCount = _selectedQuantity;
+    final prefix = _prefixController.text.trim();
+    final batchCards = List.generate(
+      totalCount,
+      (idx) => OfflineCardModel(
+        id: 'batch-$idx',
+        serialNumber: 'SN-${DateTime.now().year}-${(idx + 1).toString().padLeft(4, "0")}',
+        username: '${prefix.isNotEmpty ? prefix : ""}${849200 + idx}',
+        clearPassword: _credentialMode == 0
+            ? '${prefix.isNotEmpty ? prefix : ""}${849200 + idx}'
+            : (_credentialMode == 2 ? null : '${5540 + (idx % 8999)}'),
+        profileId: profile?.id ?? 'prof-batch',
+        profileName: profile?.displayName ?? profile?.name ?? 'باقة الهوتسبوت',
+        deviceId: 'dev-1',
+        price: profile?.price ?? 500,
+        currency: 'SDG',
+      ),
+    );
+
+    final effectiveTemplate = _getEffectiveTemplate();
+
+    try {
+      await CardPdfGeneratorService.previewAndPrint(
+        cards: batchCards,
+        networkName: _networkNameController.text.trim().isNotEmpty
+            ? _networkNameController.text.trim()
+            : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+        supportPhone: _supportPhoneController.text.trim().isNotEmpty
+            ? _supportPhoneController.text.trim()
+            : (_selectedCustomTemplate?.supportPhone ?? ''),
+        layout: _selectedPrintLayout,
+        batchNumber: 'BATCH-$totalCount',
+        themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+            ? _selectedCustomTemplate!.themePreset
+            : _selectedThemePreset,
+        customPrimaryColor: _customPrimaryColor != null
+            ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
+            : _selectedCustomTemplate?.primaryColor,
+        customAccentColor: _customAccentColor != null
+            ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
+            : _selectedCustomTemplate?.accentColor,
+        customBackgroundImageBase64: _pickedImageBase64 ?? _selectedCustomTemplate?.backgroundImageBase64,
+        customBackgroundImageBytes: _pickedImageBytes ?? _selectedCustomTemplate?.getSyncBackgroundBytes(),
+        showQr: _showQr,
+        showPrice: _showPrice,
+        showSerial: _showSerial,
+        instructions: _instructionsController.text.trim().isNotEmpty
+            ? _instructionsController.text.trim()
+            : (_selectedCustomTemplate?.instructions ?? ''),
+        template: effectiveTemplate,
+        isLandscape: _isPrintLandscape,
+        customCols: _isCustomPrintGrid ? _customGridCols : null,
+        customRows: _isCustomPrintGrid ? _customGridRows : null,
+        customMargin: _isCustomPrintGrid ? _customGridMargin : null,
+        customColors: _getEffectiveCustomColors(),
+        elementsLayout: _elementsLayout,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر توليد دفعة الطباعة: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
+  }
+
+  Future<void> _openPdfViewer(HotspotProfileModel? profile) async {
+    setState(() => _isGenerating = true);
+    final int totalCount = _selectedQuantity;
+    final prefix = _prefixController.text.trim();
+    final batchCards = List.generate(
+      totalCount,
+      (idx) => OfflineCardModel(
+        id: 'batch-$idx',
+        serialNumber: 'SN-${DateTime.now().year}-${(idx + 1).toString().padLeft(4, "0")}',
+        username: '${prefix.isNotEmpty ? prefix : ""}${849200 + idx}',
+        clearPassword: _credentialMode == 0
+            ? '${prefix.isNotEmpty ? prefix : ""}${849200 + idx}'
+            : (_credentialMode == 2 ? null : '${5540 + (idx % 8999)}'),
+        profileId: profile?.id ?? 'prof-batch',
+        profileName: profile?.displayName ?? profile?.name ?? 'باقة الهوتسبوت',
+        deviceId: 'dev-1',
+        price: profile?.price ?? 500,
+        currency: 'SDG',
+      ),
+    );
+
+    final effectiveTemplate = _getEffectiveTemplate();
+
+    try {
+      final pdfBytes = await CardPdfGeneratorService.generateCardsPdf(
+        cards: batchCards,
+        networkName: _networkNameController.text.trim().isNotEmpty
+            ? _networkNameController.text.trim()
+            : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+        supportPhone: _supportPhoneController.text.trim().isNotEmpty
+            ? _supportPhoneController.text.trim()
+            : (_selectedCustomTemplate?.supportPhone ?? ''),
+        layout: _selectedPrintLayout,
+        batchNumber: 'BATCH-$totalCount',
+        themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+            ? _selectedCustomTemplate!.themePreset
+            : _selectedThemePreset,
+        customPrimaryColor: _customPrimaryColor != null
+            ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
+            : _selectedCustomTemplate?.primaryColor,
+        customAccentColor: _customAccentColor != null
+            ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
+            : _selectedCustomTemplate?.accentColor,
+        customBackgroundImageBase64: _pickedImageBase64 ?? _selectedCustomTemplate?.backgroundImageBase64,
+        customBackgroundImageBytes: _pickedImageBytes ?? _selectedCustomTemplate?.getSyncBackgroundBytes(),
+        showQr: _showQr,
+        showPrice: _showPrice,
+        showSerial: _showSerial,
+        instructions: _instructionsController.text.trim().isNotEmpty
+            ? _instructionsController.text.trim()
+            : (_selectedCustomTemplate?.instructions ?? ''),
+        template: effectiveTemplate,
+        isLandscape: _isPrintLandscape,
+        customCols: _isCustomPrintGrid ? _customGridCols : null,
+        customRows: _isCustomPrintGrid ? _customGridRows : null,
+        customMargin: _isCustomPrintGrid ? _customGridMargin : null,
+        customColors: _getEffectiveCustomColors(),
+        elementsLayout: _elementsLayout,
+      );
+
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => PdfViewerScreen(
+              pdfBytes: pdfBytes,
+              title: 'معاينة PDF الفعلي ($totalCount كرت)',
+              filename: 'SudaFi_Batch_${totalCount}_Cards.pdf',
+              totalCards: totalCount,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر توليد ملف PDF للمعاينة: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isGenerating = false);
+    }
+  }
+
+  Widget _buildElementColorsSection(_ThemeConfig theme) {
+    final activeHeader = _customHeaderTextColor ?? Colors.white;
+    final activeBody = _customBodyTextColor ?? Colors.white70;
+    final activeUser = _customUsernameColor ?? (_customPrimaryColor ?? theme.primaryColor);
+    final activePass = _customPasswordColor ?? const Color(0xFFEF4444);
+    final activePin = _customPinColor ?? activeUser;
+    final activeBorder = _customBorderColor ?? (_customAccentColor ?? theme.accentColor);
+    final activeSecondary = _customSecondaryColor ?? (_customAccentColor ?? theme.accentColor);
+    final activeBg = _customCardBgColor ?? (_customPrimaryColor ?? theme.primaryColor);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: const [
+                    Icon(Icons.palette_outlined, size: 18, color: AppTheme.primary),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'تخصيص ألوان عناصر الكرت (Element Colors):',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _customHeaderTextColor = null;
+                    _customBodyTextColor = null;
+                    _customUsernameColor = null;
+                    _customPasswordColor = null;
+                    _customPinColor = null;
+                    _customBorderColor = null;
+                    _customSecondaryColor = null;
+                    _customCardBgColor = null;
+                  });
+                  _saveColorsToStorage();
+                },
+                child: const Text('استعادة الألوان', style: TextStyle(fontSize: 11, color: Color(0xFFEF4444))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'قم بتخصيص لون كل عنصر بدقة مع معاينة حية فورية دون تغيير هوية التصميم',
+            style: TextStyle(fontSize: 11, color: context.textSecondary),
+          ),
+          const SizedBox(height: 12),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 2.8,
+            children: [
+              _buildColorItemTile('لون العنوان', activeHeader, (newCol) {
+                setState(() => _customHeaderTextColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customHeaderTextColor = null);
+                _saveColorsToStorage();
+              }),
+              _buildColorItemTile('لون النصوص', activeBody, (newCol) {
+                setState(() => _customBodyTextColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customBodyTextColor = null);
+                _saveColorsToStorage();
+              }),
+              _buildColorItemTile('لون اسم المستخدم', activeUser, (newCol) {
+                setState(() => _customUsernameColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customUsernameColor = null);
+                _saveColorsToStorage();
+              }),
+              _buildColorItemTile('لون كلمة المرور', activePass, (newCol) {
+                setState(() => _customPasswordColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customPasswordColor = null);
+                _saveColorsToStorage();
+              }),
+              _buildColorItemTile('لون PIN', activePin, (newCol) {
+                setState(() => _customPinColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customPinColor = null);
+                _saveColorsToStorage();
+              }),
+              _buildColorItemTile('لون الإطار', activeBorder, (newCol) {
+                setState(() => _customBorderColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customBorderColor = null);
+                _saveColorsToStorage();
+              }),
+              _buildColorItemTile('العناصر الثانوية', activeSecondary, (newCol) {
+                setState(() => _customSecondaryColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customSecondaryColor = null);
+                _saveColorsToStorage();
+              }),
+              _buildColorItemTile('خلفية الكرت', activeBg, (newCol) {
+                setState(() => _customCardBgColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customCardBgColor = null);
+                _saveColorsToStorage();
+              }),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildColorItemTile(String label, Color color, ValueChanged<Color> onChanged, VoidCallback onReset) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => _openColorPickerDialog(label, color, onChanged, onReset),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: context.bgScaffold,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: context.borderColor),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 4),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: context.textPrimary),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openColorPickerDialog(String title, Color initialColor, ValueChanged<Color> onChanged, VoidCallback onReset) {
+    final List<Color> curatedPalette = [
+      const Color(0xFF065F46), // Emerald
+      const Color(0xFFF59E0B), // Amber Gold
+      const Color(0xFF1E3A8A), // Royal Blue
+      const Color(0xFF2563EB), // Cobalt
+      const Color(0xFF0F766E), // Teal
+      const Color(0xFF06B6D4), // Cyan
+      const Color(0xFFEC4899), // Pink
+      const Color(0xFF4338CA), // Indigo
+      const Color(0xFF090D16), // Cyber Black
+      const Color(0xFF00FFCC), // Neon Mint
+      const Color(0xFF3E2723), // Roast Coffee
+      const Color(0xFFD7CCC8), // Craft Paper
+      const Color(0xFF334155), // Slate Grey
+      const Color(0xFF38BDF8), // Sky Blue
+      const Color(0xFFFFFFFF), // Pure White
+      const Color(0xFFEF4444), // Crimson Red
+      const Color(0xFFD4AF37), // Metallic Gold
+      const Color(0xFF8B5CF6), // Purple
+      const Color(0xFF10B981), // Light Green
+      const Color(0xFF111827), // Pitch Black
+    ];
+
+    Color selectedColor = initialColor;
+    final hexCtrl = TextEditingController(text: '#${initialColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.bgCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'اختيار: $title',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Swatches
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: curatedPalette.map((col) {
+                      final isSel = col.toARGB32() == selectedColor.toARGB32();
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() {
+                            selectedColor = col;
+                            hexCtrl.text = '#${col.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+                          });
+                          onChanged(col);
+                        },
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: col,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isSel ? AppTheme.primary : Colors.white,
+                              width: isSel ? 3 : 1.5,
+                            ),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 4),
+                            ],
+                          ),
+                          child: isSel ? Icon(Icons.check, size: 20, color: col.computeLuminance() > 0.5 ? Colors.black : Colors.white) : null,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  // Hex input
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: selectedColor,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: context.borderColor),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: hexCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'كود اللون (Hex)',
+                            hintText: '#FFFFFF',
+                            isDense: true,
+                          ),
+                          onChanged: (val) {
+                            final parsed = CardColorCustomization.parseHex(val);
+                            if (parsed != null) {
+                              setModalState(() => selectedColor = parsed);
+                              onChanged(parsed);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFEF4444),
+                          side: const BorderSide(color: Color(0xFFEF4444)),
+                        ),
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('إعادة للافتراضي'),
+                        onPressed: () {
+                          onReset();
+                          Navigator.of(ctx).pop();
+                        },
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('تأكيد اللون'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _syncCurrentTemplateLayout() {
+    _selectedCustomTemplate = (_selectedCustomTemplate ?? CardTemplateModel(
+      id: '',
+      name: 'قالب الاستوديو',
+      themePreset: _selectedThemePreset,
+    )).withElementsLayout(_elementsLayout);
+  }
+
+  CardTemplateModel _getEffectiveTemplate() {
+    final base = _selectedCustomTemplate ?? CardTemplateModel(
+      id: '',
+      name: 'قالب الاستوديو',
+      themePreset: _selectedThemePreset,
+      primaryColor: _customPrimaryColor != null
+          ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
+          : '',
+      accentColor: _customAccentColor != null
+          ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
+          : '',
+      widthMm: _cardWidthMm,
+      heightMm: _cardHeightMm,
+    );
+
+    return base.copyWith(
+      primaryColor: _customPrimaryColor != null
+          ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
+          : _selectedCustomTemplate?.primaryColor,
+      accentColor: _customAccentColor != null
+          ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
+          : _selectedCustomTemplate?.accentColor,
+      layoutConfig: {
+        ...(_selectedCustomTemplate?.layoutConfig ?? {}),
+        'networkName': _networkNameController.text.trim().isNotEmpty
+            ? _networkNameController.text.trim()
+            : (_selectedCustomTemplate?.networkName ?? 'سودافاي'),
+        'supportPhone': _supportPhoneController.text.trim(),
+        'instructions': _instructionsController.text.trim(),
+        'showPrice': _showPrice,
+        'showSerial': _showSerial,
+        'showQr': _showQr,
+        if (_pickedImageBase64 != null) 'backgroundImageBase64': _pickedImageBase64,
+        'patternOverlay': _selectedPatternOverlay.id,
+        'patternOpacity': _selectedPatternOpacity,
+        'elements': _elementsLayout.toMap(),
+        'customColors': _getEffectiveCustomColors().toMap(),
+      },
+    ).withElementsLayout(_elementsLayout).withCustomColors(_getEffectiveCustomColors());
   }
 
   Future<void> _saveElementPositionsToCurrentTemplate() async {

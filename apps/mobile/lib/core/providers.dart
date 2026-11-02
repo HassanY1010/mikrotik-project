@@ -1167,7 +1167,8 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
     final storage = ref.read(localStorageProvider);
     final localCustom = storage.getCustomTemplates();
 
-    final List<CardTemplateModel> templates = [];
+    // Built-in catalog is the foundation: always present and never lost
+    final List<CardTemplateModel> templates = List.from(CardTemplateImportService.getBuiltInCatalog());
     final apiClient = ref.read(apiClientProvider);
 
     try {
@@ -1177,16 +1178,19 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
       if (list is List && list.isNotEmpty) {
         for (final t in list) {
           if (t is Map<String, dynamic>) {
-            templates.add(CardTemplateModel.fromJson(t));
+            final serverTpl = CardTemplateModel.fromJson(t);
+            final idx = templates.indexWhere((existing) =>
+                (serverTpl.id.isNotEmpty && existing.id == serverTpl.id) ||
+                existing.name == serverTpl.name);
+            if (idx == -1) {
+              templates.add(serverTpl);
+            } else {
+              templates[idx] = serverTpl;
+            }
           }
         }
       }
     } catch (_) {}
-
-    // If server returned no templates (or offline), load base built-in catalog
-    if (templates.isEmpty) {
-      templates.addAll(CardTemplateImportService.getBuiltInCatalog());
-    }
 
     // Merge persistent local custom/imported templates without duplicates
     for (final custom in localCustom) {
@@ -1204,7 +1208,10 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
           templates[idx] = templates[idx].copyWith(
             layoutConfig: mergedLayout,
             backgroundDesign: custom.backgroundDesign,
+            backgroundImageBytes: custom.backgroundImageBytes,
           );
+        } else {
+          templates[idx] = custom;
         }
       }
     }

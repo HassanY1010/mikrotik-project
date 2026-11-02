@@ -406,7 +406,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                     const SnackBar(content: Text('جاري إنشاء ملف الـ PDF عالي الدقة وتجهيز المشاركة...')),
                   );
                   try {
-                    final pinnedTemplate = ref.read(localStorageProvider).getPinnedTemplate();
+                    final pinnedTemplate = ref.read(localStorageProvider).getActiveOrPinnedTemplate();
                     await CardPdfGeneratorService.shareCardsPdf(
                       cards: exportCards,
                       networkName: networkNameController.text.trim().isNotEmpty
@@ -419,6 +419,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                       customPrimaryColor: pinnedTemplate?.primaryColor,
                       customAccentColor: pinnedTemplate?.accentColor,
                       customBackgroundImageBase64: pinnedTemplate?.backgroundImageBase64,
+                      customBackgroundImageBytes: pinnedTemplate?.getSyncBackgroundBytes(),
                       template: pinnedTemplate,
                     );
                   } catch (e) {
@@ -443,7 +444,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                 onPressed: () async {
                   Navigator.pop(ctx);
                   try {
-                    final pinnedTemplate = ref.read(localStorageProvider).getPinnedTemplate();
+                    final pinnedTemplate = ref.read(localStorageProvider).getActiveOrPinnedTemplate();
                     await CardPdfGeneratorService.previewAndPrint(
                       cards: exportCards,
                       networkName: networkNameController.text.trim().isNotEmpty
@@ -456,6 +457,7 @@ class _CardsWalletScreenState extends ConsumerState<CardsWalletScreen> {
                       customPrimaryColor: pinnedTemplate?.primaryColor,
                       customAccentColor: pinnedTemplate?.accentColor,
                       customBackgroundImageBase64: pinnedTemplate?.backgroundImageBase64,
+                      customBackgroundImageBytes: pinnedTemplate?.getSyncBackgroundBytes(),
                       template: pinnedTemplate,
                     );
                   } catch (e) {

@@ -433,9 +433,9 @@ void main() {
   });
 
   group('Catalog Completeness & Format Resilience', () {
-    test('All 8 built-in catalog templates are valid and distinct', () {
+    test('All built-in catalog templates are valid and distinct', () {
       final catalog = CardTemplateImportService.getBuiltInCatalog();
-      expect(catalog.length, 8);
+      expect(catalog.length, greaterThanOrEqualTo(8));
 
       final expectedIds = [
         'builtin-football',
@@ -446,6 +446,10 @@ void main() {
         'builtin-mini',
         'builtin-sudafi-brand',
         'builtin-portrait',
+        'builtin-cyberpunk',
+        'builtin-artisan-coffee',
+        'builtin-ramadan',
+        'builtin-academic',
       ];
 
       for (final id in expectedIds) {
@@ -846,9 +850,9 @@ void main() {
       expect(String.fromCharCodes(bytes.sublist(0, 5)), '%PDF-');
     });
 
-    test('All 8 built-in templates generate valid print-ready PDFs', () async {
+    test('All built-in templates generate valid print-ready PDFs', () async {
       final catalog = CardTemplateImportService.getBuiltInCatalog();
-      expect(catalog.length, 8);
+      expect(catalog.length, greaterThanOrEqualTo(8));
 
       final sampleCards = [
         OfflineCardModel(
