@@ -551,4 +551,15 @@ class LocalStorage {
   Future<void> setHotspotPreset(String preset) async {
     await _prefs.setString(_hotspotPresetKey, preset);
   }
+
+  // --- Card Registration QR Requirement ---
+  static const String _cardQrRegistrationEnabledKey = 'card_qr_registration_enabled';
+
+  bool getCardQrRegistrationEnabled() {
+    return _prefs.getBool(_cardQrRegistrationEnabledKey) ?? true;
+  }
+
+  Future<void> setCardQrRegistrationEnabled(bool enabled) async {
+    await _prefs.setBool(_cardQrRegistrationEnabledKey, enabled);
+  }
 }

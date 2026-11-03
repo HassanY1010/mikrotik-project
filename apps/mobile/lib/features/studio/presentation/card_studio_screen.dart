@@ -43,7 +43,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
   // 1. Generation & Quantity Settings
   int _selectedQuantity = 50;
-  final List<int> _quantityOptions = [10, 50, 100, 250, 500, 1000];
+  final List<int> _quantityOptions = [10, 50, 100, 120, 250, 500, 1000];
   String? _selectedProfileId;
   final TextEditingController _prefixController = TextEditingController(text: '');
   int _usernameLength = 8;
@@ -82,11 +82,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   int _cardHeightMm = 54;
 
   bool _showQr = true;
+  bool _enableCardQrRegistration = true;
   bool _showPrice = true;
   bool _showSpeed = true;
   bool _showValidity = true;
   bool _showQuota = true;
   bool _showSerial = true;
+  bool _showOuterBorder = true;
 
   Color? _customPrimaryColor;
   Color? _customAccentColor;
@@ -132,6 +134,29 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   int _customGridRows = 4;
   double _customGridMargin = 3.0;
 
+  int get _effectiveCardsPerPage {
+    if (_isCustomPrintGrid && _customGridCols > 0 && _customGridRows > 0) {
+      return _customGridCols * _customGridRows;
+    }
+    switch (_selectedPrintLayout) {
+      case CardPdfLayout.a4Grid10:
+        return 10;
+      case CardPdfLayout.a4Grid12:
+        return 12;
+      case CardPdfLayout.a4Grid24:
+        return 24;
+      case CardPdfLayout.a4Grid100:
+        return 100;
+      case CardPdfLayout.a4Grid120:
+        return 120;
+    }
+  }
+
+  int get _effectiveTotalPages {
+    final cpp = _effectiveCardsPerPage;
+    return (_selectedQuantity / cpp).ceil().clamp(1, 9999);
+  }
+
   // Undo history for design adjustments
   final List<_DesignSnapshot> _designUndoStack = [];
 
@@ -162,6 +187,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     _tabController = TabController(length: 4, vsync: this);
     try {
       final storage = ref.read(localStorageProvider);
+      _enableCardQrRegistration = storage.getCardQrRegistrationEnabled();
       final savedQty = storage.getStudioQuantity();
       if (savedQty != null && savedQty > 0) {
         _selectedQuantity = savedQty;
@@ -381,14 +407,53 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     final theme = _themes[themeKey];
     if (theme == null) return;
     _recordDesignSnapshot();
+
+    CardTemplateModel? matchingTemplate;
+    for (final t in CardTemplateImportService.getBuiltInCatalog()) {
+      if (t.themePreset.toUpperCase() == themeKey.toUpperCase() ||
+          t.id.toLowerCase() == 'builtin-${themeKey.toLowerCase()}') {
+        matchingTemplate = t;
+        break;
+      }
+    }
+
     setState(() {
       _selectedThemePreset = themeKey;
-      _selectedCustomTemplate = null;
-      _useCustomTemplate = false;
+      _selectedCustomTemplate = matchingTemplate;
+      _useCustomTemplate = matchingTemplate != null;
       _customPrimaryColor = theme.primaryColor;
       _customAccentColor = theme.accentColor;
       _pickedImageBase64 = null;
       _pickedImageBytes = null;
+
+      if (matchingTemplate != null) {
+        _elementsLayout = matchingTemplate.elementsLayout;
+        final patternStr = matchingTemplate.patternOverlay;
+        _selectedPatternOverlay = CardPatternType.values.firstWhere(
+          (p) => p.id.toUpperCase() == patternStr.toUpperCase(),
+          orElse: () => CardPatternType.none,
+        );
+        _selectedPatternOpacity = matchingTemplate.patternOpacity;
+        _cardWidthMm = matchingTemplate.widthMm;
+        _cardHeightMm = matchingTemplate.heightMm;
+
+        final tplNet = matchingTemplate.layoutConfig['networkName'];
+        if (tplNet is String && tplNet.isNotEmpty) {
+          _networkNameController.text = tplNet;
+        }
+        final tplHeader = matchingTemplate.layoutConfig['headerTitle'];
+        if (tplHeader is String && tplHeader.isNotEmpty) {
+          _headerTitleController.text = tplHeader;
+        }
+        final tplInst = matchingTemplate.layoutConfig['instructions'];
+        if (tplInst is String && tplInst.isNotEmpty) {
+          if (!_enableCardQrRegistration && tplInst.contains('امسح')) {
+            _instructionsController.text = 'أدخل كود الكرت للدخول إلى الشبكة';
+          } else {
+            _instructionsController.text = tplInst;
+          }
+        }
+      }
     });
   }
 
@@ -1302,6 +1367,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 customMargin: _isCustomPrintGrid ? _customGridMargin : null,
                                 customColors: _getEffectiveCustomColors(),
                                 elementsLayout: _elementsLayout,
+                                showOuterBorder: _showOuterBorder,
                               );
                               if (context.mounted) {
                                 Navigator.of(context).push(
@@ -1379,6 +1445,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 customMargin: _isCustomPrintGrid ? _customGridMargin : null,
                                 customColors: _getEffectiveCustomColors(),
                                 elementsLayout: _elementsLayout,
+                                showOuterBorder: _showOuterBorder,
                               );
                             } catch (err) {
                               if (context.mounted) {
@@ -1439,6 +1506,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 customMargin: _isCustomPrintGrid ? _customGridMargin : null,
                                 customColors: _getEffectiveCustomColors(),
                                 elementsLayout: _elementsLayout,
+                                showOuterBorder: _showOuterBorder,
                               );
                             } catch (err) {
                               if (context.mounted) {
@@ -1950,6 +2018,44 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             ],
           ),
           const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.borderColor),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline, color: Color(0xFFEF4444), size: 26),
+                  onPressed: _selectedQuantity > 10
+                      ? () {
+                          setState(() => _selectedQuantity = (_selectedQuantity - 10).clamp(1, 10000));
+                          try {
+                            ref.read(localStorageProvider).setStudioQuantity(_selectedQuantity);
+                          } catch (_) {}
+                        }
+                      : null,
+                ),
+                Text(
+                  '$_selectedQuantity كرت',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: context.textPrimary),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline, color: Color(0xFF10B981), size: 26),
+                  onPressed: () {
+                    setState(() => _selectedQuantity = (_selectedQuantity + 10).clamp(1, 10000));
+                    try {
+                      ref.read(localStorageProvider).setStudioQuantity(_selectedQuantity);
+                    } catch (_) {}
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -2059,13 +2165,17 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                         style: TextStyle(color: context.textPrimary, fontSize: 12),
                       ),
                     ),
-                    Slider(
-                      value: _usernameLength.toDouble(),
-                      min: 4,
-                      max: 16,
-                      divisions: 12,
-                      label: '$_usernameLength',
-                      onChanged: (v) => setState(() => _usernameLength = v.round()),
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline, size: 20, color: Color(0xFFEF4444)),
+                      onPressed: _usernameLength > 4 ? () => setState(() => _usernameLength--) : null,
+                    ),
+                    Text(
+                      '$_usernameLength',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: context.textPrimary, fontSize: 13),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline, size: 20, color: Color(0xFF10B981)),
+                      onPressed: _usernameLength < 16 ? () => setState(() => _usernameLength++) : null,
                     ),
                   ],
                 ),
@@ -2170,6 +2280,69 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   value: _enableSerialNumbers,
                   activeThumbColor: AppTheme.primary,
                   onChanged: (v) => setState(() => _enableSerialNumbers = v),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // 8. Card Registration via QR Scan Setting (Optional Toggle)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: context.bgCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.borderColor),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.qr_code_scanner,
+                            size: 18,
+                            color: _enableCardQrRegistration ? AppTheme.primary : context.textSecondary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'خاصية تسجيل الكروت بمسح رمز QR',
+                            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _enableCardQrRegistration
+                            ? 'مفعّلة: يمكن تسجيل الكروت وتفعيلها على الشبكة بمسح رمز QR'
+                            : 'معطّلة: يتم استخدام وتسجيل الكروت يدوياً برمز الحساب / PIN فقط دون اشتراط مسح QR',
+                        style: TextStyle(color: context.textSecondary, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  key: const Key('switch_card_qr_registration'),
+                  value: _enableCardQrRegistration,
+                  activeThumbColor: AppTheme.primary,
+                  onChanged: (v) {
+                    setState(() {
+                      _enableCardQrRegistration = v;
+                      if (!v && _instructionsController.text.contains('امسح رمز QR')) {
+                        _instructionsController.text = 'أدخل كود الكرت للدخول إلى الشبكة';
+                      } else if (v && _instructionsController.text == 'أدخل كود الكرت للدخول إلى الشبكة') {
+                        _instructionsController.text = 'امسح رمز QR للاتصال المباشر بشبكة الواي فاي';
+                      }
+                    });
+                    try {
+                      ref.read(localStorageProvider).setCardQrRegistrationEnabled(v);
+                    } catch (_) {}
+                  },
                 ),
               ],
             ),
@@ -2684,6 +2857,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           ),
           const SizedBox(height: 8),
           _buildLiveCardPreview(profile, theme),
+
+          const SizedBox(height: 12),
+          _buildLiveCardStatsAndQuickBar(profile),
 
           const SizedBox(height: 18),
 
@@ -3277,14 +3453,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
   // --- TAB 4: PRINTING & PDF EXPORT ---
   Widget _buildTab4PrintingAndExport(HotspotProfileModel? profile, _ThemeConfig theme) {
-    final int cardsPerPage = _isCustomPrintGrid && _customGridCols > 0 && _customGridRows > 0
-        ? (_customGridCols * _customGridRows)
-        : (_selectedPrintLayout == CardPdfLayout.a4Grid10
-            ? 10
-            : (_selectedPrintLayout == CardPdfLayout.a4Grid12
-                ? 12
-                : (_selectedPrintLayout == CardPdfLayout.a4Grid24 ? 24 : 100)));
-    final int expectedPages = (_selectedQuantity / cardsPerPage).ceil().clamp(1, 9999);
+    final int cardsPerPage = _effectiveCardsPerPage;
+    final int expectedPages = _effectiveTotalPages;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -3475,7 +3645,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                               ),
-                              items: List.generate(19, (i) => i + 2)
+                              items: List.generate(29, (i) => i + 2)
                                   .map((r) => DropdownMenuItem(value: r, child: Text('$r ${r <= 10 ? "صفوف" : "صفاً"}')))
                                   .toList(),
                               onChanged: (v) {
@@ -3644,6 +3814,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               '100 كرت في الصفحة (5×20)',
               'شريط أكواد مكثف جداً للدفوعات الكبيرة وتوزيع الأكواد السريعة.',
               Icons.line_weight,
+            ),
+            const SizedBox(height: 8),
+            _buildPrintLayoutCard(
+              CardPdfLayout.a4Grid120,
+              '120 كرت في الصفحة (5×24)',
+              'أقصى كثافة استغلال لورقة A4 (5 أعمدة × 24 صف)، لتوفير التكاليف وطباعة الدفعات الضخمة.',
+              Icons.format_line_spacing,
             ),
             const SizedBox(height: 14),
           ],
@@ -3905,14 +4082,17 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               ))
         : null;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        leftCol ?? const SizedBox.shrink(),
-        centerCol ?? const SizedBox.shrink(),
-        rightCol ?? const SizedBox.shrink(),
-      ],
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          leftCol ?? const SizedBox.shrink(),
+          centerCol ?? const SizedBox.shrink(),
+          rightCol ?? const SizedBox.shrink(),
+        ],
+      ),
     );
   }
 
@@ -4202,10 +4382,12 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               offset: const Offset(0, 6),
             ),
           ],
-          border: Border.all(
-            color: _customBorderColor ?? (bgImgBytes != null ? Colors.white24 : borderColor.withValues(alpha: 0.8)),
-            width: bgImgBytes != null ? 0.8 : (_selectedThemePreset == 'LUXURY_ROYAL' ? 2.0 : 1.5),
-          ),
+          border: _showOuterBorder
+              ? Border.all(
+                  color: _customBorderColor ?? (bgImgBytes != null ? Colors.white24 : borderColor.withValues(alpha: 0.8)),
+                  width: bgImgBytes != null ? 0.8 : (_selectedThemePreset == 'LUXURY_ROYAL' ? 2.0 : 1.5),
+                )
+              : null,
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
@@ -4219,6 +4401,66 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       border: Border.all(color: const Color(0xFFD4AF37), width: 1),
                       borderRadius: BorderRadius.circular(12),
                     ),
+                  ),
+                ),
+              if (_selectedThemePreset == 'FOOTBALL')
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF59E0B),
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(10),
+                        topRight: Radius.circular(16),
+                      ),
+                    ),
+                    child: const Text(
+                      'MATCH PASS',
+                      style: TextStyle(
+                        color: Color(0xFF065F46),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 8,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ),
+              if (_selectedThemePreset == 'CORPORATE_ISP')
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    height: 4,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF2563EB),
+                    ),
+                  ),
+                ),
+              if (_selectedThemePreset == 'TECH_CIRCUIT')
+                Positioned(
+                  bottom: 6,
+                  left: 8,
+                  child: Text(
+                    '// SYS_ONLINE',
+                    style: TextStyle(
+                      color: const Color(0xFF00FFCC).withValues(alpha: 0.7),
+                      fontSize: 8,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              if (_selectedThemePreset == 'GEOMETRIC')
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Container(
+                    width: 28,
+                    height: 4,
+                    color: borderColor,
                   ),
                 ),
               if (_selectedPatternOverlay != CardPatternType.none)
@@ -4357,6 +4599,123 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       backChild: backWidget,
       maxWidth: 360,
       minHeight: 180,
+    );
+  }
+
+  Widget _buildLiveCardStatsAndQuickBar(HotspotProfileModel? profile) {
+    final int cardsPerPage = _effectiveCardsPerPage;
+    final int totalPages = _effectiveTotalPages;
+    final double totalPrice = _selectedQuantity * (profile?.price ?? 500);
+
+    return Column(
+      children: [
+        // Real-time batch stats bar (matching reference screenshots)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: context.bgCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: context.borderColor),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildLiveStatColumn('كروت الصفحة', '$cardsPerPage كرت'),
+              Container(width: 1, height: 28, color: context.borderColor),
+              _buildLiveStatColumn('عدد الصفحات', '$totalPages صفحة'),
+              Container(width: 1, height: 28, color: context.borderColor),
+              _buildLiveStatColumn('إجمالي الدفعة', '${totalPrice.toStringAsFixed(0)} SDG'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Quick action buttons below preview (matching reference app)
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  side: BorderSide(
+                    color: _showOuterBorder ? const Color(0xFF10B981) : context.borderColor,
+                    width: _showOuterBorder ? 1.5 : 1,
+                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: Icon(
+                  _showOuterBorder ? Icons.check_box : Icons.check_box_outline_blank,
+                  size: 16,
+                  color: _showOuterBorder ? const Color(0xFF10B981) : context.textSecondary,
+                ),
+                label: Text(
+                  'إطار خارجي',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: _showOuterBorder ? const Color(0xFF10B981) : context.textPrimary,
+                  ),
+                ),
+                onPressed: () => setState(() => _showOuterBorder = !_showOuterBorder),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  side: BorderSide(
+                    color: _isPrintLandscape ? context.skyColor : context.borderColor,
+                    width: _isPrintLandscape ? 1.5 : 1,
+                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: Icon(
+                  _isPrintLandscape ? Icons.screen_lock_landscape : Icons.screen_lock_portrait,
+                  size: 16,
+                  color: _isPrintLandscape ? context.skyColor : context.textSecondary,
+                ),
+                label: Text(
+                  _isPrintLandscape ? 'أفقي A4' : 'عمودي A4',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: _isPrintLandscape ? context.skyColor : context.textPrimary,
+                  ),
+                ),
+                onPressed: () => setState(() => _isPrintLandscape = !_isPrintLandscape),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: const Icon(Icons.picture_as_pdf, size: 16, color: Colors.white),
+                label: const Text(
+                  'معاينة A4',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                onPressed: () => _previewAndGenerateBatchPdf(profile),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLiveStatColumn(String label, String value) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: TextStyle(fontSize: 11, color: context.textSecondary)),
+        const SizedBox(height: 2),
+        Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary)),
+      ],
     );
   }
 
@@ -4546,6 +4905,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         customMargin: _isCustomPrintGrid ? _customGridMargin : null,
         customColors: _getEffectiveCustomColors(),
         elementsLayout: _elementsLayout,
+        showOuterBorder: _showOuterBorder,
       );
     } catch (e) {
       if (mounted) {
@@ -4613,6 +4973,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         customMargin: _isCustomPrintGrid ? _customGridMargin : null,
         customColors: _getEffectiveCustomColors(),
         elementsLayout: _elementsLayout,
+        showOuterBorder: _showOuterBorder,
       );
     } catch (e) {
       if (mounted) {
@@ -4681,6 +5042,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         customMargin: _isCustomPrintGrid ? _customGridMargin : null,
         customColors: _getEffectiveCustomColors(),
         elementsLayout: _elementsLayout,
+        showOuterBorder: _showOuterBorder,
       );
 
       if (mounted) {
@@ -4767,6 +5129,27 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             'قم بتخصيص لون كل عنصر بدقة مع معاينة حية فورية دون تغيير هوية التصميم',
             style: TextStyle(fontSize: 11, color: context.textSecondary),
           ),
+          const SizedBox(height: 10),
+          Text(
+            'لوحة ألوان الكرت السريعة المباشرة:',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary),
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildQuickColorSwatch(const Color(0xFF0F172A), 'كحلي داكن'),
+                _buildQuickColorSwatch(const Color(0xFF1E3A8A), 'أزرق ملكي'),
+                _buildQuickColorSwatch(const Color(0xFF0D9488), 'فيروزي عصري'),
+                _buildQuickColorSwatch(const Color(0xFF065F46), 'أخضر زمردي'),
+                _buildQuickColorSwatch(const Color(0xFF991B1B), 'عنابي كلاسيك'),
+                _buildQuickColorSwatch(const Color(0xFF4C1D95), 'بنفسجي ملكي'),
+                _buildQuickColorSwatch(const Color(0xFF090D16), 'أسود كربوني'),
+                _buildQuickColorSwatch(const Color(0xFFF8FAFC), 'أبيض ناصع'),
+              ],
+            ),
+          ),
           const SizedBox(height: 12),
           GridView.count(
             crossAxisCount: 2,
@@ -4835,6 +5218,44 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildQuickColorSwatch(Color color, String tooltip) {
+    final bool isSelected = _customCardBgColor == color;
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _customCardBgColor = color;
+          });
+          _saveColorsToStorage();
+        },
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isSelected ? const Color(0xFF38BDF8) : Colors.white70,
+              width: isSelected ? 2.5 : 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: isSelected
+              ? const Icon(Icons.check, size: 18, color: Colors.white)
+              : null,
+        ),
       ),
     );
   }
