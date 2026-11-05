@@ -1456,6 +1456,8 @@ class CardColorCustomization {
   final String? borderColor;
   final String? secondaryColor;
   final String? cardBackgroundColor;
+  final String? priceTextColor;
+  final String? priceBackgroundColor;
 
   const CardColorCustomization({
     this.headerTextColor,
@@ -1466,6 +1468,8 @@ class CardColorCustomization {
     this.borderColor,
     this.secondaryColor,
     this.cardBackgroundColor,
+    this.priceTextColor,
+    this.priceBackgroundColor,
   });
 
   factory CardColorCustomization.fromMap(Map<String, dynamic>? map) {
@@ -1479,6 +1483,8 @@ class CardColorCustomization {
       borderColor: map['borderColor'] as String?,
       secondaryColor: map['secondaryColor'] as String?,
       cardBackgroundColor: map['cardBackgroundColor'] as String?,
+      priceTextColor: map['priceTextColor'] as String?,
+      priceBackgroundColor: map['priceBackgroundColor'] as String?,
     );
   }
 
@@ -1491,6 +1497,8 @@ class CardColorCustomization {
     if (borderColor != null) 'borderColor': borderColor,
     if (secondaryColor != null) 'secondaryColor': secondaryColor,
     if (cardBackgroundColor != null) 'cardBackgroundColor': cardBackgroundColor,
+    if (priceTextColor != null) 'priceTextColor': priceTextColor,
+    if (priceBackgroundColor != null) 'priceBackgroundColor': priceBackgroundColor,
   };
 
   bool get isEmpty =>
@@ -1501,7 +1509,9 @@ class CardColorCustomization {
       pinColor == null &&
       borderColor == null &&
       secondaryColor == null &&
-      cardBackgroundColor == null;
+      cardBackgroundColor == null &&
+      priceTextColor == null &&
+      priceBackgroundColor == null;
 
   bool get isNotEmpty => !isEmpty;
 
@@ -1524,6 +1534,8 @@ class CardColorCustomization {
   Color? get borderColorFlutter => parseHex(borderColor);
   Color? get secondaryColorFlutter => parseHex(secondaryColor);
   Color? get cardBackgroundColorFlutter => parseHex(cardBackgroundColor);
+  Color? get priceTextColorFlutter => parseHex(priceTextColor);
+  Color? get priceBackgroundColorFlutter => parseHex(priceBackgroundColor);
 
   CardColorCustomization copyWith({
     String? headerTextColor,
@@ -1534,6 +1546,8 @@ class CardColorCustomization {
     String? borderColor,
     String? secondaryColor,
     String? cardBackgroundColor,
+    String? priceTextColor,
+    String? priceBackgroundColor,
   }) {
     return CardColorCustomization(
       headerTextColor: headerTextColor ?? this.headerTextColor,
@@ -1544,6 +1558,8 @@ class CardColorCustomization {
       borderColor: borderColor ?? this.borderColor,
       secondaryColor: secondaryColor ?? this.secondaryColor,
       cardBackgroundColor: cardBackgroundColor ?? this.cardBackgroundColor,
+      priceTextColor: priceTextColor ?? this.priceTextColor,
+      priceBackgroundColor: priceBackgroundColor ?? this.priceBackgroundColor,
     );
   }
 }
@@ -1561,10 +1577,10 @@ class CardElementsLayout {
   const CardElementsLayout({
     this.networkName = const CardElementPlacement(vertical: 'top', align: 'right', scale: 'normal'),
     this.price = const CardElementPlacement(vertical: 'top', align: 'left', scale: 'normal'),
-    this.credentials = const CardElementPlacement(vertical: 'middle', align: 'right', scale: 'normal'),
-    this.profileDetails = const CardElementPlacement(vertical: 'middle', align: 'right', scale: 'normal'),
-    this.qrCode = const CardElementPlacement(vertical: 'middle', align: 'left', scale: 'normal'),
-    this.instructions = const CardElementPlacement(vertical: 'bottom', align: 'center', scale: 'normal'),
+    this.credentials = const CardElementPlacement(vertical: 'middle', align: 'left', scale: 'normal'),
+    this.profileDetails = const CardElementPlacement(vertical: 'middle', align: 'left', scale: 'normal'),
+    this.qrCode = const CardElementPlacement(vertical: 'middle', align: 'right', scale: 'normal'),
+    this.instructions = const CardElementPlacement(vertical: 'bottom', align: 'left', scale: 'normal'),
     this.serialNumber = const CardElementPlacement(vertical: 'bottom', align: 'right', scale: 'small'),
   });
 
@@ -1601,25 +1617,25 @@ class CardElementsLayout {
       credentials: CardElementPlacement.fromMap(
         credMap,
         defaultVertical: 'middle',
-        defaultAlign: 'right',
+        defaultAlign: 'left',
         defaultScale: 'normal',
       ),
       profileDetails: CardElementPlacement.fromMap(
         profMap,
         defaultVertical: 'middle',
-        defaultAlign: 'right',
+        defaultAlign: 'left',
         defaultScale: 'normal',
       ),
       qrCode: CardElementPlacement.fromMap(
         qrMap,
         defaultVertical: 'middle',
-        defaultAlign: qrAlign ?? 'left',
+        defaultAlign: qrAlign ?? 'right',
         defaultScale: 'normal',
       ),
       instructions: CardElementPlacement.fromMap(
         instMap,
         defaultVertical: 'bottom',
-        defaultAlign: 'center',
+        defaultAlign: 'left',
         defaultScale: 'normal',
       ),
       serialNumber: CardElementPlacement.fromMap(

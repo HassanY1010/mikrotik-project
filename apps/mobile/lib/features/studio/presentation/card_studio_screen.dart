@@ -75,6 +75,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   final TextEditingController _headerTitleController = TextEditingController(text: 'كرت إنترنت فائق السرعة');
   final TextEditingController _instructionsController = TextEditingController(text: 'امسح رمز QR أو أدخل الرمز للدخول');
   final TextEditingController _supportPhoneController = TextEditingController(text: '');
+  final TextEditingController _salesPhoneController = TextEditingController(text: '');
 
   Uint8List? _pickedImageBytes;
   String? _pickedImageBase64;
@@ -89,6 +90,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   bool _showQuota = true;
   bool _showSerial = true;
   bool _showOuterBorder = true;
+  bool _showNetworkName = true;
+  bool _showProfileName = true;
+  bool _showCredentials = true;
+  bool _showInstructions = true;
 
   Color? _customPrimaryColor;
   Color? _customAccentColor;
@@ -100,6 +105,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   Color? _customBorderColor;
   Color? _customSecondaryColor;
   Color? _customCardBgColor;
+  Color? _customPriceTextColor;
+  Color? _customPriceBgColor;
 
   CardColorCustomization _getEffectiveCustomColors() {
     String? toHex(Color? c) => c != null ? '#${c.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}' : null;
@@ -112,6 +119,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       borderColor: toHex(_customBorderColor),
       secondaryColor: toHex(_customSecondaryColor),
       cardBackgroundColor: toHex(_customCardBgColor),
+      priceTextColor: toHex(_customPriceTextColor),
+      priceBackgroundColor: toHex(_customPriceBgColor),
     );
   }
 
@@ -229,6 +238,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         _customBorderColor = cust.borderColorFlutter;
         _customSecondaryColor = cust.secondaryColorFlutter;
         _customCardBgColor = cust.cardBackgroundColorFlutter;
+        _customPriceTextColor = cust.priceTextColorFlutter;
+        _customPriceBgColor = cust.priceBackgroundColorFlutter;
       }
     } catch (_) {}
 
@@ -248,6 +259,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     _headerTitleController.dispose();
     _instructionsController.dispose();
     _supportPhoneController.dispose();
+    _salesPhoneController.dispose();
     super.dispose();
   }
 
@@ -393,6 +405,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         _customBorderColor = cc.borderColorFlutter;
         _customSecondaryColor = cc.secondaryColorFlutter;
         _customCardBgColor = cc.cardBackgroundColorFlutter;
+        _customPriceTextColor = cc.priceTextColorFlutter;
+        _customPriceBgColor = cc.priceBackgroundColorFlutter;
       }
     }
 
@@ -648,7 +662,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           'networkName': _networkNameController.text.trim(),
           'headerTitle': _headerTitleController.text.trim(),
           'instructions': _instructionsController.text.trim(),
-          'supportPhone': _supportPhoneController.text.trim(),
+          'supportPhone': _effectivePhoneText,
           'showQr': _showQr,
           'showPrice': _showPrice,
           'showSpeed': _showSpeed,
@@ -680,6 +694,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   }
 
   void _showPreGenerationConfirmationSheet(List<HotspotProfileModel> profiles, List<RouterDeviceModel> routers) {
+    if (_networkNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('اسم الشبكة حقل إجباري، يرجى إدخال اسم الشبكة أولاً للمتابعة'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     if (profiles.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('الرجاء الانتظار حتى تحميل الباقات أو إنشاء باقة أولاً')),
@@ -1357,6 +1380,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 showQr: _showQr,
                                 showPrice: _showPrice,
                                 showSerial: _showSerial,
+                                showOuterBorder: _showOuterBorder,
+                                showNetworkName: _showNetworkName,
+                                showProfileName: _showProfileName,
+                                showCredentials: _showCredentials,
+                                showInstructions: _showInstructions,
+                                cardWidthMm: _cardWidthMm,
+                                cardHeightMm: _cardHeightMm,
                                 instructions: _instructionsController.text.trim().isNotEmpty
                                     ? _instructionsController.text.trim()
                                     : (_selectedCustomTemplate?.instructions ?? ''),
@@ -1367,7 +1397,6 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 customMargin: _isCustomPrintGrid ? _customGridMargin : null,
                                 customColors: _getEffectiveCustomColors(),
                                 elementsLayout: _elementsLayout,
-                                showOuterBorder: _showOuterBorder,
                               );
                               if (context.mounted) {
                                 Navigator.of(context).push(
@@ -1435,6 +1464,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 showQr: _showQr,
                                 showPrice: _showPrice,
                                 showSerial: _showSerial,
+                                showOuterBorder: _showOuterBorder,
+                                showNetworkName: _showNetworkName,
+                                showProfileName: _showProfileName,
+                                showCredentials: _showCredentials,
+                                showInstructions: _showInstructions,
+                                cardWidthMm: _cardWidthMm,
+                                cardHeightMm: _cardHeightMm,
                                 instructions: _instructionsController.text.trim().isNotEmpty
                                     ? _instructionsController.text.trim()
                                     : (_selectedCustomTemplate?.instructions ?? ''),
@@ -1445,7 +1481,6 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 customMargin: _isCustomPrintGrid ? _customGridMargin : null,
                                 customColors: _getEffectiveCustomColors(),
                                 elementsLayout: _elementsLayout,
-                                showOuterBorder: _showOuterBorder,
                               );
                             } catch (err) {
                               if (context.mounted) {
@@ -1496,6 +1531,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 showQr: _showQr,
                                 showPrice: _showPrice,
                                 showSerial: _showSerial,
+                                showOuterBorder: _showOuterBorder,
+                                showNetworkName: _showNetworkName,
+                                showProfileName: _showProfileName,
+                                showCredentials: _showCredentials,
+                                showInstructions: _showInstructions,
+                                cardWidthMm: _cardWidthMm,
+                                cardHeightMm: _cardHeightMm,
                                 instructions: _instructionsController.text.trim().isNotEmpty
                                     ? _instructionsController.text.trim()
                                     : (_selectedCustomTemplate?.instructions ?? ''),
@@ -1506,7 +1548,6 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 customMargin: _isCustomPrintGrid ? _customGridMargin : null,
                                 customColors: _getEffectiveCustomColors(),
                                 elementsLayout: _elementsLayout,
-                                showOuterBorder: _showOuterBorder,
                               );
                             } catch (err) {
                               if (context.mounted) {
@@ -3032,7 +3073,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                 TextField(
                   controller: _networkNameController,
                   style: TextStyle(color: context.textPrimary, fontSize: 13),
-                  decoration: const InputDecoration(labelText: 'اسم الشبكة المطبوع'),
+                  decoration: InputDecoration(
+                    labelText: 'اسم الشبكة المطبوع',
+                    helperText: '* حقل إجباري مطلوب',
+                    errorText: _networkNameController.text.trim().isEmpty ? 'اسم الشبكة حقل إجباري' : null,
+                  ),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 10),
@@ -3046,7 +3091,14 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                 TextField(
                   controller: _supportPhoneController,
                   style: TextStyle(color: context.textPrimary, fontSize: 13),
-                  decoration: const InputDecoration(labelText: 'رقم هاتف الدعم الفني / المبيعات'),
+                  decoration: const InputDecoration(labelText: 'رقم هاتف الدعم الفني'),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _salesPhoneController,
+                  style: TextStyle(color: context.textPrimary, fontSize: 13),
+                  decoration: const InputDecoration(labelText: 'رقم هاتف المبيعات'),
                   onChanged: (_) => setState(() {}),
                 ),
               ],
@@ -3072,15 +3124,20 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                 ),
                 const SizedBox(height: 8),
                 Wrap(
-                  spacing: 12,
+                  spacing: 8,
                   runSpacing: 4,
                   children: [
-                    _buildToggle('رمز QR', _showQr, (v) => setState(() => _showQr = v)),
+                    _buildToggle('اسم الشبكة', _showNetworkName, (v) => setState(() => _showNetworkName = v)),
                     _buildToggle('السعر', _showPrice, (v) => setState(() => _showPrice = v)),
+                    _buildToggle('اسم الباقة', _showProfileName, (v) => setState(() => _showProfileName = v)),
+                    _buildToggle('بيانات الدخول', _showCredentials, (v) => setState(() => _showCredentials = v)),
+                    _buildToggle('رمز QR', _showQr, (v) => setState(() => _showQr = v)),
+                    _buildToggle('السيريال', _showSerial, (v) => setState(() => _showSerial = v)),
+                    _buildToggle('التعليمات', _showInstructions, (v) => setState(() => _showInstructions = v)),
+                    _buildToggle('حدود الكرت', _showOuterBorder, (v) => setState(() => _showOuterBorder = v)),
                     _buildToggle('السرعة', _showSpeed, (v) => setState(() => _showSpeed = v)),
                     _buildToggle('الصلاحية', _showValidity, (v) => setState(() => _showValidity = v)),
                     _buildToggle('السعة', _showQuota, (v) => setState(() => _showQuota = v)),
-                    _buildToggle('السيريال', _showSerial, (v) => setState(() => _showSerial = v)),
                   ],
                 ),
               ],
@@ -3100,18 +3157,43 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'أبعاد الكرت التناسبية:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'أبعاد الكرت التناسبية:',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
+                    ),
+                    Text(
+                      '$_cardWidthMm×$_cardHeightMm مم',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.skyColor),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
+                Text(
+                  'اختر من المقاسات الجاهزة المتنوعة أو حدد مقاساً مخصصاً بالمليمتر',
+                  style: TextStyle(fontSize: 11, color: context.textSecondary),
+                ),
+                const SizedBox(height: 10),
                 Wrap(
                   spacing: 6,
+                  runSpacing: 6,
                   children: [
                     _buildDimPreset('بطاقة قياسية (85×54)', 85, 54),
-                    _buildDimPreset('تذكرة (100×40)', 100, 40),
-                    _buildDimPreset('مدمج (70×35)', 70, 35),
-                    _buildDimPreset('مصغر (50×30)', 50, 30),
+                    _buildDimPreset('تذكرة أفقية (100×40)', 100, 40),
+                    _buildDimPreset('تذكرة عريضة (120×50)', 120, 50),
+                    _buildDimPreset('قسيمة رول (90×45)', 90, 45),
+                    _buildDimPreset('مدمج أنيق (70×35)', 70, 35),
+                    _buildDimPreset('شريط عريض (80×30)', 80, 30),
+                    _buildDimPreset('شريط نحيف (65×25)', 65, 25),
+                    _buildDimPreset('مربع تجاري (60×60)', 60, 60),
+                    _buildDimPreset('بطاقة ولاء (60×40)', 60, 40),
+                    _buildDimPreset('مصغر اقتصادي (50×30)', 50, 30),
+                    _buildDimPreset('ميكرو جيب (45×25)', 45, 25),
+                    _buildDimPreset('عمودي هوتسبوت (54×85)', 54, 85),
+                    _buildDimPreset('شارة عمودية (50×80)', 50, 80),
+                    _buildCustomDimButton(),
                   ],
                 ),
               ],
@@ -3170,6 +3252,109 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           setState(() { _cardWidthMm = w; _cardHeightMm = h; });
         }
       },
+    );
+  }
+
+  Widget _buildCustomDimButton() {
+    final bool isStandardPreset = [
+      [85, 54], [100, 40], [120, 50], [90, 45], [70, 35],
+      [80, 30], [65, 25], [60, 60], [60, 40], [50, 30],
+      [45, 25], [54, 85], [50, 80],
+    ].any((pair) => pair[0] == _cardWidthMm && pair[1] == _cardHeightMm);
+
+    return ActionChip(
+      avatar: Icon(Icons.tune, size: 14, color: !isStandardPreset ? Colors.white : context.skyColor),
+      label: Text(
+        !isStandardPreset ? 'مخصص ($_cardWidthMm×$_cardHeightMm مم)' : 'مقاس مخصص...',
+        style: TextStyle(
+          fontSize: 11,
+          color: !isStandardPreset ? Colors.white : context.textPrimary,
+          fontWeight: !isStandardPreset ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      backgroundColor: !isStandardPreset ? AppTheme.primary : context.bgCard,
+      onPressed: _showCustomDimensionsDialog,
+    );
+  }
+
+  void _showCustomDimensionsDialog() {
+    final widthCtrl = TextEditingController(text: _cardWidthMm.toString());
+    final heightCtrl = TextEditingController(text: _cardHeightMm.toString());
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.aspect_ratio, color: AppTheme.primary, size: 20),
+            SizedBox(width: 8),
+            Text('تحديد مقاس مخصص للكرت', style: TextStyle(fontSize: 15)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'أدخل العرض والارتفاع بالمليمتر (mm):',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: widthCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'العرض (مم)',
+                      hintText: '85',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('×', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: heightCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'الارتفاع (مم)',
+                      hintText: '54',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
+            onPressed: () {
+              final w = int.tryParse(widthCtrl.text.trim()) ?? _cardWidthMm;
+              final h = int.tryParse(heightCtrl.text.trim()) ?? _cardHeightMm;
+              if (w > 10 && h > 10) {
+                _recordDesignSnapshot();
+                setState(() {
+                  _cardWidthMm = w.clamp(15, 300);
+                  _cardHeightMm = h.clamp(15, 300);
+                });
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('تطبيق المقاس', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3873,7 +4058,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
               ),
               icon: const Icon(Icons.bolt, size: 18, color: Colors.white),
               label: Text(
-                'توليد وتصدير دفعة PDF ($_selectedQuantity كرت)',
+                'تصدير إلى الطابعة ($_selectedQuantity كرت)',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
               ),
               onPressed: () => _previewAndGenerateBatchPdf(profile),
@@ -4111,36 +4296,51 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       } catch (_) {}
     }
 
-    final cardPrimary = _customCardBgColor ?? (_customPrimaryColor ?? theme.primaryColor);
+    final bool isCustomImported = bgImgBytes != null;
+    final Color cardPrimary = _customCardBgColor ?? (isCustomImported ? (_customPrimaryColor ?? theme.primaryColor) : theme.primaryColor);
+    final Color cardBgColor = _customCardBgColor ?? (isCustomImported ? (_customPrimaryColor ?? theme.primaryColor) : Colors.white);
+    final bool isDarkCard = isCustomImported
+        ? true
+        : (_customCardBgColor != null && _customCardBgColor!.computeLuminance() < 0.4);
+
     final cardAccent = _customSecondaryColor ?? (_customAccentColor ?? theme.accentColor);
-    final headerColor = _customHeaderTextColor ?? Colors.white;
-    final bodyColor = _customBodyTextColor ?? Colors.white70;
-    final userColor = _customUsernameColor ?? (_customPrimaryColor ?? theme.primaryColor);
-    final passColor = _customPasswordColor ?? const Color(0xFFEF4444);
+    final headerColor = _customHeaderTextColor ??
+        (isDarkCard ? Colors.white : (theme.primaryColor != Colors.white ? theme.primaryColor : const Color(0xFF0F172A)));
+    final bodyColor = _customBodyTextColor ??
+        (isDarkCard ? Colors.white70 : const Color(0xFF334155));
+    final userColor = _customUsernameColor ??
+        (isDarkCard ? theme.accentColor : (theme.primaryColor != Colors.white ? theme.primaryColor : const Color(0xFF1E293B)));
+    final passColor = _customPasswordColor ?? const Color(0xFFDC2626);
     final pinColor = _customPinColor ?? userColor;
-    final borderColor = _customBorderColor ?? cardAccent;
+    final borderColor = _customBorderColor ??
+        (isDarkCard ? cardAccent : const Color(0xFFCBD5E1));
+    final effectivePriceBg = _customPriceBgColor ?? cardAccent;
+    final effectivePriceText = _customPriceTextColor ?? Colors.white;
 
     // 1. Network Name
     final netPlacement = _elementsLayout.networkName;
-    final Widget netWidget = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(theme.icon, color: cardAccent, size: 18 * _scaleFactorFlutter(netPlacement.scale)),
-        const SizedBox(width: 6),
-        Flexible(
-          child: Text(
-            _networkNameController.text.trim().isNotEmpty ? _networkNameController.text.trim() : 'سودافاي | SudaFi Net',
-            style: TextStyle(
-              color: headerColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 13 * _scaleFactorFlutter(netPlacement.scale),
-              letterSpacing: 0.5,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
+    final bool canShowNet = _showNetworkName && netPlacement.isVisible;
+    final Widget? netWidget = canShowNet
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(theme.icon, color: isDarkCard ? cardAccent : theme.primaryColor, size: 16 * _scaleFactorFlutter(netPlacement.scale)),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  _networkNameController.text.trim().isNotEmpty ? _networkNameController.text.trim() : 'سودافاي | SudaFi Net',
+                  style: TextStyle(
+                    color: headerColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12.5 * _scaleFactorFlutter(netPlacement.scale),
+                    letterSpacing: 0.5,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          )
+        : null;
 
     // 2. Price Badge
     final pricePlacement = _elementsLayout.price;
@@ -4149,16 +4349,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         ? Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: borderColor, width: 1),
+              color: effectivePriceBg,
+              borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
               priceText,
               style: TextStyle(
-                color: cardAccent,
+                color: effectivePriceText,
                 fontWeight: FontWeight.bold,
-                fontSize: 12 * _scaleFactorFlutter(pricePlacement.scale),
+                fontSize: 11.5 * _scaleFactorFlutter(pricePlacement.scale),
               ),
             ),
           )
@@ -4166,7 +4365,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
     // 3. Profile details
     final profPlacement = _elementsLayout.profileDetails;
-    final bool canShowProf = profPlacement.isVisible;
+    final bool canShowProf = _showProfileName && profPlacement.isVisible;
     final Widget? profileWidget = canShowProf
         ? Column(
             crossAxisAlignment: profPlacement.align == 'left'
@@ -4179,15 +4378,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                 style: TextStyle(
                   color: headerColor,
                   fontWeight: FontWeight.bold,
-                  fontSize: 14 * _scaleFactorFlutter(profPlacement.scale),
+                  fontSize: 13 * _scaleFactorFlutter(profPlacement.scale),
                 ),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 2),
               Text(
                 '${_showValidity ? "الصلاحية: $validityText • " : ""}${_showSpeed ? "السرعة: $speedText • " : ""}${_showQuota ? "السعة: $quotaText" : ""}',
                 style: TextStyle(
                   color: bodyColor,
-                  fontSize: 10 * _scaleFactorFlutter(profPlacement.scale),
+                  fontSize: 9.5 * _scaleFactorFlutter(profPlacement.scale),
                 ),
               ),
             ],
@@ -4196,14 +4395,14 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
     // 4. Credentials
     final credPlacement = _elementsLayout.credentials;
-    final bool canShowCred = credPlacement.isVisible;
+    final bool canShowCred = _showCredentials && credPlacement.isVisible;
     final Widget? credWidget = canShowCred
         ? Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: borderColor.withValues(alpha: 0.5), width: 1),
+              color: isDarkCard ? Colors.white : const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: borderColor, width: 0.8),
             ),
             child: _credentialMode == 1
                 ? Column(
@@ -4236,7 +4435,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       color: _credentialMode == 0 ? pinColor : userColor,
                       fontWeight: FontWeight.w900,
                       letterSpacing: _credentialMode == 0 ? 1.5 : 0.8,
-                      fontSize: 13 * _scaleFactorFlutter(credPlacement.scale),
+                      fontSize: 12.5 * _scaleFactorFlutter(credPlacement.scale),
                     ),
                   ),
           )
@@ -4247,54 +4446,72 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     final bool canShowQr = _showQr && qrPlacement.isVisible;
     final Widget? qrWidget = canShowQr
         ? Container(
-            width: 58 * _scaleFactorFlutter(qrPlacement.scale),
-            height: 58 * _scaleFactorFlutter(qrPlacement.scale),
-            padding: const EdgeInsets.all(4),
+            width: 52 * _scaleFactorFlutter(qrPlacement.scale),
+            height: 52 * _scaleFactorFlutter(qrPlacement.scale),
+            padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: borderColor.withValues(alpha: 0.4), width: 1),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: borderColor, width: 0.8),
             ),
             child: const Center(
-              child: Icon(Icons.qr_code_2, size: 50, color: Colors.black),
+              child: Icon(Icons.qr_code_2, size: 46, color: Colors.black),
             ),
           )
         : null;
 
     // 6. Instructions
     final instPlacement = _elementsLayout.instructions;
-    final bool canShowInst = instPlacement.isVisible;
+    final bool canShowInst = _showInstructions && instPlacement.isVisible;
     final Widget? instWidget = canShowInst
         ? Text(
             _instructionsController.text.trim().isNotEmpty
                 ? _instructionsController.text.trim()
-                : 'امسح رمز QR للاتصال المباشر بشبكة الواي فاي',
+                : 'امسح الرمز أو أدخل اسم المستخدم للدخول',
             textAlign: instPlacement.align == 'left'
                 ? TextAlign.left
                 : (instPlacement.align == 'right' ? TextAlign.right : TextAlign.center),
             style: TextStyle(
               color: bodyColor,
-              fontSize: 10 * _scaleFactorFlutter(instPlacement.scale),
+              fontSize: 9.5 * _scaleFactorFlutter(instPlacement.scale),
             ),
           )
         : null;
 
-    // 7. Serial Number
+    // 7. Serial Number & Phone
+    final phoneText = [_supportPhoneController.text.trim(), _salesPhoneController.text.trim()]
+        .where((p) => p.isNotEmpty)
+        .join(' | ');
     final snPlacement = _elementsLayout.serialNumber;
     final bool canShowSn = _showSerial && snPlacement.isVisible;
     final Widget? snWidget = canShowSn
-        ? Text(
-            'S/N: 20261024-001',
-            style: TextStyle(
-              color: bodyColor.withValues(alpha: 0.6),
-              fontSize: 9 * _scaleFactorFlutter(snPlacement.scale),
-            ),
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (phoneText.isNotEmpty) ...[
+                Text(
+                  phoneText,
+                  style: TextStyle(
+                    color: bodyColor.withValues(alpha: 0.8),
+                    fontSize: 8.5 * _scaleFactorFlutter(snPlacement.scale),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Text(
+                'S/N: 20261024-001',
+                style: TextStyle(
+                  color: bodyColor.withValues(alpha: 0.8),
+                  fontSize: 8.5 * _scaleFactorFlutter(snPlacement.scale),
+                ),
+              ),
+            ],
           )
         : null;
 
     // Distribute to 3 vertical zones
     final List<_FlutterZoneEntry> allEntries = [
-      _FlutterZoneEntry(netWidget, netPlacement.vertical, netPlacement.align),
+      if (netWidget != null) _FlutterZoneEntry(netWidget, netPlacement.vertical, netPlacement.align),
       if (priceWidget != null) _FlutterZoneEntry(priceWidget, pricePlacement.vertical, pricePlacement.align),
       if (profileWidget != null) _FlutterZoneEntry(profileWidget, profPlacement.vertical, profPlacement.align),
       if (credWidget != null) _FlutterZoneEntry(credWidget, credPlacement.vertical, credPlacement.align),
@@ -4321,8 +4538,17 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
     Widget? topContainer;
     if (topLeft.isNotEmpty || topCenter.isNotEmpty || topRight.isNotEmpty) {
-      topContainer = Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      topContainer = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isCustomImported
+              ? Colors.black.withValues(alpha: 0.25)
+              : (isDarkCard ? Colors.black.withValues(alpha: 0.25) : const Color(0xFFF8FAFC)),
+          borderRadius: BorderRadius.circular(6),
+          border: (!isCustomImported && !isDarkCard)
+              ? Border.all(color: const Color(0xFFE2E8F0), width: 0.8)
+              : null,
+        ),
         child: _buildZoneFlutterRow(topLeft, topCenter, topRight),
       );
     }
@@ -4330,7 +4556,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     Widget? middleContainer;
     if (midLeft.isNotEmpty || midCenter.isNotEmpty || midRight.isNotEmpty) {
       middleContainer = Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(10),
         child: _buildZoneFlutterRow(midLeft, midCenter, midRight),
       );
     }
@@ -4343,12 +4569,20 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     if (botLeft.isNotEmpty || botCenter.isNotEmpty || botRight.isNotEmpty) {
       bottomContainer = Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: bgImgBytes != null ? Colors.transparent : Colors.black.withValues(alpha: 0.25),
+          color: isCustomImported
+              ? Colors.black.withValues(alpha: 0.25)
+              : (isDarkCard ? Colors.black.withValues(alpha: 0.25) : Colors.transparent),
           borderRadius: const BorderRadius.only(
-            bottomLeft: Radius.circular(16),
-            bottomRight: Radius.circular(16),
+            bottomLeft: Radius.circular(8),
+            bottomRight: Radius.circular(8),
+          ),
+          border: Border(
+            top: BorderSide(
+              color: isDarkCard ? Colors.white24 : const Color(0xFFE2E8F0),
+              width: 0.8,
+            ),
           ),
         ),
         child: _buildZoneFlutterRow(botLeft, botCenter, botRight),
@@ -4360,46 +4594,46 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          color: cardPrimary,
+          color: cardBgColor,
           image: bgImgBytes != null
               ? DecorationImage(
                   image: MemoryImage(bgImgBytes),
                   fit: BoxFit.fill,
                 )
               : null,
-          gradient: bgImgBytes == null
+          gradient: isCustomImported
               ? LinearGradient(
-                  colors: [cardPrimary, cardPrimary.withValues(alpha: 0.85)],
+                  colors: [cardBgColor, cardBgColor.withValues(alpha: 0.85)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 )
               : null,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(8),
           boxShadow: [
             BoxShadow(
-              color: cardPrimary.withValues(alpha: 0.4),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
+              color: Colors.black.withValues(alpha: isCustomImported ? 0.3 : 0.08),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
           border: _showOuterBorder
               ? Border.all(
-                  color: _customBorderColor ?? (bgImgBytes != null ? Colors.white24 : borderColor.withValues(alpha: 0.8)),
-                  width: bgImgBytes != null ? 0.8 : (_selectedThemePreset == 'LUXURY_ROYAL' ? 2.0 : 1.5),
+                  color: borderColor,
+                  width: isCustomImported ? 0.8 : 1.2,
                 )
               : null,
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(8),
           child: Stack(
             children: [
               if (_selectedThemePreset == 'LUXURY_ROYAL')
                 Positioned.fill(
                   child: Container(
-                    margin: const EdgeInsets.all(5),
+                    margin: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFFD4AF37), width: 1),
-                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFD4AF37), width: 0.8),
+                      borderRadius: BorderRadius.circular(6),
                     ),
                   ),
                 ),
@@ -4408,12 +4642,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   top: 0,
                   right: 0,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                     decoration: const BoxDecoration(
                       color: Color(0xFFF59E0B),
                       borderRadius: BorderRadius.only(
-                        bottomLeft: Radius.circular(10),
-                        topRight: Radius.circular(16),
+                        bottomLeft: Radius.circular(6),
                       ),
                     ),
                     child: const Text(
@@ -4421,8 +4654,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                       style: TextStyle(
                         color: Color(0xFF065F46),
                         fontWeight: FontWeight.w900,
-                        fontSize: 8,
-                        letterSpacing: 0.8,
+                        fontSize: 7.5,
+                        letterSpacing: 0.5,
                       ),
                     ),
                   ),
@@ -4433,21 +4666,19 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   left: 0,
                   right: 0,
                   child: Container(
-                    height: 4,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF2563EB),
-                    ),
+                    height: 3,
+                    color: const Color(0xFF2563EB),
                   ),
                 ),
               if (_selectedThemePreset == 'TECH_CIRCUIT')
                 Positioned(
-                  bottom: 6,
-                  left: 8,
-                  child: Text(
+                  bottom: 4,
+                  left: 6,
+                  child: const Text(
                     '// SYS_ONLINE',
                     style: TextStyle(
-                      color: const Color(0xFF00FFCC).withValues(alpha: 0.7),
-                      fontSize: 8,
+                      color: Color(0xFF00FFCC),
+                      fontSize: 7.5,
                       fontFamily: 'monospace',
                       fontWeight: FontWeight.bold,
                     ),
@@ -4458,8 +4689,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   top: 0,
                   right: 0,
                   child: Container(
-                    width: 28,
-                    height: 4,
+                    width: 24,
+                    height: 3,
                     color: borderColor,
                   ),
                 ),
@@ -4469,7 +4700,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                     painter: CardPatternPainter(
                       patternType: _selectedPatternOverlay,
                       opacity: _selectedPatternOpacity,
-                      strokeColor: Colors.white,
+                      strokeColor: isDarkCard ? Colors.white : Colors.black.withValues(alpha: 0.15),
                     ),
                   ),
                 ),
@@ -4696,7 +4927,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                 ),
                 icon: const Icon(Icons.picture_as_pdf, size: 16, color: Colors.white),
                 label: const Text(
-                  'معاينة A4',
+                  'معاينة PDF',
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 onPressed: () => _previewAndGenerateBatchPdf(profile),
@@ -4735,6 +4966,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       showValidity: _showValidity,
       showQuota: _showQuota,
       showSerial: _showSerial,
+      showOuterBorder: _showOuterBorder,
+      showNetworkName: _showNetworkName,
+      showProfileName: _showProfileName,
+      showCredentials: _showCredentials,
+      showInstructions: _showInstructions,
       elementsLayout: _elementsLayout,
       instructions: _instructionsController.text,
       headerTitle: _headerTitleController.text,
@@ -4759,6 +4995,11 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       _showValidity = prev.showValidity;
       _showQuota = prev.showQuota;
       _showSerial = prev.showSerial;
+      _showOuterBorder = prev.showOuterBorder;
+      _showNetworkName = prev.showNetworkName;
+      _showProfileName = prev.showProfileName;
+      _showCredentials = prev.showCredentials;
+      _showInstructions = prev.showInstructions;
       _elementsLayout = prev.elementsLayout;
       _instructionsController.text = prev.instructions;
       _headerTitleController.text = prev.headerTitle;
@@ -4842,14 +5083,26 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     );
   }
 
+  String get _effectivePhoneText {
+    final s = _supportPhoneController.text.trim();
+    final p = _salesPhoneController.text.trim();
+    if (s.isNotEmpty && p.isNotEmpty) return 'دعم: $s | مبيعات: $p';
+    if (s.isNotEmpty) return s;
+    if (p.isNotEmpty) return p;
+    return _selectedCustomTemplate?.supportPhone ?? '';
+  }
+
   Future<void> _previewCurrentLayoutSheet(HotspotProfileModel? profile) async {
-    final int sampleCount = _isCustomPrintGrid
-        ? (_customGridCols * _customGridRows)
-        : (_selectedPrintLayout == CardPdfLayout.a4Grid10
-            ? 10
-            : (_selectedPrintLayout == CardPdfLayout.a4Grid12
-                ? 12
-                : (_selectedPrintLayout == CardPdfLayout.a4Grid24 ? 24 : 100)));
+    if (_networkNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('اسم الشبكة حقل إجباري، يرجى إدخال اسم الشبكة أولاً للمتابعة'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final int sampleCount = _effectiveCardsPerPage;
 
     final sampleCards = List.generate(
       sampleCount,
@@ -4876,9 +5129,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         networkName: _networkNameController.text.trim().isNotEmpty
             ? _networkNameController.text.trim()
             : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
-        supportPhone: _supportPhoneController.text.trim().isNotEmpty
-            ? _supportPhoneController.text.trim()
-            : (_selectedCustomTemplate?.supportPhone ?? ''),
+        supportPhone: _effectivePhoneText,
         layout: _selectedPrintLayout,
         batchNumber: 'PREVIEW',
         themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
@@ -4895,6 +5146,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         showQr: _showQr,
         showPrice: _showPrice,
         showSerial: _showSerial,
+        showOuterBorder: _showOuterBorder,
+        showNetworkName: _showNetworkName,
+        showProfileName: _showProfileName,
+        showCredentials: _showCredentials,
+        showInstructions: _showInstructions,
+        cardWidthMm: _cardWidthMm,
+        cardHeightMm: _cardHeightMm,
         instructions: _instructionsController.text.trim().isNotEmpty
             ? _instructionsController.text.trim()
             : (_selectedCustomTemplate?.instructions ?? ''),
@@ -4905,7 +5163,6 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         customMargin: _isCustomPrintGrid ? _customGridMargin : null,
         customColors: _getEffectiveCustomColors(),
         elementsLayout: _elementsLayout,
-        showOuterBorder: _showOuterBorder,
       );
     } catch (e) {
       if (mounted) {
@@ -4917,6 +5174,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   }
 
   Future<void> _previewAndGenerateBatchPdf(HotspotProfileModel? profile) async {
+    if (_networkNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('اسم الشبكة حقل إجباري، يرجى إدخال اسم الشبكة أولاً للمتابعة'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     final int totalCount = _selectedQuantity;
     final prefix = _prefixController.text.trim();
     final batchCards = List.generate(
@@ -4944,9 +5210,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         networkName: _networkNameController.text.trim().isNotEmpty
             ? _networkNameController.text.trim()
             : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
-        supportPhone: _supportPhoneController.text.trim().isNotEmpty
-            ? _supportPhoneController.text.trim()
-            : (_selectedCustomTemplate?.supportPhone ?? ''),
+        supportPhone: _effectivePhoneText,
         layout: _selectedPrintLayout,
         batchNumber: 'BATCH-$totalCount',
         themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
@@ -4963,6 +5227,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         showQr: _showQr,
         showPrice: _showPrice,
         showSerial: _showSerial,
+        showOuterBorder: _showOuterBorder,
+        showNetworkName: _showNetworkName,
+        showProfileName: _showProfileName,
+        showCredentials: _showCredentials,
+        showInstructions: _showInstructions,
+        cardWidthMm: _cardWidthMm,
+        cardHeightMm: _cardHeightMm,
         instructions: _instructionsController.text.trim().isNotEmpty
             ? _instructionsController.text.trim()
             : (_selectedCustomTemplate?.instructions ?? ''),
@@ -4973,7 +5244,6 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         customMargin: _isCustomPrintGrid ? _customGridMargin : null,
         customColors: _getEffectiveCustomColors(),
         elementsLayout: _elementsLayout,
-        showOuterBorder: _showOuterBorder,
       );
     } catch (e) {
       if (mounted) {
@@ -4985,6 +5255,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   }
 
   Future<void> _openPdfViewer(HotspotProfileModel? profile) async {
+    if (_networkNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('اسم الشبكة حقل إجباري، يرجى إدخال اسم الشبكة أولاً للمتابعة'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     setState(() => _isGenerating = true);
     final int totalCount = _selectedQuantity;
     final prefix = _prefixController.text.trim();
@@ -5013,9 +5292,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         networkName: _networkNameController.text.trim().isNotEmpty
             ? _networkNameController.text.trim()
             : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
-        supportPhone: _supportPhoneController.text.trim().isNotEmpty
-            ? _supportPhoneController.text.trim()
-            : (_selectedCustomTemplate?.supportPhone ?? ''),
+        supportPhone: _effectivePhoneText,
         layout: _selectedPrintLayout,
         batchNumber: 'BATCH-$totalCount',
         themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
@@ -5032,6 +5309,13 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         showQr: _showQr,
         showPrice: _showPrice,
         showSerial: _showSerial,
+        showOuterBorder: _showOuterBorder,
+        showNetworkName: _showNetworkName,
+        showProfileName: _showProfileName,
+        showCredentials: _showCredentials,
+        showInstructions: _showInstructions,
+        cardWidthMm: _cardWidthMm,
+        cardHeightMm: _cardHeightMm,
         instructions: _instructionsController.text.trim().isNotEmpty
             ? _instructionsController.text.trim()
             : (_selectedCustomTemplate?.instructions ?? ''),
@@ -5042,7 +5326,6 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         customMargin: _isCustomPrintGrid ? _customGridMargin : null,
         customColors: _getEffectiveCustomColors(),
         elementsLayout: _elementsLayout,
-        showOuterBorder: _showOuterBorder,
       );
 
       if (mounted) {
@@ -5117,6 +5400,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                     _customBorderColor = null;
                     _customSecondaryColor = null;
                     _customCardBgColor = null;
+                    _customPriceTextColor = null;
+                    _customPriceBgColor = null;
                   });
                   _saveColorsToStorage();
                 },
@@ -5206,6 +5491,20 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                 _saveColorsToStorage();
               }, () {
                 setState(() => _customSecondaryColor = null);
+                _saveColorsToStorage();
+              }),
+              _buildColorItemTile('لون كتابة السعر', _customPriceTextColor ?? activeSecondary, (newCol) {
+                setState(() => _customPriceTextColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customPriceTextColor = null);
+                _saveColorsToStorage();
+              }),
+              _buildColorItemTile('خلفية شارة السعر', _customPriceBgColor ?? activeSecondary.withValues(alpha: 0.2), (newCol) {
+                setState(() => _customPriceBgColor = newCol);
+                _saveColorsToStorage();
+              }, () {
+                setState(() => _customPriceBgColor = null);
                 _saveColorsToStorage();
               }),
               _buildColorItemTile('خلفية الكرت', activeBg, (newCol) {
@@ -5486,6 +5785,8 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     );
 
     return base.copyWith(
+      widthMm: _cardWidthMm,
+      heightMm: _cardHeightMm,
       primaryColor: _customPrimaryColor != null
           ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
           : _selectedCustomTemplate?.primaryColor,
@@ -5497,7 +5798,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         'networkName': _networkNameController.text.trim().isNotEmpty
             ? _networkNameController.text.trim()
             : (_selectedCustomTemplate?.networkName ?? 'سودافاي'),
-        'supportPhone': _supportPhoneController.text.trim(),
+        'supportPhone': _effectivePhoneText,
         'instructions': _instructionsController.text.trim(),
         'showPrice': _showPrice,
         'showSerial': _showSerial,
@@ -5956,6 +6257,11 @@ class _DesignSnapshot {
   final bool showValidity;
   final bool showQuota;
   final bool showSerial;
+  final bool showOuterBorder;
+  final bool showNetworkName;
+  final bool showProfileName;
+  final bool showCredentials;
+  final bool showInstructions;
   final CardElementsLayout elementsLayout;
   final String instructions;
   final String headerTitle;
@@ -5975,6 +6281,11 @@ class _DesignSnapshot {
     required this.showValidity,
     required this.showQuota,
     required this.showSerial,
+    this.showOuterBorder = true,
+    this.showNetworkName = true,
+    this.showProfileName = true,
+    this.showCredentials = true,
+    this.showInstructions = true,
     required this.elementsLayout,
     required this.instructions,
     required this.headerTitle,

@@ -173,6 +173,12 @@ class CardPdfGeneratorService {
     bool showPrice = true,
     bool showSerial = true,
     bool showOuterBorder = true,
+    bool showNetworkName = true,
+    bool showProfileName = true,
+    bool showCredentials = true,
+    bool showInstructions = true,
+    int? cardWidthMm,
+    int? cardHeightMm,
     String? instructions,
     CardTemplateModel? template,
     bool isLandscape = false,
@@ -304,19 +310,19 @@ class CardPdfGeneratorService {
         case CardPdfLayout.a4Grid100:
           cols = 5;
           rows = 20;
-          cardMargin = 1.0;
-          fontSizeTitle = 5.0;
-          fontSizeCode = 6.5;
-          qrSize = 22.0;
+          cardMargin = 0.8;
+          fontSizeTitle = 4.8;
+          fontSizeCode = 6.0;
+          qrSize = 19.0;
           layoutDefaultShowQr = true;
           break;
         case CardPdfLayout.a4Grid120:
           cols = 5;
           rows = 24;
-          cardMargin = 0.8;
-          fontSizeTitle = 4.5;
-          fontSizeCode = 6.0;
-          qrSize = 20.0;
+          cardMargin = 0.6;
+          fontSizeTitle = 4.2;
+          fontSizeCode = 5.5;
+          qrSize = 17.0;
           layoutDefaultShowQr = true;
           break;
       }
@@ -327,8 +333,10 @@ class CardPdfGeneratorService {
     final cardsPerPage = cols * rows;
     final totalPages = (cards.length / cardsPerPage).ceil().clamp(1, 9999);
 
-    final double targetAspectRatio = (template?.widthMm != null && template?.heightMm != null && template!.heightMm > 0)
-        ? (template.widthMm / template.heightMm)
+    final int effectiveWidthMm = cardWidthMm ?? template?.widthMm ?? 85;
+    final int effectiveHeightMm = cardHeightMm ?? template?.heightMm ?? 54;
+    final double targetAspectRatio = (effectiveWidthMm > 0 && effectiveHeightMm > 0)
+        ? (effectiveWidthMm / effectiveHeightMm)
         : (85.0 / 54.0);
 
     final double pageMargin = (customSpacing ?? ((layout == CardPdfLayout.a4Grid100 || layout == CardPdfLayout.a4Grid120) ? 4.0 : 8.0));
@@ -413,45 +421,33 @@ class CardPdfGeneratorService {
                           if (cardIdx < pageCards.length) {
                             final card = pageCards[cardIdx];
                             final isDense = cols > 4 || rows > 10 || layout == CardPdfLayout.a4Grid100 || layout == CardPdfLayout.a4Grid120;
-                            final cardWidget = ((layout == CardPdfLayout.a4Grid100 || layout == CardPdfLayout.a4Grid120) && effectiveElementsLayout == null)
-                                ? _buildMiniCardItem(
-                                    card: card,
-                                    networkName: effectiveNetworkName,
-                                    theme: theme,
-                                    fontBundle: fontBundle,
-                                    cardMargin: cardMargin,
-                                    index: startIndex + cardIdx + 1,
-                                    bgImage: bgImage,
-                                    patternOverlayImage: patternOverlayImage,
-                                    showPrice: effectiveShowPrice,
-                                    showSerial: effectiveShowSerial,
-                                    targetAspectRatio: targetAspectRatio,
-                                    customColors: effectiveCustomColors,
-                                    designStyle: effectiveDesignStyle,
-                                  )
-                                : _buildCardItem(
-                                    card: card,
-                                    networkName: effectiveNetworkName,
-                                    theme: theme,
-                                    fontBundle: fontBundle,
-                                    cardMargin: cardMargin,
-                                    fontSizeTitle: fontSizeTitle,
-                                    fontSizeCode: fontSizeCode,
-                                    qrSize: effectiveShowQr ? (qrSize > 0 ? qrSize : 22.0) : 0.0,
-                                    showQr: effectiveShowQr,
-                                    showPrice: effectiveShowPrice,
-                                    showSerial: effectiveShowSerial,
-                                    showOuterBorder: showOuterBorder,
-                                    instructions: effectiveInstructions,
-                                    index: startIndex + cardIdx + 1,
-                                    bgImage: bgImage,
-                                    patternOverlayImage: patternOverlayImage,
-                                    elementsLayout: effectiveElementsLayout,
-                                    targetAspectRatio: targetAspectRatio,
-                                    customColors: effectiveCustomColors,
-                                    designStyle: effectiveDesignStyle,
-                                    isDenseGrid: isDense,
-                                  );
+                            final cardWidget = _buildCardItem(
+                              card: card,
+                              networkName: effectiveNetworkName,
+                              theme: theme,
+                              fontBundle: fontBundle,
+                              cardMargin: cardMargin,
+                              fontSizeTitle: fontSizeTitle,
+                              fontSizeCode: fontSizeCode,
+                              qrSize: effectiveShowQr ? (qrSize > 0 ? qrSize : 22.0) : 0.0,
+                              showQr: effectiveShowQr,
+                              showPrice: effectiveShowPrice,
+                              showSerial: effectiveShowSerial,
+                              showOuterBorder: showOuterBorder,
+                              showNetworkName: showNetworkName,
+                              showProfileName: showProfileName,
+                              showCredentials: showCredentials,
+                              showInstructions: showInstructions,
+                              instructions: effectiveInstructions,
+                              index: startIndex + cardIdx + 1,
+                              bgImage: bgImage,
+                              patternOverlayImage: patternOverlayImage,
+                              elementsLayout: effectiveElementsLayout,
+                              targetAspectRatio: targetAspectRatio,
+                              customColors: effectiveCustomColors,
+                              designStyle: effectiveDesignStyle,
+                              isDenseGrid: isDense,
+                            );
 
                             return pw.SizedBox(
                               width: cardCellWidth,
@@ -567,6 +563,10 @@ class CardPdfGeneratorService {
     bool showPrice = true,
     bool showSerial = true,
     bool showOuterBorder = true,
+    bool showNetworkName = true,
+    bool showProfileName = true,
+    bool showCredentials = true,
+    bool showInstructions = true,
     String? instructions,
     pw.MemoryImage? bgImage,
     pw.MemoryImage? patternOverlayImage,
@@ -582,58 +582,69 @@ class CardPdfGeneratorService {
     final bool isUsernameOnly = card.clearPassword == null || card.clearPassword!.isEmpty;
     final bool isUnifiedPin = !isSeparateUserPass && !isUsernameOnly;
 
+    final bool hasCustomBgImage = bgImage != null;
+    final cardBgColor = _parsePdfHex(customColors?.cardBackgroundColor) ??
+        (hasCustomBgImage ? const PdfColor(0, 0, 0, 0) : PdfColors.white);
+
+    final bool isDarkCard = !hasCustomBgImage
+        ? (cardBgColor.red < 0.4 && cardBgColor.green < 0.4 && cardBgColor.blue < 0.4)
+        : false;
+
     final headerTextColor = _parsePdfHex(customColors?.headerTextColor) ??
-        (bgImage != null ? PdfColors.white : theme.headerTextColor);
+        (isDarkCard ? PdfColors.white : (theme.primaryColor != PdfColors.white ? theme.primaryColor : const PdfColor.fromInt(0xFF0F172A)));
     final bodyTextColor = _parsePdfHex(customColors?.bodyTextColor) ??
-        (bgImage != null ? PdfColors.white : PdfColors.white);
+        (isDarkCard ? PdfColors.white : const PdfColor.fromInt(0xFF334155));
     final usernameColor = _parsePdfHex(customColors?.usernameColor) ??
-        theme.primaryColor;
+        (isDarkCard ? theme.accentColor : const PdfColor.fromInt(0xFF1E3A8A));
     final passwordColor = _parsePdfHex(customColors?.passwordColor) ??
         const PdfColor.fromInt(0xFFDC2626);
     final pinColor = _parsePdfHex(customColors?.pinColor) ?? usernameColor;
     final borderColor = _parsePdfHex(customColors?.borderColor) ??
-        (bgImage != null ? PdfColors.grey300 : theme.accentColor);
+        (isDarkCard ? theme.accentColor : const PdfColor.fromInt(0xFFCBD5E1));
     final secondaryColor = _parsePdfHex(customColors?.secondaryColor) ?? theme.accentColor;
-    final cardBgColor = _parsePdfHex(customColors?.cardBackgroundColor) ??
-        (bgImage == null ? theme.primaryColor : PdfColors.white);
+    final priceBgColor = _parsePdfHex(customColors?.priceBackgroundColor) ?? secondaryColor;
+    final priceTextColor = _parsePdfHex(customColors?.priceTextColor) ?? theme.badgeTextColor;
 
     pw.Widget cardContent;
 
     if (elementsLayout != null) {
       // 1. Network Name
       final netPlacement = elementsLayout.networkName;
-      final pw.Widget netWidget = pw.Directionality(
-        textDirection: pw.TextDirection.rtl,
-        child: pw.Text(
-          networkName,
-          maxLines: 1,
-          overflow: pw.TextOverflow.clip,
-          style: pw.TextStyle(
-            fontSize: fontSizeTitle * _scaleMultiplier(netPlacement.scale),
-            color: headerTextColor,
-            fontWeight: pw.FontWeight.bold,
-          ),
-        ),
-      );
+      final bool canShowNet = showNetworkName && netPlacement.isVisible;
+      final pw.Widget? netWidget = canShowNet
+          ? pw.Directionality(
+              textDirection: pw.TextDirection.rtl,
+              child: pw.Text(
+                networkName,
+                maxLines: 1,
+                overflow: pw.TextOverflow.clip,
+                style: pw.TextStyle(
+                  fontSize: fontSizeTitle * _scaleMultiplier(netPlacement.scale),
+                  color: headerTextColor,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            )
+          : null;
 
       // 2. Price Badge
       final pricePlacement = elementsLayout.price;
       final bool canShowPrice = showPrice && pricePlacement.isVisible;
       final pw.Widget? priceWidget = canShowPrice
           ? pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.5 : 4, vertical: isDenseGrid ? 0.5 : 1),
               decoration: pw.BoxDecoration(
-                color: secondaryColor,
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+                color: priceBgColor,
+                borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 2)),
               ),
               child: pw.Directionality(
                 textDirection: pw.TextDirection.ltr,
                 child: pw.Text(
                   '${card.price.toStringAsFixed(0)} ${card.currency}',
                   style: pw.TextStyle(
-                    fontSize: (fontSizeTitle - 1) * _scaleMultiplier(pricePlacement.scale),
+                    fontSize: (fontSizeTitle - (isDenseGrid ? 0.5 : 1)) * _scaleMultiplier(pricePlacement.scale),
                     fontWeight: pw.FontWeight.bold,
-                    color: theme.badgeTextColor,
+                    color: priceTextColor,
                   ),
                 ),
               ),
@@ -642,7 +653,7 @@ class CardPdfGeneratorService {
 
       // 3. Profile details
       final profPlacement = elementsLayout.profileDetails;
-      final bool canShowProf = profPlacement.isVisible;
+      final bool canShowProf = showProfileName && profPlacement.isVisible;
       final pw.Widget? profileWidget = canShowProf
           ? pw.Directionality(
               textDirection: pw.TextDirection.rtl,
@@ -660,60 +671,53 @@ class CardPdfGeneratorService {
 
       // 4. Credentials
       final credPlacement = elementsLayout.credentials;
-      final bool canShowCred = credPlacement.isVisible;
+      final bool canShowCred = showCredentials && credPlacement.isVisible;
       final pw.Widget? credWidget = canShowCred
           ? pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.5 : 5, vertical: isDenseGrid ? 0.8 : 2.5),
               decoration: pw.BoxDecoration(
-                color: PdfColors.white,
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2.5)),
+                color: isDarkCard ? PdfColors.white : const PdfColor.fromInt(0xFFF8FAFC),
+                borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
                 border: pw.Border.all(
                   color: borderColor,
-                  width: 0.5,
+                  width: isDenseGrid ? 0.35 : 0.6,
                 ),
               ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                mainAxisSize: pw.MainAxisSize.min,
-                children: [
-                  pw.Directionality(
-                    textDirection: pw.TextDirection.rtl,
-                    child: pw.Text(
-                      isUnifiedPin ? 'رمز الدخول (PIN):' : 'اسم المستخدم:',
-                      style: pw.TextStyle(
-                        fontSize: 6 * _scaleMultiplier(credPlacement.scale),
-                        color: PdfColors.grey700,
-                      ),
-                    ),
-                  ),
-                  pw.Directionality(
-                    textDirection: pw.TextDirection.ltr,
-                    child: pw.Text(
-                      card.username,
+              child: isSeparateUserPass
+                  ? pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      mainAxisSize: pw.MainAxisSize.min,
+                      children: [
+                        pw.Text(
+                          'U: ${card.username}',
+                          style: pw.TextStyle(
+                            fontSize: fontSizeCode * _scaleMultiplier(credPlacement.scale),
+                            fontWeight: pw.FontWeight.bold,
+                            color: usernameColor,
+                          ),
+                        ),
+                        pw.SizedBox(height: 1),
+                        pw.Text(
+                          'P: ${card.clearPassword}',
+                          style: pw.TextStyle(
+                            fontSize: (fontSizeCode - 1) * _scaleMultiplier(credPlacement.scale),
+                            fontWeight: pw.FontWeight.bold,
+                            color: passwordColor,
+                          ),
+                        ),
+                      ],
+                    )
+                  : pw.Text(
+                      isUnifiedPin
+                          ? 'PIN: ${card.username}'
+                          : 'USER: ${card.username}',
                       style: pw.TextStyle(
                         fontSize: fontSizeCode * _scaleMultiplier(credPlacement.scale),
                         fontWeight: pw.FontWeight.bold,
-                        letterSpacing: 1.0,
+                        letterSpacing: isUnifiedPin ? 1.2 : 0.8,
                         color: isUnifiedPin ? pinColor : usernameColor,
                       ),
                     ),
-                  ),
-                  if (isSeparateUserPass) ...[
-                    pw.SizedBox(height: 1),
-                    pw.Directionality(
-                      textDirection: pw.TextDirection.ltr,
-                      child: pw.Text(
-                        'PIN: ${card.clearPassword}',
-                        style: pw.TextStyle(
-                          fontSize: (fontSizeCode - 1.5) * _scaleMultiplier(credPlacement.scale),
-                          fontWeight: pw.FontWeight.bold,
-                          color: passwordColor,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
             )
           : null;
 
@@ -725,10 +729,10 @@ class CardPdfGeneratorService {
           ? pw.Container(
               width: effectiveQrSize,
               height: effectiveQrSize,
-              padding: const pw.EdgeInsets.all(1.5),
+              padding: pw.EdgeInsets.all(isDenseGrid ? 0.8 : 1.5),
               decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: borderColor, width: 0.5),
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+                border: pw.Border.all(color: borderColor, width: isDenseGrid ? 0.3 : 0.5),
+                borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.2 : 2)),
                 color: PdfColors.white,
               ),
               child: pw.BarcodeWidget(
@@ -741,7 +745,7 @@ class CardPdfGeneratorService {
 
       // 6. Instructions
       final instPlacement = elementsLayout.instructions;
-      final bool canShowInst = (instructions != null && instructions.isNotEmpty) && instPlacement.isVisible;
+      final bool canShowInst = showInstructions && (instructions != null && instructions.isNotEmpty) && instPlacement.isVisible;
       final pw.Widget? instWidget = canShowInst
           ? pw.Directionality(
               textDirection: pw.TextDirection.rtl,
@@ -750,8 +754,8 @@ class CardPdfGeneratorService {
                 maxLines: 1,
                 overflow: pw.TextOverflow.clip,
                 style: pw.TextStyle(
-                  fontSize: 5.5 * _scaleMultiplier(instPlacement.scale),
-                  color: bodyTextColor,
+                  fontSize: (isDenseGrid ? 3.4 : 4.8) * _scaleMultiplier(instPlacement.scale),
+                  color: isDarkCard ? bodyTextColor : const PdfColor.fromInt(0xFF64748B),
                 ),
               ),
             )
@@ -766,8 +770,8 @@ class CardPdfGeneratorService {
               child: pw.Text(
                 'SN: ${card.serialNumber.isNotEmpty ? card.serialNumber : '#$index'}',
                 style: pw.TextStyle(
-                  fontSize: 5.5 * _scaleMultiplier(snPlacement.scale),
-                  color: bodyTextColor,
+                  fontSize: (isDenseGrid ? 3.4 : 4.6) * _scaleMultiplier(snPlacement.scale),
+                  color: isDarkCard ? bodyTextColor : const PdfColor.fromInt(0xFF94A3B8),
                 ),
               ),
             )
@@ -775,7 +779,7 @@ class CardPdfGeneratorService {
 
       // Group into 3 vertical zones: top, middle, bottom
       final List<_PdfZoneEntry> allEntries = [
-        _PdfZoneEntry(netWidget, netPlacement.vertical, netPlacement.align),
+        if (netWidget != null) _PdfZoneEntry(netWidget, netPlacement.vertical, netPlacement.align),
         if (priceWidget != null) _PdfZoneEntry(priceWidget, pricePlacement.vertical, pricePlacement.align),
         if (profileWidget != null) _PdfZoneEntry(profileWidget, profPlacement.vertical, profPlacement.align),
         if (credWidget != null) _PdfZoneEntry(credWidget, credPlacement.vertical, credPlacement.align),
@@ -803,12 +807,13 @@ class CardPdfGeneratorService {
       pw.Widget? topContainer;
       if (topLeft.isNotEmpty || topCenter.isNotEmpty || topRight.isNotEmpty) {
         topContainer = pw.Container(
-          padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2 : 4, vertical: isDenseGrid ? 1 : 2.5),
+          padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.0 : 4.0, vertical: isDenseGrid ? 0.6 : 2.0),
           decoration: bgImage != null
               ? null
               : pw.BoxDecoration(
-                  color: const PdfColor(0, 0, 0, 0.2),
+                  color: isDarkCard ? const PdfColor(0, 0, 0, 0.25) : const PdfColor.fromInt(0xFFF8FAFC),
                   borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
+                  border: isDarkCard ? null : pw.Border.all(color: const PdfColor.fromInt(0xFFE2E8F0), width: isDenseGrid ? 0.3 : 0.5),
                 ),
           child: _buildZoneRow(topLeft, topCenter, topRight),
         );
@@ -817,7 +822,7 @@ class CardPdfGeneratorService {
       pw.Widget? middleContainer;
       if (midLeft.isNotEmpty || midCenter.isNotEmpty || midRight.isNotEmpty) {
         middleContainer = pw.Padding(
-          padding: pw.EdgeInsets.symmetric(vertical: isDenseGrid ? 0.8 : 2),
+          padding: pw.EdgeInsets.symmetric(vertical: isDenseGrid ? 0.4 : 2.0),
           child: _buildZoneRow(midLeft, midCenter, midRight),
         );
       }
@@ -825,11 +830,21 @@ class CardPdfGeneratorService {
       pw.Widget? bottomContainer;
       if (botLeft.isNotEmpty || botCenter.isNotEmpty || botRight.isNotEmpty) {
         bottomContainer = pw.Container(
-          padding: pw.EdgeInsets.only(top: isDenseGrid ? 0.8 : 1.5),
+          padding: pw.EdgeInsets.only(
+            top: isDenseGrid ? 0.4 : 1.5,
+            bottom: isDenseGrid ? 0.4 : 2.5,
+            left: isDenseGrid ? 1.0 : 2.0,
+            right: isDenseGrid ? 1.0 : 2.0,
+          ),
           decoration: bgImage != null
               ? null
-              : const pw.BoxDecoration(
-                  border: pw.Border(top: pw.BorderSide(color: PdfColors.white, width: 0.3)),
+              : pw.BoxDecoration(
+                  border: pw.Border(
+                    top: pw.BorderSide(
+                      color: isDarkCard ? const PdfColor(1, 1, 1, 0.2) : const PdfColor.fromInt(0xFFE2E8F0),
+                      width: 0.35,
+                    ),
+                  ),
                 ),
           child: _buildZoneRow(botLeft, botCenter, botRight),
         );
@@ -851,46 +866,50 @@ class CardPdfGeneratorService {
         children: [
           // Theme Header Bar: Network Name + Price Badge
           pw.Container(
-            padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2.5),
+            padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.0 : 4, vertical: isDenseGrid ? 0.6 : 2.5),
             decoration: bgImage != null
                 ? null
                 : pw.BoxDecoration(
-                    color: const PdfColor(0, 0, 0, 0.2),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+                    color: isDarkCard ? const PdfColor(0, 0, 0, 0.2) : const PdfColor.fromInt(0xFFF8FAFC),
+                    borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
+                    border: isDarkCard ? null : pw.Border.all(color: const PdfColor.fromInt(0xFFE2E8F0), width: isDenseGrid ? 0.3 : 0.5),
                   ),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Expanded(
-                  child: pw.Directionality(
-                    textDirection: pw.TextDirection.rtl,
-                    child: pw.Text(
-                      networkName,
-                      maxLines: 1,
-                      overflow: pw.TextOverflow.clip,
-                      style: pw.TextStyle(
-                        fontSize: fontSizeTitle,
-                        color: headerTextColor,
-                        fontWeight: pw.FontWeight.bold,
+                if (showNetworkName)
+                  pw.Expanded(
+                    child: pw.Directionality(
+                      textDirection: pw.TextDirection.rtl,
+                      child: pw.Text(
+                        networkName,
+                        maxLines: 1,
+                        overflow: pw.TextOverflow.clip,
+                        style: pw.TextStyle(
+                          fontSize: fontSizeTitle,
+                          color: headerTextColor,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
                       ),
                     ),
-                  ),
-                ),
+                  )
+                else
+                  pw.Spacer(),
                 if (showPrice)
                   pw.Container(
-                    padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.0 : 4, vertical: isDenseGrid ? 0.5 : 1),
                     decoration: pw.BoxDecoration(
-                      color: secondaryColor,
-                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+                      color: priceBgColor,
+                      borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.2 : 2)),
                     ),
                     child: pw.Directionality(
                       textDirection: pw.TextDirection.ltr,
                       child: pw.Text(
                         '${card.price.toStringAsFixed(0)} ${card.currency}',
                         style: pw.TextStyle(
-                          fontSize: fontSizeTitle - 1,
+                          fontSize: fontSizeTitle - (isDenseGrid ? 0.4 : 1),
                           fontWeight: pw.FontWeight.bold,
-                          color: theme.badgeTextColor,
+                          color: priceTextColor,
                         ),
                       ),
                     ),
@@ -901,7 +920,7 @@ class CardPdfGeneratorService {
 
           // Body: Profile info + Credentials Box + QR Code
           pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            padding: pw.EdgeInsets.symmetric(vertical: isDenseGrid ? 0.6 : 2),
             child: pw.Row(
               crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
@@ -912,89 +931,84 @@ class CardPdfGeneratorService {
                     mainAxisAlignment: pw.MainAxisAlignment.center,
                     children: [
                       // Profile Name in Arabic RTL
-                      pw.Directionality(
-                        textDirection: pw.TextDirection.rtl,
-                        child: pw.Text(
-                          card.profileName,
-                          maxLines: 1,
-                          style: pw.TextStyle(
-                            fontSize: fontSizeTitle - 0.5,
-                            color: bodyTextColor,
-                            fontWeight: pw.FontWeight.bold,
+                      if (showProfileName) ...[
+                        pw.Directionality(
+                          textDirection: pw.TextDirection.rtl,
+                          child: pw.Text(
+                            card.profileName,
+                            maxLines: 1,
+                            style: pw.TextStyle(
+                              fontSize: fontSizeTitle - (isDenseGrid ? 0.2 : 0.5),
+                              color: bodyTextColor,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
                           ),
                         ),
-                      ),
-                      pw.SizedBox(height: 2),
+                        pw.SizedBox(height: isDenseGrid ? 1 : 2),
+                      ],
 
                       // Code / Username box with LTR direction for numbers & symbols
-                      pw.Container(
-                        padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        decoration: pw.BoxDecoration(
-                          color: bgImage != null
-                              ? const PdfColor.fromInt(0xFFF1F5F9)
-                              : const PdfColor(0, 0, 0, 0.35),
-                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2.5)),
-                          border: pw.Border.all(
-                            color: borderColor,
-                            width: 0.5,
+                      if (showCredentials)
+                        pw.Container(
+                          padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.5 : 4, vertical: isDenseGrid ? 0.8 : 2),
+                          decoration: pw.BoxDecoration(
+                            color: isDarkCard ? PdfColors.white : const PdfColor.fromInt(0xFFF8FAFC),
+                            borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
+                            border: pw.Border.all(
+                              color: borderColor,
+                              width: isDenseGrid ? 0.35 : 0.6,
+                            ),
                           ),
-                        ),
-                        child: pw.Column(
-                          crossAxisAlignment: pw.CrossAxisAlignment.start,
-                          children: [
-                            pw.Directionality(
-                              textDirection: pw.TextDirection.rtl,
-                              child: pw.Text(
-                                isUnifiedPin ? 'رمز الدخول (PIN):' : 'اسم المستخدم:',
-                                style: pw.TextStyle(
-                                  fontSize: 6,
-                                  color: bgImage != null ? PdfColors.grey700 : PdfColors.grey300,
-                                ),
-                              ),
-                            ),
-                            pw.Directionality(
-                              textDirection: pw.TextDirection.ltr,
-                              child: pw.Text(
-                                card.username,
-                                style: pw.TextStyle(
-                                  fontSize: fontSizeCode,
-                                  fontWeight: pw.FontWeight.bold,
-                                  letterSpacing: 1.0,
-                                  color: isUnifiedPin ? pinColor : usernameColor,
-                                ),
-                              ),
-                            ),
-                            if (isSeparateUserPass) ...[
-                              pw.SizedBox(height: 1),
-                              pw.Directionality(
-                                textDirection: pw.TextDirection.ltr,
-                                child: pw.Text(
-                                  'PIN: ${card.clearPassword}',
+                          child: isSeparateUserPass
+                              ? pw.Column(
+                                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                                  mainAxisSize: pw.MainAxisSize.min,
+                                  children: [
+                                    pw.Text(
+                                      'U: ${card.username}',
+                                      style: pw.TextStyle(
+                                        fontSize: fontSizeCode,
+                                        fontWeight: pw.FontWeight.bold,
+                                        color: usernameColor,
+                                      ),
+                                    ),
+                                    pw.SizedBox(height: 1),
+                                    pw.Text(
+                                      'P: ${card.clearPassword}',
+                                      style: pw.TextStyle(
+                                        fontSize: fontSizeCode - 1,
+                                        fontWeight: pw.FontWeight.bold,
+                                        color: passwordColor,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : pw.Text(
+                                  isUnifiedPin
+                                      ? 'PIN: ${card.username}'
+                                      : 'USER: ${card.username}',
                                   style: pw.TextStyle(
-                                    fontSize: fontSizeCode - 1.5,
+                                    fontSize: fontSizeCode,
                                     fontWeight: pw.FontWeight.bold,
-                                    color: passwordColor,
+                                    letterSpacing: isUnifiedPin ? 1.2 : 0.8,
+                                    color: isUnifiedPin ? pinColor : usernameColor,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ],
                         ),
-                      ),
                     ],
                   ),
                 ),
 
                 // Right: High resolution QR Code for smartphone instant login
                 if (showQr && qrSize > 0) ...[
-                  pw.SizedBox(width: 3),
+                  pw.SizedBox(width: isDenseGrid ? 1.5 : 3),
                   pw.Container(
-                    width: qrSize,
-                    height: qrSize,
-                    padding: const pw.EdgeInsets.all(1.5),
+                    width: isDenseGrid ? qrSize.clamp(14.0, 18.0) : qrSize,
+                    height: isDenseGrid ? qrSize.clamp(14.0, 18.0) : qrSize,
+                    padding: pw.EdgeInsets.all(isDenseGrid ? 0.8 : 1.5),
                     decoration: pw.BoxDecoration(
-                      border: pw.Border.all(color: borderColor, width: 0.5),
-                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+                      border: pw.Border.all(color: borderColor, width: isDenseGrid ? 0.3 : 0.5),
+                      borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.2 : 2)),
                       color: PdfColors.white,
                     ),
                     child: pw.BarcodeWidget(
@@ -1009,42 +1023,48 @@ class CardPdfGeneratorService {
           ),
 
           // Footer: Serial number + Arabic instructions
-          if (showSerial || (instructions != null && instructions.isNotEmpty))
+          if (showSerial || (showInstructions && instructions != null && instructions.isNotEmpty))
             pw.Container(
-              padding: const pw.EdgeInsets.only(top: 1.5),
+              padding: pw.EdgeInsets.only(
+                top: isDenseGrid ? 0.4 : 1.5,
+                bottom: isDenseGrid ? 0.4 : 2.5,
+                left: isDenseGrid ? 1.0 : 2.0,
+                right: isDenseGrid ? 1.0 : 2.0,
+              ),
               decoration: bgImage != null
                   ? null
-                  : const pw.BoxDecoration(
-                      border: pw.Border(top: pw.BorderSide(color: PdfColors.white, width: 0.3)),
+                  : pw.BoxDecoration(
+                      border: pw.Border(top: pw.BorderSide(color: isDarkCard ? const PdfColor(1, 1, 1, 0.2) : const PdfColor.fromInt(0xFFE2E8F0), width: isDenseGrid ? 0.25 : 0.4)),
                     ),
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
+                  if (showInstructions)
+                    pw.Directionality(
+                      textDirection: pw.TextDirection.rtl,
+                      child: pw.Text(
+                        (instructions != null && instructions.isNotEmpty)
+                            ? instructions
+                            : 'امسح الرمز أو ادخل الكود',
+                        style: pw.TextStyle(
+                          fontSize: isDenseGrid ? 3.4 : 4.8,
+                          color: isDarkCard ? bodyTextColor : const PdfColor.fromInt(0xFF64748B),
+                        ),
+                      ),
+                    )
+                  else
+                    pw.SizedBox(),
                   if (showSerial)
                     pw.Directionality(
                       textDirection: pw.TextDirection.ltr,
                       child: pw.Text(
                         'SN: ${card.serialNumber.isNotEmpty ? card.serialNumber : '#$index'}',
                         style: pw.TextStyle(
-                          fontSize: 5.5,
-                          color: bodyTextColor,
+                          fontSize: isDenseGrid ? 3.4 : 4.6,
+                          color: isDarkCard ? bodyTextColor : const PdfColor.fromInt(0xFF94A3B8),
                         ),
                       ),
-                    )
-                  else
-                    pw.SizedBox(),
-                  pw.Directionality(
-                    textDirection: pw.TextDirection.rtl,
-                    child: pw.Text(
-                      (instructions != null && instructions.isNotEmpty)
-                          ? instructions
-                          : 'امسح الرمز أو ادخل الكود',
-                      style: pw.TextStyle(
-                        fontSize: 5.5,
-                        color: bodyTextColor,
-                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -1145,15 +1165,15 @@ class CardPdfGeneratorService {
             if (designStyle == 'GEOMETRIC')
               pw.Positioned(
                 top: 0,
+                left: 0,
                 right: 0,
                 child: pw.Container(
-                  width: 14,
-                  height: 1.5,
-                  color: borderColor,
+                  height: isDenseGrid ? 1.5 : 2.5,
+                  color: const PdfColor.fromInt(0xFFF59E0B),
                 ),
               ),
             pw.Container(
-              padding: pw.EdgeInsets.all(isDenseGrid ? 1.5 : 3.5),
+              padding: pw.EdgeInsets.all(isDenseGrid ? 1.0 : 3.5),
               child: cardContent,
             ),
           ],
@@ -1164,192 +1184,7 @@ class CardPdfGeneratorService {
     return cardWidget;
   }
 
-  /// Builds a dense mini card (100 cards per A4 page)
-  static pw.Widget _buildMiniCardItem({
-    required OfflineCardModel card,
-    required String networkName,
-    required CardDesignTheme theme,
-    required PdfFontBundle fontBundle,
-    required double cardMargin,
-    required int index,
-    bool showPrice = true,
-    bool showSerial = true,
-    pw.MemoryImage? bgImage,
-    pw.MemoryImage? patternOverlayImage,
-    double targetAspectRatio = 85.0 / 54.0,
-    CardColorCustomization? customColors,
-    String? designStyle,
-  }) {
-    final hasPin = card.clearPassword != null &&
-        card.clearPassword!.isNotEmpty &&
-        card.clearPassword != card.username;
 
-    final headerTextColor = _parsePdfHex(customColors?.headerTextColor) ??
-        (bgImage != null ? PdfColors.white : theme.headerTextColor);
-    final usernameColor = _parsePdfHex(customColors?.usernameColor) ??
-        theme.primaryColor;
-    final passwordColor = _parsePdfHex(customColors?.passwordColor) ??
-        const PdfColor.fromInt(0xFFDC2626);
-    final borderColor = _parsePdfHex(customColors?.borderColor) ??
-        (bgImage != null ? PdfColors.grey400 : theme.accentColor);
-    final secondaryColor = _parsePdfHex(customColors?.secondaryColor) ?? theme.accentColor;
-    final cardBgColor = _parsePdfHex(customColors?.cardBackgroundColor) ??
-        (bgImage == null ? theme.primaryColor : PdfColors.white);
-
-    final miniCardContent = pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-      children: [
-        // Mini Header
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 1.5, vertical: 0.8),
-          decoration: bgImage != null
-              ? null
-              : pw.BoxDecoration(
-                  color: const PdfColor(0, 0, 0, 0.2),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(1)),
-                ),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Expanded(
-                child: pw.Directionality(
-                  textDirection: pw.TextDirection.rtl,
-                  child: pw.Text(
-                    card.profileName,
-                    maxLines: 1,
-                    overflow: pw.TextOverflow.clip,
-                    style: pw.TextStyle(
-                      fontSize: 4.5,
-                      color: headerTextColor,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-              if (showPrice)
-                pw.Directionality(
-                  textDirection: pw.TextDirection.ltr,
-                  child: pw.Text(
-                    '${card.price.toStringAsFixed(0)} ${card.currency}',
-                    style: pw.TextStyle(
-                      fontSize: 4.5,
-                      color: secondaryColor,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-
-        // Mini Code Box
-        pw.Center(
-          child: pw.Directionality(
-            textDirection: pw.TextDirection.ltr,
-            child: pw.Text(
-              card.username,
-              style: pw.TextStyle(
-                fontSize: 7.0,
-                fontWeight: pw.FontWeight.bold,
-                letterSpacing: 0.6,
-                color: usernameColor,
-              ),
-            ),
-          ),
-        ),
-
-        if (hasPin)
-          pw.Center(
-            child: pw.Directionality(
-              textDirection: pw.TextDirection.ltr,
-              child: pw.Text(
-                'PIN: ${card.clearPassword}',
-                style: pw.TextStyle(
-                  fontSize: 4.5,
-                  fontWeight: pw.FontWeight.bold,
-                  color: passwordColor,
-                ),
-              ),
-            ),
-          ),
-
-        // Mini Footer
-        pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            if (showSerial)
-              pw.Directionality(
-                textDirection: pw.TextDirection.ltr,
-                child: pw.Text(
-                  '#${card.serialNumber.isNotEmpty ? card.serialNumber.substring(card.serialNumber.length > 5 ? card.serialNumber.length - 5 : 0) : index}',
-                  style: pw.TextStyle(
-                    fontSize: 4,
-                    color: bgImage != null ? PdfColors.grey600 : PdfColors.white,
-                  ),
-                ),
-              )
-            else
-              pw.SizedBox(),
-            pw.Directionality(
-              textDirection: pw.TextDirection.rtl,
-              child: pw.Text(
-                networkName,
-                maxLines: 1,
-                style: pw.TextStyle(
-                  fontSize: 4,
-                  color: bgImage != null ? PdfColors.grey600 : PdfColors.white,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-
-    final miniCard = pw.Container(
-      width: double.infinity,
-      height: double.infinity,
-      margin: pw.EdgeInsets.all(cardMargin),
-      decoration: pw.BoxDecoration(
-        color: cardBgColor,
-        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(1.5)),
-        border: pw.Border.all(
-          color: borderColor,
-          width: 0.4,
-        ),
-      ),
-      child: pw.ClipRRect(
-        horizontalRadius: 1.5,
-        verticalRadius: 1.5,
-        child: pw.Stack(
-          children: [
-            if (bgImage != null)
-              pw.Positioned.fill(
-                child: pw.Image(
-                  bgImage,
-                  fit: pw.BoxFit.cover,
-                  alignment: pw.Alignment.center,
-                ),
-              ),
-            if (patternOverlayImage != null)
-              pw.Positioned.fill(
-                child: pw.Image(
-                  patternOverlayImage,
-                  fit: pw.BoxFit.cover,
-                ),
-              ),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(1.5),
-              child: miniCardContent,
-            ),
-          ],
-        ),
-      ),
-    );
-
-    return miniCard;
-  }
 
   /// Exports and opens the native OS Share dialog (WhatsApp, Telegram, Save to Files, Print)
   static Future<void> shareCardsPdf({
@@ -1367,6 +1202,12 @@ class CardPdfGeneratorService {
     bool showPrice = true,
     bool showSerial = true,
     bool showOuterBorder = true,
+    bool showNetworkName = true,
+    bool showProfileName = true,
+    bool showCredentials = true,
+    bool showInstructions = true,
+    int? cardWidthMm,
+    int? cardHeightMm,
     String? instructions,
     CardTemplateModel? template,
     bool isLandscape = false,
@@ -1391,6 +1232,13 @@ class CardPdfGeneratorService {
       showQr: showQr,
       showPrice: showPrice,
       showSerial: showSerial,
+      showOuterBorder: showOuterBorder,
+      showNetworkName: showNetworkName,
+      showProfileName: showProfileName,
+      showCredentials: showCredentials,
+      showInstructions: showInstructions,
+      cardWidthMm: cardWidthMm,
+      cardHeightMm: cardHeightMm,
       instructions: instructions,
       template: template,
       isLandscape: isLandscape,
@@ -1427,6 +1275,12 @@ class CardPdfGeneratorService {
     bool showPrice = true,
     bool showSerial = true,
     bool showOuterBorder = true,
+    bool showNetworkName = true,
+    bool showProfileName = true,
+    bool showCredentials = true,
+    bool showInstructions = true,
+    int? cardWidthMm,
+    int? cardHeightMm,
     String? instructions,
     CardTemplateModel? template,
     bool isLandscape = false,
@@ -1455,6 +1309,12 @@ class CardPdfGeneratorService {
           showPrice: showPrice,
           showSerial: showSerial,
           showOuterBorder: showOuterBorder,
+          showNetworkName: showNetworkName,
+          showProfileName: showProfileName,
+          showCredentials: showCredentials,
+          showInstructions: showInstructions,
+          cardWidthMm: cardWidthMm,
+          cardHeightMm: cardHeightMm,
           instructions: instructions,
           template: template,
           isLandscape: isLandscape,
