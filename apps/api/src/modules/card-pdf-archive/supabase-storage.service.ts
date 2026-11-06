@@ -167,6 +167,11 @@ export class SupabaseStorageService {
       });
 
       if (!response.ok) {
+        if (response.status === 404) {
+          // File was already removed or does not exist in storage - treated as safe success
+          this.logger.log(`Storage file ${storagePath} was already deleted (404)`);
+          return true;
+        }
         const errorText = await response.text();
         this.logger.warn(`Supabase delete returned status ${response.status}: ${errorText}`);
         return false;

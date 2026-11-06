@@ -194,6 +194,21 @@ describe('CardPdfArchiveService', () => {
       expect(result.success).toBe(true);
     });
 
+    it('should preserve database record and throw if storage delete fails', async () => {
+      const mockArchive = {
+        id: mockArchiveId,
+        tenantId: mockTenantId,
+        storagePath: `${mockTenantId}/${mockArchiveId}.pdf`,
+      };
+      prisma.cardPdfArchive.findFirst.mockResolvedValue(mockArchive as any);
+      supabaseStorage.deleteFile.mockResolvedValue(false);
+
+      await expect(service.delete(mockTenantId, mockArchiveId)).rejects.toThrow(
+        InternalServerErrorException,
+      );
+      expect(prisma.cardPdfArchive.delete).not.toHaveBeenCalled();
+    });
+
     it('should prevent deleting files belonging to another tenant', async () => {
       prisma.cardPdfArchive.findFirst.mockResolvedValue(null);
 

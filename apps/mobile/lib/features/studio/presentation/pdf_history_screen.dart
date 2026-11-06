@@ -24,6 +24,8 @@ class _PdfHistoryScreenState extends ConsumerState<PdfHistoryScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   List<CardPdfArchiveModel> _archives = [];
+  List<Map<String, dynamic>> _pendingUploads = [];
+  bool _isSyncingPending = false;
   int _totalCount = 0;
   int _currentPage = 1;
   int _totalPages = 1;
@@ -51,6 +53,7 @@ class _PdfHistoryScreenState extends ConsumerState<PdfHistoryScreen> {
 
     try {
       final service = ref.read(cardPdfArchiveServiceProvider);
+      final pendingList = await service.getPendingUploads();
       final result = await service.getArchives(
         search: _searchController.text.trim(),
         startDate: _startDate,
@@ -63,6 +66,7 @@ class _PdfHistoryScreenState extends ConsumerState<PdfHistoryScreen> {
       if (mounted) {
         setState(() {
           _archives = result['data'] as List<CardPdfArchiveModel>;
+          _pendingUploads = pendingList;
           _totalCount = result['total'] as int;
           _currentPage = result['page'] as int;
           _totalPages = result['totalPages'] as int;
@@ -307,6 +311,9 @@ class _PdfHistoryScreenState extends ConsumerState<PdfHistoryScreen> {
             // Date & Sorting Controls
             _buildFilterRow(),
 
+            if (_pendingUploads.isNotEmpty)
+              _buildPendingSyncBanner(),
+
             // Content Area
             Expanded(
               child: _buildContent(),
@@ -454,6 +461,90 @@ class _PdfHistoryScreenState extends ConsumerState<PdfHistoryScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildPendingSyncBanner() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_rounded, color: Color(0xFFD97706), size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'يوجد ${_pendingUploads.length} ملف تم حفظه محلياً بانتظار المزامنة',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFD97706),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'الملفات محفوظة بأمان على جهازك ويمكنك إعادة رفعها للسحابة الآن',
+                  style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD97706),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              visualDensity: VisualDensity.compact,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: _isSyncingPending ? null : _syncPendingArchives,
+            icon: _isSyncingPending
+                ? const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.sync, size: 14),
+            label: Text(_isSyncingPending ? 'جاري المزامنة...' : 'مزامنة الآن', style: const TextStyle(fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _syncPendingArchives() async {
+    setState(() => _isSyncingPending = true);
+    final service = ref.read(cardPdfArchiveServiceProvider);
+    int successCount = 0;
+
+    for (final item in List.from(_pendingUploads)) {
+      final ok = await service.retryPendingUpload(item);
+      if (ok) successCount++;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            successCount > 0
+                ? 'تمت مزامنة $successCount ملف بنجاح مع السحابة'
+                : 'تعذر رفع الملفات، يرجى التحقق من اتصال الإنترنت',
+          ),
+          backgroundColor: successCount > 0 ? const Color(0xFF10B981) : Colors.red,
+        ),
+      );
+      setState(() => _isSyncingPending = false);
+      _loadArchives(page: 1);
+    }
   }
 
   Widget _buildContent() {

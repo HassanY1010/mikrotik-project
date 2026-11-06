@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mobile/core/models/models.dart';
 import 'package:mobile/core/services/card_pdf_archive_service.dart';
 import 'package:mobile/core/providers.dart';
@@ -10,6 +11,9 @@ import 'package:mobile/features/studio/presentation/pdf_history_screen.dart';
 
 class MockCardPdfArchiveService extends CardPdfArchiveService {
   MockCardPdfArchiveService() : super.mock();
+
+  @override
+  Future<List<Map<String, dynamic>>> getPendingUploads() async => [];
 
   final List<CardPdfArchiveModel> mockList = [
     CardPdfArchiveModel(
@@ -156,6 +160,10 @@ void main() {
   });
 
   group('PdfHistoryScreen Widget Tests', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
     testWidgets('Renders archives list with metadata badges and action buttons', (tester) async {
       final mockService = MockCardPdfArchiveService();
 

@@ -270,8 +270,14 @@ export class CardPdfArchiveService {
       throw new NotFoundException('PDF archive not found or access denied');
     }
 
-    // 1. Delete from Supabase Storage
-    await this.supabaseStorage.deleteFile(archive.storagePath);
+    // 1. Delete from Supabase Storage first
+    const storageDeleted = await this.supabaseStorage.deleteFile(archive.storagePath);
+    if (!storageDeleted) {
+      this.logger.error(`Storage deletion failed for ${archive.storagePath}. Preserving DB record for archive ${id}`);
+      throw new InternalServerErrorException(
+        'Failed to delete file from cloud storage. Database record preserved for data integrity.',
+      );
+    }
 
     // 2. Delete from database
     await this.prisma.cardPdfArchive.delete({
