@@ -25,6 +25,7 @@ import { AgentModule } from './modules/agent/agent.module';
 import { PppoeModule } from './modules/pppoe/pppoe.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
+import { CardPdfArchiveModule } from './modules/card-pdf-archive/card-pdf-archive.module';
 import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { HttpExceptionFilter } from './core/filters/http-exception.filter';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
@@ -128,6 +129,7 @@ import { AppController } from './app.controller';
     PppoeModule,
     PortalModule,
     ExpensesModule,
+    CardPdfArchiveModule,
   ],
   controllers: [AppController],
   providers: [

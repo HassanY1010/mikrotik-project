@@ -22,10 +22,10 @@ class Interactive3dCardSimulator extends StatefulWidget {
   });
 
   @override
-  State<Interactive3dCardSimulator> createState() => _Interactive3dCardSimulatorState();
+  State<Interactive3dCardSimulator> createState() => Interactive3dCardSimulatorState();
 }
 
-class _Interactive3dCardSimulatorState extends State<Interactive3dCardSimulator>
+class Interactive3dCardSimulatorState extends State<Interactive3dCardSimulator>
     with SingleTickerProviderStateMixin {
   // Tilt angles (in radians)
   double _tiltX = 0.0;
@@ -65,6 +65,9 @@ class _Interactive3dCardSimulatorState extends State<Interactive3dCardSimulator>
     _flipController.dispose();
     super.dispose();
   }
+
+  void flipCard() => _flipCard();
+  bool get isBackVisible => _isBackVisible;
 
   void _flipCard() {
     if (_flipController.isAnimating) return;
@@ -113,6 +116,7 @@ class _Interactive3dCardSimulatorState extends State<Interactive3dCardSimulator>
             final effectiveWidth = math.min(constraints.maxWidth, widget.maxWidth);
 
             return GestureDetector(
+              onTap: flipCard,
               onPanUpdate: (details) => _onPanUpdate(details, Size(effectiveWidth, widget.minHeight)),
               onPanEnd: _onPanEnd,
               child: AnimatedBuilder(
@@ -177,40 +181,47 @@ class _Interactive3dCardSimulatorState extends State<Interactive3dCardSimulator>
         ),
 
         if (widget.enableFlipButton) ...[
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              TextButton.icon(
-                onPressed: _flipCard,
-                icon: AnimatedRotation(
-                  turns: _isBackVisible ? 0.5 : 0.0,
-                  duration: const Duration(milliseconds: 300),
-                  child: const Icon(Icons.flip_camera_android, size: 18),
-                ),
-                label: Text(
-                  _isBackVisible ? 'عرض الوجه الأمامي (بيانات الدخول)' : 'عرض الوجه الخلفي (التعليمات والشروط)',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                ),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  backgroundColor: Theme.of(context).cardColor,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.5)),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton.icon(
+                    onPressed: _flipCard,
+                    icon: AnimatedRotation(
+                      turns: _isBackVisible ? 0.5 : 0.0,
+                      duration: const Duration(milliseconds: 300),
+                      child: const Icon(Icons.flip_camera_android, size: 16),
+                    ),
+                    label: Text(
+                      _isBackVisible ? 'عرض الوجه الأمامي (بيانات الدخول)' : 'عرض الوجه الخلفي (التعليمات والشروط)',
+                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      backgroundColor: Theme.of(context).cardColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.5)),
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Tooltip(
+                    message: 'اسحب الكرت بإصبعك لتجربة التأثير ثلاثي الأبعاد واللمعان',
+                    child: Icon(
+                      Icons.touch_app,
+                      size: 16,
+                      color: Theme.of(context).hintColor,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Tooltip(
-                message: 'اسحب الكرت بإصبعك لتجربة التأثير ثلاثي الأبعاد واللمعان',
-                child: Icon(
-                  Icons.touch_app,
-                  size: 16,
-                  color: Theme.of(context).hintColor,
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ],

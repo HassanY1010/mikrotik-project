@@ -53,6 +53,7 @@ void main() {
       expect(file.lengthSync(), greaterThan(2000));
       fileSizes[tpl.id] = file.lengthSync();
 
+      // ignore: avoid_print
       print('Verified template ${tpl.name} [${tpl.themePreset}]: ${file.lengthSync()} bytes -> $filePath');
     }
 

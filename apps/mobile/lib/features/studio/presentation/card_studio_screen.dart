@@ -17,6 +17,7 @@ import '../../../core/services/card_template_import_service.dart';
 import '../../../core/theme/app_theme.dart';
 import 'card_templates_screen.dart';
 import 'pdf_viewer_screen.dart';
+import 'pdf_history_screen.dart';
 import '../../../core/widgets/whatsapp_button.dart';
 import '../../../core/widgets/card_pattern_overlay.dart';
 import '../../../core/widgets/interactive_3d_card_simulator.dart';
@@ -93,6 +94,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   bool _showNetworkName = true;
   bool _showProfileName = true;
   bool _showCredentials = true;
+  bool _showPin = true;
+  bool _showUsername = true;
+  bool _showPassword = true;
+  bool _showUserOnly = true;
   bool _showInstructions = true;
 
   Color? _customPrimaryColor;
@@ -142,6 +147,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
   int _customGridCols = 3;
   int _customGridRows = 4;
   double _customGridMargin = 3.0;
+
+  // Sticky Live Preview state
+  bool _isLivePreviewPinnedCollapsed = false;
+  final GlobalKey<Interactive3dCardSimulatorState> _cardSimulatorKey = GlobalKey<Interactive3dCardSimulatorState>();
 
   int get _effectiveCardsPerPage {
     if (_isCustomPrintGrid && _customGridCols > 0 && _customGridRows > 0) {
@@ -378,6 +387,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       if (cfg['showValidity'] is bool) _showValidity = cfg['showValidity'] as bool;
       if (cfg['showQuota'] is bool) _showQuota = cfg['showQuota'] as bool;
       if (cfg['showSerial'] is bool) _showSerial = cfg['showSerial'] as bool;
+      if (cfg['showPin'] is bool) _showPin = cfg['showPin'] as bool;
+      if (cfg['showUsername'] is bool) _showUsername = cfg['showUsername'] as bool;
+      if (cfg['showPassword'] is bool) _showPassword = cfg['showPassword'] as bool;
+      if (cfg['showUserOnly'] is bool) _showUserOnly = cfg['showUserOnly'] as bool;
 
       // Background
       if (tpl.backgroundImageBase64 != null && tpl.backgroundImageBase64!.isNotEmpty) {
@@ -668,7 +681,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           'showSpeed': _showSpeed,
           'showValidity': _showValidity,
           'showQuota': _showQuota,
-          'showPin': true,
+          'showPin': _showPin,
+          'showUsername': _showUsername,
+          'showPassword': _showPassword,
+          'showUserOnly': _showUserOnly,
           'patternOverlay': _selectedPatternOverlay.id,
           'patternOpacity': _selectedPatternOpacity,
           'elements': _elementsLayout.toMap(),
@@ -1384,6 +1400,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 showNetworkName: _showNetworkName,
                                 showProfileName: _showProfileName,
                                 showCredentials: _showCredentials,
+                                showPin: _showPin,
+                                showUsername: _showUsername,
+                                showPassword: _showPassword,
+                                showUserOnly: _showUserOnly,
                                 showInstructions: _showInstructions,
                                 cardWidthMm: _cardWidthMm,
                                 cardHeightMm: _cardHeightMm,
@@ -1398,6 +1418,22 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 customColors: _getEffectiveCustomColors(),
                                 elementsLayout: _elementsLayout,
                               );
+
+                              // Automatically archive generated PDF to Supabase Storage in background
+                              ref.read(cardPdfArchiveServiceProvider).uploadPdfArchive(
+                                pdfBytes: pdfBytes,
+                                fileName: 'SudaFi_Batch_$batchId.pdf',
+                                cardCount: quantity,
+                                templateType: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+                                    ? _selectedCustomTemplate!.themePreset
+                                    : _selectedThemePreset,
+                                networkName: _networkNameController.text.trim().isNotEmpty
+                                    ? _networkNameController.text.trim()
+                                    : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+                                profileName: profile.name,
+                                batchId: batchId,
+                              );
+
                               if (context.mounted) {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
@@ -1468,6 +1504,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 showNetworkName: _showNetworkName,
                                 showProfileName: _showProfileName,
                                 showCredentials: _showCredentials,
+                                showPin: _showPin,
+                                showUsername: _showUsername,
+                                showPassword: _showPassword,
+                                showUserOnly: _showUserOnly,
                                 showInstructions: _showInstructions,
                                 cardWidthMm: _cardWidthMm,
                                 cardHeightMm: _cardHeightMm,
@@ -1535,6 +1575,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                                 showNetworkName: _showNetworkName,
                                 showProfileName: _showProfileName,
                                 showCredentials: _showCredentials,
+                                showPin: _showPin,
+                                showUsername: _showUsername,
+                                showPassword: _showPassword,
+                                showUserOnly: _showUserOnly,
                                 showInstructions: _showInstructions,
                                 cardWidthMm: _cardWidthMm,
                                 cardHeightMm: _cardHeightMm,
@@ -1700,6 +1744,17 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf_outlined, color: AppTheme.primary),
+            tooltip: 'الملفات السابقة (أرشيف PDF)',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const PdfHistoryScreen(),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: AppTheme.primary),
             tooltip: 'تحديث الباقات والأجهزة',
@@ -2877,35 +2932,40 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
   // --- TAB 3: DESIGN STUDIO & LIVE PREVIEW ---
   Widget _buildTab3DesignStudio(HotspotProfileModel? profile, _ThemeConfig theme) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Live Interactive Card Preview (prominently at top of studio)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'المعاينة الحية للكرت (Live Preview)',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
-              ),
-              Text(
-                '$_cardWidthMm×$_cardHeightMm mm',
-                style: TextStyle(fontSize: 11, color: context.skyColor, fontWeight: FontWeight.bold),
-              ),
-            ],
+    return CustomScrollView(
+      key: const PageStorageKey<String>('studio_tab_3_scroll'),
+      slivers: [
+        // Sticky Live Preview Header (pinned at top during scrolling)
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: StickyCardPreviewHeaderDelegate(
+            previewCard: _buildLiveCardPreview(profile, theme),
+            dimensionsText: '$_cardWidthMm×$_cardHeightMm mm',
+            isCollapsed: _isLivePreviewPinnedCollapsed,
+            onToggleCollapse: () {
+              setState(() {
+                _isLivePreviewPinnedCollapsed = !_isLivePreviewPinnedCollapsed;
+              });
+            },
+            onFlipCard: () {
+              _cardSimulatorKey.currentState?.flipCard();
+            },
           ),
-          const SizedBox(height: 8),
-          _buildLiveCardPreview(profile, theme),
+        ),
 
-          const SizedBox(height: 12),
-          _buildLiveCardStatsAndQuickBar(profile),
+        // Scrollable Design Studio Settings & Controls
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLiveCardStatsAndQuickBar(profile),
 
-          const SizedBox(height: 18),
+                const SizedBox(height: 18),
 
-          // Card Template Selection Section
-          _buildTemplateSelectorSection(),
+                // Card Template Selection Section
+                _buildTemplateSelectorSection(),
 
           const SizedBox(height: 18),
 
@@ -3130,7 +3190,14 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                     _buildToggle('اسم الشبكة', _showNetworkName, (v) => setState(() => _showNetworkName = v)),
                     _buildToggle('السعر', _showPrice, (v) => setState(() => _showPrice = v)),
                     _buildToggle('اسم الباقة', _showProfileName, (v) => setState(() => _showProfileName = v)),
-                    _buildToggle('بيانات الدخول', _showCredentials, (v) => setState(() => _showCredentials = v)),
+                    if (_credentialMode == 0)
+                      _buildToggle('PIN:', _showPin, (v) => setState(() => _showPin = v)),
+                    if (_credentialMode == 1) ...[
+                      _buildToggle('U:', _showUsername, (v) => setState(() => _showUsername = v)),
+                      _buildToggle('P:', _showPassword, (v) => setState(() => _showPassword = v)),
+                    ],
+                    if (_credentialMode == 2)
+                      _buildToggle('USER:', _showUserOnly, (v) => setState(() => _showUserOnly = v)),
                     _buildToggle('رمز QR', _showQr, (v) => setState(() => _showQr = v)),
                     _buildToggle('السيريال', _showSerial, (v) => setState(() => _showSerial = v)),
                     _buildToggle('التعليمات', _showInstructions, (v) => setState(() => _showInstructions = v)),
@@ -3224,6 +3291,9 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           ),
         ],
       ),
+    ),
+  ),
+],
     );
   }
 
@@ -3646,6 +3716,74 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 0. PDF History & Cloud Archive Banner
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppTheme.primary.withValues(alpha: 0.15),
+                  const Color(0xFF1E293B),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.picture_as_pdf_outlined, color: AppTheme.primary, size: 28),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'الملفات السابقة (أرشيف PDF)',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'استعرض، شارك واطبع ملفات الكروت السابقة المحفوظة سحابياً',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade300),
+                      ),
+                    ],
+                  ),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PdfHistoryScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.folder_open, size: 16),
+                  label: const Text('فتح الأرشيف', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ),
+
           // 1. Page Orientation (Portrait / Landscape)
           Container(
             padding: const EdgeInsets.all(12),
@@ -4269,14 +4407,28 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
 
     return Directionality(
       textDirection: TextDirection.ltr,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          leftCol ?? const SizedBox.shrink(),
-          centerCol ?? const SizedBox.shrink(),
-          rightCol ?? const SizedBox.shrink(),
-        ],
+      child: SizedBox(
+        width: double.infinity,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              leftCol ?? const SizedBox.shrink(),
+              if (centerCol != null) ...[
+                const SizedBox(width: 8),
+                centerCol,
+                const SizedBox(width: 8),
+              ],
+              if (rightCol != null) ...[
+                if (centerCol == null) const SizedBox(width: 8),
+                rightCol,
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -4396,50 +4548,82 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     // 4. Credentials
     final credPlacement = _elementsLayout.credentials;
     final bool canShowCred = _showCredentials && credPlacement.isVisible;
-    final Widget? credWidget = canShowCred
-        ? Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: isDarkCard ? Colors.white : const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(5),
-              border: Border.all(color: borderColor, width: 0.8),
+    final Widget? credWidget;
+    if (!canShowCred) {
+      credWidget = null;
+    } else if (_credentialMode == 1) {
+      final userText = '${_showUsername ? "U: " : ""}${_prefixController.text.trim()}849204';
+      final passText = '${_showPassword ? "P: " : ""}1039';
+      credWidget = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDarkCard ? Colors.white : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: borderColor, width: 0.8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              userText,
+              style: TextStyle(
+                color: userColor,
+                fontWeight: FontWeight.w900,
+                fontSize: 12 * _scaleFactorFlutter(credPlacement.scale),
+              ),
             ),
-            child: _credentialMode == 1
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'U: ${_prefixController.text.trim()}849204',
-                        style: TextStyle(
-                          color: userColor,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 12 * _scaleFactorFlutter(credPlacement.scale),
-                        ),
-                      ),
-                      Text(
-                        'P: 1039',
-                        style: TextStyle(
-                          color: passColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11 * _scaleFactorFlutter(credPlacement.scale),
-                        ),
-                      ),
-                    ],
-                  )
-                : Text(
-                    _credentialMode == 0
-                        ? 'PIN: ${_prefixController.text.trim()}849204'
-                        : 'USER: ${_prefixController.text.trim()}849204',
-                    style: TextStyle(
-                      color: _credentialMode == 0 ? pinColor : userColor,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: _credentialMode == 0 ? 1.5 : 0.8,
-                      fontSize: 12.5 * _scaleFactorFlutter(credPlacement.scale),
-                    ),
-                  ),
-          )
-        : null;
+            Text(
+              passText,
+              style: TextStyle(
+                color: passColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 11 * _scaleFactorFlutter(credPlacement.scale),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (_credentialMode == 0) {
+      final pinText = '${_showPin ? "PIN: " : ""}${_prefixController.text.trim()}849204';
+      credWidget = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDarkCard ? Colors.white : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: borderColor, width: 0.8),
+        ),
+        child: Text(
+          pinText,
+          style: TextStyle(
+            color: pinColor,
+            fontWeight: FontWeight.w900,
+            letterSpacing: _showPin ? 1.5 : 1.8,
+            fontSize: 12.5 * _scaleFactorFlutter(credPlacement.scale),
+          ),
+        ),
+      );
+    } else {
+      // _credentialMode == 2 (User only)
+      final userText = '${_showUserOnly ? "USER: " : ""}${_prefixController.text.trim()}849204';
+      credWidget = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDarkCard ? Colors.white : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: borderColor, width: 0.8),
+        ),
+        child: Text(
+          userText,
+          style: TextStyle(
+            color: userColor,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.8,
+            fontSize: 12.5 * _scaleFactorFlutter(credPlacement.scale),
+          ),
+        ),
+      );
+    }
 
     // 5. QR Code
     final qrPlacement = _elementsLayout.qrCode;
@@ -4826,6 +5010,7 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
     );
 
     return Interactive3dCardSimulator(
+      key: _cardSimulatorKey,
       frontChild: frontWidget,
       backChild: backWidget,
       maxWidth: 360,
@@ -4921,16 +5106,17 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
             Expanded(
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primary,
+                  backgroundColor: const Color(0xFF0F766E),
+                  foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                icon: const Icon(Icons.picture_as_pdf, size: 16, color: Colors.white),
+                icon: const Icon(Icons.picture_as_pdf_outlined, size: 16, color: Colors.white),
                 label: const Text(
                   'معاينة PDF',
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
-                onPressed: () => _previewAndGenerateBatchPdf(profile),
+                onPressed: () => _openPdfViewer(profile),
               ),
             ),
           ],
@@ -4970,6 +5156,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       showNetworkName: _showNetworkName,
       showProfileName: _showProfileName,
       showCredentials: _showCredentials,
+      showPin: _showPin,
+      showUsername: _showUsername,
+      showPassword: _showPassword,
+      showUserOnly: _showUserOnly,
       showInstructions: _showInstructions,
       elementsLayout: _elementsLayout,
       instructions: _instructionsController.text,
@@ -4999,6 +5189,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
       _showNetworkName = prev.showNetworkName;
       _showProfileName = prev.showProfileName;
       _showCredentials = prev.showCredentials;
+      _showPin = prev.showPin;
+      _showUsername = prev.showUsername;
+      _showPassword = prev.showPassword;
+      _showUserOnly = prev.showUserOnly;
       _showInstructions = prev.showInstructions;
       _elementsLayout = prev.elementsLayout;
       _instructionsController.text = prev.instructions;
@@ -5150,6 +5344,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         showNetworkName: _showNetworkName,
         showProfileName: _showProfileName,
         showCredentials: _showCredentials,
+        showPin: _showPin,
+        showUsername: _showUsername,
+        showPassword: _showPassword,
+        showUserOnly: _showUserOnly,
         showInstructions: _showInstructions,
         cardWidthMm: _cardWidthMm,
         cardHeightMm: _cardHeightMm,
@@ -5231,6 +5429,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         showNetworkName: _showNetworkName,
         showProfileName: _showProfileName,
         showCredentials: _showCredentials,
+        showPin: _showPin,
+        showUsername: _showUsername,
+        showPassword: _showPassword,
+        showUserOnly: _showUserOnly,
         showInstructions: _showInstructions,
         cardWidthMm: _cardWidthMm,
         cardHeightMm: _cardHeightMm,
@@ -5313,6 +5515,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         showNetworkName: _showNetworkName,
         showProfileName: _showProfileName,
         showCredentials: _showCredentials,
+        showPin: _showPin,
+        showUsername: _showUsername,
+        showPassword: _showPassword,
+        showUserOnly: _showUserOnly,
         showInstructions: _showInstructions,
         cardWidthMm: _cardWidthMm,
         cardHeightMm: _cardHeightMm,
@@ -5803,6 +6009,10 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         'showPrice': _showPrice,
         'showSerial': _showSerial,
         'showQr': _showQr,
+        'showPin': _showPin,
+        'showUsername': _showUsername,
+        'showPassword': _showPassword,
+        'showUserOnly': _showUserOnly,
         if (_pickedImageBase64 != null) 'backgroundImageBase64': _pickedImageBase64,
         'patternOverlay': _selectedPatternOverlay.id,
         'patternOpacity': _selectedPatternOpacity,
@@ -6261,6 +6471,10 @@ class _DesignSnapshot {
   final bool showNetworkName;
   final bool showProfileName;
   final bool showCredentials;
+  final bool showPin;
+  final bool showUsername;
+  final bool showPassword;
+  final bool showUserOnly;
   final bool showInstructions;
   final CardElementsLayout elementsLayout;
   final String instructions;
@@ -6285,6 +6499,10 @@ class _DesignSnapshot {
     this.showNetworkName = true,
     this.showProfileName = true,
     this.showCredentials = true,
+    this.showPin = true,
+    this.showUsername = true,
+    this.showPassword = true,
+    this.showUserOnly = true,
     this.showInstructions = true,
     required this.elementsLayout,
     required this.instructions,
@@ -6293,4 +6511,178 @@ class _DesignSnapshot {
     required this.pickedImageBytes,
     required this.pickedImageBase64,
   });
+}
+
+/// Sticky Header Delegate for Live Card Preview in Card Studio
+/// Keeps the interactive card pinned at the top while scrolling through the design settings.
+/// Smoothly scales down from full size to a compact docked preview with live updates.
+class StickyCardPreviewHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final Widget previewCard;
+  final String dimensionsText;
+  final bool isCollapsed;
+  final VoidCallback onToggleCollapse;
+  final VoidCallback onFlipCard;
+
+  static const double maxHeight = 318.0;
+  static const double minHeight = 152.0;
+
+  StickyCardPreviewHeaderDelegate({
+    required this.previewCard,
+    required this.dimensionsText,
+    required this.isCollapsed,
+    required this.onToggleCollapse,
+    required this.onFlipCard,
+  });
+
+  @override
+  double get minExtent => isCollapsed ? 44.0 : minHeight;
+
+  @override
+  double get maxExtent => isCollapsed ? 44.0 : maxHeight;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final double actualMax = maxExtent;
+    final double actualMin = minExtent;
+    final double shrinkProgress = actualMax > actualMin
+        ? (shrinkOffset / (actualMax - actualMin)).clamp(0.0, 1.0)
+        : 1.0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: context.bgScaffold,
+        boxShadow: shrinkProgress > 0.05
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.16 * shrinkProgress),
+                  blurRadius: 10 * shrinkProgress,
+                  offset: Offset(0, 4 * shrinkProgress),
+                ),
+              ]
+            : null,
+        border: shrinkProgress > 0.05
+            ? Border(
+                bottom: BorderSide(
+                  color: context.borderColor.withValues(alpha: 0.8 * shrinkProgress),
+                  width: 1.0,
+                ),
+              )
+            : null,
+      ),
+      padding: EdgeInsets.fromLTRB(16, 6, 16, isCollapsed ? 6 : 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Sticky Top Bar: Title, Live indicator, Dimensions, Flip, Collapse
+          Row(
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  shrinkProgress > 0.6 ? 'المعاينة الحية' : 'المعاينة الحية (Live)',
+                  style: TextStyle(
+                    fontSize: shrinkProgress > 0.6 ? 11.5 : 13.0,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: context.skyColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  dimensionsText,
+                  style: TextStyle(
+                    fontSize: 10.0,
+                    color: context.skyColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              if (!isCollapsed) ...[
+                // Quick Flip Action
+                InkWell(
+                  onTap: onFlipCard,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: context.bgCard,
+                      border: Border.all(color: context.borderColor),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.cached_rounded, size: 12, color: context.textSecondary),
+                        const SizedBox(width: 3),
+                        Text(
+                          'قلب',
+                          style: TextStyle(fontSize: 10.0, color: context.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              // Collapse / Expand toggle
+              InkWell(
+                onTap: onToggleCollapse,
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.all(3.0),
+                  decoration: BoxDecoration(
+                    color: context.bgCard,
+                    border: Border.all(color: context.borderColor),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Icon(
+                    isCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
+                    size: 14,
+                    color: context.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          if (!isCollapsed) ...[
+            const SizedBox(height: 4),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.contain,
+                alignment: Alignment.center,
+                child: SizedBox(
+                  width: 360,
+                  child: previewCard,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant StickyCardPreviewHeaderDelegate oldDelegate) {
+    return isCollapsed != oldDelegate.isCollapsed ||
+        dimensionsText != oldDelegate.dimensionsText ||
+        previewCard != oldDelegate.previewCard;
+  }
 }

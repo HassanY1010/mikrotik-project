@@ -101,6 +101,11 @@ export const envSchema = z.object({
     z.boolean().default(false),
   ),
   COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+
+  // Supabase Storage
+  SUPABASE_URL: z.string().url().default('https://mtstlpvqjxfzsrkzuvhq.supabase.co'),
+  SUPABASE_SECRET_KEY: z.string().optional(),
+  SUPABASE_STORAGE_BUCKET: z.string().default('card-pdf-archive'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

@@ -8,6 +8,7 @@ import 'sync/offline_sync_manager.dart';
 import 'constants/api_endpoints.dart';
 import 'services/backup_downloader.dart';
 import 'services/card_template_import_service.dart';
+import 'services/card_pdf_archive_service.dart';
 
 // Initialized at main startup
 final localStorageProvider = Provider<LocalStorage>((ref) {
@@ -67,6 +68,11 @@ final syncManagerProvider = Provider<OfflineSyncManager>((ref) {
   final apiClient = ref.watch(apiClientProvider);
   final storage = ref.watch(localStorageProvider);
   return OfflineSyncManager(apiClient: apiClient, localStorage: storage);
+});
+
+final cardPdfArchiveServiceProvider = Provider<CardPdfArchiveService>((ref) {
+  final apiClient = ref.watch(apiClientProvider);
+  return CardPdfArchiveService(apiClient: apiClient);
 });
 
 // Auth user state notifier

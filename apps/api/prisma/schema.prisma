@@ -166,6 +166,7 @@ model Tenant {
   pppoeActiveSessions PppoeActiveSession[]
   expenses           Expense[]
   staffInvitations   StaffInvitation[]
+  cardPdfArchives    CardPdfArchive[]
 
   @@index([status])
   @@index([createdAt])
@@ -246,6 +247,7 @@ model User {
   deviceAccess       UserDeviceAccess[]
   userPermissions    UserPermission[]
   createdInvitations StaffInvitation[]  @relation("CreatedInvitations")
+  cardPdfArchivesCreated CardPdfArchive[]
 
   @@index([tenantId])
   @@index([roleId])
@@ -937,3 +939,27 @@ model PppoeActiveSession {
   @@map("pppoe_active_sessions")
 }
 
+
+model CardPdfArchive {
+  id           String   @id @default(uuid())
+  tenantId     String
+  fileName     String
+  storagePath  String
+  fileSize     Int
+  cardCount    Int      @default(0)
+  templateType String?
+  networkName  String?
+  profileName  String?
+  batchId      String?
+  metadata     Json?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("card_pdf_archives")
+}

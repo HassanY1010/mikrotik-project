@@ -176,6 +176,10 @@ class CardPdfGeneratorService {
     bool showNetworkName = true,
     bool showProfileName = true,
     bool showCredentials = true,
+    bool showPin = true,
+    bool showUsername = true,
+    bool showPassword = true,
+    bool showUserOnly = true,
     bool showInstructions = true,
     int? cardWidthMm,
     int? cardHeightMm,
@@ -202,6 +206,10 @@ class CardPdfGeneratorService {
     final effectiveShowPrice = template != null ? template.showPrice : showPrice;
     final effectiveShowSerial = template != null ? template.showSerial : showSerial;
     final templateShowQr = template?.showQr;
+    final effectiveShowPin = template != null ? template.showPin : showPin;
+    final effectiveShowUsername = template != null ? template.showUsername : showUsername;
+    final effectiveShowPassword = template != null ? template.showPassword : showPassword;
+    final effectiveShowUserOnly = template != null ? template.showUserOnly : showUserOnly;
     final effectiveElementsLayout = elementsLayout ?? template?.elementsLayout;
     final effectiveCustomColors = customColors ?? template?.customColors;
     final effectiveDesignStyle = template?.designStyle ?? effectiveThemePreset;
@@ -437,6 +445,10 @@ class CardPdfGeneratorService {
                               showNetworkName: showNetworkName,
                               showProfileName: showProfileName,
                               showCredentials: showCredentials,
+                              showPin: effectiveShowPin,
+                              showUsername: effectiveShowUsername,
+                              showPassword: effectiveShowPassword,
+                              showUserOnly: effectiveShowUserOnly,
                               showInstructions: showInstructions,
                               instructions: effectiveInstructions,
                               index: startIndex + cardIdx + 1,
@@ -447,6 +459,7 @@ class CardPdfGeneratorService {
                               customColors: effectiveCustomColors,
                               designStyle: effectiveDesignStyle,
                               isDenseGrid: isDense,
+                              isA4Grid120: layout == CardPdfLayout.a4Grid120,
                             );
 
                             return pw.SizedBox(
@@ -566,6 +579,10 @@ class CardPdfGeneratorService {
     bool showNetworkName = true,
     bool showProfileName = true,
     bool showCredentials = true,
+    bool showPin = true,
+    bool showUsername = true,
+    bool showPassword = true,
+    bool showUserOnly = true,
     bool showInstructions = true,
     String? instructions,
     pw.MemoryImage? bgImage,
@@ -575,6 +592,7 @@ class CardPdfGeneratorService {
     CardColorCustomization? customColors,
     String? designStyle,
     bool isDenseGrid = false,
+    bool isA4Grid120 = false,
   }) {
     final bool isSeparateUserPass = card.clearPassword != null &&
         card.clearPassword!.isNotEmpty &&
@@ -672,54 +690,104 @@ class CardPdfGeneratorService {
       // 4. Credentials
       final credPlacement = elementsLayout.credentials;
       final bool canShowCred = showCredentials && credPlacement.isVisible;
-      final pw.Widget? credWidget = canShowCred
-          ? pw.Container(
-              padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.5 : 5, vertical: isDenseGrid ? 0.8 : 2.5),
-              decoration: pw.BoxDecoration(
-                color: isDarkCard ? PdfColors.white : const PdfColor.fromInt(0xFFF8FAFC),
-                borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
-                border: pw.Border.all(
-                  color: borderColor,
-                  width: isDenseGrid ? 0.35 : 0.6,
+      final pw.Widget? credWidget;
+      if (!canShowCred) {
+        credWidget = null;
+      } else if (isSeparateUserPass) {
+        final userText = '${showUsername ? "U: " : ""}${card.username}';
+        final passText = '${showPassword ? "P: " : ""}${card.clearPassword}';
+        final double uFontSize = isA4Grid120
+            ? (3.6 * _scaleMultiplier(credPlacement.scale)).clamp(3.0, 3.8)
+            : fontSizeCode * _scaleMultiplier(credPlacement.scale);
+        final double pFontSize = isA4Grid120
+            ? (3.1 * _scaleMultiplier(credPlacement.scale)).clamp(2.7, 3.3)
+            : (fontSizeCode - 1) * _scaleMultiplier(credPlacement.scale);
+        final pw.EdgeInsets credPadding = isA4Grid120
+            ? const pw.EdgeInsets.symmetric(horizontal: 1.5, vertical: 0.25)
+            : pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.5 : 5, vertical: isDenseGrid ? 0.8 : 2.5);
+        final double credSpacing = isA4Grid120 ? 0.2 : 1.0;
+        final double credBorderWidth = isA4Grid120 ? 0.3 : (isDenseGrid ? 0.35 : 0.6);
+
+        credWidget = pw.Container(
+          padding: credPadding,
+          decoration: pw.BoxDecoration(
+            color: isDarkCard ? PdfColors.white : const PdfColor.fromInt(0xFFF8FAFC),
+            borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
+            border: pw.Border.all(
+              color: borderColor,
+              width: credBorderWidth,
+            ),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            mainAxisSize: pw.MainAxisSize.min,
+            children: [
+              pw.Text(
+                userText,
+                style: pw.TextStyle(
+                  fontSize: uFontSize,
+                  fontWeight: pw.FontWeight.bold,
+                  color: usernameColor,
                 ),
               ),
-              child: isSeparateUserPass
-                  ? pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      mainAxisSize: pw.MainAxisSize.min,
-                      children: [
-                        pw.Text(
-                          'U: ${card.username}',
-                          style: pw.TextStyle(
-                            fontSize: fontSizeCode * _scaleMultiplier(credPlacement.scale),
-                            fontWeight: pw.FontWeight.bold,
-                            color: usernameColor,
-                          ),
-                        ),
-                        pw.SizedBox(height: 1),
-                        pw.Text(
-                          'P: ${card.clearPassword}',
-                          style: pw.TextStyle(
-                            fontSize: (fontSizeCode - 1) * _scaleMultiplier(credPlacement.scale),
-                            fontWeight: pw.FontWeight.bold,
-                            color: passwordColor,
-                          ),
-                        ),
-                      ],
-                    )
-                  : pw.Text(
-                      isUnifiedPin
-                          ? 'PIN: ${card.username}'
-                          : 'USER: ${card.username}',
-                      style: pw.TextStyle(
-                        fontSize: fontSizeCode * _scaleMultiplier(credPlacement.scale),
-                        fontWeight: pw.FontWeight.bold,
-                        letterSpacing: isUnifiedPin ? 1.2 : 0.8,
-                        color: isUnifiedPin ? pinColor : usernameColor,
-                      ),
-                    ),
-            )
-          : null;
+              pw.SizedBox(height: credSpacing),
+              pw.Text(
+                passText,
+                style: pw.TextStyle(
+                  fontSize: pFontSize,
+                  fontWeight: pw.FontWeight.bold,
+                  color: passwordColor,
+                ),
+              ),
+            ],
+          ),
+        );
+      } else if (isUnifiedPin) {
+        final pinText = '${showPin ? "PIN: " : ""}${card.username}';
+        credWidget = pw.Container(
+          padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.5 : 5, vertical: isDenseGrid ? 0.8 : 2.5),
+          decoration: pw.BoxDecoration(
+            color: isDarkCard ? PdfColors.white : const PdfColor.fromInt(0xFFF8FAFC),
+            borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
+            border: pw.Border.all(
+              color: borderColor,
+              width: isDenseGrid ? 0.35 : 0.6,
+            ),
+          ),
+          child: pw.Text(
+            pinText,
+            style: pw.TextStyle(
+              fontSize: fontSizeCode * _scaleMultiplier(credPlacement.scale),
+              fontWeight: pw.FontWeight.bold,
+              letterSpacing: showPin ? 1.2 : 1.5,
+              color: pinColor,
+            ),
+          ),
+        );
+      } else {
+        // isUsernameOnly
+        final userText = '${showUserOnly ? "USER: " : ""}${card.username}';
+        credWidget = pw.Container(
+          padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.5 : 5, vertical: isDenseGrid ? 0.8 : 2.5),
+          decoration: pw.BoxDecoration(
+            color: isDarkCard ? PdfColors.white : const PdfColor.fromInt(0xFFF8FAFC),
+            borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
+            border: pw.Border.all(
+              color: borderColor,
+              width: isDenseGrid ? 0.35 : 0.6,
+            ),
+          ),
+          child: pw.Text(
+            userText,
+            style: pw.TextStyle(
+              fontSize: fontSizeCode * _scaleMultiplier(credPlacement.scale),
+              fontWeight: pw.FontWeight.bold,
+              letterSpacing: 0.8,
+              color: usernameColor,
+            ),
+          ),
+        );
+      }
 
       // 5. QR Code
       final qrPlacement = elementsLayout.qrCode;
@@ -822,7 +890,7 @@ class CardPdfGeneratorService {
       pw.Widget? middleContainer;
       if (midLeft.isNotEmpty || midCenter.isNotEmpty || midRight.isNotEmpty) {
         middleContainer = pw.Padding(
-          padding: pw.EdgeInsets.symmetric(vertical: isDenseGrid ? 0.4 : 2.0),
+          padding: pw.EdgeInsets.symmetric(vertical: (isA4Grid120 && isSeparateUserPass) ? 0.1 : (isDenseGrid ? 0.4 : 2.0)),
           child: _buildZoneRow(midLeft, midCenter, midRight),
         );
       }
@@ -855,7 +923,16 @@ class CardPdfGeneratorService {
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
           if (topContainer != null) topContainer else pw.SizedBox(),
-          if (middleContainer != null) pw.Expanded(child: pw.Center(child: middleContainer)) else pw.SizedBox(),
+          if (middleContainer != null)
+            pw.Expanded(
+              child: pw.Center(
+                child: (isA4Grid120 && isSeparateUserPass)
+                    ? pw.FittedBox(fit: pw.BoxFit.scaleDown, child: middleContainer)
+                    : middleContainer,
+              ),
+            )
+          else
+            pw.SizedBox(),
           if (bottomContainer != null) bottomContainer else pw.SizedBox(),
         ],
       );
@@ -920,7 +997,7 @@ class CardPdfGeneratorService {
 
           // Body: Profile info + Credentials Box + QR Code
           pw.Padding(
-            padding: pw.EdgeInsets.symmetric(vertical: isDenseGrid ? 0.6 : 2),
+            padding: pw.EdgeInsets.symmetric(vertical: (isA4Grid120 && isSeparateUserPass) ? 0.2 : (isDenseGrid ? 0.6 : 2)),
             child: pw.Row(
               crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
@@ -944,19 +1021,24 @@ class CardPdfGeneratorService {
                             ),
                           ),
                         ),
-                        pw.SizedBox(height: isDenseGrid ? 1 : 2),
+                        pw.SizedBox(height: (isA4Grid120 && isSeparateUserPass) ? 0.3 : (isDenseGrid ? 1 : 2)),
                       ],
 
                       // Code / Username box with LTR direction for numbers & symbols
+                      // Always show credentials box when showCredentials is true;
+                      // showPin / showUsername / showPassword / showUserOnly only hide the LABEL prefix, not the value.
                       if (showCredentials)
                         pw.Container(
-                          padding: pw.EdgeInsets.symmetric(horizontal: isDenseGrid ? 2.5 : 4, vertical: isDenseGrid ? 0.8 : 2),
+                          padding: pw.EdgeInsets.symmetric(
+                            horizontal: (isA4Grid120 && isSeparateUserPass) ? 1.5 : (isDenseGrid ? 2.5 : 4),
+                            vertical: (isA4Grid120 && isSeparateUserPass) ? 0.25 : (isDenseGrid ? 0.8 : 2),
+                          ),
                           decoration: pw.BoxDecoration(
                             color: isDarkCard ? PdfColors.white : const PdfColor.fromInt(0xFFF8FAFC),
                             borderRadius: pw.BorderRadius.all(pw.Radius.circular(isDenseGrid ? 1.5 : 3)),
                             border: pw.Border.all(
                               color: borderColor,
-                              width: isDenseGrid ? 0.35 : 0.6,
+                              width: (isA4Grid120 && isSeparateUserPass) ? 0.3 : (isDenseGrid ? 0.35 : 0.6),
                             ),
                           ),
                           child: isSeparateUserPass
@@ -965,18 +1047,20 @@ class CardPdfGeneratorService {
                                   mainAxisSize: pw.MainAxisSize.min,
                                   children: [
                                     pw.Text(
-                                      'U: ${card.username}',
+                                      // showUsername controls label "U:" only — value always shown
+                                      '${showUsername ? "U: " : ""}${card.username}',
                                       style: pw.TextStyle(
-                                        fontSize: fontSizeCode,
+                                        fontSize: isA4Grid120 ? 3.6 : fontSizeCode,
                                         fontWeight: pw.FontWeight.bold,
                                         color: usernameColor,
                                       ),
                                     ),
-                                    pw.SizedBox(height: 1),
+                                    pw.SizedBox(height: isA4Grid120 ? 0.2 : 1),
                                     pw.Text(
-                                      'P: ${card.clearPassword}',
+                                      // showPassword controls label "P:" only — value always shown
+                                      '${showPassword ? "P: " : ""}${card.clearPassword}',
                                       style: pw.TextStyle(
-                                        fontSize: fontSizeCode - 1,
+                                        fontSize: isA4Grid120 ? 3.1 : fontSizeCode - 1,
                                         fontWeight: pw.FontWeight.bold,
                                         color: passwordColor,
                                       ),
@@ -984,9 +1068,10 @@ class CardPdfGeneratorService {
                                   ],
                                 )
                               : pw.Text(
+                                  // showPin / showUserOnly control label only — value always shown
                                   isUnifiedPin
-                                      ? 'PIN: ${card.username}'
-                                      : 'USER: ${card.username}',
+                                      ? '${showPin ? "PIN: " : ""}${card.username}'
+                                      : '${showUserOnly ? "USER: " : ""}${card.username}',
                                   style: pw.TextStyle(
                                     fontSize: fontSizeCode,
                                     fontWeight: pw.FontWeight.bold,
@@ -1205,6 +1290,10 @@ class CardPdfGeneratorService {
     bool showNetworkName = true,
     bool showProfileName = true,
     bool showCredentials = true,
+    bool showPin = true,
+    bool showUsername = true,
+    bool showPassword = true,
+    bool showUserOnly = true,
     bool showInstructions = true,
     int? cardWidthMm,
     int? cardHeightMm,
@@ -1236,6 +1325,10 @@ class CardPdfGeneratorService {
       showNetworkName: showNetworkName,
       showProfileName: showProfileName,
       showCredentials: showCredentials,
+      showPin: showPin,
+      showUsername: showUsername,
+      showPassword: showPassword,
+      showUserOnly: showUserOnly,
       showInstructions: showInstructions,
       cardWidthMm: cardWidthMm,
       cardHeightMm: cardHeightMm,
@@ -1278,6 +1371,10 @@ class CardPdfGeneratorService {
     bool showNetworkName = true,
     bool showProfileName = true,
     bool showCredentials = true,
+    bool showPin = true,
+    bool showUsername = true,
+    bool showPassword = true,
+    bool showUserOnly = true,
     bool showInstructions = true,
     int? cardWidthMm,
     int? cardHeightMm,
@@ -1312,6 +1409,10 @@ class CardPdfGeneratorService {
           showNetworkName: showNetworkName,
           showProfileName: showProfileName,
           showCredentials: showCredentials,
+          showPin: showPin,
+          showUsername: showUsername,
+          showPassword: showPassword,
+          showUserOnly: showUserOnly,
           showInstructions: showInstructions,
           cardWidthMm: cardWidthMm,
           cardHeightMm: cardHeightMm,

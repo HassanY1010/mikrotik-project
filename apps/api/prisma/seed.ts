@@ -393,6 +393,7 @@ async function main(): Promise<void> {
         prioritySupport: true,
         offlineSales: true,
       },
+    },
     {
       name: 'TRIAL',
       nameAr: 'الباقة التجريبية المجانية',

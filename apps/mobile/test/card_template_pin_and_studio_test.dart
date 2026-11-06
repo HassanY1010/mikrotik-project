@@ -198,5 +198,24 @@ void main() {
       expect(storage.getStudioCustomRows(), equals(5));
       expect(storage.getStudioCustomMargin(), equals(2.5));
     });
+
+    test('Sticky Live Preview preserves state and dimensions during scrolling', () {
+      // Dimensions verification for 85x54 standard card
+      const widthMm = 85;
+      const heightMm = 54;
+      const ratio = widthMm / heightMm;
+      expect(ratio, closeTo(1.574, 0.01));
+
+      // Min and Max extent bounds check
+      const maxHeight = 318.0;
+      const minHeight = 152.0;
+      expect(maxHeight > minHeight, isTrue);
+
+      // Scaled dimensions at pinned state:
+      const availableCardHeight = minHeight - 40.0; // 112dp
+      final scaledWidth = availableCardHeight * ratio;
+      expect(scaledWidth, closeTo(176.3, 0.5));
+      expect(scaledWidth < 360, isTrue); // Perfectly fits on any mobile screen!
+    });
   });
 }

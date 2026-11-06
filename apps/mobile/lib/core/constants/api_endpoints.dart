@@ -118,5 +118,11 @@ class ApiEndpoints {
   static String portalInspectHotspot(String deviceId) => '/portal/devices/$deviceId/inspect-hotspot';
   static String portalRollbackProfile(String deviceId) => '/portal/devices/$deviceId/rollback-profile';
   static String agentCommandStatus(String commandId) => '/agent/commands/$commandId';
+
+  // Card PDF Archives
+  static const String cardPdfArchives = '/card-pdf-archives';
+  static const String cardPdfArchivesUpload = '/card-pdf-archives/upload';
+  static String cardPdfArchiveItem(String id) => '/card-pdf-archives/$id';
+  static String cardPdfArchiveDownload(String id) => '/card-pdf-archives/$id/download';
 }
 

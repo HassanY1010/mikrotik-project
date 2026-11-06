@@ -1089,22 +1089,21 @@ class _CardTemplatesScreenState extends ConsumerState<CardTemplatesScreen> {
                                                   ),
                                                 ),
                                                 const SizedBox(height: 4),
-                                                if (showPin)
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.white,
-                                                      borderRadius: BorderRadius.circular(4),
-                                                    ),
-                                                    child: const Text(
-                                                      'PIN: 849204',
-                                                      style: TextStyle(
-                                                        color: AppTheme.primary,
-                                                        fontWeight: FontWeight.bold,
-                                                        fontSize: 11,
-                                                      ),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    showPin ? 'PIN: 849204' : '849204',
+                                                    style: const TextStyle(
+                                                      color: AppTheme.primary,
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 11,
                                                     ),
                                                   ),
+                                                ),
                                               ],
                                             ),
                                           ),

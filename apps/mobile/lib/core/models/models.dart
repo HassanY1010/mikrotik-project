@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+export 'card_pdf_archive_model.dart';
 
 /// Authenticated user representation
 class AuthUser {
@@ -1725,6 +1726,9 @@ class CardTemplateModel {
 
   bool get showQr => layoutConfig['showQr'] as bool? ?? true;
   bool get showPin => layoutConfig['showPin'] as bool? ?? true;
+  bool get showUsername => layoutConfig['showUsername'] as bool? ?? true;
+  bool get showPassword => layoutConfig['showPassword'] as bool? ?? true;
+  bool get showUserOnly => layoutConfig['showUserOnly'] as bool? ?? true;
   bool get showPrice => layoutConfig['showPrice'] as bool? ?? true;
   bool get showValidity => layoutConfig['showValidity'] as bool? ?? true;
   bool get showSpeed => layoutConfig['showSpeed'] as bool? ?? true;
@@ -3320,5 +3324,3 @@ class ConnectedDeviceModel {
     };
   }
 }
-
-
