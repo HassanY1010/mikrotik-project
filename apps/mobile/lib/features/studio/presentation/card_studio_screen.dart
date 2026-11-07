@@ -6049,50 +6049,88 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.tune, color: AppTheme.primary, size: 18),
-                  const SizedBox(width: 8),
-                  Text(
-                    'تخصيص مواضع ومحاذاة العناصر:',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Icon(Icons.tune, color: AppTheme.primary, size: 16),
               ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_designUndoStack.isNotEmpty)
-                    IconButton(
-                      icon: const Icon(Icons.undo, size: 18, color: AppTheme.primary),
-                      tooltip: 'تراجع عن آخر تعديل',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: _undoDesignChange,
-                    ),
-                  IconButton(
-                    icon: const Icon(Icons.restart_alt, size: 18, color: Color(0xFFF59E0B)),
-                    tooltip: 'إعادة ضبط التصميم للحالة الافتراضية',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: _handleResetDesign,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'تخصيص مواضع ومحاذاة العناصر:',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimary,
                   ),
-                  if (_selectedCustomTemplate != null) ...[
-                    const SizedBox(width: 4),
-                    TextButton.icon(
-                      onPressed: _saveElementPositionsToCurrentTemplate,
-                      icon: const Icon(Icons.save_outlined, size: 14, color: Color(0xFF10B981)),
-                      label: const Text('حفظ في القالب', style: TextStyle(fontSize: 11, color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              if (_designUndoStack.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.undo, size: 18, color: AppTheme.primary),
+                  tooltip: 'تراجع عن آخر تعديل',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: _undoDesignChange,
+                ),
+              IconButton(
+                icon: const Icon(Icons.restart_alt, size: 18, color: Color(0xFFF59E0B)),
+                tooltip: 'إعادة ضبط التصميم للحالة الافتراضية',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: _handleResetDesign,
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          if (_selectedCustomTemplate != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: InkWell(
+                onTap: _saveElementPositionsToCurrentTemplate,
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.save_outlined, size: 14, color: Color(0xFF10B981)),
+                      SizedBox(width: 5),
+                      Text(
+                        'حفظ المواضع في القالب المخصص',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF10B981),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 6),
           Text(
             'تحكم كامل في موضع ومحاذاة وحجم كل عنصر بشكل مستقل ليظهر في المعاينة والـ PDF',
-            style: TextStyle(fontSize: 11, color: context.textSecondary),
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+              color: context.isDarkMode ? const Color(0xFFCBD5E1) : context.textSecondary,
+            ),
           ),
           const SizedBox(height: 12),
           _buildElementPlacementRow(

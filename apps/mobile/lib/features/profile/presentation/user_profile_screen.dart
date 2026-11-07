@@ -474,12 +474,14 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
         actions: [
           IconButton(
             icon: Icon(
-              ref.watch(themeModeProvider) == ThemeMode.light
-                  ? Icons.dark_mode_outlined
-                  : Icons.light_mode_outlined,
+              context.isDarkMode
+                  ? Icons.light_mode_outlined
+                  : Icons.dark_mode_outlined,
               color: const Color(0xFFF59E0B),
             ),
-            tooltip: 'تبديل المظهر',
+            tooltip: context.isDarkMode
+                ? 'التبديل إلى الوضع الفاتح'
+                : 'التبديل إلى الوضع الداكن',
             onPressed: () {
               ref.read(themeModeProvider.notifier).toggleTheme();
             },

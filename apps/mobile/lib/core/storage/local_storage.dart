@@ -351,7 +351,7 @@ class LocalStorage {
 
   // --- Theme Mode Persistence ---
   String getThemeMode() {
-    return _prefs.getString(_themeModeKey) ?? 'dark';
+    return _prefs.getString(_themeModeKey) ?? 'system';
   }
 
   Future<void> setThemeMode(String mode) async {

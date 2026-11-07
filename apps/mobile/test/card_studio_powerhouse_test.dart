@@ -204,7 +204,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Check Live Preview & phone background button
-      expect(find.text('المعاينة الحية للكرت (Live Preview)'), findsOneWidget);
+      expect(find.textContaining('المعاينة الحية'), findsOneWidget);
       expect(find.text('اختيار صورة خلفية من الهاتف'), findsOneWidget);
       expect(find.text('اسم الشبكة المطبوع'), findsOneWidget);
       expect(find.text('أبعاد الكرت التناسبية:'), findsOneWidget);

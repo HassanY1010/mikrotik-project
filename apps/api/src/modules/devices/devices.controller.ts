@@ -299,6 +299,18 @@ export class DevicesController {
     return this.provisioningService.discover(tenantId, id);
   }
 
+  @Post(':id/provision/discover')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @ApiOperation({ summary: 'Save or sync client-discovered live network snapshot' })
+  @ApiResponse({ status: 200, description: 'Snapshot synchronized successfully' })
+  async syncDiscoveredNetwork(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() snapshot: any,
+  ) {
+    return this.provisioningService.saveDiscoverySnapshot(tenantId, id, snapshot);
+  }
+
   @Post(':id/provision/preview')
   @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
   @ApiOperation({ summary: 'Generate a non-destructive preview with conflict checks and RouterOS commands' })

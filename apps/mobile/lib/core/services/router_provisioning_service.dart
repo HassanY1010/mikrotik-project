@@ -24,6 +24,18 @@ class RouterProvisioningService {
     }
   }
 
+  /// 1.1 Sync client-discovered network snapshot to server cache
+  Future<void> syncSnapshot(String deviceId, RouterDiscoverySnapshotModel snapshot) async {
+    try {
+      await _apiClient.post(
+        ApiEndpoints.deviceProvisionDiscover(deviceId),
+        data: snapshot.toJson(),
+      );
+    } catch (_) {
+      // Non-blocking sync attempt
+    }
+  }
+
   /// 2. Generate a non-destructive preview with conflict checks and RouterOS commands
   Future<ProvisionPreviewResponse> preview(
     String deviceId,

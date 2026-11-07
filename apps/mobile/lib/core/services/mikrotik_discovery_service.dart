@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/router_provisioning_models.dart';
 
 /// Representation of a discovered MikroTik router on the local network
 class DiscoveredRouterModel {
@@ -372,6 +373,134 @@ class MikrotikDiscoveryService {
         'message': 'تعذر الاتصال بالراوتر محلياً عبر العنوان ($host): $e',
       };
     }
+  }
+
+  /// Discovers physical interfaces, bridges, IP addresses, and resources directly
+  /// from a live MikroTik router on the local network (LAN / Wi-Fi) using REST API.
+  Future<RouterDiscoverySnapshotModel> discoverLocally({
+    required String host,
+    required String username,
+    required String password,
+    int apiPort = 8728,
+    int restPort = 443,
+    String rosVersion = 'V7',
+    bool useSsl = false,
+  }) async {
+    final authHeader = 'Basic ${base64Encode(utf8.encode('$username:$password'))}';
+
+    // Candidate configurations to try:
+    // 1. User's specified protocol & port (HTTP 80 or HTTPS 443)
+    // 2. Alternate port/scheme fallback (in case of redirect or differing config)
+    final candidateConfigs = <({bool ssl, int port})>[
+      (ssl: useSsl, port: useSsl ? (restPort == 80 ? 443 : restPort) : (restPort == 443 ? 80 : restPort)),
+      (ssl: !useSsl, port: !useSsl ? 443 : 80),
+    ];
+
+    Object? lastError;
+
+    for (final cfg in candidateConfigs) {
+      final scheme = cfg.ssl ? 'https' : 'http';
+      final port = cfg.port;
+
+      HttpClient? client;
+      try {
+        client = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 5)
+          ..badCertificateCallback = (cert, host, port) => true;
+
+        Future<dynamic> fetchEndpoint(String endpoint) async {
+          try {
+            final uri = Uri.parse('$scheme://$host:$port/rest$endpoint');
+            final req = await client!.getUrl(uri).timeout(const Duration(seconds: 5));
+            req.headers.set('Authorization', authHeader);
+            req.headers.set('Accept', 'application/json');
+            final res = await req.close().timeout(const Duration(seconds: 5));
+            if (res.statusCode == 200) {
+              final body = await res.transform(utf8.decoder).join();
+              if (body.trim().isNotEmpty) {
+                return jsonDecode(body);
+              }
+            }
+          } catch (e) {
+            debugPrint('[discoverLocally] $endpoint note: $e');
+          }
+          return null;
+        }
+
+        // Query router state in parallel
+        final results = await Future.wait([
+          fetchEndpoint('/system/resource'),
+          fetchEndpoint('/interface'),
+          fetchEndpoint('/interface/bridge'),
+          fetchEndpoint('/ip/address'),
+          fetchEndpoint('/ip/hotspot'),
+        ]);
+
+        final resRaw = results[0] as Map<String, dynamic>? ?? {};
+        final ifacesRaw = results[1] is List ? results[1] as List : [];
+        final bridgesRaw = results[2] is List ? results[2] as List : [];
+        final ipsRaw = results[3] is List ? results[3] as List : [];
+        final hsRaw = results[4] is List ? results[4] as List : [];
+
+        if (ifacesRaw.isNotEmpty || resRaw.isNotEmpty) {
+          final ifaces = ifacesRaw.map((r) {
+            final m = r as Map<String, dynamic>;
+            return RouterInterfaceModel(
+              id: m['.id']?.toString(),
+              name: m['name']?.toString() ?? '',
+              type: m['type']?.toString() ?? 'ether',
+              running: m['running'] == true || m['running'] == 'true',
+              disabled: m['disabled'] == true || m['disabled'] == 'true',
+              macAddress: m['mac-address']?.toString(),
+              comment: m['comment']?.toString(),
+              mtu: int.tryParse(m['mtu']?.toString() ?? ''),
+            );
+          }).toList();
+
+          final ipAddresses = ipsRaw.map((r) {
+            final m = r as Map<String, dynamic>;
+            return RouterIpAddressModel(
+              id: m['.id']?.toString(),
+              address: m['address']?.toString() ?? '',
+              network: m['network']?.toString(),
+              interface: m['interface']?.toString() ?? '',
+              disabled: m['disabled'] == true || m['disabled'] == 'true',
+              comment: m['comment']?.toString(),
+            );
+          }).toList();
+
+          final bridges = bridgesRaw
+              .map((r) => (r as Map<String, dynamic>)['name']?.toString() ?? '')
+              .where((s) => s.isNotEmpty)
+              .toList();
+
+          final hotspots = hsRaw
+              .map((r) => (r as Map<String, dynamic>)['name']?.toString() ?? '')
+              .where((s) => s.isNotEmpty)
+              .toList();
+
+          return RouterDiscoverySnapshotModel(
+            interfaces: ifaces,
+            ipAddresses: ipAddresses,
+            bridges: bridges,
+            hotspotServers: hotspots,
+            version: resRaw['version']?.toString() ?? rosVersion,
+            cpuLoad: int.tryParse(resRaw['cpu-load']?.toString() ?? '') ?? 0,
+            uptime: resRaw['uptime']?.toString() ?? '',
+          );
+        }
+      } catch (err) {
+        lastError = err;
+      } finally {
+        client?.close(force: true);
+      }
+    }
+
+    throw Exception(
+      lastError != null
+          ? 'تعذر جلب منافذ الراوتر محلياً عبر REST ($host): $lastError'
+          : 'لم يتم العثور على واجهات نشطة عبر استعلام REST بالراوتر ($host). تأكد من تفعيل خدمة WWW أو REST وصحة كلمة المرور.',
+    );
   }
 
   /// Probe a single TCP port with tight timeout

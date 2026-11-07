@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadGatewayException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
@@ -32,11 +33,36 @@ import { DevicesService } from '../devices.service';
 export class RouterProvisioningService {
   private readonly logger = new Logger(RouterProvisioningService.name);
 
+  // In-memory cache for router discovery snapshots: key is `${tenantId}:${deviceId}`
+  private readonly discoveryCache = new Map<
+    string,
+    { snapshot: RouterDiscoverySnapshot; cachedAt: number }
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly clientFactory: MikrotikClientFactory,
     private readonly encryptionService: EncryptionService,
   ) {}
+
+  /**
+   * Saves or synchronizes a client-discovered snapshot
+   */
+  async saveDiscoverySnapshot(
+    tenantId: string,
+    deviceId: string,
+    snapshot: RouterDiscoverySnapshot,
+  ): Promise<RouterDiscoverySnapshot> {
+    await this.getValidDevice(tenantId, deviceId);
+    this.discoveryCache.set(`${tenantId}:${deviceId}`, {
+      snapshot,
+      cachedAt: Date.now(),
+    });
+    this.logger.log(
+      `Synchronized discovery snapshot for device ${deviceId} (${snapshot.interfaces?.length ?? 0} interfaces)`,
+    );
+    return snapshot;
+  }
 
   private async getValidDevice(tenantId: string, deviceId: string) {
     const device = await this.prisma.mikroTikDevice.findFirst({
@@ -73,61 +99,99 @@ export class RouterProvisioningService {
    */
   async discover(tenantId: string, deviceId: string): Promise<RouterDiscoverySnapshot> {
     const device = await this.getValidDevice(tenantId, deviceId);
-    const client = await this.getConnectedClient(device);
 
-    const [
-      resource,
-      interfaces,
-      bridges,
-      bridgePorts,
-      ipAddresses,
-      dhcpClients,
-      dhcpServers,
-      natRules,
-      routes,
-      hotspotServers,
-      mangleRules,
-      filterRules,
-      hotspotUserProfiles,
-    ] = await Promise.all([
-      client.getSystemResource().catch(() => ({
-        uptime: '0s',
-        version: device.rosVersion || 'unknown',
-        cpuLoad: 0,
-        freeMemory: 0,
-        totalMemory: 0,
-        freeHdd: 0,
-        totalHdd: 0,
-      } as RouterResource)),
-      client.listInterfaces ? client.listInterfaces().catch(() => []) : Promise.resolve([]),
-      client.listBridges ? client.listBridges().catch(() => []) : Promise.resolve([]),
-      client.listBridgePorts ? client.listBridgePorts().catch(() => []) : Promise.resolve([]),
-      client.listIpAddresses ? client.listIpAddresses().catch(() => []) : Promise.resolve([]),
-      client.listDhcpClients ? client.listDhcpClients().catch(() => []) : Promise.resolve([]),
-      client.listDhcpServers ? client.listDhcpServers().catch(() => []) : Promise.resolve([]),
-      client.listNatRules ? client.listNatRules().catch(() => []) : Promise.resolve([]),
-      client.listRoutes ? client.listRoutes().catch(() => []) : Promise.resolve([]),
-      client.listHotspotServers ? client.listHotspotServers().catch(() => []) : Promise.resolve([]),
-      client.listMangleRules ? client.listMangleRules().catch(() => []) : Promise.resolve([]),
-      client.listFilterRules ? client.listFilterRules().catch(() => []) : Promise.resolve([]),
-      client.listHotspotProfiles ? client.listHotspotProfiles().catch(() => []) : Promise.resolve([]),
-    ]);
+    let client: IMikrotikClient;
+    try {
+      client = await this.getConnectedClient(device);
+    } catch (err: unknown) {
+      // Check if we have a valid cached snapshot (e.g. from local discovery)
+      const cached = this.discoveryCache.get(`${tenantId}:${deviceId}`);
+      if (cached && Date.now() - cached.cachedAt < 30 * 60 * 1000) {
+        this.logger.log(
+          `Router direct connection failed, returning cached discovery snapshot for device ${deviceId}`,
+        );
+        return cached.snapshot;
+      }
 
-    return {
-      resource,
-      interfaces,
-      bridges,
-      bridgePorts,
-      ipAddresses,
-      dhcpClients,
-      dhcpServers,
-      natRules,
-      routes,
-      hotspotServers,
-      mangleRules,
-      filterRules,
-      hotspotUserProfiles,
-    };
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed router connection for discovery on ${device.host}: ${msg}`);
+      throw new BadGatewayException({
+        code: 'ROUTER_CONNECTION_FAILED',
+        message: `تعذر الاتصال بالراوتر (${device.host}:${device.apiPort ?? device.restPort ?? 8728}): ${msg}`,
+        host: device.host,
+        port: device.apiPort ?? device.restPort,
+      });
+    }
+
+    try {
+      const [
+        resource,
+        interfaces,
+        bridges,
+        bridgePorts,
+        ipAddresses,
+        dhcpClients,
+        dhcpServers,
+        natRules,
+        routes,
+        hotspotServers,
+        mangleRules,
+        filterRules,
+        hotspotUserProfiles,
+      ] = await Promise.all([
+        client.getSystemResource().catch(() => ({
+          uptime: '0s',
+          version: device.rosVersion || 'unknown',
+          cpuLoad: 0,
+          freeMemory: 0,
+          totalMemory: 0,
+          freeHdd: 0,
+          totalHdd: 0,
+        } as RouterResource)),
+        client.listInterfaces ? client.listInterfaces().catch(() => []) : Promise.resolve([]),
+        client.listBridges ? client.listBridges().catch(() => []) : Promise.resolve([]),
+        client.listBridgePorts ? client.listBridgePorts().catch(() => []) : Promise.resolve([]),
+        client.listIpAddresses ? client.listIpAddresses().catch(() => []) : Promise.resolve([]),
+        client.listDhcpClients ? client.listDhcpClients().catch(() => []) : Promise.resolve([]),
+        client.listDhcpServers ? client.listDhcpServers().catch(() => []) : Promise.resolve([]),
+        client.listNatRules ? client.listNatRules().catch(() => []) : Promise.resolve([]),
+        client.listRoutes ? client.listRoutes().catch(() => []) : Promise.resolve([]),
+        client.listHotspotServers ? client.listHotspotServers().catch(() => []) : Promise.resolve([]),
+        client.listMangleRules ? client.listMangleRules().catch(() => []) : Promise.resolve([]),
+        client.listFilterRules ? client.listFilterRules().catch(() => []) : Promise.resolve([]),
+        client.listHotspotProfiles ? client.listHotspotProfiles().catch(() => []) : Promise.resolve([]),
+      ]);
+
+      const snapshot: RouterDiscoverySnapshot = {
+        resource,
+        interfaces,
+        bridges,
+        bridgePorts,
+        ipAddresses,
+        dhcpClients,
+        dhcpServers,
+        natRules,
+        routes,
+        hotspotServers,
+        mangleRules,
+        filterRules,
+        hotspotUserProfiles,
+      };
+
+      // Cache snapshot for future steps
+      this.discoveryCache.set(`${tenantId}:${deviceId}`, {
+        snapshot,
+        cachedAt: Date.now(),
+      });
+
+      return snapshot;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new BadGatewayException({
+        code: 'ROUTER_DISCOVERY_QUERY_FAILED',
+        message: `حدث خطأ أثناء قراءة منافذ وبيانات الراوتر (${device.host}): ${msg}`,
+      });
+    }
   }
 
   /**

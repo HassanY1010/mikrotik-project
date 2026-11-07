@@ -172,11 +172,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         actions: [
           IconButton(
             icon: Icon(
-              ref.watch(themeModeProvider) == ThemeMode.light
-                  ? Icons.dark_mode_outlined
-                  : Icons.light_mode_outlined,
+              context.isDarkMode
+                  ? Icons.light_mode_outlined
+                  : Icons.dark_mode_outlined,
             ),
-            tooltip: 'تبديل المظهر (فاتح / داكن)',
+            tooltip: context.isDarkMode
+                ? 'التبديل إلى الوضع الفاتح'
+                : 'التبديل إلى الوضع الداكن',
             onPressed: () {
               ref.read(themeModeProvider.notifier).toggleTheme();
             },

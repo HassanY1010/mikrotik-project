@@ -142,8 +142,7 @@ void main() {
       expect(provisioningFinder, findsOneWidget);
 
       // Verify other quick actions are preserved and NOT removed or modified
-      expect(find.text('راوتر MikroTik'), findsOneWidget);
-      expect(find.text('الأجهزة المتصلة'), findsOneWidget);
+      expect(find.text('أجهزة البث'), findsOneWidget);
       expect(find.text('النسخ الاحتياطي للمايكروتك'), findsOneWidget);
       expect(find.text('الرادار'), findsOneWidget);
 

@@ -31,6 +31,17 @@ class RouterInterfaceModel {
       mtu: json['mtu'] is int ? json['mtu'] as int : null,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    if (id != null) 'id': id,
+    'name': name,
+    'type': type,
+    'running': running,
+    'disabled': disabled,
+    if (macAddress != null) 'macAddress': macAddress,
+    if (comment != null) 'comment': comment,
+    if (mtu != null) 'mtu': mtu,
+  };
 }
 
 class RouterIpAddressModel {
@@ -60,6 +71,15 @@ class RouterIpAddressModel {
       comment: json['comment'] as String?,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    if (id != null) 'id': id,
+    'address': address,
+    if (network != null) 'network': network,
+    'interface': interface,
+    'disabled': disabled,
+    if (comment != null) 'comment': comment,
+  };
 }
 
 class RouterDiscoverySnapshotModel {
@@ -98,6 +118,18 @@ class RouterDiscoverySnapshotModel {
       uptime: res['uptime']?.toString() ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'interfaces': interfaces.map((i) => i.toJson()).toList(),
+    'ipAddresses': ipAddresses.map((a) => a.toJson()).toList(),
+    'bridges': bridges.map((b) => {'name': b}).toList(),
+    'hotspotServers': hotspotServers.map((h) => {'name': h}).toList(),
+    'resource': {
+      'version': version,
+      'cpuLoad': cpuLoad,
+      'uptime': uptime,
+    },
+  };
 }
 
 class ProvisionWarningModel {

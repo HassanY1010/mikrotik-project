@@ -414,24 +414,76 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
     try {
       final service = ref.read(routerProvisioningServiceProvider);
-      final snap = await service.discover(_selectedDeviceId!);
+      RouterDiscoverySnapshotModel? snap;
+      String? backendErrorMsg;
+
+      // 1. First attempt: Query discovery from backend
+      try {
+        snap = await service.discover(_selectedDeviceId!);
+      } catch (backendErr) {
+        backendErrorMsg = backendErr.toString().replaceFirst('Exception: ', '');
+      }
+
+      // 2. Fallback attempt: If backend could not connect (e.g. cloud server cannot reach private LAN IP 192.168.x.x),
+      // query the router directly from the phone over Wi-Fi / local network!
+      if (snap == null) {
+        final host = _hostController.text.trim();
+        final user = _userController.text.trim();
+        final pass = _passController.text.trim();
+        final isPrivateIp = host.startsWith('192.168.') ||
+            host.startsWith('10.') ||
+            host.startsWith('172.16.') ||
+            host.startsWith('172.17.') ||
+            host.startsWith('172.18.') ||
+            host.startsWith('172.19.') ||
+            host.startsWith('172.2') ||
+            host.startsWith('172.3');
+
+        if (isPrivateIp || _rosVersion == 'V7') {
+          try {
+            snap = await ref.read(mikrotikDiscoveryServiceProvider).discoverLocally(
+              host: host,
+              username: user,
+              password: pass,
+              apiPort: int.tryParse(_apiPortController.text.trim()) ?? 8728,
+              restPort: int.tryParse(_restPortController.text.trim()) ?? 443,
+              rosVersion: _rosVersion,
+              useSsl: _useSsl,
+            );
+            await service.syncSnapshot(_selectedDeviceId!, snap);
+          } catch (localErr) {
+            final localMsg = localErr.toString().replaceFirst('Exception: ', '');
+            throw Exception(
+              backendErrorMsg != null &&
+                      !backendErrorMsg.contains('500') &&
+                      !backendErrorMsg.contains('Internal server error')
+                  ? backendErrorMsg
+                  : localMsg,
+            );
+          }
+        } else {
+          throw Exception(backendErrorMsg ?? 'تعذر استكشاف منافذ الراوتر عبر الخادم');
+        }
+      }
+
       if (!mounted) return;
 
+      final snapshot = snap;
       setState(() {
         _isDiscovering = false;
-        _discovery = snap;
+        _discovery = snapshot;
 
         // Auto-select smart defaults if not set
-        if (_selectedWanInterface == null && snap.interfaces.isNotEmpty) {
-          final ether1 = snap.interfaces.firstWhere(
+        if (_selectedWanInterface == null && snapshot.interfaces.isNotEmpty) {
+          final ether1 = snapshot.interfaces.firstWhere(
             (i) => i.name.toLowerCase() == 'ether1',
-            orElse: () => snap.interfaces.first,
+            orElse: () => snapshot.interfaces.first,
           );
           _selectedWanInterface = ether1.name;
         }
 
-        if (_selectedLanInterfaces.isEmpty) {
-          for (final iface in snap.interfaces) {
+        if (_selectedLanInterfaces.isEmpty && snapshot.interfaces.isNotEmpty) {
+          for (final iface in snapshot.interfaces) {
             if (iface.name != _selectedWanInterface && iface.type == 'ether') {
               _selectedLanInterfaces.add(iface.name);
             }

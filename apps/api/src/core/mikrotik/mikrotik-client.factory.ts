@@ -49,42 +49,126 @@ export class MikrotikClientFactory {
       device.authTag,
     );
 
-    // Use RouterOsApiClient (Socket API is fast, universal, and works for both v6 and v7)
-    const client = new RouterOsApiClient({
-      host: device.host,
-      port: device.apiPort,
-      username: device.username,
-      password,
-      useSsl: device.useSsl,
-      timeoutMs: 3000,
-    });
+    const timeoutMs = 7000;
+    const isV7 = device.rosVersion === RouterOsVersion.V7;
+    const prefersRest =
+      isV7 &&
+      (device.apiPort === 80 ||
+        device.apiPort === 443 ||
+        Boolean(device.restPort && device.apiPort !== 8728 && device.apiPort !== 8729));
 
-    try {
-      await client.connect();
-      this.clientCache.set(cacheKey, { client, lastUsed: Date.now() });
-      return client;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Failed socket connection to ${device.host}:${device.apiPort}: ${msg}`);
+    // Resolve target ports
+    const restPort =
+      device.restPort ??
+      (device.apiPort === 80 || device.apiPort === 443
+        ? device.apiPort
+        : device.useSsl
+          ? 443
+          : 80);
+    const socketPort =
+      device.apiPort && device.apiPort !== 80 && device.apiPort !== 443
+        ? device.apiPort
+        : device.useSsl
+          ? 8729
+          : 8728;
 
-      // If ROS v7 and REST port available, fallback to REST client
-      if (device.rosVersion === RouterOsVersion.V7 && device.restPort) {
-        this.logger.log(`Attempting ROS v7 REST fallback on port ${device.restPort}...`);
+    if (prefersRest) {
+      // 1. Try REST first
+      try {
         const restClient = new RouterOsRestClient({
           host: device.host,
-          port: device.restPort,
+          port: restPort,
           username: device.username,
           password,
           useSsl: device.useSsl,
-          timeoutMs: 3000,
+          timeoutMs,
         });
-
         await restClient.connect();
         this.clientCache.set(cacheKey, { client: restClient, lastUsed: Date.now() });
         return restClient;
-      }
+      } catch (restErr) {
+        const msg = restErr instanceof Error ? restErr.message : String(restErr);
+        this.logger.warn(
+          `REST connection failed on port ${restPort} for ${device.host}: ${msg}. Falling back to socket...`,
+        );
 
-      throw err;
+        // Fallback to socket
+        try {
+          const socketClient = new RouterOsApiClient({
+            host: device.host,
+            port: socketPort,
+            username: device.username,
+            password,
+            useSsl: device.useSsl,
+            timeoutMs,
+          });
+          await socketClient.connect();
+          this.clientCache.set(cacheKey, { client: socketClient, lastUsed: Date.now() });
+          return socketClient;
+        } catch (_) {
+          throw restErr; // preserve primary REST error
+        }
+      }
+    } else {
+      // 2. Try Socket first
+      try {
+        const socketClient = new RouterOsApiClient({
+          host: device.host,
+          port: socketPort,
+          username: device.username,
+          password,
+          useSsl: device.useSsl,
+          timeoutMs,
+        });
+        await socketClient.connect();
+        this.clientCache.set(cacheKey, { client: socketClient, lastUsed: Date.now() });
+        return socketClient;
+      } catch (socketErr) {
+        const msg = socketErr instanceof Error ? socketErr.message : String(socketErr);
+        this.logger.warn(`Socket connection failed on port ${socketPort} for ${device.host}: ${msg}`);
+
+        // If RouterOS v7, fallback to REST
+        if (isV7) {
+          this.logger.log(`Attempting ROS v7 REST fallback on port ${restPort}...`);
+          try {
+            const restClient = new RouterOsRestClient({
+              host: device.host,
+              port: restPort,
+              username: device.username,
+              password,
+              useSsl: device.useSsl,
+              timeoutMs,
+            });
+            await restClient.connect();
+            this.clientCache.set(cacheKey, { client: restClient, lastUsed: Date.now() });
+            return restClient;
+          } catch (restErr) {
+            // Secondary fallback: if non-SSL port 80 failed on v7, try 443 with SSL or vice-versa
+            const altRestPort = restPort === 80 ? 443 : restPort === 443 ? 80 : null;
+            if (altRestPort) {
+              try {
+                this.logger.log(`Attempting ROS v7 secondary REST fallback on port ${altRestPort}...`);
+                const altRestClient = new RouterOsRestClient({
+                  host: device.host,
+                  port: altRestPort,
+                  username: device.username,
+                  password,
+                  useSsl: altRestPort === 443,
+                  timeoutMs,
+                });
+                await altRestClient.connect();
+                this.clientCache.set(cacheKey, { client: altRestClient, lastUsed: Date.now() });
+                return altRestClient;
+              } catch (_) {
+                // Ignore secondary fallback error
+              }
+            }
+            throw restErr;
+          }
+        }
+
+        throw socketErr;
+      }
     }
   }
 

@@ -154,13 +154,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   }
 
   void _navigateToRadar() {
-    if (widget.onNavigateTab != null) {
-      widget.onNavigateTab!(3);
-    } else {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const RadarScreen()),
-      );
-    }
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RadarScreen()),
+    );
   }
 
   Future<void> _testRouterConnection(RouterDeviceModel router) async {
@@ -1522,23 +1518,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             icon: Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: (ref.watch(themeModeProvider) == ThemeMode.light
+                color: (!context.isDarkMode
                         ? const Color(0xFFF59E0B)
                         : AppTheme.primary)
                     .withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                ref.watch(themeModeProvider) == ThemeMode.light
+                !context.isDarkMode
                     ? Icons.dark_mode_outlined
                     : Icons.light_mode_outlined,
-                color: ref.watch(themeModeProvider) == ThemeMode.light
+                color: !context.isDarkMode
                     ? const Color(0xFFF59E0B)
                     : AppTheme.primary,
                 size: 18,
               ),
             ),
-            tooltip: ref.watch(themeModeProvider) == ThemeMode.light
+            tooltip: !context.isDarkMode
                 ? 'التبديل إلى الوضع الداكن'
                 : 'التبديل إلى الوضع الفاتح',
             onPressed: () {
@@ -2802,7 +2798,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         'تقارير',
         Icons.bar_chart,
         const Color(0xFFF59E0B),
-        () => widget.onNavigateTab?.call(4),
+        () => widget.onNavigateTab?.call(3),
       ),
       _ActionItem(
         'فريق العمل والصلاحيات',

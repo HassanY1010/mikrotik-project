@@ -15,7 +15,7 @@ final localStorageProvider = Provider<LocalStorage>((ref) {
   throw UnimplementedError();
 });
 
-// App Theme Mode Notifier (supports 'dark', 'light', 'system', defaults to 'dark')
+// App Theme Mode Notifier (supports 'dark', 'light', 'system', defaults to 'system')
 class ThemeModeNotifier extends Notifier<ThemeMode> {
   @override
   ThemeMode build() {
@@ -24,11 +24,11 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
     switch (saved) {
       case 'light':
         return ThemeMode.light;
-      case 'system':
-        return ThemeMode.system;
       case 'dark':
-      default:
         return ThemeMode.dark;
+      case 'system':
+      default:
+        return ThemeMode.system;
     }
   }
 
@@ -46,8 +46,16 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
   Future<void> toggleTheme() async {
     if (state == ThemeMode.light) {
       await setThemeMode(ThemeMode.dark);
-    } else {
+    } else if (state == ThemeMode.dark) {
       await setThemeMode(ThemeMode.light);
+    } else {
+      // In system mode: toggle to opposite of current system brightness
+      final brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
+      if (brightness == Brightness.dark) {
+        await setThemeMode(ThemeMode.light);
+      } else {
+        await setThemeMode(ThemeMode.dark);
+      }
     }
   }
 }

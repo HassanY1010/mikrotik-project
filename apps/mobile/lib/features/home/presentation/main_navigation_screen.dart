@@ -31,6 +31,7 @@ class MainNavigationScreen extends ConsumerStatefulWidget {
 class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   int _currentIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _isExitDialogShowing = false;
 
   void _navigateToTab(int index) {
     setState(() => _currentIndex = index);
@@ -40,6 +41,134 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => screen),
     );
+  }
+
+  Future<void> _handleBackPress() async {
+    // If drawer is open, close drawer first
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    // If not on Dashboard tab, switch to Dashboard tab first (standard UX)
+    if (_currentIndex != 0) {
+      setState(() => _currentIndex = 0);
+      return;
+    }
+
+    // Prevent duplicate dialogs
+    if (_isExitDialogShowing) return;
+    _isExitDialogShowing = true;
+
+    try {
+      HapticFeedback.mediumImpact();
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: context.bgCard,
+          elevation: 16,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(color: context.borderColor, width: 1.5),
+          ),
+          titlePadding: const EdgeInsets.fromLTRB(20, 22, 20, 10),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.logout_rounded,
+                  color: Color(0xFFF87171),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'هل تريد تسجيل الخروج؟',
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'هل أنت متأكد أنك تريد تسجيل الخروج من حسابك؟ ستحتاج إلى تسجيل الدخول مرة أخرى للوصول إلى حسابك.',
+            style: TextStyle(
+              color: context.textSecondary,
+              fontSize: 13,
+              height: 1.5,
+            ),
+          ),
+          actions: [
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: context.textSecondary,
+                      side: BorderSide(color: context.borderColor),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'البقاء في التطبيق',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    icon: const Icon(Icons.logout_rounded, size: 18, color: Colors.white),
+                    label: const Text(
+                      'تسجيل الخروج',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFDC2626),
+                      elevation: 2,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true) {
+        await ref.read(localStorageProvider).clearAuth();
+        ref.read(currentUserProvider.notifier).setUser(null);
+      }
+    } finally {
+      _isExitDialogShowing = false;
+    }
   }
 
   void _handleLogout() async {
@@ -180,7 +309,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         onOpenTemplates: () => _pushScreen(const CardTemplatesScreen()),
         onOpenProfiles: () => _pushScreen(const HotspotProfilesScreen()),
         onOpenPppoe: () => _pushScreen(const PppoeManagementScreen()),
-        onOpenUserProfile: () => _pushScreen(const UserProfileScreen()),
+        onOpenUserProfile: () => _navigateToTab(4),
         onOpenTenantUsers: () => _pushScreen(const TenantUsersScreen()),
         onOpenPortalDesigner: () => _pushScreen(const HotspotPortalDesignerScreen()),
       ),
@@ -188,12 +317,18 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       CardStudioScreen(
         onBatchCreated: () => _navigateToTab(1), // jump to inventory after batch creation
       ),
-      const RadarScreen(),
       const FinanceReportsScreen(),
+      const UserProfileScreen(),
     ];
 
-    return Scaffold(
-      key: _scaffoldKey,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackPress();
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
       backgroundColor: context.bgScaffold,
       drawer: Drawer(
         backgroundColor: context.bgCard,
@@ -225,13 +360,13 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                 otherAccountsPictures: [
                   IconButton(
                     icon: Icon(
-                      ref.watch(themeModeProvider) == ThemeMode.light
-                          ? Icons.dark_mode_outlined
-                          : Icons.light_mode_outlined,
+                      context.isDarkMode
+                          ? Icons.light_mode_outlined
+                          : Icons.dark_mode_outlined,
                       color: const Color(0xFFF59E0B),
                       size: 20,
                     ),
-                    tooltip: 'تبديل المظهر',
+                    tooltip: context.isDarkMode ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن',
                     onPressed: () {
                       ref.read(themeModeProvider.notifier).toggleTheme();
                     },
@@ -263,24 +398,28 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: (ref.watch(themeModeProvider) == ThemeMode.light
+                    color: (!context.isDarkMode
                             ? const Color(0xFFF59E0B)
                             : AppTheme.primary)
                         .withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    ref.watch(themeModeProvider) == ThemeMode.light
-                        ? Icons.light_mode
-                        : Icons.dark_mode,
-                    color: ref.watch(themeModeProvider) == ThemeMode.light
+                    ref.watch(themeModeProvider) == ThemeMode.system
+                        ? Icons.brightness_auto_rounded
+                        : (!context.isDarkMode ? Icons.light_mode : Icons.dark_mode),
+                    color: !context.isDarkMode
                         ? const Color(0xFFF59E0B)
-                        : AppTheme.primary,
+                        : (ref.watch(themeModeProvider) == ThemeMode.system
+                            ? const Color(0xFF6366F1)
+                            : AppTheme.primary),
                     size: 18,
                   ),
                 ),
                 title: Text(
-                  ref.watch(themeModeProvider) == ThemeMode.light ? 'الوضع الفاتح' : 'الوضع الداكن',
+                  ref.watch(themeModeProvider) == ThemeMode.system
+                      ? 'الوضع التلقائي (حسب الجهاز)'
+                      : (!context.isDarkMode ? 'الوضع الفاتح' : 'الوضع الداكن'),
                   style: TextStyle(
                     color: context.textPrimary,
                     fontWeight: FontWeight.bold,
@@ -288,12 +427,14 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                   ),
                 ),
                 subtitle: Text(
-                  'انقر للتبديل الفوري بين المظهرين',
+                  ref.watch(themeModeProvider) == ThemeMode.system
+                      ? 'يتبع إعدادات مظهر الهاتف تلقائياً'
+                      : 'انقر للتبديل الفوري بين المظهرين',
                   style: TextStyle(color: context.textSecondary, fontSize: 10),
                 ),
                 trailing: Switch(
-                  value: ref.watch(themeModeProvider) == ThemeMode.light,
-                  activeThumbColor: AppTheme.primary,
+                  value: !context.isDarkMode,
+                  activeThumbColor: const Color(0xFFF59E0B),
                   onChanged: (_) {
                     ref.read(themeModeProvider.notifier).toggleTheme();
                   },
@@ -334,18 +475,17 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ListTile(
               leading: const Icon(Icons.radar_outlined, color: Color(0xFF22D3EE)),
               title: Text('رادار المستخدمين المتصلين', style: TextStyle(color: context.textPrimary)),
-              selected: _currentIndex == 3,
               onTap: () {
-                _navigateToTab(3);
                 Navigator.pop(context);
+                _pushScreen(const RadarScreen());
               },
             ),
             ListTile(
               leading: const Icon(Icons.bar_chart_outlined, color: Color(0xFFFBBF24)),
               title: Text('التقارير', style: TextStyle(color: context.textPrimary)),
-              selected: _currentIndex == 4,
+              selected: _currentIndex == 3,
               onTap: () {
-                _navigateToTab(4);
+                _navigateToTab(3);
                 Navigator.pop(context);
               },
             ),
@@ -414,9 +554,10 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ListTile(
               leading: const Icon(Icons.person_pin_outlined, color: AppTheme.primary),
               title: Text('حسابي وإعدادات الأمان', style: TextStyle(color: context.textPrimary)),
+              selected: _currentIndex == 4,
               onTap: () {
+                _navigateToTab(4);
                 Navigator.pop(context);
-                _pushScreen(const UserProfileScreen());
               },
             ),
             Divider(color: context.borderColor),
@@ -520,17 +661,18 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             label: 'إنشاء كروت',
           ),
           NavigationDestination(
-            icon: Icon(Icons.radar_outlined),
-            selectedIcon: Icon(Icons.radar),
-            label: 'الرادار',
-          ),
-          NavigationDestination(
             icon: Icon(Icons.bar_chart_outlined),
             selectedIcon: Icon(Icons.bar_chart),
             label: 'تقارير',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.more_horiz_rounded),
+            selectedIcon: Icon(Icons.more_horiz),
+            label: 'المزيد',
+          ),
         ],
       ),
+    ),
     );
   }
 }
