@@ -1159,6 +1159,52 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
       expect(result.verification.diagnosticsMessage).toContain('login.html / alogin.html');
     });
   });
+
+  describe('11. RouterOS 7 Pre-Programmed Router Preview (L009UiGS Support)', () => {
+    it('should generate non-zero planned steps and commands for pre-programmed RouterOS 7 router', async () => {
+      mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({
+        ...sampleDevice,
+        name: 'L009UiGS-Sudafi',
+        rosVersion: 'V7',
+        host: '192.168.88.1',
+      });
+
+      // Pre-programmed router state with existing bridge, hotspot, dhcp, ip
+      mockMikrotikClient.listBridges.mockResolvedValueOnce([{ id: '*1', name: 'bridge-hotspot', disabled: false }]);
+      mockMikrotikClient.listHotspotServers.mockResolvedValueOnce([
+        { id: '*1', name: 'hs-sudafi', interface: 'bridge-hotspot', disabled: false },
+      ]);
+      mockMikrotikClient.listDhcpServers.mockResolvedValueOnce([
+        { id: '*1', name: 'dhcp-sudafi', interface: 'bridge-hotspot', disabled: false },
+      ]);
+      mockMikrotikClient.listIpAddresses.mockResolvedValueOnce([
+        { id: '*1', address: '10.5.50.1/24', interface: 'bridge-hotspot', disabled: false },
+        { id: '*2', address: '192.168.88.1/24', interface: 'ether1', disabled: false },
+      ]);
+
+      const previewDto: ProvisionPreviewDto = {
+        template: 'CLEAN_SETUP',
+        wan: { interface: 'ether1', mode: 'DHCP' },
+        lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2', 'ether3'], gatewayIp: '10.5.50.1/24' },
+        hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+      };
+
+      const preview = await service.preview('tenant-001', 'dev-001', previewDto);
+
+      expect(preview.routerVersion).toContain('V7');
+      expect(preview.plannedSteps.length).toBeGreaterThan(0);
+      expect(preview.generatedCommands.length).toBeGreaterThan(0);
+      expect(preview.requiresCleanConfirmation).toBe(true);
+
+      // Verify that every command has non-empty command and description
+      for (const cmd of preview.generatedCommands) {
+        expect(cmd.command).toBeDefined();
+        expect(cmd.command.length).toBeGreaterThan(0);
+        expect(cmd.description).toBeDefined();
+        expect(cmd.stage).toBeDefined();
+      }
+    });
+  });
 });
 
 

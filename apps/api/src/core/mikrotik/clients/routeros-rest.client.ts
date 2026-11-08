@@ -110,6 +110,13 @@ export class RouterOsRestClient implements IMikrotikClient {
     }
   }
 
+  private toArray<T>(res: unknown): T[] {
+    if (!res) return [];
+    if (Array.isArray(res)) return res as T[];
+    if (typeof res === 'object' && Object.keys(res).length > 0) return [res as T];
+    return [];
+  }
+
   // ===========================================================================
   // IMikrotikClient Implementation
   // ===========================================================================
@@ -144,11 +151,11 @@ export class RouterOsRestClient implements IMikrotikClient {
   }
 
   async listHotspotProfiles(): Promise<HotspotProfileItem[]> {
-    const list = await this.request<Record<string, string>[]>('/ip/hotspot/user/profile', {
+    const list = await this.request<any>('/ip/hotspot/user/profile', {
       method: 'GET',
     });
 
-    return list.map((item) => ({
+    return this.toArray<Record<string, string>>(list).map((item) => ({
       id: item['.id'],
       name: item['name'],
       rateLimit: item['rate-limit'],
@@ -210,11 +217,11 @@ export class RouterOsRestClient implements IMikrotikClient {
   }
 
   async listHotspotUsers(): Promise<HotspotUserItem[]> {
-    const list = await this.request<Record<string, string>[]>('/ip/hotspot/user', {
+    const list = await this.request<any>('/ip/hotspot/user', {
       method: 'GET',
     });
 
-    return list.map((item) => ({
+    return this.toArray<Record<string, string>>(list).map((item) => ({
       id: item['.id'],
       name: item['name'],
       profile: item['profile'],
@@ -669,9 +676,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listInterfaces(): Promise<RouterInterfaceItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/interface');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/interface');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       name: r['name'] ?? '',
       type: r['type'] ?? 'unknown',
@@ -685,9 +691,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listBridges(): Promise<RouterBridgeItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/interface/bridge');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/interface/bridge');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       name: r['name'] ?? '',
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
@@ -697,9 +702,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listBridgePorts(): Promise<RouterBridgePortItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/interface/bridge/port');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/interface/bridge/port');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       bridge: r['bridge'] ?? '',
       interface: r['interface'] ?? '',
@@ -710,9 +714,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listIpAddresses(): Promise<RouterIpAddressItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/address');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/address');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       address: r['address'] ?? '',
       network: r['network'] ?? '',
@@ -724,9 +727,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listDhcpClients(): Promise<RouterDhcpClientItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/dhcp-client');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/dhcp-client');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       interface: r['interface'] ?? '',
       status: r['status'],
@@ -740,9 +742,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listDhcpServers(): Promise<RouterDhcpServerItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/dhcp-server');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/dhcp-server');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       name: r['name'] ?? '',
       interface: r['interface'] ?? '',
@@ -754,9 +755,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listDhcpLeases(): Promise<RouterDhcpLeaseItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/dhcp-server/lease');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/dhcp-server/lease');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       address: r['active-address'] || r['address'] || '',
       macAddress: r['active-mac-address'] || r['mac-address'] || '',
@@ -775,9 +775,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listArpTable(): Promise<RouterArpItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/arp');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/arp');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       address: r['address'] ?? '',
       macAddress: r['mac-address'] ?? '',
@@ -791,9 +790,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listNeighbors(): Promise<RouterNeighborItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/neighbor');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/neighbor');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       interface: r['interface'],
       address: r['address4'] || r['address'],
@@ -809,9 +807,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listNatRules(): Promise<RouterNatRuleItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/firewall/nat');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/firewall/nat');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       chain: r['chain'] ?? '',
       action: r['action'] ?? '',
@@ -823,9 +820,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listMangleRules(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/firewall/mangle');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/firewall/mangle');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       chain: r['chain'] ?? '',
       action: r['action'] ?? '',
@@ -836,9 +832,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listFilterRules(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/firewall/filter');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/firewall/filter');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       chain: r['chain'] ?? '',
       action: r['action'] ?? '',
@@ -849,9 +844,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listRoutes(): Promise<RouterRouteItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/route');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/route');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       dstAddress: r['dst-address'] ?? '',
       gateway: r['gateway'],
@@ -863,9 +857,8 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async listHotspotServers(): Promise<RouterHotspotServerItem[]> {
     await this.connect();
-    const items = await this.request<any[]>('/ip/hotspot');
-    if (!Array.isArray(items)) return [];
-    return items.map((r) => ({
+    const items = await this.request<any>('/ip/hotspot');
+    return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       name: r['name'] ?? '',
       interface: r['interface'] ?? '',
