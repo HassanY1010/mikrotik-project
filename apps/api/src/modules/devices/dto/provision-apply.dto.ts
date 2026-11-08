@@ -1,15 +1,14 @@
 import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ProvisionPreviewDto } from './provision-preview.dto';
 
 export class ProvisionApplyDto extends ProvisionPreviewDto {
-  @ApiPropertyOptional({
+  @ApiProperty({
     description: 'Explicit confirmation from user when applying Clean Setup on an in-use router',
-    default: false,
+    example: true,
   })
   @IsBoolean()
-  @IsOptional()
-  declare cleanSetupConfirmed?: boolean;
+  declare cleanSetupConfirmed: boolean;
 
   @ApiPropertyOptional({
     description: 'Explicitly allow overwriting or adapting detected conflicting configurations',

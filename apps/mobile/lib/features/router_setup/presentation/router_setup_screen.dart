@@ -789,9 +789,6 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     );
 
     if (confirmed == true) {
-      if (_preview!.requiresCleanConfirmation) {
-        _cleanSetupConfirmed = true;
-      }
       if (_preview!.conflicts.isNotEmpty) {
         _allowOverwrite = true;
       }
@@ -2661,49 +2658,114 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             const SizedBox(height: 14),
           ],
 
-          // Clean Setup In-use warning
-          if (_preview!.requiresCleanConfirmation) ...[
+          // Red error card when preview is empty or cannot proceed
+          if (!_preview!.canProceed || _preview!.plannedSteps.isEmpty || _preview!.generatedCommands.isEmpty) ...[
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.12),
+                color: Colors.red.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.orangeAccent),
+                border: Border.all(color: Colors.redAccent, width: 1.5),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: const Row(
                 children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        'تأكيد إعداد الراوتر النشط (Clean Setup Required):',
-                        style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 13),
+                  Icon(Icons.error_outline, color: Colors.redAccent, size: 24),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'تعذر قراءة إعدادات الراوتر - لا يمكن المتابعة',
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'الراوتر يحتوي على إعدادات سابقة قيد الاستخدام. اختيار Clean Setup سيقوم بإعادة تشكيل البنية التحتية لشبكة المشتركين.',
-                    style: TextStyle(color: context.textSecondary, fontSize: 11),
-                  ),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      'أوافق صراحةً على إعادة برمجة الراوتر وفق القالب الجديد',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary),
                     ),
-                    value: _cleanSetupConfirmed,
-                    activeThumbColor: Colors.orangeAccent,
-                    onChanged: (v) => setState(() => _cleanSetupConfirmed = v),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 14),
           ],
+
+          // Clean Setup In-use confirmation Checkbox
+          Builder(builder: (context) {
+            final isProgrammedRouter = (_discovery?.bridges.isNotEmpty ?? false) ||
+                (_discovery?.hotspotServers.isNotEmpty ?? false) ||
+                (_discovery?.ipAddresses.length ?? 0) > 1;
+            final needsConfirmation = _preview!.requiresCleanConfirmation ||
+                (_selectedTemplate == 'CLEAN_SETUP' && isProgrammedRouter);
+
+            if (!needsConfirmation) return const SizedBox.shrink();
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: _cleanSetupConfirmed
+                        ? Colors.green.withValues(alpha: 0.1)
+                        : Colors.orange.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _cleanSetupConfirmed ? Colors.green : Colors.orangeAccent,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'تأكيد إعداد الراوتر النشط (Clean Setup Required):',
+                            style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'الراوتر يحتوي على إعدادات سابقة قيد الاستخدام. اختيار Clean Setup سيقوم بإعادة تشكيل البنية التحتية لشبكة المشتركين.',
+                        style: TextStyle(color: context.textSecondary, fontSize: 11),
+                      ),
+                      const SizedBox(height: 10),
+                      InkWell(
+                        onTap: () => setState(() => _cleanSetupConfirmed = !_cleanSetupConfirmed),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Checkbox(
+                                value: _cleanSetupConfirmed,
+                                activeColor: AppTheme.primary,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                onChanged: (v) => setState(() => _cleanSetupConfirmed = v ?? false),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'أوافق على مسح إعدادات الراوتر الحالي وتطبيق إعداد جديد (Clean Setup)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: context.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+            );
+          }),
 
           // Security Policies Report Card
           if (_preview!.securityPoliciesReport.isNotEmpty)
@@ -3636,7 +3698,26 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       return _selectedWanInterface != null && _selectedLanInterfaces.isNotEmpty;
     }
     if (_currentStep == 4) {
-      return _preview != null && !_isPreviewing;
+      // Step 5: Preview
+      if (_preview == null || _isPreviewing) return false;
+
+      // Rule 1: If preview failed, commands are empty, or plannedSteps is 0 => CANNOT advance!
+      if (!_preview!.canProceed || _preview!.plannedSteps.isEmpty || _preview!.generatedCommands.isEmpty) {
+        return false;
+      }
+
+      // Rule 2: Clean Setup Checkbox MUST be checked on in-use / programmed router!
+      final isProgrammedRouter = (_discovery?.bridges.isNotEmpty ?? false) ||
+          (_discovery?.hotspotServers.isNotEmpty ?? false) ||
+          (_discovery?.ipAddresses.length ?? 0) > 1;
+      final needsConfirmation = _preview!.requiresCleanConfirmation ||
+          (_selectedTemplate == 'CLEAN_SETUP' && isProgrammedRouter);
+
+      if (needsConfirmation && !_cleanSetupConfirmed) {
+        return false;
+      }
+
+      return true;
     }
     return true;
   }
@@ -3661,6 +3742,30 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     } else if (_currentStep == 4) {
       if (_preview == null) {
         _handleGeneratePreview();
+        return;
+      }
+      if (!_preview!.canProceed || _preview!.plannedSteps.isEmpty || _preview!.generatedCommands.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تعذر قراءة إعدادات الراوتر - لا يمكن المتابعة'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        return;
+      }
+      final isProgrammedRouter = (_discovery?.bridges.isNotEmpty ?? false) ||
+          (_discovery?.hotspotServers.isNotEmpty ?? false) ||
+          (_discovery?.ipAddresses.length ?? 0) > 1;
+      final needsConfirmation = _preview!.requiresCleanConfirmation ||
+          (_selectedTemplate == 'CLEAN_SETUP' && isProgrammedRouter);
+
+      if (needsConfirmation && !_cleanSetupConfirmed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('يجب تأشير الموافقة على مسح إعدادات الراوتر الحالي وتطبيق إعداد جديد (Clean Setup)'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
         return;
       }
       setState(() => _currentStep = 5);

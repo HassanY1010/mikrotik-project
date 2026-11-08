@@ -366,8 +366,15 @@ export class DevicesController {
             suggestedAction: 'يمكنك المحاولة مرة أخرى أو فحص حالة الراوتر مباشرة.',
           },
         ],
-        conflicts: [],
-        canProceed: true,
+        conflicts: [
+          {
+            resource: 'CONTROLLER_PREVIEW_REJECTED',
+            existingValue: 'فشل استعلام الراوتر',
+            proposedValue: 'معاينة الإعدادات',
+            details: `Preview فارغ لراوتر مبرمج - تم رفض المعاينة (${error.message}).`,
+          },
+        ],
+        canProceed: false,
         requiresCleanConfirmation: dto.template === 'CLEAN_SETUP',
         backupRecommended: true,
       };

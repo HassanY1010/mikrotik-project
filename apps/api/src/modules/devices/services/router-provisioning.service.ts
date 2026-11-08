@@ -535,13 +535,36 @@ export class RouterProvisioningService {
         command: this.sanitizeCommandForDisplay(c.command || ''),
       }));
 
+      // Check if router has existing data (programmed / in-use router)
+      const hasProgrammedData =
+        (discovery.bridges?.length ?? 0) > 0 ||
+        (discovery.hotspotServers?.length ?? 0) > 0 ||
+        (discovery.dhcpServers?.length ?? 0) > 0 ||
+        (discovery.ipAddresses?.length ?? 0) > 1;
+
+      // Rule 1: If router has existing data and commands count is 0 => Reject preview!
+      if (hasProgrammedData && sanitizedCommands.length === 0) {
+        conflicts.push({
+          resource: 'EMPTY_PREVIEW_REJECTED',
+          existingValue: 'الراوتر مبرمج مسبقاً ويحتوي على بيانات قديمة',
+          proposedValue: 'توليد أوامر إعداد واضحة وقابلة للتطبيق',
+          details: 'Preview فارغ لراوتر مبرمج - تم رفض المعاينة.',
+        });
+        warnings.push({
+          type: 'EMPTY_PREVIEW_REJECTED',
+          severity: 'CRITICAL',
+          message: 'Preview فارغ لراوتر مبرمج - تم رفض المعاينة',
+          suggestedAction: 'أعد فحص المعاينة وتأكد من صحة بيانات المنافذ والشبكة المختارة.',
+        });
+      }
+
       const hasCriticalConflicts = conflicts.length > 0;
-      const canProceed = !hasCriticalConflicts;
+      const canProceed = !hasCriticalConflicts && sanitizedCommands.length > 0 && plannedSteps.length > 0;
 
       const totalDuration = Date.now() - previewStartTime;
       this.logger.log(
         `[Preview Complete] Router "${device.name}" (${device.host}) finished in ${totalDuration}ms: ` +
-          `${sanitizedCommands.length} commands, ${conflicts.length} conflicts, ${warnings.length} warnings (RequiresCleanConfirmation: ${requiresCleanConfirmation})`,
+          `${sanitizedCommands.length} commands, ${conflicts.length} conflicts, ${warnings.length} warnings (RequiresCleanConfirmation: ${requiresCleanConfirmation}, CanProceed: ${canProceed})`,
       );
 
       return {
@@ -564,39 +587,31 @@ export class RouterProvisioningService {
         error.stack,
       );
 
-      // Return a safe degraded preview response instead of HTTP 500
-      const safeBridgeName = dto.lan?.bridgeName || 'bridge-hotspot';
-      const safeGateway = dto.lan?.gatewayIp || '10.5.50.1/24';
-      const safeFallbackCommands: GeneratedCommandItem[] = [
-        {
-          stage: 'BRIDGE_SETUP',
-          command: `/interface/bridge/add =name=${safeBridgeName} =comment=SudaFi Hotspot Bridge`,
-          description: `إنشاء جسر موحد لمنافذ المشتركين (${safeBridgeName})`,
-        },
-        {
-          stage: 'LAN_IP',
-          command: `/ip/address/add =address=${safeGateway} =interface=${safeBridgeName} =comment=SudaFi Hotspot Gateway`,
-          description: `تعيين عنوان بوابة الهوتسبوت (${safeGateway}) على الجسر`,
-        },
-      ];
-
+      // Return a safe degraded preview response instead of HTTP 500, with canProceed: false
       return {
         template: dto.template || 'CLEAN_SETUP',
         routerVersion: device?.rosVersion || 'V7',
         discovery: this.normalizeSnapshot(undefined),
-        plannedSteps: this.buildPlannedSteps(dto),
+        plannedSteps: [],
         securityPoliciesReport: [],
-        generatedCommands: safeFallbackCommands,
+        generatedCommands: [],
         warnings: [
           {
-            type: 'PREVIEW_DEGRADED_MODE',
-            severity: 'WARNING',
-            message: `تم توليد المعاينة بنمط الأمان المباشر نظراً لوجود بيانات قديمة غير متوافقة في الراوتر (${error.message}).`,
-            suggestedAction: 'يمكنك مراجعة الأوامر المقترحة أو المتابعة بالتنفيذ.',
+            type: 'PREVIEW_GENERATION_FAILED',
+            severity: 'CRITICAL',
+            message: `تعذر توليد المعاينة بنجاح بسبب خطأ في قراءة بيانات الراوتر (${error.message}).`,
+            suggestedAction: 'أعد فحص المعاينة للتأكد من استقرار اتصال الراوتر.',
           },
         ],
-        conflicts: [],
-        canProceed: true,
+        conflicts: [
+          {
+            resource: 'PREVIEW_FAILED',
+            existingValue: 'بيانات غير متوافقة في الراوتر',
+            proposedValue: 'توليد المعاينة',
+            details: `Preview فارغ لراوتر مبرمج - تم رفض المعاينة (${error.message}).`,
+          },
+        ],
+        canProceed: false,
         requiresCleanConfirmation: dto.template === 'CLEAN_SETUP',
         backupRecommended: true,
       };
@@ -626,7 +641,7 @@ export class RouterProvisioningService {
       const previewRes = await this.preview(tenantId, deviceId, dto);
 
     // Enforce safety validations
-    if (previewRes.requiresCleanConfirmation && !dto.cleanSetupConfirmed) {
+    if (previewRes.requiresCleanConfirmation && dto.cleanSetupConfirmed !== true) {
       throw new ConflictException({
         code: 'CLEAN_CONFIRMATION_REQUIRED',
         message:

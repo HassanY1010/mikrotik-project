@@ -625,6 +625,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       const applyDto: ProvisionApplyDto = {
         template: 'CUSTOM',
+        cleanSetupConfirmed: true,
         wan: { interface: 'ether1', mode: 'DHCP' },
         lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether3'], gatewayIp: '10.5.50.1/24' },
         securityPolicies: {
@@ -646,6 +647,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       const applyDto: ProvisionApplyDto = {
         template: 'CUSTOM',
+        cleanSetupConfirmed: true,
         wan: { interface: 'ether1', mode: 'DHCP' },
         lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether3'], gatewayIp: '10.5.50.1/24' },
         securityPolicies: {
@@ -763,6 +765,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       const applyDto: ProvisionApplyDto = {
         template: 'CUSTOM',
+        cleanSetupConfirmed: true,
         wan: { interface: 'ether1', mode: 'DHCP' },
         lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether3'], gatewayIp: '10.5.50.1/24' },
         securityPolicies: {
@@ -937,6 +940,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       const applyDto: ProvisionApplyDto = {
         template: 'CUSTOM',
+        cleanSetupConfirmed: true,
         wan: { interface: 'ether1', mode: 'DHCP' },
         lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether3'], gatewayIp: '10.5.50.1/24' },
         hotspot: {
@@ -971,6 +975,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       const applyDto: ProvisionApplyDto = {
         template: 'CUSTOM',
+        cleanSetupConfirmed: true,
         wan: { interface: 'ether1', mode: 'DHCP' },
         lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether3'], gatewayIp: '10.5.50.1/24' },
         hotspot: {
@@ -997,6 +1002,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       const applyDto: ProvisionApplyDto = {
         template: 'CUSTOM',
+        cleanSetupConfirmed: true,
         wan: { interface: 'ether1', mode: 'DHCP' },
         lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether3'], gatewayIp: '10.5.50.1/24' },
       };
@@ -1019,6 +1025,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       const applyDto: ProvisionApplyDto = {
         template: 'CUSTOM',
+        cleanSetupConfirmed: true,
         wan: { interface: 'ether1', mode: 'DHCP' },
         lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether3'], gatewayIp: '10.5.50.1/24' },
         hotspot: {
@@ -1100,6 +1107,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       const applyDto: ProvisionApplyDto = {
         template: 'CUSTOM',
+        cleanSetupConfirmed: true,
         wan: { interface: 'ether1', mode: 'DHCP' },
         lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether3'], gatewayIp: '10.5.50.1/24' },
         securityPolicies: {
@@ -1134,6 +1142,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       const applyDto: ProvisionApplyDto = {
         template: 'CUSTOM',
+        cleanSetupConfirmed: true,
         wan: { interface: 'ether1', mode: 'DHCP' },
         lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether3'], gatewayIp: '10.5.50.1/24' },
         hotspot: {
