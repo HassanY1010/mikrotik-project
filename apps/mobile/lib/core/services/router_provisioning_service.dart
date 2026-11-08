@@ -45,6 +45,10 @@ class RouterProvisioningService {
       final res = await _apiClient.post(
         ApiEndpoints.deviceProvisionPreview(deviceId),
         data: payload,
+        options: Options(
+          sendTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(seconds: 60),
+        ),
       );
       final raw = res.data;
       if (raw is Map<String, dynamic>) {
@@ -65,6 +69,10 @@ class RouterProvisioningService {
       final res = await _apiClient.post(
         ApiEndpoints.deviceProvisionApply(deviceId),
         data: payload,
+        options: Options(
+          sendTimeout: const Duration(seconds: 90),
+          receiveTimeout: const Duration(seconds: 90),
+        ),
       );
       final raw = res.data;
       if (raw is Map<String, dynamic>) {
@@ -103,7 +111,11 @@ class RouterProvisioningService {
       } else if (e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.receiveTimeout ||
           e.type == DioExceptionType.sendTimeout) {
-        return Exception('انتهت مهلة الاتصال بالخادم. تحقق من اتصال الإنترنت ثم أعد المحاولة.');
+        return Exception(
+          'استغرق فحص المعاينة وقتاً أطول من المتوقع (انتهت المهلة). '
+          'إذا كان الراوتر مبرمجاً مسبقاً ويحتوي على جداول شبكية كبيرة، '
+          'يرجى الضغط على "إعادة فحص المعاينة" لإعادة المحاولة.',
+        );
       } else if (serverMessage.isNotEmpty) {
         return Exception(serverMessage);
       }

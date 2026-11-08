@@ -646,7 +646,13 @@ export class DevicesService {
       ) {
         stage = 'PORT';
         code = 'REST_API_UNREACHABLE';
-        message = `تعذر الوصول لواجهة REST بالراوتر (${host}${targetPort ? `:${targetPort}` : ''}). إذا كانت خدمة SSL غير مفعّلة في الراوتر، يرجى تعطيل خيار SSL واستخدام المنفذ 80 الافتراضي.`;
+        if (isPrivateIp) {
+          message = `تعذر الوصول لواجهة الراوتر (${host}${targetPort ? `:${targetPort}` : ''}). العنوان محلي (LAN)؛ تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة أو جرب منفذ API (8728).`;
+        } else if (dto.useSsl) {
+          message = `تعذر الوصول لواجهة REST بالراوتر (${host}:443). خدمة SSL قد تكون معطلة في الراوتر، يرجى تعطيل خيار SSL واستخدام المنفذ 80 الافتراضي.`;
+        } else {
+          message = `تعذر الوصول لواجهة REST بالراوتر (${host}${targetPort ? `:${targetPort}` : ''}). إذا كان منفذ الويب مغلقاً في الراوتر، جرب التبديل إلى منفذ API (8728) عبر خيار RouterOS v6.`;
+        }
       }
 
       if (targetDevice) {

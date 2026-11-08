@@ -97,7 +97,22 @@ export class RouterProvisioningService {
   /**
    * Discovers the current network state of the router
    */
-  async discover(tenantId: string, deviceId: string): Promise<RouterDiscoverySnapshot> {
+  async discover(
+    tenantId: string,
+    deviceId: string,
+    options?: { forceRefresh?: boolean },
+  ): Promise<RouterDiscoverySnapshot> {
+    const cacheKey = `${tenantId}:${deviceId}`;
+    if (!options?.forceRefresh) {
+      const cached = this.discoveryCache.get(cacheKey);
+      if (cached && Date.now() - cached.cachedAt < 30 * 60 * 1000) {
+        this.logger.log(
+          `[Discovery Cache Hit] Using cached snapshot for device ${deviceId} (Age: ${Math.round((Date.now() - cached.cachedAt) / 1000)}s, Interfaces: ${cached.snapshot.interfaces?.length ?? 0})`,
+        );
+        return cached.snapshot;
+      }
+    }
+
     const device = await this.getValidDevice(tenantId, deviceId);
 
     let client: IMikrotikClient;
@@ -105,7 +120,7 @@ export class RouterProvisioningService {
       client = await this.getConnectedClient(device);
     } catch (err: unknown) {
       // Check if we have a valid cached snapshot (e.g. from local discovery)
-      const cached = this.discoveryCache.get(`${tenantId}:${deviceId}`);
+      const cached = this.discoveryCache.get(cacheKey);
       if (cached && Date.now() - cached.cachedAt < 30 * 60 * 1000) {
         this.logger.log(
           `Router direct connection failed, returning cached discovery snapshot for device ${deviceId}`,
@@ -124,6 +139,18 @@ export class RouterProvisioningService {
     }
 
     try {
+      const safeQuery = async <T>(fn?: () => Promise<T>, fallback: T = [] as unknown as T, timeoutMs = 4000): Promise<T> => {
+        if (!fn) return fallback;
+        try {
+          return await Promise.race([
+            fn(),
+            new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Query timeout')), timeoutMs)),
+          ]);
+        } catch (_) {
+          return fallback;
+        }
+      };
+
       const [
         resource,
         interfaces,
@@ -139,27 +166,31 @@ export class RouterProvisioningService {
         filterRules,
         hotspotUserProfiles,
       ] = await Promise.all([
-        client.getSystemResource().catch(() => ({
-          uptime: '0s',
-          version: device.rosVersion || 'unknown',
-          cpuLoad: 0,
-          freeMemory: 0,
-          totalMemory: 0,
-          freeHdd: 0,
-          totalHdd: 0,
-        } as RouterResource)),
-        client.listInterfaces ? client.listInterfaces().catch(() => []) : Promise.resolve([]),
-        client.listBridges ? client.listBridges().catch(() => []) : Promise.resolve([]),
-        client.listBridgePorts ? client.listBridgePorts().catch(() => []) : Promise.resolve([]),
-        client.listIpAddresses ? client.listIpAddresses().catch(() => []) : Promise.resolve([]),
-        client.listDhcpClients ? client.listDhcpClients().catch(() => []) : Promise.resolve([]),
-        client.listDhcpServers ? client.listDhcpServers().catch(() => []) : Promise.resolve([]),
-        client.listNatRules ? client.listNatRules().catch(() => []) : Promise.resolve([]),
-        client.listRoutes ? client.listRoutes().catch(() => []) : Promise.resolve([]),
-        client.listHotspotServers ? client.listHotspotServers().catch(() => []) : Promise.resolve([]),
-        client.listMangleRules ? client.listMangleRules().catch(() => []) : Promise.resolve([]),
-        client.listFilterRules ? client.listFilterRules().catch(() => []) : Promise.resolve([]),
-        client.listHotspotProfiles ? client.listHotspotProfiles().catch(() => []) : Promise.resolve([]),
+        safeQuery(
+          () => client.getSystemResource(),
+          {
+            uptime: '0s',
+            version: device.rosVersion || 'unknown',
+            cpuLoad: 0,
+            freeMemory: 0,
+            totalMemory: 0,
+            freeHdd: 0,
+            totalHdd: 0,
+          } as RouterResource,
+          4000,
+        ),
+        safeQuery(() => (client.listInterfaces ? client.listInterfaces() : Promise.resolve([])), []),
+        safeQuery(() => (client.listBridges ? client.listBridges() : Promise.resolve([])), []),
+        safeQuery(() => (client.listBridgePorts ? client.listBridgePorts() : Promise.resolve([])), []),
+        safeQuery(() => (client.listIpAddresses ? client.listIpAddresses() : Promise.resolve([])), []),
+        safeQuery(() => (client.listDhcpClients ? client.listDhcpClients() : Promise.resolve([])), []),
+        safeQuery(() => (client.listDhcpServers ? client.listDhcpServers() : Promise.resolve([])), []),
+        safeQuery(() => (client.listNatRules ? client.listNatRules() : Promise.resolve([])), []),
+        safeQuery(() => (client.listRoutes ? client.listRoutes() : Promise.resolve([])), []),
+        safeQuery(() => (client.listHotspotServers ? client.listHotspotServers() : Promise.resolve([])), []),
+        safeQuery(() => (client.listMangleRules ? client.listMangleRules() : Promise.resolve([])), []),
+        safeQuery(() => (client.listFilterRules ? client.listFilterRules() : Promise.resolve([])), []),
+        safeQuery(() => (client.listHotspotProfiles ? client.listHotspotProfiles() : Promise.resolve([])), []),
       ]);
 
       const snapshot: RouterDiscoverySnapshot = {
@@ -179,7 +210,7 @@ export class RouterProvisioningService {
       };
 
       // Cache snapshot for future steps
-      this.discoveryCache.set(`${tenantId}:${deviceId}`, {
+      this.discoveryCache.set(cacheKey, {
         snapshot,
         cachedAt: Date.now(),
       });
@@ -202,8 +233,16 @@ export class RouterProvisioningService {
     deviceId: string,
     dto: ProvisionPreviewDto,
   ): Promise<ProvisioningPreviewResponse> {
+    const previewStartTime = Date.now();
     const device = await this.getValidDevice(tenantId, deviceId);
-    const discovery = await this.discover(tenantId, deviceId);
+    this.logger.log(`[Preview Start] Generating preview for router "${device.name}" (${device.host}) [ID: ${deviceId}]`);
+
+    const discoveryStartTime = Date.now();
+    const discovery = await this.discover(tenantId, deviceId, { forceRefresh: false });
+    const discoveryDuration = Date.now() - discoveryStartTime;
+    this.logger.log(
+      `[Preview Discovery] Retrieved router state in ${discoveryDuration}ms (Interfaces: ${discovery.interfaces?.length ?? 0}, Bridges: ${discovery.bridges?.length ?? 0}, IPs: ${discovery.ipAddresses?.length ?? 0})`,
+    );
 
     const conflicts: ProvisioningConflict[] = [];
     const warnings: ProvisioningWarning[] = [];
@@ -389,6 +428,12 @@ export class RouterProvisioningService {
 
     const hasCriticalConflicts = conflicts.length > 0;
     const canProceed = !hasCriticalConflicts;
+
+    const totalDuration = Date.now() - previewStartTime;
+    this.logger.log(
+      `[Preview Complete] Router "${device.name}" (${device.host}) finished in ${totalDuration}ms: ` +
+        `${sanitizedCommands.length} commands, ${conflicts.length} conflicts, ${warnings.length} warnings (RequiresCleanConfirmation: ${requiresCleanConfirmation})`,
+    );
 
     return {
       template: dto.template,

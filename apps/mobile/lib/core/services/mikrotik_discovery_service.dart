@@ -287,7 +287,7 @@ class MikrotikDiscoveryService {
     required String username,
     required String password,
     int apiPort = 8728,
-    int restPort = 443,
+    int restPort = 80,
     String rosVersion = 'V7',
     bool useSsl = false,
   }) async {
@@ -297,18 +297,18 @@ class MikrotikDiscoveryService {
     // Strategy A: If RouterOS v7 or REST available, test via /rest/system/resource
     try {
       httpClient = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 4)
+        ..connectionTimeout = const Duration(seconds: 3)
         ..badCertificateCallback = (cert, host, port) => true;
 
       final port = useSsl ? 443 : (restPort == 443 ? 80 : restPort);
       final scheme = useSsl ? 'https' : 'http';
       final uri = Uri.parse('$scheme://$host:$port/rest/system/resource');
 
-      final request = await httpClient.getUrl(uri).timeout(const Duration(seconds: 4));
+      final request = await httpClient.getUrl(uri).timeout(const Duration(seconds: 3));
       final authStr = base64Encode(utf8.encode('$username:$password'));
       request.headers.set('Authorization', 'Basic $authStr');
 
-      final response = await request.close().timeout(const Duration(seconds: 4));
+      final response = await request.close().timeout(const Duration(seconds: 3));
       final latency = DateTime.now().difference(start).inMilliseconds;
 
       if (response.statusCode == 200) {
@@ -370,7 +370,7 @@ class MikrotikDiscoveryService {
         'success': false,
         'stage': 'NETWORK',
         'code': 'CONNECTION_FAILED',
-        'message': 'تعذر الاتصال بالراوتر محلياً عبر العنوان ($host): $e',
+        'message': 'تعذر الاتصال بالراوتر محلياً عبر العنوان ($host): تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة (وليس بيانات الهاتف).',
       };
     }
   }

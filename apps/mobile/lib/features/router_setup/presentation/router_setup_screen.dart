@@ -316,6 +316,81 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     final resolvedApiPort = int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728);
     final resolvedRestPort = int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80);
 
+    final isPrivateIp = host.startsWith('192.168.') ||
+        host.startsWith('10.') ||
+        host.startsWith('172.16.') ||
+        host.startsWith('172.17.') ||
+        host.startsWith('172.18.') ||
+        host.startsWith('172.19.') ||
+        host.startsWith('172.2') ||
+        host.startsWith('172.3');
+
+    // 1. Local-First Check for Private LAN IPs:
+    // If router is on private LAN (e.g. 192.168.88.1), test from phone over Wi-Fi FIRST
+    // so user gets an instant response (<300ms) without waiting 8s for cloud timeout!
+    if (isPrivateIp) {
+      try {
+        final localRes = await ref.read(mikrotikDiscoveryServiceProvider).verifyCredentialsLocally(
+          host: host,
+          username: user,
+          password: pass,
+          apiPort: resolvedApiPort,
+          restPort: resolvedRestPort,
+          rosVersion: _rosVersion,
+          useSsl: _useSsl,
+        );
+
+        if (!mounted) return;
+
+        if (localRes['success'] == true) {
+          final latency = localRes['latencyMs'] as int?;
+          final info = localRes['routerInfo'] as Map<String, dynamic>?;
+          final isSocket = info?['protocol']?.toString().contains('Socket') == true;
+
+          setState(() {
+            _isTesting = false;
+            _testSuccess = true;
+            _testResult = isSocket
+                ? 'تم التحقق من إمكانية الوصول للراوتر محلياً عبر منفذ API ($resolvedApiPort) بنجاح.'
+                : (localRes['message']?.toString() ?? 'تم الاتصال والمصادقة محلياً من الهاتف بنجاح');
+            _latencyMs = latency;
+            _routerMetrics = info;
+            if (isSocket && _rosVersion == 'V7') {
+              _rosVersion = 'V6';
+            }
+          });
+
+          if (_selectedDeviceId == null) {
+            await _handleSaveNewDeviceSilently();
+          }
+          return;
+        } else if (localRes['code'] == 'INVALID_CREDENTIALS') {
+          setState(() {
+            _isTesting = false;
+            _testSuccess = false;
+            _testResult = localRes['message']?.toString() ?? 'بيانات تسجيل الدخول غير صحيحة (اسم المستخدم أو كلمة المرور خطأ في الراوتر)';
+          });
+          return;
+        }
+
+        // If local attempt failed to connect over Wi-Fi
+        setState(() {
+          _isTesting = false;
+          _testSuccess = false;
+          _testResult = 'تعذر الوصول للراوتر ($host). تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة (وليس بيانات الهاتف)، أو جرب التبديل إلى خيار RouterOS v6 (Socket) ومنفذ 8728.';
+        });
+        return;
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _isTesting = false;
+          _testSuccess = false;
+          _testResult = 'تعذر الاتصال بالراوتر محلياً ($host): تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة.';
+        });
+        return;
+      }
+    }
+
     final payload = {
       if (_selectedDeviceId != null) 'id': _selectedDeviceId,
       'host': host,
@@ -337,43 +412,6 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       int? latency = result['latencyMs'] is num ? (result['latencyMs'] as num).toInt() : null;
       Map<String, dynamic>? info = result['routerInfo'] as Map<String, dynamic>?;
 
-      // Fallback: If Backend times out on a private LAN IP (e.g. 192.168.88.1)
-      // because Render is in the cloud, test directly from the phone over local Wi-Fi!
-      final isPrivateIp = host.startsWith('192.168.') ||
-          host.startsWith('10.') ||
-          host.startsWith('172.16.') ||
-          host.startsWith('172.17.') ||
-          host.startsWith('172.18.') ||
-          host.startsWith('172.19.') ||
-          host.startsWith('172.2') ||
-          host.startsWith('172.3');
-
-      if (!isOk && isPrivateIp) {
-        final localRes = await ref.read(mikrotikDiscoveryServiceProvider).verifyCredentialsLocally(
-          host: host,
-          username: user,
-          password: pass,
-          apiPort: resolvedApiPort,
-          restPort: resolvedRestPort,
-          rosVersion: _rosVersion,
-          useSsl: _useSsl,
-        );
-
-        if (localRes['success'] == true) {
-          isOk = true;
-          msg = localRes['message']?.toString() ?? 'تم الاتصال والمصادقة محلياً من الهاتف بنجاح';
-          latency = localRes['latencyMs'] as int?;
-          info = localRes['routerInfo'] as Map<String, dynamic>?;
-        } else if (localRes['code'] == 'INVALID_CREDENTIALS') {
-          msg = localRes['message']?.toString() ?? 'بيانات تسجيل الدخول غير صحيحة';
-        }
-      }
-
-      // Friendly Arabic message for REST API reachability issues
-      if (!isOk && msg.toLowerCase().contains('failed to reach mikrotik rest api')) {
-        msg = 'تعذر الوصول لواجهة REST بالراوتر ($host:$resolvedRestPort). إذا كان SSL غير مفعّل في الراوتر، عطّل خيار SSL واستخدم المنفذ 80 الافتراضي.';
-      }
-
       setState(() {
         _isTesting = false;
         _testSuccess = isOk;
@@ -388,14 +426,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      String errStr = e.toString().replaceFirst('Exception: ', '');
-      if (errStr.toLowerCase().contains('failed to reach mikrotik rest api')) {
-        errStr = 'تعذر الوصول لواجهة REST بالراوتر ($host:$resolvedRestPort). إذا كان SSL غير مفعّل في الراوتر، عطّل خيار SSL واستخدم المنفذ 80 الافتراضي.';
-      }
       setState(() {
         _isTesting = false;
         _testSuccess = false;
-        _testResult = 'فشل الاتصال بالراوتر: $errStr';
+        _testResult = 'فشل الاتصال بالراوتر: ${e.toString().replaceFirst('Exception: ', '')}';
       });
     }
   }
@@ -2548,12 +2582,35 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             title: 'فشل توليد المعاينة',
             message: _previewError!,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Center(
-            child: ElevatedButton.icon(
-              onPressed: _handleGeneratePreview,
-              icon: const Icon(Icons.refresh),
-              label: const Text('إعادة فحص المعاينة'),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _isPreviewing ? null : _handleGeneratePreview,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('إعادة فحص المعاينة (مهلة 60 ثانية)'),
+                ),
+                if (_discovery != null && _selectedDeviceId != null)
+                  OutlinedButton.icon(
+                    onPressed: _isPreviewing
+                        ? null
+                        : () async {
+                            try {
+                              final service = ref.read(routerProvisioningServiceProvider);
+                              await service.syncSnapshot(_selectedDeviceId!, _discovery!);
+                              _handleGeneratePreview();
+                            } catch (_) {
+                              _handleGeneratePreview();
+                            }
+                          },
+                    icon: const Icon(Icons.flash_on, color: AppTheme.primary, size: 16),
+                    label: const Text('المعاينة السريعة من الكاش'),
+                  ),
+              ],
             ),
           ),
         ] else if (_preview != null) ...[
