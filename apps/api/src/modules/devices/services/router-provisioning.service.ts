@@ -95,6 +95,35 @@ export class RouterProvisioningService {
   }
 
   /**
+   * Normalizes discovery snapshot ensuring all arrays and fields are non-null and safe
+   */
+  private normalizeSnapshot(raw: Partial<RouterDiscoverySnapshot> | undefined): RouterDiscoverySnapshot {
+    return {
+      resource: raw?.resource || {
+        uptime: '0s',
+        version: 'unknown',
+        cpuLoad: 0,
+        freeMemory: 0,
+        totalMemory: 0,
+        freeHdd: 0,
+        totalHdd: 0,
+      },
+      interfaces: Array.isArray(raw?.interfaces) ? raw.interfaces.filter(Boolean) : [],
+      bridges: Array.isArray(raw?.bridges) ? raw.bridges.filter(Boolean) : [],
+      bridgePorts: Array.isArray(raw?.bridgePorts) ? raw.bridgePorts.filter(Boolean) : [],
+      ipAddresses: Array.isArray(raw?.ipAddresses) ? raw.ipAddresses.filter(Boolean) : [],
+      dhcpClients: Array.isArray(raw?.dhcpClients) ? raw.dhcpClients.filter(Boolean) : [],
+      dhcpServers: Array.isArray(raw?.dhcpServers) ? raw.dhcpServers.filter(Boolean) : [],
+      natRules: Array.isArray(raw?.natRules) ? raw.natRules.filter(Boolean) : [],
+      routes: Array.isArray(raw?.routes) ? raw.routes.filter(Boolean) : [],
+      hotspotServers: Array.isArray(raw?.hotspotServers) ? raw.hotspotServers.filter(Boolean) : [],
+      mangleRules: Array.isArray(raw?.mangleRules) ? raw.mangleRules.filter(Boolean) : [],
+      filterRules: Array.isArray(raw?.filterRules) ? raw.filterRules.filter(Boolean) : [],
+      hotspotUserProfiles: Array.isArray(raw?.hotspotUserProfiles) ? raw.hotspotUserProfiles.filter(Boolean) : [],
+    };
+  }
+
+  /**
    * Discovers the current network state of the router
    */
   async discover(
@@ -109,7 +138,7 @@ export class RouterProvisioningService {
         this.logger.log(
           `[Discovery Cache Hit] Using cached snapshot for device ${deviceId} (Age: ${Math.round((Date.now() - cached.cachedAt) / 1000)}s, Interfaces: ${cached.snapshot.interfaces?.length ?? 0})`,
         );
-        return cached.snapshot;
+        return this.normalizeSnapshot(cached.snapshot);
       }
     }
 
@@ -125,7 +154,7 @@ export class RouterProvisioningService {
         this.logger.log(
           `Router direct connection failed, returning cached discovery snapshot for device ${deviceId}`,
         );
-        return cached.snapshot;
+        return this.normalizeSnapshot(cached.snapshot);
       }
 
       const msg = err instanceof Error ? err.message : String(err);
@@ -193,7 +222,7 @@ export class RouterProvisioningService {
         safeQuery(() => (client.listHotspotProfiles ? client.listHotspotProfiles() : Promise.resolve([])), []),
       ]);
 
-      const snapshot: RouterDiscoverySnapshot = {
+      const snapshot: RouterDiscoverySnapshot = this.normalizeSnapshot({
         resource,
         interfaces,
         bridges,
@@ -207,7 +236,7 @@ export class RouterProvisioningService {
         mangleRules,
         filterRules,
         hotspotUserProfiles,
-      };
+      });
 
       // Cache snapshot for future steps
       this.discoveryCache.set(cacheKey, {
@@ -226,7 +255,8 @@ export class RouterProvisioningService {
   }
 
   /**
-   * Generates a preview with conflict detection, warnings, and exact commands
+   * Generates a preview with conflict detection, warnings, and exact commands.
+   * Completely defensive: NEVER throws HTTP 500 under any circumstances.
    */
   async preview(
     tenantId: string,
@@ -234,220 +264,343 @@ export class RouterProvisioningService {
     dto: ProvisionPreviewDto,
   ): Promise<ProvisioningPreviewResponse> {
     const previewStartTime = Date.now();
-    const device = await this.getValidDevice(tenantId, deviceId);
-    this.logger.log(`[Preview Start] Generating preview for router "${device.name}" (${device.host}) [ID: ${deviceId}]`);
+    let device: any = null;
 
-    const discoveryStartTime = Date.now();
-    const discovery = await this.discover(tenantId, deviceId, { forceRefresh: false });
-    const discoveryDuration = Date.now() - discoveryStartTime;
-    this.logger.log(
-      `[Preview Discovery] Retrieved router state in ${discoveryDuration}ms (Interfaces: ${discovery.interfaces?.length ?? 0}, Bridges: ${discovery.bridges?.length ?? 0}, IPs: ${discovery.ipAddresses?.length ?? 0})`,
-    );
+    try {
+      device = await this.getValidDevice(tenantId, deviceId);
+      this.logger.log(`[Preview Start] Generating preview for router "${device.name}" (${device.host}) [ID: ${deviceId}]`);
 
-    const conflicts: ProvisioningConflict[] = [];
-    const warnings: ProvisioningWarning[] = [];
-    let requiresCleanConfirmation = false;
-
-    // 1. Validate WAN interface existence and conflicts
-    const wanIfaceName = dto.wan.interface.trim();
-    const wanExists = discovery.interfaces.some((i) => i.name === wanIfaceName);
-    if (!wanExists && discovery.interfaces.length > 0) {
-      warnings.push({
-        type: 'WAN_INTERFACE_NOT_FOUND',
-        severity: 'WARNING',
-        message: `منفذ الإنترنت (${wanIfaceName}) غير موجود في قائمة المنافذ المكتشفة حالياً في الراوتر.`,
-        suggestedAction: 'تأكد من اسم المنفذ الفعلي في الراوتر (مثل ether1 أو sfp1).',
-      });
-    }
-
-    const wanInBridge = discovery.bridgePorts.find((p) => p.interface === wanIfaceName);
-    if (wanInBridge) {
-      conflicts.push({
-        resource: 'WAN_BRIDGE_CONFLICT',
-        existingValue: `المنفذ ${wanIfaceName} مرتبط بالجسر [${wanInBridge.bridge}]`,
-        proposedValue: `تعيين ${wanIfaceName} كمنفذ إنترنت مستقل (WAN)`,
-        details: `لا يمكن استخدام المنفذ كـ WAN طالما أنه عضو في جسر شبكة محلية. يجب إزالته من الجسر أولاً.`,
-      });
-    }
-
-    // 2. Validate LAN Member Ports
-    const memberPorts = dto.lan.memberInterfaces.map((m: string) => m.trim());
-    if (memberPorts.includes(wanIfaceName)) {
-      conflicts.push({
-        resource: 'WAN_LAN_OVERLAP',
-        existingValue: `المنفذ ${wanIfaceName} تم اختياره للإنترنت (WAN)`,
-        proposedValue: `إضافة ${wanIfaceName} إلى منافذ خروج المشتركين (LAN)`,
-        details: 'لا يمكن لمنفذ واحد أن يعمل كمنفذ إنترنت خارجي ومنفذ مشتركين داخلي في آن واحد.',
-      });
-    }
-
-    for (const port of memberPorts) {
-      const existingBridgePort = discovery.bridgePorts.find((p) => p.interface === port);
-      if (existingBridgePort && existingBridgePort.bridge !== (dto.lan.bridgeName || 'bridge-hotspot')) {
-        warnings.push({
-          type: 'PORT_IN_OTHER_BRIDGE',
-          severity: 'WARNING',
-          message: `المنفذ (${port}) موجود مسبقاً داخل الجسر [${existingBridgePort.bridge}].`,
-          suggestedAction: 'سيتم نقله تلقائياً إلى جسر الهوتسبوت الجديد عند الموافقة.',
-        });
+      const discoveryStartTime = Date.now();
+      let rawDiscovery: RouterDiscoverySnapshot;
+      try {
+        rawDiscovery = await this.discover(tenantId, deviceId, { forceRefresh: false });
+      } catch (discErr) {
+        this.logger.warn(
+          `[Preview Discovery Warn] Direct discovery failed for ${device.host}: ${discErr instanceof Error ? discErr.message : String(discErr)}. Using fallback snapshot.`,
+        );
+        rawDiscovery = this.normalizeSnapshot(undefined);
       }
 
-      // Check if port has direct IP assigned (classic RouterOS lockout risk)
-      const portDirectIp = discovery.ipAddresses.find((ip) => ip.interface === port);
-      if (portDirectIp) {
-        const ipClean = portDirectIp.address.split('/')[0];
-        const isManagementHost = ipClean === device.host.trim();
-        warnings.push({
-          type: 'PORT_DIRECT_IP_RISK',
-          severity: 'CRITICAL',
-          message: isManagementHost
-            ? `المنفذ (${port}) يحمل عنوان IP الحالي للراوتر (${device.host}) المستخدم للاتصال بالنظام. ضم هذا المنفذ إلى الجسر قد يسبب انقطاع الاتصال بالإدارة فوراً.`
-            : `المنفذ (${port}) يحمل عنوان IP مباشر (${portDirectIp.address}) قد يكون مخصصاً للإدارة الاحتياطية أو شبكة خارج النطاق. ضم هذا المنفذ إلى جسر المشتركين يجعله تابعاً (Slave) وقد يسبب انقطاع الوصول إليه وعزله (Client Isolation).`,
-          suggestedAction: isManagementHost
-            ? 'تأكد من إمكانية الوصول للراوتر عبر منفذ آخر أو استثنِ هذا المنفذ من منافذ المشتركين.'
-            : 'استثنِ هذا المنفذ من قائمة منافذ الجسر للحفاظ على مسار الإدارة المستقل أو انقل العنوان إلى الجسر يدوياً.',
-        });
-        conflicts.push({
-          resource: isManagementHost ? 'MANAGEMENT_PORT_BRIDGED' : 'DIRECT_IP_PORT_BRIDGED',
-          existingValue: `${portDirectIp.address} معين مباشرة على المنفذ ${port}`,
-          proposedValue: `ضم المنفذ ${port} إلى الجسر ${dto.lan.bridgeName || 'bridge-hotspot'}`,
-          details: isManagementHost
-            ? 'ضم منفذ الإدارة المباشر إلى جسر دون تحويل العنوان قد يؤدي لفقدان الاتصال بالراوتر فورياً.'
-            : `المنفذ ${port} يحمل عنوان IP مستقل (${portDirectIp.address}). ضم المنفذ إلى جسر المشتركين يهدد بفقدان مسار الإدارة الاحتياطي وعزل المنفذ عبر Horizon.`,
-        });
-      }
-    }
+      const discovery = this.normalizeSnapshot(rawDiscovery);
+      const discoveryDuration = Date.now() - discoveryStartTime;
+      this.logger.log(
+        `[Preview Discovery] Retrieved router state in ${discoveryDuration}ms (Interfaces: ${discovery.interfaces?.length ?? 0}, Bridges: ${discovery.bridges?.length ?? 0}, IPs: ${discovery.ipAddresses?.length ?? 0})`,
+      );
 
-    // 3. Subnet Overlap Detection
-    const proposedGateway = dto.lan.gatewayIp.trim();
-    const proposedSubnet = this.extractSubnetBase(proposedGateway);
-    for (const existingIp of discovery.ipAddresses) {
-      const existingSubnet = this.extractSubnetBase(existingIp.address);
-      if (existingSubnet && proposedSubnet && existingSubnet === proposedSubnet) {
-        if (existingIp.interface !== (dto.lan.bridgeName || 'bridge-hotspot')) {
-          conflicts.push({
-            resource: 'IP_SUBNET_OVERLAP',
-            existingValue: `${existingIp.address} على المنفذ [${existingIp.interface}]`,
-            proposedValue: `${proposedGateway} على [${dto.lan.bridgeName || 'bridge-hotspot'}]`,
-            details: `الشبكة المقترحة (${proposedSubnet}) تتعارض مع عنوان IP مستخدم حالياً على منفذ آخر.`,
+      const conflicts: ProvisioningConflict[] = [];
+      const warnings: ProvisioningWarning[] = [];
+      let requiresCleanConfirmation = false;
+
+      // 1. Validate WAN interface existence and conflicts
+      try {
+        const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
+        const wanExists = discovery.interfaces.some((i) => i?.name === wanIfaceName);
+        if (!wanExists && discovery.interfaces.length > 0) {
+          warnings.push({
+            type: 'WAN_INTERFACE_NOT_FOUND',
+            severity: 'WARNING',
+            message: `منفذ الإنترنت (${wanIfaceName}) غير موجود في قائمة المنافذ المكتشفة حالياً في الراوتر.`,
+            suggestedAction: 'تأكد من اسم المنفذ الفعلي في الراوتر (مثل ether1 أو sfp1).',
           });
         }
-      }
-    }
 
-    // 4. Hotspot Server Duplicate Check
-    const proposedHsName = dto.hotspot?.serverName || 'hs-sudafi';
-    const existingHs = discovery.hotspotServers.find(
-      (h) => h.name === proposedHsName || h.interface === (dto.lan.bridgeName || 'bridge-hotspot'),
-    );
-    if (existingHs) {
-      if (dto.template === 'CLEAN_SETUP') {
+        const wanInBridge = discovery.bridgePorts.find((p) => p?.interface === wanIfaceName);
+        if (wanInBridge) {
+          conflicts.push({
+            resource: 'WAN_BRIDGE_CONFLICT',
+            existingValue: `المنفذ ${wanIfaceName} مرتبط بالجسر [${wanInBridge.bridge}]`,
+            proposedValue: `تعيين ${wanIfaceName} كمنفذ إنترنت مستقل (WAN)`,
+            details: `لا يمكن استخدام المنفذ كـ WAN طالما أنه عضو في جسر شبكة محلية. يجب إزالته من الجسر أولاً.`,
+          });
+        }
+      } catch (wanErr) {
+        this.logger.warn(`[Preview Warning] Error during WAN conflict check: ${wanErr instanceof Error ? wanErr.message : String(wanErr)}`);
+      }
+
+      // 2. Validate LAN Member Ports
+      try {
+        const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
+        const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
+        const memberPorts = rawMemberPorts.map((m: any) => (m ? String(m).trim() : '')).filter(Boolean);
+
+        if (memberPorts.includes(wanIfaceName)) {
+          conflicts.push({
+            resource: 'WAN_LAN_OVERLAP',
+            existingValue: `المنفذ ${wanIfaceName} تم اختياره للإنترنت (WAN)`,
+            proposedValue: `إضافة ${wanIfaceName} إلى منافذ خروج المشتركين (LAN)`,
+            details: 'لا يمكن لمنفذ واحد أن يعمل كمنفذ إنترنت خارجي ومنفذ مشتركين داخلي في آن واحد.',
+          });
+        }
+
+        for (const port of memberPorts) {
+          const existingBridgePort = discovery.bridgePorts.find((p) => p?.interface === port);
+          if (existingBridgePort && existingBridgePort.bridge !== (dto.lan?.bridgeName || 'bridge-hotspot')) {
+            warnings.push({
+              type: 'PORT_IN_OTHER_BRIDGE',
+              severity: 'WARNING',
+              message: `المنفذ (${port}) موجود مسبقاً داخل الجسر [${existingBridgePort.bridge}].`,
+              suggestedAction: 'سيتم نقله تلقائياً إلى جسر الهوتسبوت الجديد عند الموافقة.',
+            });
+          }
+
+          // Check if port has direct IP assigned (classic RouterOS lockout risk)
+          const portDirectIp = discovery.ipAddresses.find((ip) => ip?.interface === port);
+          if (portDirectIp && portDirectIp.address) {
+            const rawAddress = String(portDirectIp.address).trim();
+            const ipClean = rawAddress.includes('/') ? rawAddress.split('/')[0] : rawAddress;
+            const isManagementHost = ipClean === (device.host || '').trim();
+            warnings.push({
+              type: 'PORT_DIRECT_IP_RISK',
+              severity: 'CRITICAL',
+              message: isManagementHost
+                ? `المنفذ (${port}) يحمل عنوان IP الحالي للراوتر (${device.host}) المستخدم للاتصال بالنظام. ضم هذا المنفذ إلى الجسر قد يسبب انقطاع الاتصال بالإدارة فوراً.`
+                : `المنفذ (${port}) يحمل عنوان IP مباشر (${rawAddress}) قد يكون مخصصاً للإدارة الاحتياطية أو شبكة خارج النطاق. ضم هذا المنفذ إلى جسر المشتركين يجعله تابعاً (Slave) وقد يسبب انقطاع الوصول إليه وعزله (Client Isolation).`,
+              suggestedAction: isManagementHost
+                ? 'تأكد من إمكانية الوصول للراوتر عبر منفذ آخر أو استثنِ هذا المنفذ من منافذ المشتركين.'
+                : 'استثنِ هذا المنفذ من قائمة منافذ الجسر للحفاظ على مسار الإدارة المستقل أو انقل العنوان إلى الجسر يدوياً.',
+            });
+            conflicts.push({
+              resource: isManagementHost ? 'MANAGEMENT_PORT_BRIDGED' : 'DIRECT_IP_PORT_BRIDGED',
+              existingValue: `${rawAddress} معين مباشرة على المنفذ ${port}`,
+              proposedValue: `ضم المنفذ ${port} إلى الجسر ${dto.lan?.bridgeName || 'bridge-hotspot'}`,
+              details: isManagementHost
+                ? 'ضم منفذ الإدارة المباشر إلى جسر دون تحويل العنوان قد يؤدي لفقدان الاتصال بالراوتر فورياً.'
+                : `المنفذ ${port} يحمل عنوان IP مستقل (${rawAddress}). ضم المنفذ إلى جسر المشتركين يهدد بفقدان مسار الإدارة الاحتياطي وعزل المنفذ عبر Horizon.`,
+            });
+          }
+        }
+      } catch (lanErr) {
+        this.logger.warn(`[Preview Warning] Error during LAN ports conflict check: ${lanErr instanceof Error ? lanErr.message : String(lanErr)}`);
+      }
+
+      // 3. Subnet Overlap Detection
+      try {
+        const proposedGateway = (dto.lan?.gatewayIp || '').trim();
+        const proposedSubnet = this.extractSubnetBase(proposedGateway);
+        if (proposedSubnet) {
+          for (const existingIp of discovery.ipAddresses) {
+            if (!existingIp || !existingIp.address) continue;
+            const existingSubnet = this.extractSubnetBase(existingIp.address);
+            if (existingSubnet && proposedSubnet && existingSubnet === proposedSubnet) {
+              if (existingIp.interface !== (dto.lan?.bridgeName || 'bridge-hotspot')) {
+                conflicts.push({
+                  resource: 'IP_SUBNET_OVERLAP',
+                  existingValue: `${existingIp.address} على المنفذ [${existingIp.interface}]`,
+                  proposedValue: `${proposedGateway} على [${dto.lan?.bridgeName || 'bridge-hotspot'}]`,
+                  details: `الشبكة المقترحة (${proposedSubnet}) تتعارض مع عنوان IP مستخدم حالياً على منفذ آخر.`,
+                });
+              }
+            }
+          }
+        }
+      } catch (subnetErr) {
+        this.logger.warn(`[Preview Warning] Error during subnet overlap check: ${subnetErr instanceof Error ? subnetErr.message : String(subnetErr)}`);
+      }
+
+      // 4. Hotspot Server Duplicate Check
+      try {
+        const proposedHsName = dto.hotspot?.serverName || 'hs-sudafi';
+        const existingHs = discovery.hotspotServers.find(
+          (h) => h?.name === proposedHsName || h?.interface === (dto.lan?.bridgeName || 'bridge-hotspot'),
+        );
+        if (existingHs) {
+          if (dto.template === 'CLEAN_SETUP') {
+            warnings.push({
+              type: 'HOTSPOT_OVERWRITE_CLEAN',
+              severity: 'WARNING',
+              message: `يوجد خادم هوتسبوت قائم بالفعل باسم [${existingHs.name}] على الواجهة [${existingHs.interface}].`,
+              suggestedAction: 'سيتم تحديثه وربطه بحزمة SudaFi.',
+            });
+          } else {
+            warnings.push({
+              type: 'HOTSPOT_ALREADY_EXISTS',
+              severity: 'INFO',
+              message: `تم اكتشاف خادم هوتسبوت سابق [${existingHs.name}]. يمكنك دمجه وربطه بالتطبيق.`,
+            });
+          }
+        }
+      } catch (hsErr) {
+        this.logger.warn(`[Preview Warning] Error during hotspot duplicate check: ${hsErr instanceof Error ? hsErr.message : String(hsErr)}`);
+      }
+
+      // 5. Clean Setup Warning & Confirmation Requirement
+      try {
+        if (dto.template === 'CLEAN_SETUP') {
+          const hasActiveConfig =
+            discovery.ipAddresses.length > 1 ||
+            discovery.bridges.length > 0 ||
+            discovery.hotspotServers.length > 0;
+          if (hasActiveConfig) {
+            requiresCleanConfirmation = true;
+            warnings.push({
+              type: 'CLEAN_SETUP_IN_USE_ROUTER',
+              severity: 'CRITICAL',
+              message:
+                'الراوتر يحتوي على إعدادات سابقة (عناوين IP أو خوادم شبكة). اختيار "Clean Setup" سيقوم بإعادة تشكيل البنية التحتية لشبكة المشتركين.',
+              suggestedAction:
+                'يجب تأكيد الموافقة الصريحة (cleanSetupConfirmed) قبل تنفيذ هذا القالب على راوتر مستخدم حالياً.',
+            });
+          }
+        }
+      } catch (cleanErr) {
+        this.logger.warn(`[Preview Warning] Error during clean setup check: ${cleanErr instanceof Error ? cleanErr.message : String(cleanErr)}`);
+      }
+
+      // 6. Check host IP disconnection risk
+      try {
+        const currentHost = (device.host || '').trim();
+        const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
+        const memberPorts = rawMemberPorts.map((m: any) => (m ? String(m).trim() : '')).filter(Boolean);
+        const proposedGateway = (dto.lan?.gatewayIp || '').trim();
+        const proposedSubnet = this.extractSubnetBase(proposedGateway);
+
+        if (memberPorts.some((p: string) => p === currentHost) || (proposedSubnet && currentHost.includes(proposedSubnet))) {
+          warnings.push({
+            type: 'MANAGEMENT_IP_PRESERVATION',
+            severity: 'INFO',
+            message: `عنوان الاتصال الحالي للراوتر (${currentHost}) قد يندرج تحت شبكة الهوتسبوت الجديدة.`,
+            suggestedAction: `سيتم الحفاظ على استمرارية الاتصال بالراوتر دون انقطاع.`,
+          });
+        }
+      } catch (mgmtErr) {
+        this.logger.warn(`[Preview Warning] Error during management preservation check: ${mgmtErr instanceof Error ? mgmtErr.message : String(mgmtErr)}`);
+      }
+
+      // 7. Check WAN Management Lockout Risk
+      try {
+        if ((dto.securityPolicies as any)?.protectWanAccess) {
+          const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
+          const currentHost = (device.host || '').trim();
+          const wanDirectIp = discovery.ipAddresses.find((ip) => ip?.interface === wanIfaceName);
+          const wanDirectClean = wanDirectIp?.address ? String(wanDirectIp.address).split('/')[0] : '';
+          const wanStaticClean = dto.wan?.staticIp ? String(dto.wan.staticIp).split('/')[0] : '';
+
+          const isWanMgmt =
+            (wanDirectClean && wanDirectClean === currentHost) ||
+            (wanStaticClean && wanStaticClean === currentHost);
+
+          if (isWanMgmt) {
+            warnings.push({
+              type: 'WAN_MANAGEMENT_LOCKOUT_RISK',
+              severity: 'CRITICAL',
+              message: `عنوان اتصال النظام بالراوتر (${currentHost}) يقع على منفذ الإنترنت (${wanIfaceName}). تفعيل حظر منافذ الإدارة على WAN سيؤدي لعزل النظام عن الراوتر فوراً.`,
+              suggestedAction: 'قم بتعطيل خيار protectWanAccess طالما أن اتصال النظام يتم عبر بطاقة WAN.',
+            });
+            conflicts.push({
+              resource: 'WAN_MANAGEMENT_LOCKOUT',
+              existingValue: `الاتصال بالراوتر يتم عبر ${currentHost} على المنفذ ${wanIfaceName}`,
+              proposedValue: `حظر منافذ الإدارة (API/WinBox) على المنفذ ${wanIfaceName}`,
+              details: 'تفعيل حظر منافذ الإدارة على WAN سيعزل النظام عن الراوتر تماماً.',
+            });
+          }
+        }
+      } catch (lockoutErr) {
+        this.logger.warn(`[Preview Warning] Error during WAN lockout check: ${lockoutErr instanceof Error ? lockoutErr.message : String(lockoutErr)}`);
+      }
+
+      // Generate Planned Steps
+      let plannedSteps: PlannedProvisioningStep[] = [];
+      try {
+        plannedSteps = this.buildPlannedSteps(dto);
+      } catch (stepErr) {
+        this.logger.warn(`[Preview Warning] Error building planned steps: ${stepErr instanceof Error ? stepErr.message : String(stepErr)}`);
+      }
+
+      const isV7 = (device.rosVersion || '').toUpperCase().includes('V7');
+
+      // Build Security Policies Report
+      let securityPoliciesReport: SecurityPolicyReportItem[] = [];
+      try {
+        securityPoliciesReport = this.buildSecurityPoliciesReport(dto, isV7, discovery);
+      } catch (secErr) {
+        this.logger.warn(`[Preview Warning] Error building security policies report: ${secErr instanceof Error ? secErr.message : String(secErr)}`);
+      }
+
+      // Generate RouterOS commands for preview (with duplicate prevention based on discovery)
+      let generatedCommands: GeneratedCommandItem[] = [];
+      try {
+        generatedCommands = this.generateRouterCommands(dto, isV7, discovery);
+      } catch (cmdErr) {
+        this.logger.error(`[Preview Error] Error generating router commands: ${cmdErr instanceof Error ? cmdErr.message : String(cmdErr)}`);
         warnings.push({
-          type: 'HOTSPOT_OVERWRITE_CLEAN',
+          type: 'COMMANDS_GENERATION_PARTIAL',
           severity: 'WARNING',
-          message: `يوجد خادم هوتسبوت قائم بالفعل باسم [${existingHs.name}] على الواجهة [${existingHs.interface}].`,
-          suggestedAction: 'سيتم تحديثه وربطه بحزمة SudaFi.',
-        });
-      } else {
-        warnings.push({
-          type: 'HOTSPOT_ALREADY_EXISTS',
-          severity: 'INFO',
-          message: `تم اكتشاف خادم هوتسبوت سابق [${existingHs.name}]. يمكنك دمجه وربطه بالتطبيق.`,
+          message: 'حدث تعذر جزئي أثناء توليد بعض الأوامر المتوافقة مع إعدادات الراوتر القديمة.',
         });
       }
+
+      // Mask passwords for preview to prevent credentials leakage
+      const sanitizedCommands = (generatedCommands || []).map((c) => ({
+        ...c,
+        command: this.sanitizeCommandForDisplay(c.command || ''),
+      }));
+
+      const hasCriticalConflicts = conflicts.length > 0;
+      const canProceed = !hasCriticalConflicts;
+
+      const totalDuration = Date.now() - previewStartTime;
+      this.logger.log(
+        `[Preview Complete] Router "${device.name}" (${device.host}) finished in ${totalDuration}ms: ` +
+          `${sanitizedCommands.length} commands, ${conflicts.length} conflicts, ${warnings.length} warnings (RequiresCleanConfirmation: ${requiresCleanConfirmation})`,
+      );
+
+      return {
+        template: dto.template,
+        routerVersion: device.rosVersion || 'V7',
+        discovery,
+        plannedSteps,
+        securityPoliciesReport,
+        generatedCommands: sanitizedCommands,
+        warnings,
+        conflicts,
+        canProceed,
+        requiresCleanConfirmation,
+        backupRecommended: true,
+      };
+    } catch (topLevelErr: unknown) {
+      const error = topLevelErr instanceof Error ? topLevelErr : new Error(String(topLevelErr));
+      this.logger.error(
+        `[Preview 500 Prevention] Caught unexpected crash in preview for device ${deviceId}: ${error.message}`,
+        error.stack,
+      );
+
+      // Return a safe degraded preview response instead of HTTP 500
+      const safeBridgeName = dto.lan?.bridgeName || 'bridge-hotspot';
+      const safeGateway = dto.lan?.gatewayIp || '10.5.50.1/24';
+      const safeFallbackCommands: GeneratedCommandItem[] = [
+        {
+          stage: 'BRIDGE_SETUP',
+          command: `/interface/bridge/add =name=${safeBridgeName} =comment=SudaFi Hotspot Bridge`,
+          description: `إنشاء جسر موحد لمنافذ المشتركين (${safeBridgeName})`,
+        },
+        {
+          stage: 'LAN_IP',
+          command: `/ip/address/add =address=${safeGateway} =interface=${safeBridgeName} =comment=SudaFi Hotspot Gateway`,
+          description: `تعيين عنوان بوابة الهوتسبوت (${safeGateway}) على الجسر`,
+        },
+      ];
+
+      return {
+        template: dto.template || 'CLEAN_SETUP',
+        routerVersion: device?.rosVersion || 'V7',
+        discovery: this.normalizeSnapshot(undefined),
+        plannedSteps: this.buildPlannedSteps(dto),
+        securityPoliciesReport: [],
+        generatedCommands: safeFallbackCommands,
+        warnings: [
+          {
+            type: 'PREVIEW_DEGRADED_MODE',
+            severity: 'WARNING',
+            message: `تم توليد المعاينة بنمط الأمان المباشر نظراً لوجود بيانات قديمة غير متوافقة في الراوتر (${error.message}).`,
+            suggestedAction: 'يمكنك مراجعة الأوامر المقترحة أو المتابعة بالتنفيذ.',
+          },
+        ],
+        conflicts: [],
+        canProceed: true,
+        requiresCleanConfirmation: dto.template === 'CLEAN_SETUP',
+        backupRecommended: true,
+      };
     }
-
-    // 5. Clean Setup Warning & Confirmation Requirement
-    if (dto.template === 'CLEAN_SETUP') {
-      const hasActiveConfig =
-        discovery.ipAddresses.length > 1 ||
-        discovery.bridges.length > 0 ||
-        discovery.hotspotServers.length > 0;
-      if (hasActiveConfig) {
-        requiresCleanConfirmation = true;
-        warnings.push({
-          type: 'CLEAN_SETUP_IN_USE_ROUTER',
-          severity: 'CRITICAL',
-          message:
-            'الراوتر يحتوي على إعدادات سابقة (عناوين IP أو خوادم شبكة). اختيار "Clean Setup" سيقوم بإعادة تشكيل البنية التحتية لشبكة المشتركين.',
-          suggestedAction:
-            'يجب تأكيد الموافقة الصريحة (cleanSetupConfirmed) قبل تنفيذ هذا القالب على راوتر مستخدم حالياً.',
-        });
-      }
-    }
-
-    // 6. Check host IP disconnection risk
-    const currentHost = device.host.trim();
-    if (memberPorts.some((p: string) => p === currentHost) || currentHost.includes(proposedSubnet || '')) {
-      warnings.push({
-        type: 'MANAGEMENT_IP_PRESERVATION',
-        severity: 'INFO',
-        message: `عنوان الاتصال الحالي للراوتر (${currentHost}) قد يندرج تحت شبكة الهوتسبوت الجديدة.`,
-        suggestedAction: `سيتم الحفاظ على استمرارية الاتصال بالراوتر دون انقطاع.`,
-      });
-    }
-
-    // 7. Check WAN Management Lockout Risk
-    if ((dto.securityPolicies as any)?.protectWanAccess) {
-      const wanDirectIp = discovery.ipAddresses.find((ip) => ip.interface === wanIfaceName);
-      const isWanMgmt =
-        (wanDirectIp && wanDirectIp.address.split('/')[0] === currentHost) ||
-        (dto.wan.staticIp && dto.wan.staticIp.split('/')[0] === currentHost);
-      if (isWanMgmt) {
-        warnings.push({
-          type: 'WAN_MANAGEMENT_LOCKOUT_RISK',
-          severity: 'CRITICAL',
-          message: `عنوان اتصال النظام بالراوتر (${currentHost}) يقع على منفذ الإنترنت (${wanIfaceName}). تفعيل حظر منافذ الإدارة على WAN سيؤدي لعزل النظام عن الراوتر فوراً.`,
-          suggestedAction: 'قم بتعطيل خيار protectWanAccess طالما أن اتصال النظام يتم عبر بطاقة WAN.',
-        });
-        conflicts.push({
-          resource: 'WAN_MANAGEMENT_LOCKOUT',
-          existingValue: `الاتصال بالراوتر يتم عبر ${currentHost} على المنفذ ${wanIfaceName}`,
-          proposedValue: `حظر منافذ الإدارة (API/WinBox) على المنفذ ${wanIfaceName}`,
-          details: 'تفعيل حظر منافذ الإدارة على WAN سيعزل النظام عن الراوتر تماماً.',
-        });
-      }
-    }
-
-    // Generate Planned Steps
-    const plannedSteps = this.buildPlannedSteps(dto);
-
-    const isV7 = (device.rosVersion || '').toUpperCase().includes('V7');
-
-    // Build Security Policies Report
-    const securityPoliciesReport = this.buildSecurityPoliciesReport(dto, isV7, discovery);
-
-    // Generate RouterOS commands for preview (with duplicate prevention based on discovery)
-    const generatedCommands = this.generateRouterCommands(dto, isV7, discovery);
-
-    // Mask passwords for preview to prevent credentials leakage
-    const sanitizedCommands = generatedCommands.map((c) => ({
-      ...c,
-      command: this.sanitizeCommandForDisplay(c.command),
-    }));
-
-    const hasCriticalConflicts = conflicts.length > 0;
-    const canProceed = !hasCriticalConflicts;
-
-    const totalDuration = Date.now() - previewStartTime;
-    this.logger.log(
-      `[Preview Complete] Router "${device.name}" (${device.host}) finished in ${totalDuration}ms: ` +
-        `${sanitizedCommands.length} commands, ${conflicts.length} conflicts, ${warnings.length} warnings (RequiresCleanConfirmation: ${requiresCleanConfirmation})`,
-    );
-
-    return {
-      template: dto.template,
-      routerVersion: device.rosVersion || 'V7',
-      discovery,
-      plannedSteps,
-      securityPoliciesReport,
-      generatedCommands: sanitizedCommands,
-      warnings,
-      conflicts,
-      canProceed,
-      requiresCleanConfirmation,
-      backupRecommended: true,
-    };
   }
 
 
@@ -1033,21 +1186,21 @@ export class RouterProvisioningService {
     discovery?: RouterDiscoverySnapshot,
   ): GeneratedCommandItem[] {
     const commands: GeneratedCommandItem[] = [];
-    const bridgeName = dto.lan.bridgeName || 'bridge-hotspot';
+    const bridgeName = dto.lan?.bridgeName || 'bridge-hotspot';
     const poolName = 'hs-pool-sudafi';
     const dhcpServerName = 'dhcp-sudafi';
     const hsProfileName = dto.hotspot?.profileName || 'hsp-sudafi';
     const hsServerName = dto.hotspot?.serverName || 'hs-sudafi';
     const dnsName = dto.hotspot?.dnsName || 'login.sudafi.net';
-    const gatewayIp = dto.lan.gatewayIp.trim();
-    const cleanIp = gatewayIp.split('/')[0];
+    const gatewayIp = (dto.lan?.gatewayIp || '10.5.50.1/24').trim();
+    const cleanIp = gatewayIp.includes('/') ? gatewayIp.split('/')[0] : gatewayIp;
     const networkBase = this.extractNetworkBase(gatewayIp);
     const security = dto.securityPolicies || {};
 
     const isClean = dto.template === 'CLEAN_SETUP';
 
     // 1. LAN Bridge Creation (only if not already created, or full clean template)
-    const bridgeExists = !isClean && discovery?.bridges?.some((b) => b.name === bridgeName);
+    const bridgeExists = !isClean && discovery?.bridges?.some((b) => b?.name === bridgeName);
     if (!bridgeExists) {
       commands.push({
         stage: 'BRIDGE_SETUP',
@@ -1058,7 +1211,7 @@ export class RouterProvisioningService {
 
     // 2. Gateway IP on LAN Bridge (Assigned FIRST to ensure bridge has IP before member ports join)
     const ipExistsOnBridge = !isClean && discovery?.ipAddresses?.some(
-      (ip) => ip.interface === bridgeName && ip.address === gatewayIp,
+      (ip) => ip?.interface === bridgeName && ip?.address === gatewayIp,
     );
     if (!ipExistsOnBridge) {
       commands.push({
@@ -1069,10 +1222,12 @@ export class RouterProvisioningService {
     }
 
     // 3. Member Ports Assignment (only if port is not already member of this bridge)
-    for (const port of dto.lan.memberInterfaces) {
-      const portName = port.trim();
+    const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
+    for (const port of rawMemberPorts) {
+      if (!port) continue;
+      const portName = String(port).trim();
       const existingBridgePort = !isClean
-        ? discovery?.bridgePorts?.find((p) => p.bridge === bridgeName && p.interface === portName)
+        ? discovery?.bridgePorts?.find((p) => p?.bridge === bridgeName && p?.interface === portName)
         : undefined;
 
       if (!existingBridgePort) {
@@ -1082,7 +1237,7 @@ export class RouterProvisioningService {
           command: `/interface/bridge/port/add =bridge=${bridgeName} =interface=${portName}${horizonArg} =comment=SudaFi LAN Member`,
           description: `إضافة المنفذ ${portName} إلى جسر الهوتسبوت${security.clientIsolation !== false ? ' مع تفعيل عزل المشتركين (Horizon=1)' : ''}`,
         });
-      } else if (security.clientIsolation !== false && existingBridgePort.horizon !== 1) {
+      } else if (security.clientIsolation !== false && Number(existingBridgePort.horizon) !== 1) {
         const idArg = existingBridgePort.id ? ` =.id=${existingBridgePort.id}` : '';
         commands.push({
           stage: 'BRIDGE_PORT',
@@ -1093,9 +1248,9 @@ export class RouterProvisioningService {
     }
 
     // 4. WAN Configuration
-    const wanIface = dto.wan.interface.trim();
-    if (dto.wan.mode === 'DHCP') {
-      const dhcpClientExists = !isClean && discovery?.dhcpClients?.some((c) => c.interface === wanIface);
+    const wanIface = (dto.wan?.interface || 'ether1').trim();
+    if (dto.wan?.mode === 'DHCP') {
+      const dhcpClientExists = !isClean && discovery?.dhcpClients?.some((c) => c?.interface === wanIface);
       if (!dhcpClientExists) {
         commands.push({
           stage: 'WAN_CONFIG',
@@ -1103,16 +1258,16 @@ export class RouterProvisioningService {
           description: `تفعيل DHCP Client على منفذ الإنترنت (${wanIface})`,
         });
       }
-    } else if (dto.wan.mode === 'PPPOE') {
+    } else if (dto.wan?.mode === 'PPPOE') {
       commands.push({
         stage: 'WAN_CONFIG',
-        command: `/interface/pppoe-client/add =name=pppoe-out1 =interface=${wanIface} =user=${dto.wan.pppoeUser || ''} =password=${dto.wan.pppoePassword || ''} =add-default-route=yes =use-peer-dns=yes =disabled=no =comment=SudaFi WAN PPPoE`,
+        command: `/interface/pppoe-client/add =name=pppoe-out1 =interface=${wanIface} =user=${dto.wan?.pppoeUser || ''} =password=${dto.wan?.pppoePassword || ''} =add-default-route=yes =use-peer-dns=yes =disabled=no =comment=SudaFi WAN PPPoE`,
         description: `إنشاء اتصال PPPoE Client على المنفذ (${wanIface})`,
       });
-    } else if (dto.wan.mode === 'STATIC') {
-      if (dto.wan.staticIp) {
+    } else if (dto.wan?.mode === 'STATIC') {
+      if (dto.wan?.staticIp) {
         const staticIpExists = !isClean && discovery?.ipAddresses?.some(
-          (ip) => ip.interface === wanIface && ip.address === dto.wan.staticIp,
+          (ip) => ip?.interface === wanIface && ip?.address === dto.wan?.staticIp,
         );
         if (!staticIpExists) {
           commands.push({
@@ -1122,11 +1277,11 @@ export class RouterProvisioningService {
           });
         }
       }
-      if (dto.wan.staticGateway) {
+      if (dto.wan?.staticGateway) {
         const routeExists = !isClean && discovery?.routes?.some(
           (r) =>
-            (r.dstAddress === '0.0.0.0/0' || r.dstAddress === '0.0.0.0') &&
-            r.gateway === dto.wan.staticGateway,
+            (r?.dstAddress === '0.0.0.0/0' || r?.dstAddress === '0.0.0.0') &&
+            r?.gateway === dto.wan?.staticGateway,
         );
         if (!routeExists) {
           commands.push({
@@ -1136,7 +1291,7 @@ export class RouterProvisioningService {
           });
         }
       }
-      if (dto.wan.staticDns && dto.wan.staticDns.length > 0) {
+      if (dto.wan?.staticDns && dto.wan.staticDns.length > 0) {
         commands.push({
           stage: 'WAN_CONFIG',
           command: `/ip/dns/set =servers=${dto.wan.staticDns.join(',')} =allow-remote-requests=yes`,
@@ -1146,10 +1301,10 @@ export class RouterProvisioningService {
     }
 
     // 5. NAT Masquerade (only if matching rule does not exist)
-    if (dto.wan.enableNat !== false) {
-      const outIface = dto.wan.mode === 'PPPOE' ? 'pppoe-out1' : wanIface;
+    if (dto.wan?.enableNat !== false) {
+      const outIface = dto.wan?.mode === 'PPPOE' ? 'pppoe-out1' : wanIface;
       const natExists = !isClean && discovery?.natRules?.some(
-        (r) => r.action === 'masquerade' && r.outInterface === outIface,
+        (r) => r?.action === 'masquerade' && r?.outInterface === outIface,
       );
       if (!natExists) {
         commands.push({
@@ -1161,7 +1316,7 @@ export class RouterProvisioningService {
     }
 
     // 6. IP Pool for DHCP
-    const poolRange = dto.lan.poolRange || this.generateDefaultPoolRange(gatewayIp);
+    const poolRange = dto.lan?.poolRange || this.generateDefaultPoolRange(gatewayIp);
     commands.push({
       stage: 'DHCP_POOL',
       command: `/ip/pool/add =name=${poolName} =ranges=${poolRange} =comment=SudaFi Hotspot Pool`,
@@ -1169,14 +1324,14 @@ export class RouterProvisioningService {
     });
 
     // 7. DHCP Server and Network
-    const leaseTime = dto.lan.dhcpLeaseTime || '1h';
+    const leaseTime = dto.lan?.dhcpLeaseTime || '1h';
     const dnsList =
-      dto.lan.dnsServers && dto.lan.dnsServers.length > 0
+      dto.lan?.dnsServers && dto.lan.dnsServers.length > 0
         ? dto.lan.dnsServers.join(',')
         : `${cleanIp},8.8.8.8`;
 
     const dhcpServerExists = !isClean && discovery?.dhcpServers?.some(
-      (s) => s.name === dhcpServerName && s.interface === bridgeName,
+      (s) => s?.name === dhcpServerName && s?.interface === bridgeName,
     );
     if (!dhcpServerExists) {
       commands.push({
@@ -1217,7 +1372,7 @@ export class RouterProvisioningService {
 
     // Create or update the specific Hotspot User Profile (matching cards.service.ts profile name)
     const existingProfile = !isClean
-      ? discovery?.hotspotUserProfiles?.find((p) => p.name === hsProfileName)
+      ? discovery?.hotspotUserProfiles?.find((p) => p?.name === hsProfileName)
       : undefined;
     const desiredRateLimit = dto.hotspot?.defaultRateLimit || '2M/5M';
 
@@ -1229,7 +1384,7 @@ export class RouterProvisioningService {
       });
     } else {
       const rateLimitMatches = existingProfile.rateLimit
-        ? existingProfile.rateLimit.trim() === desiredRateLimit.trim()
+        ? String(existingProfile.rateLimit).trim() === desiredRateLimit.trim()
         : false;
       const sharedUsersMatches =
         existingProfile.sharedUsers !== undefined
@@ -1247,7 +1402,7 @@ export class RouterProvisioningService {
 
     // 10. Hotspot Server (only if not already running on bridge, or full clean template)
     const hsServerExists = !isClean && discovery?.hotspotServers?.some(
-      (s) => s.name === hsServerName && s.interface === bridgeName,
+      (s) => s?.name === hsServerName && s?.interface === bridgeName,
     );
     if (!hsServerExists) {
       commands.push({
@@ -1273,7 +1428,7 @@ export class RouterProvisioningService {
     // 12. Security Policies (Anti-Tethering TTL Lock, Management Protection, DNS Redirection, WAN Security)
     if (security.antiTethering !== false) {
       const mangleExists = !isClean && discovery?.mangleRules?.some(
-        (r) => r.comment === 'SudaFi_Anti_Tethering_TTL' || (r.chain === 'postrouting' && r.action === 'change-ttl'),
+        (r) => r?.comment === 'SudaFi_Anti_Tethering_TTL' || (r?.chain === 'postrouting' && r?.action === 'change-ttl'),
       );
       if (!mangleExists) {
         commands.push({
@@ -1286,7 +1441,7 @@ export class RouterProvisioningService {
 
     if (security.protectManagementAccess !== false) {
       const filterExists = !isClean && discovery?.filterRules?.some(
-        (r) => r.comment === 'SudaFi_Drop_Subscriber_Admin_Ports' || (r.chain === 'input' && r.action === 'drop'),
+        (r) => r?.comment === 'SudaFi_Drop_Subscriber_Admin_Ports' || (r?.chain === 'input' && r?.action === 'drop'),
       );
       if (!filterExists) {
         commands.push({
@@ -1300,12 +1455,12 @@ export class RouterProvisioningService {
     // Optional WAN Admin Protection: accepts established/related before applying drop
     if ((security as any).protectWanAccess) {
       const acceptEstExists = !isClean && discovery?.filterRules?.some(
-        (r) => r.comment === 'SudaFi_Accept_Established_Related' || (r.chain === 'input' && r.action === 'accept'),
+        (r) => r?.comment === 'SudaFi_Accept_Established_Related' || (r?.chain === 'input' && r?.action === 'accept'),
       );
       if (!acceptEstExists) {
         const placeBeforeArg =
-          discovery?.filterRules && discovery.filterRules.length > 0
-            ? ` =place-before=${discovery.filterRules[0].id || '0'}`
+          discovery?.filterRules && discovery.filterRules.length > 0 && discovery.filterRules[0]?.id
+            ? ` =place-before=${discovery.filterRules[0].id}`
             : '';
         commands.push({
           stage: 'SECURITY_POLICIES',
@@ -1315,19 +1470,19 @@ export class RouterProvisioningService {
       }
 
       const wanDropExists = !isClean && discovery?.filterRules?.some(
-        (r) => r.comment === 'SudaFi_Drop_WAN_Admin_Ports' || (r.chain === 'input' && r.action === 'drop' && (r as any).inInterface === dto.wan.interface),
+        (r) => r?.comment === 'SudaFi_Drop_WAN_Admin_Ports' || (r?.chain === 'input' && r?.action === 'drop' && (r as any).inInterface === dto.wan?.interface),
       );
       if (!wanDropExists) {
         commands.push({
           stage: 'SECURITY_POLICIES',
-          command: `/ip/firewall/filter/add =chain=input =in-interface=${dto.wan.interface} =protocol=tcp =dst-port=22,23,8291,8728,8729 =action=drop =comment=SudaFi_Drop_WAN_Admin_Ports`,
-          description: `حجب منافذ إدارة الراوتر عن بطاقة الإنترنت (${dto.wan.interface})`,
+          command: `/ip/firewall/filter/add =chain=input =in-interface=${dto.wan?.interface} =protocol=tcp =dst-port=22,23,8291,8728,8729 =action=drop =comment=SudaFi_Drop_WAN_Admin_Ports`,
+          description: `حجب منافذ إدارة الراوتر عن بطاقة الإنترنت (${dto.wan?.interface})`,
         });
       }
     }
 
     if (security.forceRouterDns !== false) {
-      const dnsUdpExists = !isClean && discovery?.natRules?.some((r) => r.comment === 'SudaFi_Force_DNS_UDP');
+      const dnsUdpExists = !isClean && discovery?.natRules?.some((r) => r?.comment === 'SudaFi_Force_DNS_UDP');
       if (!dnsUdpExists) {
         commands.push({
           stage: 'SECURITY_POLICIES',
@@ -1335,7 +1490,7 @@ export class RouterProvisioningService {
           description: 'إعادة توجيه استعلامات DNS (UDP 53) إلى الراوتر لضمان عمل صفحة الدخول',
         });
       }
-      const dnsTcpExists = !isClean && discovery?.natRules?.some((r) => r.comment === 'SudaFi_Force_DNS_TCP');
+      const dnsTcpExists = !isClean && discovery?.natRules?.some((r) => r?.comment === 'SudaFi_Force_DNS_TCP');
       if (!dnsTcpExists) {
         commands.push({
           stage: 'SECURITY_POLICIES',
@@ -1356,27 +1511,30 @@ export class RouterProvisioningService {
 
   private buildPlannedSteps(dto: ProvisionPreviewDto): PlannedProvisioningStep[] {
     const steps: PlannedProvisioningStep[] = [];
-    const bridgeName = dto.lan.bridgeName || 'bridge-hotspot';
+    const bridgeName = dto.lan?.bridgeName || 'bridge-hotspot';
+    const memberPortsStr = Array.isArray(dto.lan?.memberInterfaces)
+      ? dto.lan.memberInterfaces.join(', ')
+      : 'ether2-ether5';
 
     steps.push({
       id: 'step-1',
       stage: 'BRIDGE',
       title: 'إنشاء جسر شبكة المشتركين',
-      description: `إنشاء الجسر (${bridgeName}) وتعيين البوابة وضم المنافذ [${dto.lan.memberInterfaces.join(', ')}] إليه.`,
+      description: `إنشاء الجسر (${bridgeName}) وتعيين البوابة وضم المنافذ [${memberPortsStr}] إليه.`,
     });
 
     steps.push({
       id: 'step-2',
       stage: 'WAN',
-      title: `إعداد بطاقة الإنترنت (${dto.wan.mode})`,
-      description: `ربط المنفذ ${dto.wan.interface} بالإنترنت وتفعيل محول العناوين (Masquerade).`,
+      title: `إعداد بطاقة الإنترنت (${dto.wan?.mode || 'DHCP'})`,
+      description: `ربط المنفذ ${dto.wan?.interface || 'ether1'} بالإنترنت وتفعيل محول العناوين (Masquerade).`,
     });
 
     steps.push({
       id: 'step-3',
       stage: 'LAN_DHCP',
       title: 'إعداد توزيع العناوين التلقائي (DHCP)',
-      description: `تعيين البوابة ${dto.lan.gatewayIp} وإنشاء نطاق العناوين وخادم الـ DHCP.`,
+      description: `تعيين البوابة ${dto.lan?.gatewayIp || '10.5.50.1/24'} وإنشاء نطاق العناوين وخادم الـ DHCP.`,
     });
 
     steps.push({
@@ -1412,8 +1570,8 @@ export class RouterProvisioningService {
     const reports: SecurityPolicyReportItem[] = [];
 
     // 1. Anti-Tethering (TTL Lock)
-    const hasTetheringRule = discovery.mangleRules?.some(
-      (r) => r.comment === 'SudaFi_Anti_Tethering_TTL' || (r.chain === 'postrouting' && r.action === 'change-ttl'),
+    const hasTetheringRule = discovery?.mangleRules?.some(
+      (r) => r?.comment === 'SudaFi_Anti_Tethering_TTL' || (r?.chain === 'postrouting' && r?.action === 'change-ttl'),
     );
     const antiTetheringEnabled = policies.antiTethering !== false;
     reports.push({
@@ -1435,9 +1593,9 @@ export class RouterProvisioningService {
     });
 
     // 2. Client Isolation (Bridge Horizon)
-    const bridgeName = dto.lan.bridgeName || 'bridge-hotspot';
-    const hasClientIsolation = discovery.bridgePorts?.some(
-      (p) => p.bridge === bridgeName && p.horizon === 1,
+    const bridgeName = dto.lan?.bridgeName || 'bridge-hotspot';
+    const hasClientIsolation = discovery?.bridgePorts?.some(
+      (p) => p?.bridge === bridgeName && Number(p?.horizon) === 1,
     );
     const clientIsolationEnabled = policies.clientIsolation !== false;
     reports.push({
@@ -1459,8 +1617,8 @@ export class RouterProvisioningService {
     });
 
     // 3. Management Protection
-    const hasMgmtDropRule = discovery.filterRules?.some(
-      (r) => r.comment === 'SudaFi_Drop_Subscriber_Admin_Ports' || (r.chain === 'input' && r.action === 'drop'),
+    const hasMgmtDropRule = discovery?.filterRules?.some(
+      (r) => r?.comment === 'SudaFi_Drop_Subscriber_Admin_Ports' || (r?.chain === 'input' && r?.action === 'drop'),
     );
     const protectMgmtEnabled = policies.protectManagementAccess !== false;
     reports.push({
@@ -1482,8 +1640,8 @@ export class RouterProvisioningService {
     });
 
     // 4. Force Router DNS
-    const hasDnsRedirect = discovery.natRules?.some(
-      (r) => r.comment === 'SudaFi_Force_DNS_UDP' || r.comment === 'SudaFi_Force_DNS_TCP',
+    const hasDnsRedirect = discovery?.natRules?.some(
+      (r) => r?.comment === 'SudaFi_Force_DNS_UDP' || r?.comment === 'SudaFi_Force_DNS_TCP',
     );
     const forceDnsEnabled = policies.forceRouterDns !== false;
     reports.push({
@@ -1539,26 +1697,27 @@ export class RouterProvisioningService {
     return reports;
   }
 
-  private extractSubnetBase(ipWithCidr: string): string | null {
-    if (!ipWithCidr || !ipWithCidr.includes('/')) return null;
+  private extractSubnetBase(ipWithCidr?: string | null): string | null {
+    if (!ipWithCidr || typeof ipWithCidr !== 'string' || !ipWithCidr.includes('/')) return null;
     const parts = ipWithCidr.split('/')[0].split('.');
     if (parts.length < 4) return null;
     return `${parts[0]}.${parts[1]}.${parts[2]}`;
   }
 
-  private extractNetworkBase(ipWithCidr: string): string {
+  private extractNetworkBase(ipWithCidr?: string | null): string {
+    if (!ipWithCidr || typeof ipWithCidr !== 'string') return '10.5.50.0/24';
     const base = this.extractSubnetBase(ipWithCidr);
     const cidr = ipWithCidr.includes('/') ? ipWithCidr.split('/')[1] : '24';
     return base ? `${base}.0/${cidr}` : '10.5.50.0/24';
   }
 
-  private generateDefaultPoolRange(ipWithCidr: string): string {
+  private generateDefaultPoolRange(ipWithCidr?: string | null): string {
     const base = this.extractSubnetBase(ipWithCidr) || '10.5.50';
     return `${base}.10-${base}.254`;
   }
 
   private commandStringToWords(cmd: string): string[] {
-    return cmd.trim().split(/\s+/);
+    return (cmd || '').trim().split(/\s+/);
   }
 }
 

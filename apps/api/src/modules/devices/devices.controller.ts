@@ -10,6 +10,8 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Logger,
+  HttpException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
@@ -36,6 +38,8 @@ import { RouterResource, ConnectedDeviceItem } from '../../core/mikrotik/interfa
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 @Controller('devices')
 export class DevicesController {
+  private readonly logger = new Logger(DevicesController.name);
+
   constructor(
     private readonly devicesService: DevicesService,
     private readonly provisioningService: RouterProvisioningService,
@@ -320,7 +324,54 @@ export class DevicesController {
     @Param('id') id: string,
     @Body() dto: ProvisionPreviewDto,
   ) {
-    return this.provisioningService.preview(tenantId, id, dto);
+    try {
+      return await this.provisioningService.preview(tenantId, id, dto);
+    } catch (err: unknown) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.logger.error(
+        `[Preview Controller Safe Guard] Unexpected error while generating preview for router ${id}: ${error.message}`,
+        error.stack,
+      );
+
+      // Return a safe degraded preview instead of throwing 500
+      return {
+        template: dto.template || 'CLEAN_SETUP',
+        routerVersion: 'V7',
+        discovery: {
+          resource: { uptime: '0s', version: 'unknown', cpuLoad: 0, freeMemory: 0, totalMemory: 0, freeHdd: 0, totalHdd: 0 },
+          interfaces: [],
+          bridges: [],
+          bridgePorts: [],
+          ipAddresses: [],
+          dhcpClients: [],
+          dhcpServers: [],
+          natRules: [],
+          routes: [],
+          hotspotServers: [],
+          mangleRules: [],
+          filterRules: [],
+          hotspotUserProfiles: [],
+        },
+        plannedSteps: [],
+        securityPoliciesReport: [],
+        generatedCommands: [],
+        warnings: [
+          {
+            type: 'CONTROLLER_FALLBACK',
+            severity: 'WARNING',
+            message: `تعذر توليد المعاينة التلقائية بالكامل بسبب عدم توافق بيانات الراوتر: ${error.message}`,
+            suggestedAction: 'يمكنك المحاولة مرة أخرى أو فحص حالة الراوتر مباشرة.',
+          },
+        ],
+        conflicts: [],
+        canProceed: true,
+        requiresCleanConfirmation: dto.template === 'CLEAN_SETUP',
+        backupRecommended: true,
+      };
+    }
   }
 
   @Post(':id/provision/apply')
