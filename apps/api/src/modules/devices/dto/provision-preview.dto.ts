@@ -198,5 +198,35 @@ export class ProvisionPreviewDto {
   @Type(() => SecurityPoliciesConfigDto)
   @IsOptional()
   securityPolicies?: SecurityPoliciesConfigDto;
+
+  @ApiPropertyOptional({ description: 'Confirmation if router was previously in use' })
+  @IsBoolean()
+  @IsOptional()
+  cleanSetupConfirmed?: boolean;
+
+  @ApiPropertyOptional({ description: 'Allow overwrite of conflicting settings' })
+  @IsBoolean()
+  @IsOptional()
+  allowOverwrite?: boolean;
+
+  @ApiPropertyOptional({ description: 'Rollback on failure flag' })
+  @IsBoolean()
+  @IsOptional()
+  rollbackOnFailure?: boolean;
+
+  @ApiPropertyOptional({ description: 'Update admin password' })
+  @IsString()
+  @IsOptional()
+  updateAdminPassword?: string;
+
+  @ApiPropertyOptional({ description: 'Skip backup on error' })
+  @IsBoolean()
+  @IsOptional()
+  skipBackupOnError?: boolean;
+
+  @ApiPropertyOptional({ description: 'Update router host if changed' })
+  @IsBoolean()
+  @IsOptional()
+  updateRouterHostIfChanged?: boolean;
 }
 

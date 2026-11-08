@@ -382,7 +382,7 @@ class MikrotikDiscoveryService {
     required String username,
     required String password,
     int apiPort = 8728,
-    int restPort = 443,
+    int restPort = 80,
     String rosVersion = 'V7',
     bool useSsl = false,
   }) async {

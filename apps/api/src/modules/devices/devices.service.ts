@@ -520,9 +520,10 @@ export class DevicesService {
       /^(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|[fF][cCdD])/.test(host);
 
     const startTime = Date.now();
+    let targetPort: number | undefined;
 
     try {
-      const { client, isRest, targetPort } = this.mikrotikClientFactory.createDirectClient({
+      const directClient = this.mikrotikClientFactory.createDirectClient({
         host,
         apiPort: dto.apiPort,
         restPort: dto.restPort,
@@ -532,6 +533,8 @@ export class DevicesService {
         rosVersion: dto.rosVersion,
         timeoutMs: 8000,
       });
+      const { client, isRest } = directClient;
+      targetPort = directClient.targetPort;
 
       // Probe connection & login
       await client.connect();
@@ -637,6 +640,13 @@ export class DevicesService {
         stage = 'PROTOCOL';
         code = 'REST_NOT_SUPPORTED';
         message = `مسار REST API غير مدعوم على هذا الإصدار. يتطلب RouterOS v7.1 أو أحدث ومفعّل في Services.`;
+      } else if (
+        lower.includes('failed to reach mikrotik rest api') ||
+        (lower.includes('rest api') && (lower.includes('failed') || lower.includes('unreachable')))
+      ) {
+        stage = 'PORT';
+        code = 'REST_API_UNREACHABLE';
+        message = `تعذر الوصول لواجهة REST بالراوتر (${host}${targetPort ? `:${targetPort}` : ''}). إذا كانت خدمة SSL غير مفعّلة في الراوتر، يرجى تعطيل خيار SSL واستخدام المنفذ 80 الافتراضي.`;
       }
 
       if (targetDevice) {

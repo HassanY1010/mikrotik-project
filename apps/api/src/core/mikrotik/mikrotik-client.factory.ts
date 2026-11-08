@@ -192,7 +192,14 @@ export class MikrotikClientFactory {
     const timeoutMs = config.timeoutMs ?? 7000;
 
     if (isRest) {
-      const targetPort = config.restPort ?? (config.useSsl ? 443 : 80);
+      // Auto-resolve port based on SSL setting
+      let targetPort = config.restPort ?? (config.useSsl ? 443 : 80);
+      if (!config.useSsl && targetPort === 443) {
+        targetPort = 80; // 443 requires SSL; if SSL is off, default to 80 (standard www)
+      } else if (config.useSsl && targetPort === 80) {
+        targetPort = 443;
+      }
+
       const client = new RouterOsRestClient({
         host: config.host,
         port: targetPort,
@@ -203,7 +210,12 @@ export class MikrotikClientFactory {
       });
       return { client, isRest: true, targetPort };
     } else {
-      const targetPort = config.apiPort ?? (config.useSsl ? 8729 : 8728);
+      let targetPort = config.apiPort ?? (config.useSsl ? 8729 : 8728);
+      if (!config.useSsl && targetPort === 8729) {
+        targetPort = 8728;
+      } else if (config.useSsl && targetPort === 8728) {
+        targetPort = 8729;
+      }
       const client = new RouterOsApiClient({
         host: config.host,
         port: targetPort,

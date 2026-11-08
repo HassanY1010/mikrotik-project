@@ -9,7 +9,7 @@ export class ProvisionApplyDto extends ProvisionPreviewDto {
   })
   @IsBoolean()
   @IsOptional()
-  cleanSetupConfirmed?: boolean;
+  declare cleanSetupConfirmed?: boolean;
 
   @ApiPropertyOptional({
     description: 'Explicitly allow overwriting or adapting detected conflicting configurations',
@@ -17,7 +17,7 @@ export class ProvisionApplyDto extends ProvisionPreviewDto {
   })
   @IsBoolean()
   @IsOptional()
-  allowOverwrite?: boolean;
+  declare allowOverwrite?: boolean;
 
   @ApiPropertyOptional({
     description: 'Skip provisioning if pre-backup fails (safety mechanism)',
@@ -25,7 +25,7 @@ export class ProvisionApplyDto extends ProvisionPreviewDto {
   })
   @IsBoolean()
   @IsOptional()
-  skipBackupOnError?: boolean;
+  declare skipBackupOnError?: boolean;
 
   @ApiPropertyOptional({
     description: 'Custom name for the pre-configuration backup',
@@ -41,7 +41,7 @@ export class ProvisionApplyDto extends ProvisionPreviewDto {
   })
   @IsBoolean()
   @IsOptional()
-  updateRouterHostIfChanged?: boolean;
+  declare updateRouterHostIfChanged?: boolean;
 
   @ApiPropertyOptional({
     description: 'Optional custom password for the pre-configuration backup (useful for lab / offline manual recovery)',

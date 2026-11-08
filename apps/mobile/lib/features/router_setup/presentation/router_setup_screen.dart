@@ -120,11 +120,21 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       text: targetRouter?.name ?? (existingRouters.isEmpty ? 'راوتر البرج الرئيسي' : 'راوتر فرعي $nextIndex'),
     );
     _hostController = TextEditingController(text: targetRouter?.host ?? '192.168.88.1');
-    _apiPortController = TextEditingController(text: (targetRouter?.apiPort ?? 8728).toString());
-    _restPortController = TextEditingController(text: (targetRouter?.restPort ?? 443).toString());
     _userController = TextEditingController(text: targetRouter?.username ?? 'admin');
     _rosVersion = (targetRouter?.rosVersion.toUpperCase().contains('V6') == true) ? 'V6' : 'V7';
     _useSsl = targetRouter?.useSsl ?? false;
+
+    final defaultRest = _useSsl ? 443 : 80;
+    int initialRest = targetRouter?.restPort ?? defaultRest;
+    if (!_useSsl && initialRest == 443) initialRest = 80;
+    if (_useSsl && initialRest == 80) initialRest = 443;
+    _restPortController = TextEditingController(text: initialRest.toString());
+
+    final defaultApi = _useSsl ? 8729 : 8728;
+    int initialApi = targetRouter?.apiPort ?? defaultApi;
+    if (!_useSsl && initialApi == 8729) initialApi = 8728;
+    if (_useSsl && initialApi == 8728) initialApi = 8729;
+    _apiPortController = TextEditingController(text: initialApi.toString());
   }
 
   @override
@@ -217,16 +227,29 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       _selectedDiscoveredRouter = router;
       _nameController.text = router.identity.isNotEmpty ? router.identity : 'MikroTik (${router.ip})';
       _hostController.text = router.ip;
+      _rosVersion = router.rosVersion;
+
+      // Prefer HTTP 80 unless port 80 is closed and only 443 is open
+      if (router.openPorts.contains(80)) {
+        _useSsl = false;
+        _restPortController.text = '80';
+      } else if (router.openPorts.contains(443)) {
+        _useSsl = true;
+        _restPortController.text = '443';
+      } else {
+        _useSsl = false;
+        _restPortController.text = '80';
+      }
+
       if (router.openPorts.contains(8728)) {
         _apiPortController.text = '8728';
       } else if (router.openPorts.contains(8729)) {
         _apiPortController.text = '8729';
         _useSsl = true;
+      } else {
+        _apiPortController.text = _useSsl ? '8729' : '8728';
       }
-      if (router.openPorts.contains(443) || router.openPorts.contains(80)) {
-        _restPortController.text = router.openPorts.contains(443) ? '443' : '80';
-      }
-      _rosVersion = router.rosVersion;
+
       // Switch to manual mode to complete credentials & verification
       _setupMode = 'MANUAL';
       _testResult = null;
@@ -247,11 +270,20 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       _selectedDeviceId = r.id;
       _nameController.text = r.name;
       _hostController.text = r.host;
-      _apiPortController.text = r.apiPort.toString();
-      _restPortController.text = r.restPort.toString();
-      _userController.text = r.username;
       _rosVersion = (r.rosVersion.toUpperCase().contains('V6')) ? 'V6' : 'V7';
       _useSsl = r.useSsl;
+
+      int apiP = r.apiPort;
+      if (!_useSsl && apiP == 8729) apiP = 8728;
+      if (_useSsl && apiP == 8728) apiP = 8729;
+      _apiPortController.text = apiP.toString();
+
+      int restP = r.restPort;
+      if (!_useSsl && restP == 443) restP = 80;
+      if (_useSsl && restP == 80) restP = 443;
+      _restPortController.text = restP.toString();
+
+      _userController.text = r.username;
       _testSuccess = null;
       _testResult = null;
       _latencyMs = null;
@@ -281,11 +313,14 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       _routerMetrics = null;
     });
 
+    final resolvedApiPort = int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728);
+    final resolvedRestPort = int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80);
+
     final payload = {
       if (_selectedDeviceId != null) 'id': _selectedDeviceId,
       'host': host,
-      'apiPort': int.tryParse(_apiPortController.text.trim()) ?? 8728,
-      'restPort': int.tryParse(_restPortController.text.trim()) ?? 443,
+      'apiPort': resolvedApiPort,
+      'restPort': resolvedRestPort,
       'username': user,
       if (pass.isNotEmpty) 'password': pass,
       'rosVersion': _rosVersion,
@@ -318,8 +353,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           host: host,
           username: user,
           password: pass,
-          apiPort: int.tryParse(_apiPortController.text.trim()) ?? 8728,
-          restPort: int.tryParse(_restPortController.text.trim()) ?? 443,
+          apiPort: resolvedApiPort,
+          restPort: resolvedRestPort,
           rosVersion: _rosVersion,
           useSsl: _useSsl,
         );
@@ -332,6 +367,11 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         } else if (localRes['code'] == 'INVALID_CREDENTIALS') {
           msg = localRes['message']?.toString() ?? 'بيانات تسجيل الدخول غير صحيحة';
         }
+      }
+
+      // Friendly Arabic message for REST API reachability issues
+      if (!isOk && msg.toLowerCase().contains('failed to reach mikrotik rest api')) {
+        msg = 'تعذر الوصول لواجهة REST بالراوتر ($host:$resolvedRestPort). إذا كان SSL غير مفعّل في الراوتر، عطّل خيار SSL واستخدم المنفذ 80 الافتراضي.';
       }
 
       setState(() {
@@ -348,10 +388,14 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       }
     } catch (e) {
       if (!mounted) return;
+      String errStr = e.toString().replaceFirst('Exception: ', '');
+      if (errStr.toLowerCase().contains('failed to reach mikrotik rest api')) {
+        errStr = 'تعذر الوصول لواجهة REST بالراوتر ($host:$resolvedRestPort). إذا كان SSL غير مفعّل في الراوتر، عطّل خيار SSL واستخدم المنفذ 80 الافتراضي.';
+      }
       setState(() {
         _isTesting = false;
         _testSuccess = false;
-        _testResult = 'فشل الاتصال بالراوتر: $e';
+        _testResult = 'فشل الاتصال بالراوتر: $errStr';
       });
     }
   }
@@ -361,8 +405,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     final payload = {
       'name': _nameController.text.trim(),
       'host': _hostController.text.trim(),
-      'apiPort': int.tryParse(_apiPortController.text.trim()) ?? 8728,
-      'restPort': int.tryParse(_restPortController.text.trim()) ?? 443,
+      'apiPort': int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728),
+      'restPort': int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80),
       'username': _userController.text.trim(),
       'password': _passController.text.trim(),
       'rosVersion': _rosVersion,
@@ -445,8 +489,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               host: host,
               username: user,
               password: pass,
-              apiPort: int.tryParse(_apiPortController.text.trim()) ?? 8728,
-              restPort: int.tryParse(_restPortController.text.trim()) ?? 443,
+              apiPort: int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728),
+              restPort: int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80),
               rosVersion: _rosVersion,
               useSsl: _useSsl,
             );
@@ -503,7 +547,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   // Step 5 Handlers: Preview & Conflict Generation
   // ===========================================================================
 
-  Map<String, dynamic> _buildProvisioningPayload() {
+  Map<String, dynamic> _buildProvisioningPayload({bool forApply = false}) {
     return {
       'template': _selectedTemplate,
       'wan': {
@@ -547,10 +591,12 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         'defaultSessionTimeout': '1d',
       },
       'securityPolicies': _securityPolicies.toJson(),
-      'cleanSetupConfirmed': _cleanSetupConfirmed,
-      'allowOverwrite': _allowOverwrite,
-      'skipBackupOnError': false,
-      'updateRouterHostIfChanged': _updateRouterHostIfChanged,
+      if (forApply) ...{
+        'cleanSetupConfirmed': _cleanSetupConfirmed,
+        'allowOverwrite': _allowOverwrite,
+        'skipBackupOnError': false,
+        'updateRouterHostIfChanged': _updateRouterHostIfChanged,
+      },
     };
   }
 
@@ -564,7 +610,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
     try {
       final service = ref.read(routerProvisioningServiceProvider);
-      final payload = _buildProvisioningPayload();
+      final payload = _buildProvisioningPayload(forApply: false);
       final previewData = await service.preview(_selectedDeviceId!, payload);
       if (!mounted) return;
 
@@ -589,7 +635,22 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   // ===========================================================================
 
   Future<void> _handleApplyProvisioning() async {
-    if (_selectedDeviceId == null || _preview == null) return;
+    if (_selectedDeviceId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('الرجاء اختيار الراوتر أولاً')),
+      );
+      return;
+    }
+    if (_preview == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('الرجاء توليد وفحص المعاينة في الخطوة 5 أولاً'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      setState(() => _currentStep = 4);
+      return;
+    }
 
     if (_preview!.requiresCleanConfirmation && !_cleanSetupConfirmed) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -619,7 +680,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
     try {
       final service = ref.read(routerProvisioningServiceProvider);
-      final payload = _buildProvisioningPayload();
+      final payload = _buildProvisioningPayload(forApply: true);
 
       final result = await service.apply(_selectedDeviceId!, payload);
       if (!mounted) return;
@@ -641,6 +702,17 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   }
 
   Future<void> _confirmAndApply() async {
+    if (_preview == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('الرجاء توليد وفحص المعاينة في الخطوة 5 أولاً'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      setState(() => _currentStep = 4);
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -683,6 +755,12 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     );
 
     if (confirmed == true) {
+      if (_preview!.requiresCleanConfirmation) {
+        _cleanSetupConfirmed = true;
+      }
+      if (_preview!.conflicts.isNotEmpty) {
+        _allowOverwrite = true;
+      }
       await _handleApplyProvisioning();
     }
   }
@@ -1796,8 +1874,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _buildTextField(
-                'منفذ API',
-                _apiPortController,
+                _rosVersion == 'V7'
+                    ? 'منفذ REST (الافتراضي ${_useSsl ? 443 : 80})'
+                    : 'منفذ API (الافتراضي ${_useSsl ? 8729 : 8728})',
+                _rosVersion == 'V7' ? _restPortController : _apiPortController,
                 Icons.numbers,
                 keyboardType: TextInputType.number,
               ),
@@ -1869,7 +1949,18 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           ),
           value: _useSsl,
           activeThumbColor: AppTheme.primary,
-          onChanged: (v) => setState(() => _useSsl = v),
+          onChanged: (v) {
+            setState(() {
+              _useSsl = v;
+              if (v) {
+                if (_apiPortController.text == '8728') _apiPortController.text = '8729';
+                if (_restPortController.text == '80') _restPortController.text = '443';
+              } else {
+                if (_apiPortController.text == '8729') _apiPortController.text = '8728';
+                if (_restPortController.text == '443') _restPortController.text = '80';
+              }
+            });
+          },
         ),
         const SizedBox(height: 18),
 
@@ -3487,6 +3578,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     if (_currentStep == 3) {
       return _selectedWanInterface != null && _selectedLanInterfaces.isNotEmpty;
     }
+    if (_currentStep == 4) {
+      return _preview != null && !_isPreviewing;
+    }
     return true;
   }
 
@@ -3508,6 +3602,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       setState(() => _currentStep = 4);
       _handleGeneratePreview();
     } else if (_currentStep == 4) {
+      if (_preview == null) {
+        _handleGeneratePreview();
+        return;
+      }
       setState(() => _currentStep = 5);
     }
   }
@@ -3600,7 +3698,20 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   Widget _buildVersionChip(String version, String title, IconData icon) {
     final isSelected = _rosVersion == version;
     return InkWell(
-      onTap: () => setState(() => _rosVersion = version),
+      onTap: () {
+        setState(() {
+          _rosVersion = version;
+          if (version == 'V7') {
+            if (_restPortController.text.trim().isEmpty || (_restPortController.text.trim() == '443' && !_useSsl)) {
+              _restPortController.text = _useSsl ? '443' : '80';
+            }
+          } else {
+            if (_apiPortController.text.trim().isEmpty || (_apiPortController.text.trim() == '8729' && !_useSsl)) {
+              _apiPortController.text = _useSsl ? '8729' : '8728';
+            }
+          }
+        });
+      },
       borderRadius: BorderRadius.circular(10),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
