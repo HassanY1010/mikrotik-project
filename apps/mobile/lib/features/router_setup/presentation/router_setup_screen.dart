@@ -493,54 +493,44 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     try {
       final service = ref.read(routerProvisioningServiceProvider);
       RouterDiscoverySnapshotModel? snap;
-      String? backendErrorMsg;
 
-      // 1. First attempt: Query discovery from backend
-      try {
-        snap = await service.discover(_selectedDeviceId!);
-      } catch (backendErr) {
-        backendErrorMsg = backendErr.toString().replaceFirst('Exception: ', '');
-      }
+      final host = _hostController.text.trim();
+      final user = _userController.text.trim();
+      final pass = _passController.text.trim();
+      final isPrivateIp = host.startsWith('192.168.') ||
+          host.startsWith('10.') ||
+          host.startsWith('172.16.') ||
+          host.startsWith('172.17.') ||
+          host.startsWith('172.18.') ||
+          host.startsWith('172.19.') ||
+          host.startsWith('172.2') ||
+          host.startsWith('172.3');
 
-      // 2. Fallback attempt: If backend could not connect (e.g. cloud server cannot reach private LAN IP 192.168.x.x),
-      // query the router directly from the phone over Wi-Fi / local network!
-      if (snap == null) {
-        final host = _hostController.text.trim();
-        final user = _userController.text.trim();
-        final pass = _passController.text.trim();
-        final isPrivateIp = host.startsWith('192.168.') ||
-            host.startsWith('10.') ||
-            host.startsWith('172.16.') ||
-            host.startsWith('172.17.') ||
-            host.startsWith('172.18.') ||
-            host.startsWith('172.19.') ||
-            host.startsWith('172.2') ||
-            host.startsWith('172.3');
-
-        if (isPrivateIp || _rosVersion == 'V7') {
-          try {
-            snap = await ref.read(mikrotikDiscoveryServiceProvider).discoverLocally(
-              host: host,
-              username: user,
-              password: pass,
-              apiPort: int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728),
-              restPort: int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80),
-              rosVersion: _rosVersion,
-              useSsl: _useSsl,
-            );
-            await service.syncSnapshot(_selectedDeviceId!, snap);
-          } catch (localErr) {
-            final localMsg = localErr.toString().replaceFirst('Exception: ', '');
-            throw Exception(
-              backendErrorMsg != null &&
-                      !backendErrorMsg.contains('500') &&
-                      !backendErrorMsg.contains('Internal server error')
-                  ? backendErrorMsg
-                  : localMsg,
-            );
-          }
-        } else {
-          throw Exception(backendErrorMsg ?? 'تعذر استكشاف منافذ الراوتر عبر الخادم');
+      // 1. If Private IP or local discovery mode, discover directly from the phone over Wi-Fi
+      if (isPrivateIp || _setupMode == 'DISCOVERY') {
+        try {
+          snap = await ref.read(mikrotikDiscoveryServiceProvider).discoverLocally(
+            host: host,
+            username: user,
+            password: pass,
+            apiPort: int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728),
+            restPort: int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80),
+            rosVersion: _rosVersion,
+            useSsl: _useSsl,
+          );
+          // Sync snapshot to backend in background
+          service.syncSnapshot(_selectedDeviceId!, snap);
+        } catch (localErr) {
+          final localMsg = localErr.toString().replaceFirst('Exception: ', '');
+          throw Exception('تعذر استكشاف الراوتر محلياً عبر الشبكة ($host): $localMsg');
+        }
+      } else {
+        // 2. Otherwise (Public IP), query discovery from backend
+        try {
+          snap = await service.discover(_selectedDeviceId!);
+        } catch (backendErr) {
+          final backendErrorMsg = backendErr.toString().replaceFirst('Exception: ', '');
+          throw Exception(backendErrorMsg);
         }
       }
 
@@ -625,6 +615,11 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         'defaultSessionTimeout': '1d',
       },
       'securityPolicies': _securityPolicies.toJson(),
+      if (_discovery != null) ...{
+        'snapshot': _discovery!.toJson(),
+        if (_discovery!.snapshotHash != null) 'snapshotHash': _discovery!.snapshotHash,
+        if (_discovery!.discoveredAt != null) 'discoveredAt': _discovery!.discoveredAt!.toIso8601String(),
+      },
       if (forApply) ...{
         'cleanSetupConfirmed': _cleanSetupConfirmed,
         'allowOverwrite': _allowOverwrite,
@@ -716,7 +711,86 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       final service = ref.read(routerProvisioningServiceProvider);
       final payload = _buildProvisioningPayload(forApply: true);
 
-      final result = await service.apply(_selectedDeviceId!, payload);
+      final host = _hostController.text.trim();
+      final user = _userController.text.trim();
+      final pass = _passController.text.trim();
+      final isPrivateIp = host.startsWith('192.168.') ||
+          host.startsWith('10.') ||
+          host.startsWith('172.16.') ||
+          host.startsWith('172.17.') ||
+          host.startsWith('172.18.') ||
+          host.startsWith('172.19.') ||
+          host.startsWith('172.2') ||
+          host.startsWith('172.30.') ||
+          host.startsWith('172.31.');
+
+      ProvisionApplyResult result;
+
+      // Plan Token & Cryptographic Freshness Validation
+      if (_preview?.planToken != null) {
+        final token = _preview!.planToken!;
+        final now = DateTime.now().toUtc();
+        final exp = DateTime.tryParse(token['expiresAt']?.toString() ?? '');
+        if (exp != null && now.isAfter(exp)) {
+          throw Exception('انتهت صلاحية خطة المعاينة المعتمدة (تجاوزت 30 دقيقة). يرجى إعادة فحص المعاينة.');
+        }
+        if (token['deviceId'] != null && token['deviceId'] != _selectedDeviceId) {
+          throw Exception('هذه الخطة تم توقيعها لجهاز راوتر آخر ولا يمكن تطبيقها على هذا الراوتر.');
+        }
+
+        final canonical = token['canonicalPayload']?.toString();
+        final sigHex = token['signature']?.toString();
+        final pubKeyHex = token['publicKey']?.toString();
+        if (canonical != null && sigHex != null && pubKeyHex != null) {
+          final isSigValid = await MikrotikDiscoveryService.verifyEd25519PlanSignature(
+            canonicalPayload: canonical,
+            signatureHex: sigHex,
+            publicKeyHex: pubKeyHex,
+          );
+          if (!isSigValid) {
+            throw Exception('فشل التحقق التشفيري (Ed25519 Signature Invalid): تم تعديل الخطة أو التلاعب بها بعد التوقيع.');
+          }
+        }
+      }
+
+      if (isPrivateIp && _preview != null && _preview!.generatedCommands.isNotEmpty) {
+        // Local Execution Architecture:
+        // Execute commands step-by-step from phone directly to router over LAN/Wi-Fi
+        final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
+        final restPort = int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80);
+
+        final localResult = await discoveryService.executePlanLocally(
+          host: host,
+          restPort: restPort,
+          username: user,
+          password: pass,
+          commands: _preview!.generatedCommands,
+          rosVersion: _rosVersion,
+          useSsl: _useSsl,
+        );
+
+        // Synchronize execution result and update state in backend
+        try {
+          final syncPayload = {
+            ...payload,
+            'executionMode': 'LOCAL',
+            if (_preview?.planToken != null) 'planToken': _preview!.planToken,
+            'clientExecutionResult': localResult.toJson(),
+          };
+          result = await service.apply(_selectedDeviceId!, syncPayload);
+        } catch (_) {
+          // If backend sync fails (e.g. offline mobile), keep local execution result
+          result = localResult;
+        }
+      } else {
+        // Standard Cloud Execution for Publicly accessible routers
+        final cloudPayload = {
+          ...payload,
+          if (_preview?.planToken != null) 'planToken': _preview!.planToken,
+        };
+        result = await service.apply(_selectedDeviceId!, cloudPayload);
+      }
+
       if (!mounted) return;
 
       setState(() {

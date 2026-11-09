@@ -51,5 +51,25 @@ export class ProvisionApplyDto extends ProvisionPreviewDto {
   @MinLength(8, { message: 'يجب ألا تقل كلمة مرور النسخة الاحتياطية عن 8 خانات' })
   @MaxLength(64, { message: 'يجب ألا تتجاوز كلمة مرور النسخة الاحتياطية 64 خانة' })
   customBackupPassword?: string;
+
+  @ApiPropertyOptional({
+    description: 'Execution mode: "LOCAL" (executed by mobile client locally) or "CLOUD" (executed by backend server)',
+    default: 'CLOUD',
+  })
+  @IsString()
+  @IsOptional()
+  executionMode?: 'LOCAL' | 'CLOUD';
+
+  @ApiPropertyOptional({
+    description: 'If executed locally by client, provide the execution result to record in audit log and session',
+  })
+  @IsOptional()
+  clientExecutionResult?: any;
+
+  @ApiPropertyOptional({
+    description: 'Signed plan token returned by preview step for cryptographic verification upon apply',
+  })
+  @IsOptional()
+  planToken?: any;
 }
 

@@ -4,10 +4,12 @@ import {
   ConflictException,
   BadGatewayException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
 import { EncryptionService } from '../../../core/security/encryption.service';
+import { PlanSigningService } from '../../../core/security/signing.service';
 import {
   IMikrotikClient,
   RouterResource,
@@ -39,10 +41,14 @@ export class RouterProvisioningService {
     { snapshot: RouterDiscoverySnapshot; cachedAt: number }
   >();
 
+  // In-memory set of applied local session keys for replay attack prevention
+  private readonly appliedLocalSessions = new Set<string>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly clientFactory: MikrotikClientFactory,
     private readonly encryptionService: EncryptionService,
+    @Optional() private readonly planSigningService?: PlanSigningService,
   ) {}
 
   /**
@@ -97,26 +103,34 @@ export class RouterProvisioningService {
   /**
    * Normalizes discovery snapshot ensuring all arrays and fields are non-null and safe
    */
-  private normalizeSnapshot(raw: Partial<RouterDiscoverySnapshot> | undefined): RouterDiscoverySnapshot {
+  private normalizeSnapshot(raw: Partial<RouterDiscoverySnapshot> | any | undefined): RouterDiscoverySnapshot {
     return {
       resource: raw?.resource || {
-        uptime: '0s',
-        version: 'unknown',
-        cpuLoad: 0,
+        uptime: raw?.uptime || '0s',
+        version: raw?.version || 'unknown',
+        cpuLoad: typeof raw?.cpuLoad === 'number' ? raw.cpuLoad : 0,
         freeMemory: 0,
         totalMemory: 0,
         freeHdd: 0,
         totalHdd: 0,
       },
       interfaces: Array.isArray(raw?.interfaces) ? raw.interfaces.filter(Boolean) : [],
-      bridges: Array.isArray(raw?.bridges) ? raw.bridges.filter(Boolean) : [],
+      bridges: Array.isArray(raw?.bridges)
+        ? raw.bridges
+            .map((b: any) => (typeof b === 'string' ? { name: b } : b))
+            .filter(Boolean)
+        : [],
       bridgePorts: Array.isArray(raw?.bridgePorts) ? raw.bridgePorts.filter(Boolean) : [],
       ipAddresses: Array.isArray(raw?.ipAddresses) ? raw.ipAddresses.filter(Boolean) : [],
       dhcpClients: Array.isArray(raw?.dhcpClients) ? raw.dhcpClients.filter(Boolean) : [],
       dhcpServers: Array.isArray(raw?.dhcpServers) ? raw.dhcpServers.filter(Boolean) : [],
       natRules: Array.isArray(raw?.natRules) ? raw.natRules.filter(Boolean) : [],
       routes: Array.isArray(raw?.routes) ? raw.routes.filter(Boolean) : [],
-      hotspotServers: Array.isArray(raw?.hotspotServers) ? raw.hotspotServers.filter(Boolean) : [],
+      hotspotServers: Array.isArray(raw?.hotspotServers)
+        ? raw.hotspotServers
+            .map((h: any) => (typeof h === 'string' ? { name: h } : h))
+            .filter(Boolean)
+        : [],
       mangleRules: Array.isArray(raw?.mangleRules) ? raw.mangleRules.filter(Boolean) : [],
       filterRules: Array.isArray(raw?.filterRules) ? raw.filterRules.filter(Boolean) : [],
       hotspotUserProfiles: Array.isArray(raw?.hotspotUserProfiles) ? raw.hotspotUserProfiles.filter(Boolean) : [],
@@ -275,13 +289,40 @@ export class RouterProvisioningService {
 
       const discoveryStartTime = Date.now();
       let rawDiscovery: RouterDiscoverySnapshot;
-      try {
-        rawDiscovery = await this.discover(tenantId, deviceId, { forceRefresh: false });
-      } catch (discErr) {
-        this.logger.warn(
-          `[Preview Discovery Warn] Direct discovery failed for ${device.host}: ${discErr instanceof Error ? discErr.message : String(discErr)}. Using fallback snapshot.`,
+
+      // 1. If client sent a locally-discovered snapshot, prioritize it over cloud direct connection
+      if (dto.snapshot && typeof dto.snapshot === 'object') {
+        this.logger.log(
+          `[Preview Discovery] Using client-discovered snapshot for router ${deviceId} (${Array.isArray(dto.snapshot.interfaces) ? dto.snapshot.interfaces.length : 0} interfaces)`,
         );
-        rawDiscovery = this.normalizeSnapshot(undefined);
+
+        // Freshness Validation: Reject snapshot if older than 15 minutes
+        if (dto.discoveredAt) {
+          const discTime = new Date(dto.discoveredAt).getTime();
+          const now = Date.now();
+          if (Number.isFinite(discTime) && (now - discTime > 15 * 60 * 1000 || discTime - now > 60000)) {
+            throw new ConflictException({
+              code: 'SNAPSHOT_STALE',
+              message: 'بيانات استكشاف الراوتر قديمة (تجاوزت 15 دقيقة) وتتطلب إعادة الفحص لضمان الدقة.',
+            });
+          }
+        }
+
+        rawDiscovery = this.normalizeSnapshot(dto.snapshot);
+        // Cache snapshot so any follow-up actions can utilize it
+        this.discoveryCache.set(`${tenantId}:${deviceId}`, {
+          snapshot: rawDiscovery,
+          cachedAt: Date.now(),
+        });
+      } else {
+        try {
+          rawDiscovery = await this.discover(tenantId, deviceId, { forceRefresh: false });
+        } catch (discErr) {
+          this.logger.warn(
+            `[Preview Discovery Warn] Direct discovery failed for ${device.host}: ${discErr instanceof Error ? discErr.message : String(discErr)}. Using fallback snapshot.`,
+          );
+          rawDiscovery = this.normalizeSnapshot(undefined);
+        }
       }
 
       const discovery = this.normalizeSnapshot(rawDiscovery);
@@ -585,6 +626,25 @@ export class RouterProvisioningService {
           `${sanitizedCommands.length} commands, ${conflicts.length} conflicts, ${warnings.length} warnings (RequiresCleanConfirmation: ${requiresCleanConfirmation}, CanProceed: ${canProceed})`,
       );
 
+      const signService = this.planSigningService || new PlanSigningService();
+      const expiresAt =
+        (dto as any).planToken?.expiresAt &&
+        new Date((dto as any).planToken.expiresAt).getTime() > Date.now()
+          ? (dto as any).planToken.expiresAt
+          : new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      const signPayload = {
+        tenantId,
+        deviceId,
+        sessionId: dto.sessionId,
+        nonce: dto.nonce,
+        fencingToken: (dto as any).fencingToken,
+        snapshotHash: dto.snapshotHash,
+        expiresAt,
+        commands: sanitizedCommands.map((c) => ({ stage: c.stage, command: c.command })),
+      };
+      const signResult = signService.signPlan(signPayload);
+      const { commandsHash } = signService.buildCanonicalPayload(signPayload);
+
       return {
         template: dto.template,
         routerVersion: device.rosVersion || 'V7',
@@ -597,8 +657,22 @@ export class RouterProvisioningService {
         canProceed,
         requiresCleanConfirmation,
         backupRecommended: true,
+        planToken: {
+          tenantId,
+          deviceId,
+          sessionId: dto.sessionId || 'session-default',
+          snapshotHash: dto.snapshotHash || '',
+          commandsHash,
+          expiresAt,
+          canonicalPayload: signResult.canonicalPayload,
+          signature: signResult.signature,
+          publicKey: signResult.publicKey,
+        },
       };
     } catch (topLevelErr: unknown) {
+      if (topLevelErr instanceof ConflictException || topLevelErr instanceof NotFoundException) {
+        throw topLevelErr;
+      }
       const error = topLevelErr instanceof Error ? topLevelErr : new Error(String(topLevelErr));
       this.logger.error(
         `[Preview 500 Prevention] Caught unexpected crash in preview for device ${deviceId}: ${error.message}`,
@@ -720,6 +794,164 @@ export class RouterProvisioningService {
         message: 'تم اكتشاف تعارضات في إعدادات الراوتر تمنع التنفيذ التلقائي دون إذن صريح.',
         conflicts: previewRes.conflicts,
       });
+    }
+
+    // =========================================================================
+    // LOCAL EXECUTION MODE: Executed by mobile client directly on LAN
+    // Prevents Render from attempting connection to RFC1918 private IPs
+    // =========================================================================
+    if (dto.executionMode === 'LOCAL') {
+      const sessionKey = `${tenantId}:${deviceId}:${dto.sessionId || 'session-default'}`;
+      if (this.appliedLocalSessions.has(sessionKey)) {
+        throw new ConflictException({
+          code: 'SESSION_REPLAY_DETECTED',
+          message: 'تم تطبيق نتيجة هذه الجلسة مسبقاً على الراوتر، ولا يمكن إعادة استخدامها (Replay Attack Prevention).',
+        });
+      }
+
+      if (previewRes.planToken) {
+        const exp = new Date(previewRes.planToken.expiresAt).getTime();
+        if (Date.now() > exp) {
+          throw new ConflictException({
+            code: 'PLAN_EXPIRED',
+            message: 'انتهت صلاحية خطة البرمجة الموقعة (تجاوزت 30 دقيقة). يرجى إعادة فحص المعاينة.',
+          });
+        }
+      }
+
+      // Cryptographic verification of client-submitted planToken upon Apply
+      if (dto.planToken) {
+        const token = dto.planToken;
+        if (token.tenantId && token.tenantId !== tenantId) {
+          throw new ConflictException({
+            code: 'CROSS_TENANT_PLAN_REJECTED',
+            message: 'الخطة المقدمة تابعة لمستأجر آخر ولا يمكن تطبيقها على هذا الحساب.',
+          });
+        }
+        if (token.deviceId && token.deviceId !== deviceId) {
+          throw new ConflictException({
+            code: 'WRONG_DEVICE_PLAN_REJECTED',
+            message: 'الخطة المقدمة تم توقيعها لجهاز راوتر آخر ولا يمكن تطبيقها على هذا الجهاز.',
+          });
+        }
+        if (token.expiresAt) {
+          const expTime = new Date(token.expiresAt).getTime();
+          if (Date.now() > expTime) {
+            throw new ConflictException({
+              code: 'PLAN_EXPIRED',
+              message: 'انتهت صلاحية خطة البرمجة الموقعة (تجاوزت 30 دقيقة). يرجى إعادة فحص المعاينة.',
+            });
+          }
+        }
+        const signService = this.planSigningService || new PlanSigningService();
+
+        // 1. Enforce trusted backend public key: Strictly reject any client-substituted or foreign public key
+        if (token.publicKey && token.publicKey.toLowerCase() !== signService.getPublicKeyHex().toLowerCase()) {
+          throw new ConflictException({
+            code: 'UNTRUSTED_PUBLIC_KEY',
+            message: 'المفتاح العام المرفق مع الخطة غير موثوق ولا يطابق المفتاح الرسمي المعتمد لـ SudaFi.',
+          });
+        }
+
+        // 2. Reject untrusted canonical payload text from client: Re-verify against authoritative server-computed canonical payload
+        if (previewRes.planToken?.canonicalPayload && token.canonicalPayload) {
+          if (token.canonicalPayload !== previewRes.planToken.canonicalPayload) {
+            throw new ConflictException({
+              code: 'PLAN_PAYLOAD_MISMATCH',
+              message: 'نص الخطة المعياري (Canonical Payload) لا يطابق الخطة المحسوبة على الخادم لهذا الجهاز.',
+            });
+          }
+        }
+
+        // 3. Cryptographically verify signature against authoritative server canonical payload using SudaFi trusted public key
+        const authoritativePayload = previewRes.planToken?.canonicalPayload || token.canonicalPayload;
+        if (authoritativePayload && token.signature) {
+          const isSigValid = signService.verifyPlan(authoritativePayload, token.signature);
+          if (!isSigValid) {
+            throw new ConflictException({
+              code: 'PLAN_SIGNATURE_INVALID',
+              message: 'فشل التحقق التشفيري من توقيع الخطة (Ed25519 Signature Invalid). تم التلاعب بالخطة أو توقيعها بمفتاح غير مصرح.',
+            });
+          }
+        }
+      }
+
+      const clientRes = dto.clientExecutionResult || {};
+      const backupFilename = clientRes.backupFilename;
+      const executedStages: ExecutedStageLog[] = clientRes.executedStages || [];
+      const verification: ProvisioningVerificationResult = clientRes.verification || {
+        internetReachable: false,
+        wanConfigured: false,
+        defaultRouteActive: false,
+        hotspotOperational: false,
+        securityPoliciesVerified: false,
+        pingPacketsReceived: 0,
+        overallStatus: 'VERIFICATION_FAILED',
+        diagnosticsMessage: clientRes.failureReason || 'لم يتم استلام تقرير تحقق صالح من الراوتر.',
+      };
+
+      const isFullyVerified =
+        clientRes.success === true &&
+        verification.overallStatus === 'VERIFIED_READY' &&
+        verification.internetReachable === true &&
+        verification.wanConfigured === true;
+
+      if (clientRes.success === true) {
+        this.appliedLocalSessions.add(sessionKey);
+
+        try {
+          const profileName = dto.hotspot?.profileName || 'hsp-sudafi';
+          const validityStr = dto.hotspot?.defaultSessionTimeout || '1d';
+
+          await this.prisma.hotspotProfile.upsert({
+            where: {
+              tenantId_deviceId_name: {
+                tenantId,
+                deviceId: device.id,
+                name: profileName,
+              },
+            },
+            create: {
+              tenantId,
+              deviceId: device.id,
+              name: profileName,
+              rateLimit: dto.hotspot?.defaultRateLimit || '2M/5M',
+              sessionTimeout: validityStr,
+              sharedUsers: 1,
+            },
+            update: {
+              rateLimit: dto.hotspot?.defaultRateLimit || '2M/5M',
+              sessionTimeout: validityStr,
+            },
+          });
+
+          // Strict online promotion: update isOnline ONLY if router was physically verified
+          await this.prisma.mikroTikDevice.update({
+            where: { id: device.id },
+            data: {
+              isOnline: isFullyVerified,
+              lastSyncAt: new Date(),
+              ...(dto.updateRouterHostIfChanged && dto.lan?.gatewayIp
+                ? { host: dto.lan.gatewayIp.split('/')[0] }
+                : {}),
+            },
+          });
+        } catch (syncErr) {
+          this.logger.warn(`Failed to synchronize platform DB after client provisioning: ${syncErr}`);
+        }
+      }
+
+      return {
+        success: isFullyVerified,
+        deviceId: device.id,
+        deviceName: device.name,
+        backupFilename,
+        executedStages,
+        failedStage: isFullyVerified ? undefined : (clientRes.failedStage || 'ROUTER_VERIFICATION'),
+        failureReason: isFullyVerified ? undefined : (clientRes.failureReason || 'فشل التحقق الفعلي من إمكانية الوصول إلى الإنترنت أو الهوتسبوت بعد البرمجة.'),
+        recoveryInstructions: clientRes.recoveryInstructions,
+        verification,
+      };
     }
 
     const client = await this.getConnectedClient(device);

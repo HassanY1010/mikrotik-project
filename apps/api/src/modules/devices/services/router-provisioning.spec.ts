@@ -4,6 +4,7 @@ import { RouterProvisioningService } from './router-provisioning.service';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
 import { EncryptionService } from '../../../core/security/encryption.service';
+import { PlanSigningService } from '../../../core/security/signing.service';
 import { ProvisionPreviewDto } from '../dto/provision-preview.dto';
 import { ProvisionApplyDto } from '../dto/provision-apply.dto';
 
@@ -1203,6 +1204,429 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
         expect(cmd.description).toBeDefined();
         expect(cmd.stage).toBeDefined();
       }
+    });
+
+    describe('12. Local Discovery & Execution Architecture (معمارية الاستكشاف والتنفيذ المحلي)', () => {
+      it('should use client-provided snapshot in preview() without calling backend discover()', async () => {
+        // Spy on discover method to ensure it is NEVER called when snapshot is provided
+        const discoverSpy = jest.spyOn(service, 'discover');
+
+        const clientSnapshot = {
+          resource: {
+            uptime: '5d12h',
+            version: '7.16.2',
+            cpuLoad: 5,
+            freeMemory: 100000000,
+            totalMemory: 256000000,
+            freeHdd: 50000000,
+            totalHdd: 128000000,
+          },
+          interfaces: [
+            { name: 'ether1', type: 'ether', running: true, disabled: false },
+            { name: 'ether2', type: 'ether', running: true, disabled: false },
+          ],
+          bridges: [{ name: 'bridge-local' }],
+          bridgePorts: [{ interface: 'ether2', bridge: 'bridge-local' }],
+          ipAddresses: [{ address: '192.168.88.1/24', interface: 'ether1' }],
+          dhcpServers: [],
+          dhcpClients: [],
+          natRules: [],
+          routes: [],
+          hotspotServers: [],
+        };
+
+        const previewDto: ProvisionPreviewDto = {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          snapshot: clientSnapshot,
+          snapshotHash: 'mock-hash-abcdef123456',
+          discoveredAt: new Date().toISOString(),
+        };
+
+        const preview = await service.preview('tenant-001', 'dev-001', previewDto);
+
+        expect(discoverSpy).not.toHaveBeenCalled();
+        expect(preview.plannedSteps.length).toBeGreaterThan(0);
+        expect(preview.generatedCommands.length).toBeGreaterThan(0);
+        expect(preview.discovery.interfaces.length).toBe(2);
+
+        discoverSpy.mockRestore();
+      });
+
+      it('should complete apply() in LOCAL execution mode without calling getConnectedClient()', async () => {
+        const getConnectedClientSpy = jest.spyOn<any, any>(service as any, 'getConnectedClient');
+
+        const applyDto: any = {
+          template: 'CLEAN_SETUP',
+          cleanSetupConfirmed: true,
+          allowOverwrite: true,
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          executionMode: 'LOCAL',
+          snapshot: {
+            resource: { version: '7.16.2', uptime: '1h' },
+            interfaces: [{ name: 'ether1' }, { name: 'ether2' }],
+            bridges: [],
+            ipAddresses: [],
+            hotspotServers: [],
+          },
+          clientExecutionResult: {
+            success: true,
+            backupFilename: 'pre-sudafi-backup.backup',
+            executedStages: [
+              { stage: 'PRE_BACKUP', status: 'SUCCESS', timestamp: new Date().toISOString() },
+              { stage: 'BRIDGE_SETUP', status: 'SUCCESS', timestamp: new Date().toISOString() },
+            ],
+            verification: {
+              internetReachable: true,
+              wanConfigured: true,
+              defaultRouteActive: true,
+              hotspotOperational: true,
+              securityPoliciesVerified: true,
+              pingPacketsReceived: 3,
+              overallStatus: 'VERIFIED_READY',
+              diagnosticsMessage: 'تم تطبيق وبرمجة الراوتر بنجاح والتحقق من حالته محلياً.',
+            },
+          },
+        };
+
+        const result = await service.apply('tenant-001', 'dev-001', applyDto, 'user-001');
+
+        expect(getConnectedClientSpy).not.toHaveBeenCalled();
+        expect(result.success).toBe(true);
+        expect(result.backupFilename).toBe('pre-sudafi-backup.backup');
+        expect(result.verification.overallStatus).toBe('VERIFIED_READY');
+
+        getConnectedClientSpy.mockRestore();
+      });
+
+      it('should reject preview with ConflictException if discoveredAt is older than 15 minutes (stale snapshot)', async () => {
+        const staleDate = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 minutes ago
+        const previewDto: ProvisionPreviewDto = {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          snapshot: {
+            resource: { version: '7.16.2', uptime: '1h' },
+            interfaces: [{ name: 'ether1' }],
+            bridges: [],
+            ipAddresses: [],
+          },
+          discoveredAt: staleDate,
+        };
+
+        await expect(service.preview('tenant-001', 'dev-001', previewDto)).rejects.toThrow(ConflictException);
+      });
+
+      it('should generate an Ed25519 signed planToken binding tenantId, deviceId, commandsHash, and expiresAt', async () => {
+        const previewDto: ProvisionPreviewDto = {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          snapshot: {
+            resource: { version: '7.16.2', uptime: '1h' },
+            interfaces: [{ name: 'ether1' }, { name: 'ether2' }],
+            bridges: [],
+            ipAddresses: [],
+          },
+          sessionId: 'session-ed25519-test',
+        };
+
+        const preview = await service.preview('tenant-001', 'dev-001', previewDto);
+
+        expect(preview.planToken).toBeDefined();
+        expect(preview.planToken!.tenantId).toBe('tenant-001');
+        expect(preview.planToken!.deviceId).toBe('dev-001');
+        expect(preview.planToken!.sessionId).toBe('session-ed25519-test');
+        expect(preview.planToken!.signature).toBeDefined();
+        expect(preview.planToken!.signature.length).toBe(128); // 64-byte Ed25519 hex signature
+        expect(preview.planToken!.publicKey).toBeDefined();
+        expect(preview.planToken!.publicKey.length).toBe(64); // 32-byte Ed25519 raw pubkey hex
+      });
+
+      it('should reject apply in LOCAL mode if the same session is applied twice (replay attack)', async () => {
+        const applyDto: any = {
+          template: 'CLEAN_SETUP',
+          cleanSetupConfirmed: true,
+          allowOverwrite: true,
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          executionMode: 'LOCAL',
+          sessionId: 'session-replay-123',
+          snapshot: {
+            resource: { version: '7.16.2', uptime: '1h' },
+            interfaces: [{ name: 'ether1' }],
+            bridges: [],
+            ipAddresses: [],
+          },
+          clientExecutionResult: {
+            success: true,
+            backupFilename: 'pre-sudafi.backup',
+            executedStages: [],
+            verification: {
+              internetReachable: true,
+              wanConfigured: true,
+              defaultRouteActive: true,
+              hotspotOperational: true,
+              securityPoliciesVerified: true,
+              pingPacketsReceived: 3,
+              overallStatus: 'VERIFIED_READY',
+              diagnosticsMessage: 'OK',
+            },
+          },
+        };
+
+        // First apply succeeds
+        const res1 = await service.apply('tenant-001', 'dev-001', applyDto, 'user-001');
+        expect(res1.success).toBe(true);
+
+        // Second apply with identical session MUST be rejected as replay attack
+        await expect(service.apply('tenant-001', 'dev-001', applyDto, 'user-001')).rejects.toThrow(ConflictException);
+      });
+
+      it('should not promote isOnline to true if verification overallStatus is not VERIFIED_READY', async () => {
+        const applyDto: any = {
+          template: 'CLEAN_SETUP',
+          cleanSetupConfirmed: true,
+          allowOverwrite: true,
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          executionMode: 'LOCAL',
+          sessionId: 'session-unverified-456',
+          snapshot: {
+            resource: { version: '7.16.2', uptime: '1h' },
+            interfaces: [{ name: 'ether1' }],
+            bridges: [],
+            ipAddresses: [],
+          },
+          clientExecutionResult: {
+            success: false,
+            executedStages: [],
+            verification: {
+              internetReachable: false,
+              wanConfigured: false,
+              defaultRouteActive: false,
+              hotspotOperational: false,
+              securityPoliciesVerified: false,
+              pingPacketsReceived: 0,
+              overallStatus: 'VERIFICATION_FAILED',
+              diagnosticsMessage: 'Unverified',
+            },
+          },
+        };
+
+        const res = await service.apply('tenant-001', 'dev-001', applyDto, 'user-001');
+        expect(res.success).toBe(false);
+        // Expect update was NOT called with isOnline: true
+        expect(mockPrisma.mikroTikDevice.update).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ isOnline: true }),
+          }),
+        );
+      });
+
+      it('should reject apply with ConflictException if client-provided planToken belongs to another tenant', async () => {
+        const applyDto: any = {
+          template: 'CLEAN_SETUP',
+          cleanSetupConfirmed: true,
+          allowOverwrite: true,
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          executionMode: 'LOCAL',
+          sessionId: 'session-tenant-spoof-1',
+          planToken: {
+            tenantId: 'tenant-attacker-999',
+            deviceId: 'dev-001',
+            expiresAt: new Date(Date.now() + 60000).toISOString(),
+          },
+        };
+
+        await expect(service.apply('tenant-001', 'dev-001', applyDto, 'user-001')).rejects.toThrow(ConflictException);
+      });
+
+      it('should reject apply with ConflictException if client-provided planToken belongs to another device', async () => {
+        const applyDto: any = {
+          template: 'CLEAN_SETUP',
+          cleanSetupConfirmed: true,
+          allowOverwrite: true,
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          executionMode: 'LOCAL',
+          sessionId: 'session-device-spoof-1',
+          planToken: {
+            tenantId: 'tenant-001',
+            deviceId: 'dev-different-888',
+            expiresAt: new Date(Date.now() + 60000).toISOString(),
+          },
+        };
+
+        await expect(service.apply('tenant-001', 'dev-001', applyDto, 'user-001')).rejects.toThrow(ConflictException);
+      });
+
+      it('should reject apply with ConflictException if client-provided planToken signature is tampered', async () => {
+        const signService = new PlanSigningService();
+        const payload = {
+          tenantId: 'tenant-001',
+          deviceId: 'dev-001',
+          sessionId: 'session-tamper-test',
+          expiresAt: new Date(Date.now() + 60000).toISOString(),
+          commands: [{ stage: 'BRIDGE', command: '/interface bridge add name=legit' }],
+        };
+        const signResult = signService.signPlan(payload);
+
+        const applyDto: any = {
+          template: 'CLEAN_SETUP',
+          cleanSetupConfirmed: true,
+          allowOverwrite: true,
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          executionMode: 'LOCAL',
+          sessionId: 'session-tamper-test',
+          planToken: {
+            tenantId: 'tenant-001',
+            deviceId: 'dev-001',
+            expiresAt: payload.expiresAt,
+            // Tampered canonical payload:
+            canonicalPayload: signResult.canonicalPayload + '_TAMPERED',
+            signature: signResult.signature,
+            publicKey: signResult.publicKey,
+          },
+        };
+
+        await expect(service.apply('tenant-001', 'dev-001', applyDto, 'user-001')).rejects.toThrow(ConflictException);
+      });
+
+      it('should reject apply with UNTRUSTED_PUBLIC_KEY if client substitutes public key with an attacker key', async () => {
+        // Generate arbitrary attacker Ed25519 keypair
+        const attackerKey = require('crypto').generateKeyPairSync('ed25519');
+        const attackerPubKeyHex = attackerKey.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('hex');
+
+        const applyDto: any = {
+          template: 'CLEAN_SETUP',
+          cleanSetupConfirmed: true,
+          allowOverwrite: true,
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          snapshot: {
+            resource: { version: '7.16.2', uptime: '1h' },
+            interfaces: [{ name: 'ether1' }, { name: 'ether2' }],
+            bridges: [],
+            ipAddresses: [],
+          },
+          executionMode: 'LOCAL',
+          sessionId: 'session-attacker-key-1',
+          planToken: {
+            tenantId: 'tenant-001',
+            deviceId: 'dev-001',
+            expiresAt: new Date(Date.now() + 60000).toISOString(),
+            canonicalPayload: 'SUDAFI-PLAN-V1:tenant-001:dev-001',
+            signature: 'aabbccdd',
+            publicKey: attackerPubKeyHex, // Attacker's substituted public key!
+          },
+        };
+
+        try {
+          await service.apply('tenant-001', 'dev-001', applyDto, 'user-001');
+          fail('Should have thrown ConflictException');
+        } catch (err: any) {
+          expect(err).toBeInstanceOf(ConflictException);
+          expect(err.getResponse().code).toBe('UNTRUSTED_PUBLIC_KEY');
+        }
+      });
+
+      it('should reject apply with PLAN_PAYLOAD_MISMATCH if client modifies a command or passes untrusted canonical payload', async () => {
+        const signService = new PlanSigningService();
+        const trustedPubKey = signService.getPublicKeyHex();
+
+        const applyDto: any = {
+          template: 'CLEAN_SETUP',
+          cleanSetupConfirmed: true,
+          allowOverwrite: true,
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          snapshot: {
+            resource: { version: '7.16.2', uptime: '1h' },
+            interfaces: [{ name: 'ether1' }, { name: 'ether2' }],
+            bridges: [],
+            ipAddresses: [],
+          },
+          executionMode: 'LOCAL',
+          sessionId: 'session-payload-tamper-1',
+          planToken: {
+            tenantId: 'tenant-001',
+            deviceId: 'dev-001',
+            expiresAt: new Date(Date.now() + 60000).toISOString(),
+            // Manipulated canonical payload with rogue command:
+            canonicalPayload: 'SUDAFI-PLAN-V1:tenant-001:dev-001:ROGUE_COMMAND_HASH',
+            signature: 'aabbccdd11223344',
+            publicKey: trustedPubKey,
+          },
+        };
+
+        try {
+          await service.apply('tenant-001', 'dev-001', applyDto, 'user-001');
+          fail('Should have thrown ConflictException');
+        } catch (err: any) {
+          expect(err).toBeInstanceOf(ConflictException);
+          expect(err.getResponse().code).toBe('PLAN_PAYLOAD_MISMATCH');
+        }
+      });
+
+      it('should accept apply with valid Ed25519 signed planToken generated by backend preview', async () => {
+        const previewDto: ProvisionPreviewDto = {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { bridgeName: 'bridge-hotspot', memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi', dnsName: 'login.sudafi.net' },
+          snapshot: {
+            resource: { version: '7.16.2', uptime: '1h' },
+            interfaces: [{ name: 'ether1' }, { name: 'ether2' }],
+            bridges: [],
+            ipAddresses: [],
+          },
+          sessionId: 'session-valid-token-1',
+        };
+
+        const previewRes = await service.preview('tenant-001', 'dev-001', previewDto);
+        expect(previewRes.planToken).toBeDefined();
+
+        const applyDto: any = {
+          ...previewDto,
+          cleanSetupConfirmed: true,
+          allowOverwrite: true,
+          executionMode: 'LOCAL',
+          sessionId: 'session-valid-token-1',
+          planToken: previewRes.planToken,
+          clientExecutionResult: {
+            success: true,
+            executedStages: [],
+            verification: {
+              internetReachable: true,
+              wanConfigured: true,
+              defaultRouteActive: true,
+              hotspotOperational: true,
+              securityPoliciesVerified: true,
+              pingPacketsReceived: 3,
+              overallStatus: 'VERIFIED_READY',
+            },
+          },
+        };
+
+        const res = await service.apply('tenant-001', 'dev-001', applyDto, 'user-001');
+        expect(res.success).toBe(true);
+      });
     });
   });
 });

@@ -118,7 +118,18 @@ export interface ProvisioningPreviewResponse {
   securityPoliciesReport: SecurityPolicyReportItem[];
   canProceed: boolean;
   requiresCleanConfirmation: boolean;
-  backupRecommended: boolean;
+  backupRecommended?: boolean;
+  planToken?: {
+    tenantId: string;
+    deviceId: string;
+    sessionId?: string;
+    snapshotHash?: string;
+    commandsHash: string;
+    expiresAt: string;
+    canonicalPayload: string;
+    signature: string;
+    publicKey: string;
+  };
 }
 
 export interface ExecutedStageLog {

@@ -90,6 +90,21 @@ class RouterDiscoverySnapshotModel {
   final String version;
   final int cpuLoad;
   final String uptime;
+  final List<Map<String, dynamic>> bridgePorts;
+  final List<Map<String, dynamic>> dhcpServers;
+  final List<Map<String, dynamic>> dhcpClients;
+  final List<Map<String, dynamic>> dhcpNetworks;
+  final List<Map<String, dynamic>> pools;
+  final List<Map<String, dynamic>> natRules;
+  final List<Map<String, dynamic>> filterRules;
+  final List<Map<String, dynamic>> mangleRules;
+  final List<Map<String, dynamic>> routes;
+  final List<Map<String, dynamic>> hotspotProfiles;
+  final List<Map<String, dynamic>> hotspotUserProfiles;
+  final Map<String, dynamic>? dns;
+  final String? snapshotHash;
+  final DateTime? discoveredAt;
+  final bool isComplete;
 
   const RouterDiscoverySnapshotModel({
     required this.interfaces,
@@ -99,6 +114,21 @@ class RouterDiscoverySnapshotModel {
     this.version = '',
     this.cpuLoad = 0,
     this.uptime = '',
+    this.bridgePorts = const [],
+    this.dhcpServers = const [],
+    this.dhcpClients = const [],
+    this.dhcpNetworks = const [],
+    this.pools = const [],
+    this.natRules = const [],
+    this.filterRules = const [],
+    this.mangleRules = const [],
+    this.routes = const [],
+    this.hotspotProfiles = const [],
+    this.hotspotUserProfiles = const [],
+    this.dns,
+    this.snapshotHash,
+    this.discoveredAt,
+    this.isComplete = true,
   });
 
   factory RouterDiscoverySnapshotModel.fromJson(Map<String, dynamic> json) {
@@ -108,14 +138,44 @@ class RouterDiscoverySnapshotModel {
     final hsRaw = json['hotspotServers'] as List<dynamic>? ?? [];
     final res = json['resource'] as Map<String, dynamic>? ?? {};
 
+    List<Map<String, dynamic>> parseMapList(dynamic listRaw) {
+      if (listRaw is List) {
+        return listRaw
+            .whereType<Map<String, dynamic>>()
+            .toList();
+      }
+      return const [];
+    }
+
     return RouterDiscoverySnapshotModel(
       interfaces: ifacesRaw.map((e) => RouterInterfaceModel.fromJson(e as Map<String, dynamic>)).toList(),
       ipAddresses: ipsRaw.map((e) => RouterIpAddressModel.fromJson(e as Map<String, dynamic>)).toList(),
-      bridges: bridgesRaw.map((e) => (e['name'] ?? '').toString()).where((s) => s.isNotEmpty).toList(),
-      hotspotServers: hsRaw.map((e) => (e['name'] ?? '').toString()).where((s) => s.isNotEmpty).toList(),
-      version: res['version']?.toString() ?? '',
-      cpuLoad: res['cpuLoad'] is int ? res['cpuLoad'] as int : 0,
-      uptime: res['uptime']?.toString() ?? '',
+      bridges: bridgesRaw.map((e) {
+        if (e is Map) return (e['name'] ?? '').toString();
+        return e.toString();
+      }).where((s) => s.isNotEmpty).toList(),
+      hotspotServers: hsRaw.map((e) {
+        if (e is Map) return (e['name'] ?? '').toString();
+        return e.toString();
+      }).where((s) => s.isNotEmpty).toList(),
+      version: res['version']?.toString() ?? json['version']?.toString() ?? '',
+      cpuLoad: res['cpuLoad'] is int ? res['cpuLoad'] as int : (int.tryParse(json['cpuLoad']?.toString() ?? '') ?? 0),
+      uptime: res['uptime']?.toString() ?? json['uptime']?.toString() ?? '',
+      bridgePorts: parseMapList(json['bridgePorts']),
+      dhcpServers: parseMapList(json['dhcpServers']),
+      dhcpClients: parseMapList(json['dhcpClients']),
+      dhcpNetworks: parseMapList(json['dhcpNetworks']),
+      pools: parseMapList(json['pools']),
+      natRules: parseMapList(json['natRules']),
+      filterRules: parseMapList(json['filterRules']),
+      mangleRules: parseMapList(json['mangleRules']),
+      routes: parseMapList(json['routes']),
+      hotspotProfiles: parseMapList(json['hotspotProfiles']),
+      hotspotUserProfiles: parseMapList(json['hotspotUserProfiles']),
+      dns: json['dns'] as Map<String, dynamic>?,
+      snapshotHash: json['snapshotHash'] as String?,
+      discoveredAt: json['discoveredAt'] != null ? DateTime.tryParse(json['discoveredAt'].toString()) : null,
+      isComplete: json['isComplete'] as bool? ?? true,
     );
   }
 
@@ -123,12 +183,27 @@ class RouterDiscoverySnapshotModel {
     'interfaces': interfaces.map((i) => i.toJson()).toList(),
     'ipAddresses': ipAddresses.map((a) => a.toJson()).toList(),
     'bridges': bridges.map((b) => {'name': b}).toList(),
+    'bridgePorts': bridgePorts,
+    'dhcpServers': dhcpServers,
+    'dhcpClients': dhcpClients,
+    'dhcpNetworks': dhcpNetworks,
+    'pools': pools,
+    'natRules': natRules,
+    'filterRules': filterRules,
+    'mangleRules': mangleRules,
+    'routes': routes,
     'hotspotServers': hotspotServers.map((h) => {'name': h}).toList(),
+    'hotspotProfiles': hotspotProfiles,
+    'hotspotUserProfiles': hotspotUserProfiles,
+    if (dns != null) 'dns': dns,
     'resource': {
       'version': version,
       'cpuLoad': cpuLoad,
       'uptime': uptime,
     },
+    if (snapshotHash != null) 'snapshotHash': snapshotHash,
+    if (discoveredAt != null) 'discoveredAt': discoveredAt!.toIso8601String(),
+    'isComplete': isComplete,
   };
 }
 
@@ -314,6 +389,7 @@ class ProvisionPreviewResponse {
   final bool canProceed;
   final bool requiresCleanConfirmation;
   final bool backupRecommended;
+  final Map<String, dynamic>? planToken;
 
   const ProvisionPreviewResponse({
     required this.template,
@@ -326,6 +402,7 @@ class ProvisionPreviewResponse {
     required this.canProceed,
     required this.requiresCleanConfirmation,
     required this.backupRecommended,
+    this.planToken,
   });
 
   factory ProvisionPreviewResponse.fromJson(Map<String, dynamic> json) {
@@ -346,6 +423,7 @@ class ProvisionPreviewResponse {
       canProceed: json['canProceed'] as bool? ?? false,
       requiresCleanConfirmation: json['requiresCleanConfirmation'] as bool? ?? false,
       backupRecommended: json['backupRecommended'] as bool? ?? true,
+      planToken: json['planToken'] as Map<String, dynamic>?,
     );
   }
 }
@@ -374,6 +452,14 @@ class ExecutedStageLogModel {
       timestamp: json['timestamp'] as String? ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'stage': stage,
+    if (command != null) 'command': command,
+    'status': status,
+    if (error != null) 'error': error,
+    'timestamp': timestamp,
+  };
 }
 
 class ProvisionVerificationResultModel {
@@ -409,6 +495,17 @@ class ProvisionVerificationResultModel {
       diagnosticsMessage: json['diagnosticsMessage'] as String? ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'internetReachable': internetReachable,
+    'wanConfigured': wanConfigured,
+    'defaultRouteActive': defaultRouteActive,
+    'hotspotOperational': hotspotOperational,
+    'securityPoliciesVerified': securityPoliciesVerified,
+    'pingPacketsReceived': pingPacketsReceived,
+    'overallStatus': overallStatus,
+    'diagnosticsMessage': diagnosticsMessage,
+  };
 }
 
 class ProvisionApplyResult {
@@ -450,4 +547,16 @@ class ProvisionApplyResult {
       verification: ProvisionVerificationResultModel.fromJson(verifRaw),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'success': success,
+    'deviceId': deviceId,
+    'deviceName': deviceName,
+    if (backupFilename != null) 'backupFilename': backupFilename,
+    'executedStages': executedStages.map((e) => e.toJson()).toList(),
+    if (failedStage != null) 'failedStage': failedStage,
+    if (failureReason != null) 'failureReason': failureReason,
+    if (recoveryInstructions != null) 'recoveryInstructions': recoveryInstructions,
+    'verification': verification.toJson(),
+  };
 }

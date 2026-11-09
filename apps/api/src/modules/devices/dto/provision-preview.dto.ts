@@ -228,5 +228,29 @@ export class ProvisionPreviewDto {
   @IsBoolean()
   @IsOptional()
   updateRouterHostIfChanged?: boolean;
+
+  @ApiPropertyOptional({ description: 'Client-discovered live router snapshot' })
+  @IsOptional()
+  snapshot?: any;
+
+  @ApiPropertyOptional({ description: 'SHA-256 hash of client-discovered snapshot' })
+  @IsString()
+  @IsOptional()
+  snapshotHash?: string;
+
+  @ApiPropertyOptional({ description: 'Discovery timestamp' })
+  @IsString()
+  @IsOptional()
+  discoveredAt?: string;
+
+  @ApiPropertyOptional({ description: 'Challenge nonce' })
+  @IsString()
+  @IsOptional()
+  nonce?: string;
+
+  @ApiPropertyOptional({ description: 'Provisioning session ID' })
+  @IsString()
+  @IsOptional()
+  sessionId?: string;
 }
 
