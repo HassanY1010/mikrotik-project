@@ -1,0 +1,28 @@
+{
+  "bridges": [
+    { "name": "bridge-lan", "comment": "شبكة الإدارة المحلية الرئيسية", "mtu": 1500 },
+    { "name": "bridge-guest", "comment": "شبكة الضيوف المعزولة ⚡", "mtu": 1500 }
+  ],
+  "interfaces": [
+    { "name": "sfp-sfpplus1", "type": "ether", "mac-address": "6C:3B:6B:11:22:33", "comment": "منفذ الألياف الضوئية السريع" },
+    { "name": "ether2", "type": "ether", "mac-address": "6C:3B:6B:11:22:02", "comment": "منفذ التوزيع المكتبي #2" },
+    { "name": "ether1", "type": "ether", "mac-address": "6C:3B:6B:11:22:01", "comment": "خط الربط الرئيسي (WAN) 🌐" }
+  ],
+  "ipAddresses": [
+    { "address": "192.168.88.1/24", "interface": "bridge-lan", "comment": "عنوان الراوتر الافتراضي" },
+    { "address": "10.10.10.1/24", "interface": "bridge-guest", "comment": "نطاق الزوار" }
+  ],
+  "resource": {
+    "architecture-name": "arm",
+    "board-name": "L009UiGS",
+    "cpu-count": 2,
+    "cpu-load": 45,
+    "free-memory": 245000000,
+    "uptime": "2w3d4h",
+    "version": "7.14.3"
+  },
+  "routes": [
+    { "dst-address": "0.0.0.0/0", "gateway": "192.168.1.1", "distance": 1, "comment": "المسار الأساسي للإنترنت" },
+    { "dst-address": "10.0.0.0/8", "gateway": "192.168.88.254", "distance": 2, "comment": "مسار شبكة الفروع الداخلية" }
+  ]
+}
