@@ -19,6 +19,7 @@ import type {
   RouterHotspotServerItem,
   RouterPingResult,
 } from '../interfaces/mikrotik-client.interface';
+import { isValidRouterOsId } from '../../security/snapshot-integrity.util';
 
 export interface RouterOsRestConfig {
   host: string;
@@ -697,6 +698,7 @@ export class RouterOsRestClient implements IMikrotikClient {
       name: r['name'] ?? '',
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
       comment: r['comment'],
+      dynamic: r['dynamic'] === 'true' || r['dynamic'] === true,
     }));
   }
 
@@ -722,6 +724,7 @@ export class RouterOsRestClient implements IMikrotikClient {
       interface: r['interface'] ?? '',
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
       comment: r['comment'],
+      dynamic: r['dynamic'] === 'true' || r['dynamic'] === true,
     }));
   }
 
@@ -750,6 +753,7 @@ export class RouterOsRestClient implements IMikrotikClient {
       addressPool: r['address-pool'],
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
       comment: r['comment'],
+      dynamic: r['dynamic'] === 'true' || r['dynamic'] === true,
     }));
   }
 
@@ -815,6 +819,7 @@ export class RouterOsRestClient implements IMikrotikClient {
       outInterface: r['out-interface'],
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
       comment: r['comment'],
+      dynamic: r['dynamic'] === 'true' || r['dynamic'] === true,
     }));
   }
 
@@ -852,6 +857,7 @@ export class RouterOsRestClient implements IMikrotikClient {
       active: r['active'] === 'true' || r['active'] === true,
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
       comment: r['comment'],
+      dynamic: r['dynamic'] === 'true' || r['dynamic'] === true,
     }));
   }
 
@@ -902,7 +908,9 @@ export class RouterOsRestClient implements IMikrotikClient {
   }
 
   async runRawCommand(words: string[]): Promise<any> {
-    await this.connect();
+    if (!words || words.length === 0) {
+      throw new Error('أمر RouterOS فارغ.');
+    }
     // Maps raw words into REST path & payload
     const rawCmd = words[0];
     let path = rawCmd.startsWith('/') ? rawCmd : `/${rawCmd}`;
@@ -911,7 +919,7 @@ export class RouterOsRestClient implements IMikrotikClient {
     if (path.endsWith('/add')) {
       path = path.slice(0, -4);
       method = 'PUT';
-    } else if (path.endsWith('/set')) {
+    } else if (path.endsWith('/set') || path.endsWith('/remove')) {
       method = 'POST';
     }
 
@@ -925,6 +933,20 @@ export class RouterOsRestClient implements IMikrotikClient {
         payload[k] = v;
       }
     }
+
+    if (path.endsWith('/remove')) {
+      const targetNumber = payload['numbers'] || payload['.id'];
+      if (!targetNumber || !isValidRouterOsId(targetNumber)) {
+        throw new Error(
+          `معرف RouterOS غير صالح للحذف عبر REST: "${targetNumber || ''}". يتطلب معرفاً ست عشرياً صالحاً مثل *1.`,
+        );
+      }
+      payload['numbers'] = targetNumber;
+      // RouterOS 7 REST CLI dispatcher accepts 'numbers' and rejects extraneous '.id' with 400 Bad Request
+      delete payload['.id'];
+    }
+
+    await this.connect();
     return this.request(path, {
       method,
       body: JSON.stringify(payload),

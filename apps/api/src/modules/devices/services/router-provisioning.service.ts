@@ -2,10 +2,17 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
   BadGatewayException,
   Logger,
   Optional,
 } from '@nestjs/common';
+import {
+  validateSnapshotIntegrity,
+  computeAuthoritativeSnapshotHash,
+  isValidRouterOsId,
+  isValidIpv4Cidr,
+} from '../../../core/security/snapshot-integrity.util';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
 import { EncryptionService } from '../../../core/security/encryption.service';
@@ -14,6 +21,8 @@ import {
   IMikrotikClient,
   RouterResource,
   HotspotProfileItem,
+  RouterIpAddressItem,
+  RouterBridgePortItem,
 } from '../../../core/mikrotik/interfaces/mikrotik-client.interface';
 import { ProvisionPreviewDto } from '../dto/provision-preview.dto';
 import { ProvisionApplyDto } from '../dto/provision-apply.dto';
@@ -289,6 +298,7 @@ export class RouterProvisioningService {
 
       const discoveryStartTime = Date.now();
       let rawDiscovery: RouterDiscoverySnapshot;
+      let authoritativeSnapshotHash = '';
 
       // 1. If client sent a locally-discovered snapshot, prioritize it over cloud direct connection
       if (dto.snapshot && typeof dto.snapshot === 'object') {
@@ -296,17 +306,9 @@ export class RouterProvisioningService {
           `[Preview Discovery] Using client-discovered snapshot for router ${deviceId} (${Array.isArray(dto.snapshot.interfaces) ? dto.snapshot.interfaces.length : 0} interfaces)`,
         );
 
-        // Freshness Validation: Reject snapshot if older than 15 minutes
-        if (dto.discoveredAt) {
-          const discTime = new Date(dto.discoveredAt).getTime();
-          const now = Date.now();
-          if (Number.isFinite(discTime) && (now - discTime > 15 * 60 * 1000 || discTime - now > 60000)) {
-            throw new ConflictException({
-              code: 'SNAPSHOT_STALE',
-              message: 'بيانات استكشاف الراوتر قديمة (تجاوزت 15 دقيقة) وتتطلب إعادة الفحص لضمان الدقة.',
-            });
-          }
-        }
+        // Authoritative Validation: Freshness, Structure, Completeness, and Cryptographic Hash
+        const validation = validateSnapshotIntegrity(dto.snapshot, dto.discoveredAt, dto.snapshotHash);
+        authoritativeSnapshotHash = validation.authoritativeHash;
 
         rawDiscovery = this.normalizeSnapshot(dto.snapshot);
         // Cache snapshot so any follow-up actions can utilize it
@@ -317,11 +319,16 @@ export class RouterProvisioningService {
       } else {
         try {
           rawDiscovery = await this.discover(tenantId, deviceId, { forceRefresh: false });
+          authoritativeSnapshotHash = computeAuthoritativeSnapshotHash(rawDiscovery);
         } catch (discErr) {
-          this.logger.warn(
-            `[Preview Discovery Warn] Direct discovery failed for ${device.host}: ${discErr instanceof Error ? discErr.message : String(discErr)}. Using fallback snapshot.`,
+          const dMsg = discErr instanceof Error ? discErr.message : String(discErr);
+          this.logger.error(
+            `[Preview Discovery Error] Direct discovery failed for ${device.host}: ${dMsg}`,
           );
-          rawDiscovery = this.normalizeSnapshot(undefined);
+          throw new BadGatewayException({
+            code: 'ROUTER_DISCOVERY_FAILED',
+            message: `تعذر قراءة إعدادات الراوتر (${device.host}) من الخادم: ${dMsg}. يرجى فحص الراوتر من التطبيق أولاً.`,
+          });
         }
       }
 
@@ -335,26 +342,30 @@ export class RouterProvisioningService {
       const warnings: ProvisioningWarning[] = [];
       let requiresCleanConfirmation = false;
 
-      // 1. Validate WAN interface existence and conflicts
+      // 1. Validate WAN interface existence, topology, and conflicts
       try {
         const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
-        const wanExists = discovery.interfaces.some((i) => i?.name === wanIfaceName);
-        if (!wanExists && discovery.interfaces.length > 0) {
-          warnings.push({
-            type: 'WAN_INTERFACE_NOT_FOUND',
-            severity: 'WARNING',
-            message: `منفذ الإنترنت (${wanIfaceName}) غير موجود في قائمة المنافذ المكتشفة حالياً في الراوتر.`,
-            suggestedAction: 'تأكد من اسم المنفذ الفعلي في الراوتر (مثل ether1 أو sfp1).',
-          });
-        }
+        const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
+        const memberPorts = rawMemberPorts.map((m: any) => (m ? String(m).trim() : '')).filter(Boolean);
+        const proposedGateway = (dto.lan?.gatewayIp || '').trim();
+        const proposedSubnet = this.extractSubnetBase(proposedGateway);
 
-        const wanInBridge = discovery.bridgePorts.find((p) => p?.interface === wanIfaceName);
-        if (wanInBridge) {
+        const wanMode = dto.wan?.mode;
+        const wanCheck = this.verifyWanTopology(discovery, wanIfaceName, memberPorts, proposedSubnet, wanMode);
+        if (!wanCheck.isValid) {
+          const isBridgeConflict = wanCheck.failureReason?.includes('مرتبط بالجسر');
+          const isOverlap = wanCheck.failureReason?.includes('مشتركين (LAN)');
           conflicts.push({
-            resource: 'WAN_BRIDGE_CONFLICT',
-            existingValue: `المنفذ ${wanIfaceName} مرتبط بالجسر [${wanInBridge.bridge}]`,
-            proposedValue: `تعيين ${wanIfaceName} كمنفذ إنترنت مستقل (WAN)`,
-            details: `لا يمكن استخدام المنفذ كـ WAN طالما أنه عضو في جسر شبكة محلية. يجب إزالته من الجسر أولاً.`,
+            resource: isBridgeConflict ? 'WAN_BRIDGE_CONFLICT' : isOverlap ? 'WAN_LAN_OVERLAP' : 'WAN_BRIDGE_CONFLICT',
+            existingValue: `منفذ الإنترنت (${wanIfaceName}) به تعارض طوبولوجي أو بنيوي`,
+            proposedValue: `تعيين ${wanIfaceName} كمنفذ إنترنت مستقل وآمن`,
+            details: wanCheck.failureReason || 'تعذر إثبات استقلالية وسلامة منفذ الإنترنت WAN.',
+          });
+          warnings.push({
+            type: 'WAN_TOPOLOGY_INVALID',
+            severity: 'CRITICAL',
+            message: wanCheck.failureReason || `تعارض في مسار الإنترنت على المنفذ (${wanIfaceName}).`,
+            suggestedAction: 'تأكد من اختيار منفذ WAN مستقل وغير مدمج في جسور محلية أو مرتبط بمنافذ المشتركين.',
           });
         }
       } catch (wanErr) {
@@ -427,11 +438,30 @@ export class RouterProvisioningService {
             const existingSubnet = this.extractSubnetBase(existingIp.address);
             if (existingSubnet && proposedSubnet && existingSubnet === proposedSubnet) {
               if (existingIp.interface !== (dto.lan?.bridgeName || 'bridge-hotspot')) {
+                const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
+                const isWan = existingIp.interface === wanIfaceName;
+                const isMgmt = this.isManagementIpOrInterface(existingIp, discovery, device.host || '');
+                const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
+                const memberPorts = rawMemberPorts.map((m: any) => (m ? String(m).trim() : '')).filter(Boolean);
+                const isMember = memberPorts.includes(existingIp.interface);
+                const isUnknownRole = !isWan && !isMgmt && !isMember;
+
+                let roleDesc = '';
+                if (isWan) roleDesc = ' (منفذ الإنترنت WAN)';
+                else if (isMgmt) roleDesc = ' (واجهة إدارة الراوتر)';
+                else if (isUnknownRole) roleDesc = ' (واجهة ذات دور غير محدد)';
+
                 conflicts.push({
-                  resource: 'IP_SUBNET_OVERLAP',
-                  existingValue: `${existingIp.address} على المنفذ [${existingIp.interface}]`,
+                  resource: isWan ? 'WAN_LAN_OVERLAP' : 'IP_SUBNET_OVERLAP',
+                  existingValue: `${existingIp.address} على المنفذ [${existingIp.interface}]${roleDesc}`,
                   proposedValue: `${proposedGateway} على [${dto.lan?.bridgeName || 'bridge-hotspot'}]`,
-                  details: `الشبكة المقترحة (${proposedSubnet}) تتعارض مع عنوان IP مستخدم حالياً على منفذ آخر.`,
+                  details: isWan
+                    ? `منفذ الإنترنت (${existingIp.interface}) يقع في نفس نطاق شبكة المشتركين (${proposedSubnet}). هذا تعارض حرج يمنع التوجيه وعزل الشبكات.`
+                    : isMgmt
+                    ? `عنوان إدارة الراوتر (${existingIp.address}) يقع ضمن نفس نطاق شبكة المشتركين المقترحة. هذا تعارض مانع يهدد أمان وعزل الإدارة.`
+                    : isUnknownRole
+                    ? `الواجهة [${existingIp.interface}] ذات دور غير معروف في النظام وتحمل عنواناً ضمن نطاق المشتركين المقترح. لا يمكن حذف العنوان أو تجاهله تلقائياً.`
+                    : `الشبكة المقترحة (${proposedSubnet}) تتعارض مع عنوان IP مستخدم حالياً على منفذ آخر.`,
                 });
               }
             }
@@ -490,56 +520,76 @@ export class RouterProvisioningService {
         this.logger.warn(`[Preview Warning] Error during clean setup check: ${cleanErr instanceof Error ? cleanErr.message : String(cleanErr)}`);
       }
 
-      // 6. Check host IP disconnection risk
+      // 6. Rigorous Multi-Layer Management Path Verification
       try {
         const currentHost = (device.host || '').trim();
         const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
         const memberPorts = rawMemberPorts.map((m: any) => (m ? String(m).trim() : '')).filter(Boolean);
-        const proposedGateway = (dto.lan?.gatewayIp || '').trim();
-        const proposedSubnet = this.extractSubnetBase(proposedGateway);
+        const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
+        const protectWanAccess = !!(dto.securityPolicies as any)?.protectWanAccess;
 
-        if (memberPorts.some((p: string) => p === currentHost) || (proposedSubnet && currentHost.includes(proposedSubnet))) {
+        const mgmtTopo = this.resolveManagementTopology(
+          discovery,
+          currentHost,
+          memberPorts,
+          wanIfaceName,
+          protectWanAccess,
+        );
+
+        if (!mgmtTopo.isDetermined) {
+          conflicts.push({
+            resource: 'MANAGEMENT_PATH_INDETERMINATE',
+            existingValue: `عنوان اتصال الراوتر (${currentHost}) غير مسجل على أي واجهة في قائمة عناوين الراوتر المستكشفة`,
+            proposedValue: 'تحديد مسار الإدارة المعتمد قبل تطبيق الإعداد',
+            details: mgmtTopo.errorMessage || 'تعذر تحديد مسار الإدارة بصورة موثوقة عبر واجهات الراوتر، مما يمنع ضمان استمرارية الاتصال.',
+          });
           warnings.push({
-            type: 'MANAGEMENT_IP_PRESERVATION',
-            severity: 'INFO',
-            message: `عنوان الاتصال الحالي للراوتر (${currentHost}) قد يندرج تحت شبكة الهوتسبوت الجديدة.`,
-            suggestedAction: `سيتم الحفاظ على استمرارية الاتصال بالراوتر دون انقطاع.`,
+            type: 'MANAGEMENT_PATH_INDETERMINATE',
+            severity: 'CRITICAL',
+            message: `عنوان الراوتر المسجل (${currentHost}) غير موجود على أي واجهة من واجهات الراوتر الحالية. قد يؤدي الاستمرار لفقدان الاتصال بالراوتر تماماً.`,
+            suggestedAction: 'تأكد من عنوان IP الفعلي للراوتر أو أعد فحص الراوتر من الواجهة الصحيحة.',
+          });
+        } else if (mgmtTopo.isSevered) {
+          if (mgmtTopo.conflictType === 'MANAGEMENT_PORT_BRIDGED') {
+            if (!conflicts.some((c) => c.resource === 'MANAGEMENT_PORT_BRIDGED')) {
+              conflicts.push({
+                resource: 'MANAGEMENT_PORT_BRIDGED',
+                existingValue: `${currentHost} معين مباشرة على المنفذ ${mgmtTopo.mgmtInterface}`,
+                proposedValue: `ضم المنفذ ${mgmtTopo.mgmtInterface} إلى جسر المشتركين`,
+                details: mgmtTopo.errorMessage || `ضم منفذ الإدارة المباشر (${mgmtTopo.mgmtInterface}) إلى جسر المشتركين يؤدي لفقدان الاتصال بالراوتر فورياً.`,
+              });
+            }
+          } else if (mgmtTopo.conflictType === 'WAN_MANAGEMENT_LOCKOUT') {
+            conflicts.push({
+              resource: 'WAN_MANAGEMENT_LOCKOUT',
+              existingValue: `عنوان الإدارة (${currentHost}) يقع على منفذ الإنترنت (${wanIfaceName})`,
+              proposedValue: `حظر منافذ الإدارة على WAN`,
+              details: mgmtTopo.errorMessage || 'تفعيل حظر منافذ الإدارة على منفذ WAN سيعزل النظام عن الراوتر تماماً.',
+            });
+          } else if (mgmtTopo.conflictType === 'MANAGEMENT_BRIDGE_DEPLETED') {
+            conflicts.push({
+              resource: 'MANAGEMENT_BRIDGE_DEPLETED',
+              existingValue: `الجسر (${mgmtTopo.mgmtInterface}) الحامل لعنوان الإدارة (${currentHost}) يضم المنافذ [${mgmtTopo.bridgePhysicalPorts?.join(', ')}]`,
+              proposedValue: `سحب كافة منافذ الجسر (${mgmtTopo.stolenBridgePorts?.join(', ')}) لمنافذ المشتركين أو الإنترنت`,
+              details: mgmtTopo.errorMessage || `سحب كافة منافذ جسر الإدارة يفرغ الجسر (${mgmtTopo.mgmtInterface}) من أي منفذ فيزيائي، مما يعزل الراوتر ويفقد الاتصال به تماماً.`,
+            });
+            warnings.push({
+              type: 'MANAGEMENT_BRIDGE_DEPLETED',
+              severity: 'CRITICAL',
+              message: `سحب كافة منافذ جسر الإدارة (${mgmtTopo.mgmtInterface}) سيؤدي لفقدان الاتصال بالراوتر تماماً.`,
+              suggestedAction: 'أبقِ على الأقل منفذاً فيزيائياً واحداً داخل جسر الإدارة أو استخدم منفذاً مخصصاً للإدارة.',
+            });
+          }
+        } else if (mgmtTopo.stolenBridgePorts && mgmtTopo.stolenBridgePorts.length > 0) {
+          warnings.push({
+            type: 'MANAGEMENT_BRIDGE_PORT_REMOVAL',
+            severity: 'CRITICAL',
+            message: `المنافذ [${mgmtTopo.stolenBridgePorts.join(', ')}] سيتم سحبها من جسر الإدارة الحالي (${mgmtTopo.mgmtInterface}). إذا كان اتصالك بالراوتر يتم عبر أحد هذه المنافذ سينقطع الاتصال.`,
+            suggestedAction: `تأكد من أنك متصل بالراوتر عبر منفذ آخر مثل [${mgmtTopo.bridgePhysicalPorts?.filter((p) => !mgmtTopo.stolenBridgePorts?.includes(p)).join(', ')}].`,
           });
         }
       } catch (mgmtErr) {
-        this.logger.warn(`[Preview Warning] Error during management preservation check: ${mgmtErr instanceof Error ? mgmtErr.message : String(mgmtErr)}`);
-      }
-
-      // 7. Check WAN Management Lockout Risk
-      try {
-        if ((dto.securityPolicies as any)?.protectWanAccess) {
-          const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
-          const currentHost = (device.host || '').trim();
-          const wanDirectIp = discovery.ipAddresses.find((ip) => ip?.interface === wanIfaceName);
-          const wanDirectClean = wanDirectIp?.address ? String(wanDirectIp.address).split('/')[0] : '';
-          const wanStaticClean = dto.wan?.staticIp ? String(dto.wan.staticIp).split('/')[0] : '';
-
-          const isWanMgmt =
-            (wanDirectClean && wanDirectClean === currentHost) ||
-            (wanStaticClean && wanStaticClean === currentHost);
-
-          if (isWanMgmt) {
-            warnings.push({
-              type: 'WAN_MANAGEMENT_LOCKOUT_RISK',
-              severity: 'CRITICAL',
-              message: `عنوان اتصال النظام بالراوتر (${currentHost}) يقع على منفذ الإنترنت (${wanIfaceName}). تفعيل حظر منافذ الإدارة على WAN سيؤدي لعزل النظام عن الراوتر فوراً.`,
-              suggestedAction: 'قم بتعطيل خيار protectWanAccess طالما أن اتصال النظام يتم عبر بطاقة WAN.',
-            });
-            conflicts.push({
-              resource: 'WAN_MANAGEMENT_LOCKOUT',
-              existingValue: `الاتصال بالراوتر يتم عبر ${currentHost} على المنفذ ${wanIfaceName}`,
-              proposedValue: `حظر منافذ الإدارة (API/WinBox) على المنفذ ${wanIfaceName}`,
-              details: 'تفعيل حظر منافذ الإدارة على WAN سيعزل النظام عن الراوتر تماماً.',
-            });
-          }
-        }
-      } catch (lockoutErr) {
-        this.logger.warn(`[Preview Warning] Error during WAN lockout check: ${lockoutErr instanceof Error ? lockoutErr.message : String(lockoutErr)}`);
+        this.logger.warn(`[Preview Warning] Error during management path analysis: ${mgmtErr instanceof Error ? mgmtErr.message : String(mgmtErr)}`);
       }
 
       // Generate Planned Steps
@@ -562,8 +612,9 @@ export class RouterProvisioningService {
 
       // Generate RouterOS commands for preview (with duplicate prevention based on discovery)
       let generatedCommands: GeneratedCommandItem[] = [];
+      const resolvedConflictKeys = new Set<string>();
       try {
-        generatedCommands = this.generateRouterCommands(dto, isV7, discovery);
+        generatedCommands = this.generateRouterCommands(dto, isV7, discovery, device, resolvedConflictKeys);
       } catch (cmdErr) {
         this.logger.error(`[Preview Error] Error generating router commands: ${cmdErr instanceof Error ? cmdErr.message : String(cmdErr)}`);
         warnings.push({
@@ -608,7 +659,7 @@ export class RouterProvisioningService {
         );
 
         // Guarantee non-empty commands by generating baseline provisioning commands
-        const baselineCommands = this.generateRouterCommands(dto, isV7, this.normalizeSnapshot(undefined));
+        const baselineCommands = this.generateRouterCommands(dto, isV7, this.normalizeSnapshot(undefined), device);
         for (const cmd of baselineCommands) {
           sanitizedCommands.push({
             ...cmd,
@@ -617,13 +668,52 @@ export class RouterProvisioningService {
         }
       }
 
-      const hasCriticalConflicts = conflicts.length > 0;
-      const canProceed = !hasCriticalConflicts && sanitizedCommands.length > 0 && plannedSteps.length > 0;
+      const HARD_BLOCKING_CONFLICTS = new Set([
+        'MANAGEMENT_PORT_BRIDGED',
+        'MANAGEMENT_BRIDGE_DEPLETED',
+        'MANAGEMENT_PATH_INDETERMINATE',
+        'WAN_MANAGEMENT_LOCKOUT',
+        'WAN_LAN_OVERLAP',
+        'WAN_BRIDGE_CONFLICT',
+      ]);
+
+      const activeHardConflicts = conflicts.filter((c) => {
+        if (HARD_BLOCKING_CONFLICTS.has(c.resource)) return true;
+        if (dto.template === 'CLEAN_SETUP') {
+          // Under CLEAN_SETUP, non-management direct IPs and subnet overlaps are ONLY resolved
+          // if an exact, verified PRE_CLEANUP command was generated for that specific resource.
+          if (c.resource === 'DIRECT_IP_PORT_BRIDGED') {
+            const match = c.existingValue.match(/على المنفذ\s+(\S+)/);
+            const port = match ? match[1] : '';
+            if (port && resolvedConflictKeys.has(`DIRECT_IP_PORT_BRIDGED:${port}`)) {
+              return false; // Safely resolved by PRE_CLEANUP
+            }
+            return true; // Not resolved or dynamic/management -> REMAINS HARD BLOCKING!
+          }
+          if (c.resource === 'IP_SUBNET_OVERLAP') {
+            const match = c.existingValue.match(/^(\S+)\s+على المنفذ\s+\[(.*?)\]/);
+            if (match) {
+              const addr = match[1];
+              const iface = match[2];
+              if (resolvedConflictKeys.has(`IP_SUBNET_OVERLAP:${iface}:${addr}`)) {
+                return false; // Safely resolved by PRE_CLEANUP
+              }
+            }
+            return true; // Not resolved or dynamic/management -> REMAINS HARD BLOCKING!
+          }
+        }
+        return true;
+      });
+
+      const canProceed =
+        activeHardConflicts.length === 0 &&
+        sanitizedCommands.length > 0 &&
+        plannedSteps.length > 0;
 
       const totalDuration = Date.now() - previewStartTime;
       this.logger.log(
         `[Preview Complete] Router "${device.name}" (${device.host}) finished in ${totalDuration}ms: ` +
-          `${sanitizedCommands.length} commands, ${conflicts.length} conflicts, ${warnings.length} warnings (RequiresCleanConfirmation: ${requiresCleanConfirmation}, CanProceed: ${canProceed})`,
+          `${sanitizedCommands.length} commands, ${conflicts.length} conflicts (${activeHardConflicts.length} hard), ${warnings.length} warnings (RequiresCleanConfirmation: ${requiresCleanConfirmation}, CanProceed: ${canProceed})`,
       );
 
       const signService = this.planSigningService || new PlanSigningService();
@@ -638,7 +728,7 @@ export class RouterProvisioningService {
         sessionId: dto.sessionId,
         nonce: dto.nonce,
         fencingToken: (dto as any).fencingToken,
-        snapshotHash: dto.snapshotHash,
+        snapshotHash: authoritativeSnapshotHash || dto.snapshotHash || '',
         expiresAt,
         commands: sanitizedCommands.map((c) => ({ stage: c.stage, command: c.command })),
       };
@@ -661,7 +751,7 @@ export class RouterProvisioningService {
           tenantId,
           deviceId,
           sessionId: dto.sessionId || 'session-default',
-          snapshotHash: dto.snapshotHash || '',
+          snapshotHash: authoritativeSnapshotHash || dto.snapshotHash || '',
           commandsHash,
           expiresAt,
           canonicalPayload: signResult.canonicalPayload,
@@ -670,73 +760,23 @@ export class RouterProvisioningService {
         },
       };
     } catch (topLevelErr: unknown) {
-      if (topLevelErr instanceof ConflictException || topLevelErr instanceof NotFoundException) {
+      if (
+        topLevelErr instanceof ConflictException ||
+        topLevelErr instanceof NotFoundException ||
+        topLevelErr instanceof BadRequestException ||
+        topLevelErr instanceof BadGatewayException
+      ) {
         throw topLevelErr;
       }
       const error = topLevelErr instanceof Error ? topLevelErr : new Error(String(topLevelErr));
       this.logger.error(
-        `[Preview 500 Prevention] Caught unexpected crash in preview for device ${deviceId}: ${error.message}`,
+        `[Preview Failure] Unexpected error while generating preview for device ${deviceId}: ${error.message}`,
         error.stack,
       );
-
-      const isV7 = (device?.rosVersion || '').toUpperCase().includes('V7');
-      const fallbackSteps = this.buildPlannedSteps(dto);
-      let fallbackCommands: GeneratedCommandItem[] = [];
-      try {
-        fallbackCommands = this.generateRouterCommands(dto, isV7, this.normalizeSnapshot(undefined)).map((c) => ({
-          ...c,
-          command: this.sanitizeCommandForDisplay(c.command || ''),
-        }));
-      } catch {
-        fallbackCommands = [
-          {
-            stage: 'BRIDGE_SETUP',
-            command: `/interface/bridge/add =name=${dto.lan?.bridgeName || 'bridge-hotspot'} =comment=SudaFi Hotspot Bridge`,
-            description: `إنشاء جسر موحد لمنافذ المشتركين (${dto.lan?.bridgeName || 'bridge-hotspot'})`,
-          },
-          {
-            stage: 'LAN_IP',
-            command: `/ip/address/add =address=${dto.lan?.gatewayIp || '10.5.50.1/24'} =interface=${dto.lan?.bridgeName || 'bridge-hotspot'} =comment=SudaFi Hotspot Gateway`,
-            description: `تعيين عنوان بوابة الهوتسبوت (${dto.lan?.gatewayIp || '10.5.50.1/24'}) على الجسر`,
-          },
-          {
-            stage: 'DHCP_POOL',
-            command: `/ip/pool/add =name=hs-pool-sudafi =ranges=10.5.50.10-10.5.50.254 =comment=SudaFi Hotspot Pool`,
-            description: 'إنشاء نطاق توزيع العناوين (10.5.50.10-10.5.50.254)',
-          },
-          {
-            stage: 'HOTSPOT_SERVER',
-            command: `/ip/hotspot/add =name=${dto.hotspot?.serverName || 'hs-sudafi'} =interface=${dto.lan?.bridgeName || 'bridge-hotspot'} =address-pool=hs-pool-sudafi =disabled=no =comment=SudaFi Hotspot Server`,
-            description: `إنشاء وتفعيل خادم الهوتسبوت (${dto.hotspot?.serverName || 'hs-sudafi'})`,
-          },
-        ];
-      }
-
-      this.logger.warn(
-        `[Preview Diagnosis Fallback] Device "${device?.name || deviceId}" returned fallback preview with ${fallbackCommands.length} commands and ${fallbackSteps.length} planned steps.`,
-      );
-
-      // Return a safe degraded preview response with valid steps and commands instead of 0
-      return {
-        template: dto.template || 'CLEAN_SETUP',
-        routerVersion: device?.rosVersion || 'V7',
-        discovery: this.normalizeSnapshot(undefined),
-        plannedSteps: fallbackSteps,
-        securityPoliciesReport: [],
-        generatedCommands: fallbackCommands,
-        warnings: [
-          {
-            type: 'PREVIEW_GENERATION_DEGRADED',
-            severity: 'WARNING',
-            message: `تم توليد أوامر ومراحل المعاينة تلقائياً للقالب (${dto.template || 'CLEAN_SETUP'})، مع تعذر قراءة بعض إعدادات الراوتر المباشرة (${error.message}).`,
-            suggestedAction: 'تأكد من توافق المنافذ وعناوين IP قبل البدء في التنفيذ.',
-          },
-        ],
-        conflicts: [],
-        canProceed: fallbackCommands.length > 0 && fallbackSteps.length > 0,
-        requiresCleanConfirmation: dto.template === 'CLEAN_SETUP',
-        backupRecommended: true,
-      };
+      throw new BadGatewayException({
+        code: 'PREVIEW_GENERATION_FAILED',
+        message: `تعذر إتمام خطة المعاينة للراوتر: ${error.message}`,
+      });
     }
   }
 
@@ -776,7 +816,8 @@ export class RouterProvisioningService {
     const criticalLockoutConflict = previewRes.conflicts.find(
       (c) =>
         c.resource === 'MANAGEMENT_PORT_BRIDGED' ||
-        c.resource === 'DIRECT_IP_PORT_BRIDGED' ||
+        c.resource === 'MANAGEMENT_BRIDGE_DEPLETED' ||
+        c.resource === 'MANAGEMENT_PATH_INDETERMINATE' ||
         c.resource === 'WAN_LAN_OVERLAP' ||
         c.resource === 'WAN_MANAGEMENT_LOCKOUT',
     );
@@ -788,11 +829,28 @@ export class RouterProvisioningService {
       });
     }
 
-    if (previewRes.conflicts.length > 0 && !dto.allowOverwrite) {
+    if (!previewRes.canProceed && !dto.allowOverwrite) {
+      throw new ConflictException({
+        code: 'PROVISIONING_CANNOT_PROCEED',
+        message: 'لا يمكن متابعة تنفيذ الإعداد لوجود تعارضات مانعة غير محلولة في خطة المعاينة.',
+        conflicts: previewRes.conflicts,
+      });
+    }
+
+    const unresolvedConflicts = previewRes.conflicts.filter((c) => {
+      if (dto.template === 'CLEAN_SETUP' && dto.cleanSetupConfirmed) {
+        if (c.resource === 'DIRECT_IP_PORT_BRIDGED' || c.resource === 'IP_SUBNET_OVERLAP') {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (unresolvedConflicts.length > 0 && !dto.allowOverwrite) {
       throw new ConflictException({
         code: 'PROVISIONING_CONFLICTS_DETECTED',
         message: 'تم اكتشاف تعارضات في إعدادات الراوتر تمنع التنفيذ التلقائي دون إذن صريح.',
-        conflicts: previewRes.conflicts,
+        conflicts: unresolvedConflicts,
       });
     }
 
@@ -859,6 +917,16 @@ export class RouterProvisioningService {
             throw new ConflictException({
               code: 'PLAN_PAYLOAD_MISMATCH',
               message: 'نص الخطة المعياري (Canonical Payload) لا يطابق الخطة المحسوبة على الخادم لهذا الجهاز.',
+            });
+          }
+        }
+
+        // 2b. Re-verify snapshot hash: Ensure router state did not drift between preview and apply
+        if (token.snapshotHash && previewRes.planToken?.snapshotHash) {
+          if (token.snapshotHash !== previewRes.planToken.snapshotHash) {
+            throw new ConflictException({
+              code: 'ROUTER_STATE_DRIFT_DETECTED',
+              message: 'هاش لقطة الراوتر في الخطة لا يطابق الهاش المعتمد من الخادم (State Drift Detected). يرجى إعادة فحص المعاينة.',
             });
           }
         }
@@ -959,6 +1027,445 @@ export class RouterProvisioningService {
     let backupFilename: string | undefined;
 
     // =========================================================================
+    // STAGE 0: Pre-Execution State Drift & Precondition Verification
+    // Verifies that live router state has not drifted since preview before any changes
+    // =========================================================================
+    const isV7 = (device.rosVersion || '').toUpperCase().includes('V7');
+    const commands = this.generateRouterCommands(dto, isV7, previewRes.discovery, device);
+    const cleanupCommands = commands.filter((c) => c.stage === 'PRE_CLEANUP');
+
+    let liveIps: RouterIpAddressItem[] = [];
+    let liveBridgePorts: RouterBridgePortItem[] = [];
+    let liveBridges: any[] = [];
+    let liveInterfaces: any[] = [];
+    let liveRoutes: any[] = [];
+    let liveDhcpClients: any[] = [];
+    try {
+      if (
+        !client.listIpAddresses ||
+        !client.listBridgePorts ||
+        !client.listBridges ||
+        !client.listInterfaces ||
+        !client.listRoutes
+      ) {
+        throw new Error('العميل المتصل بالراوتر لا يدعم جميع دوال الفحص الحيوية المطلوبة (IP, Bridge, Ports, Interfaces, Routes).');
+      }
+      liveIps = await client.listIpAddresses();
+      liveBridgePorts = await client.listBridgePorts();
+      liveBridges = await client.listBridges();
+      liveInterfaces = await client.listInterfaces();
+      liveRoutes = await client.listRoutes();
+      if (client.listDhcpClients) {
+        try {
+          liveDhcpClients = await client.listDhcpClients();
+        } catch (_) {}
+      }
+
+      if (
+        !Array.isArray(liveIps) ||
+        !Array.isArray(liveBridgePorts) ||
+        !Array.isArray(liveBridges) ||
+        !Array.isArray(liveInterfaces) ||
+        !Array.isArray(liveRoutes)
+      ) {
+        throw new Error('أحد أقسام حالة الراوتر الحية غير متوفر أو ليس مصفوفة صالحة.');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[Pre-Verification Error] Failed to read current router state: ${msg}`);
+      return {
+        success: false,
+        deviceId: device.id,
+        deviceName: device.name,
+        executedStages,
+        failedStage: 'PRE_VERIFICATION',
+        failureReason: `فشل التحقق من حالة الراوتر الحالية قبل البدء بالتنفيذ: ${msg}`,
+        recoveryInstructions: 'تحقق من اتصال الراوتر وأعد المحاولة.',
+        verification: {
+          internetReachable: false,
+          wanConfigured: false,
+          defaultRouteActive: false,
+          hotspotOperational: false,
+          securityPoliciesVerified: false,
+          pingPacketsReceived: 0,
+          overallStatus: 'VERIFICATION_FAILED',
+          diagnosticsMessage: 'توقفت العملية قبل إجراء أي تعديل على الراوتر.',
+        },
+      };
+    }
+
+    // 0A. Verify targeted PRE_CLEANUP resources still exist and match expected state
+    for (const cmdItem of cleanupCommands) {
+      const idMatch = cmdItem.command.match(/=\.id=(\S+)/);
+      const targetId = idMatch ? idMatch[1] : undefined;
+
+      if (cmdItem.command.includes('/ip/address/remove')) {
+        const matchedLiveIp = liveIps.find((ip) => ip.id === targetId);
+        if (!matchedLiveIp) {
+          this.logger.warn(`[State Drift] Targeted IP id (${targetId}) not found in live router state`);
+          return {
+            success: false,
+            deviceId: device.id,
+            deviceName: device.name,
+            executedStages,
+            failedStage: 'PRE_VERIFICATION',
+            failureReason: `اكتشاف تغير في حالة الراوتر (State Drift): عنوان IP المستهدف للحذف بالمعرف (${targetId || 'غير محدد'}) لم يعد موجوداً في الراوتر. تم إيقاف التنفيذ فوراً قبل إجراء أي تعديل.`,
+            recoveryInstructions: 'أعد فحص المعاينة (Preview) لمزامنة أحدث حالة للراوتر.',
+            verification: {
+              internetReachable: false,
+              wanConfigured: false,
+              defaultRouteActive: false,
+              hotspotOperational: false,
+              securityPoliciesVerified: false,
+              pingPacketsReceived: 0,
+              overallStatus: 'VERIFICATION_FAILED',
+              diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب تغير حالة الراوتر.',
+            },
+          };
+        }
+
+        // Check if address, interface, or dynamic status changed
+        const originalIp = previewRes.discovery.ipAddresses.find((ip) => ip.id === targetId);
+        if (!originalIp) {
+          this.logger.warn(`[State Drift] Targeted IP id (${targetId}) was not present in original preview snapshot`);
+          return {
+            success: false,
+            deviceId: device.id,
+            deviceName: device.name,
+            executedStages,
+            failedStage: 'PRE_VERIFICATION',
+            failureReason: `اكتشاف خطأ في هوية المورد (Pre-Cleanup Identity): عنوان IP بالمعرف (${targetId}) غير موجود في لقطة المعاينة الأصلية (Preview Snapshot). تم إيقاف التنفيذ فوراً لحماية الراوتر من حذف موارد غير معتمدة.`,
+            recoveryInstructions: 'أعد فحص المعاينة (Preview) لمزامنة أحدث حالة للراوتر.',
+            verification: {
+              internetReachable: false,
+              wanConfigured: false,
+              defaultRouteActive: false,
+              hotspotOperational: false,
+              securityPoliciesVerified: false,
+              pingPacketsReceived: 0,
+              overallStatus: 'VERIFICATION_FAILED',
+              diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب غياب المورد الأصلي من المعاينة.',
+            },
+          };
+        }
+
+        if (originalIp.address !== matchedLiveIp.address || originalIp.interface !== matchedLiveIp.interface) {
+          this.logger.warn(`[State Drift] Targeted IP value changed: original=${originalIp.address}@${originalIp.interface}, live=${matchedLiveIp.address}@${matchedLiveIp.interface}`);
+          return {
+            success: false,
+            deviceId: device.id,
+            deviceName: device.name,
+            executedStages,
+            failedStage: 'PRE_VERIFICATION',
+            failureReason: `اكتشاف تغير في إعدادات الراوتر (State Drift): عنوان IP بالمعرف (${targetId}) تم تعديله (كان ${originalIp.address} على ${originalIp.interface}، والآن ${matchedLiveIp.address} على ${matchedLiveIp.interface}). تم إيقاف التنفيذ فوراً لحماية الراوتر.`,
+            recoveryInstructions: 'أعد فحص المعاينة (Preview) لمراجعة التغييرات الجديدة.',
+            verification: {
+              internetReachable: false,
+              wanConfigured: false,
+              defaultRouteActive: false,
+              hotspotOperational: false,
+              securityPoliciesVerified: false,
+              pingPacketsReceived: 0,
+              overallStatus: 'VERIFICATION_FAILED',
+              diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب عدم تطابق قيم المورد.',
+            },
+          };
+        }
+
+        // Strict dynamic state matching: PRE_CLEANUP must never remove dynamic addresses
+        const isLiveDynamic = matchedLiveIp.dynamic === true || (matchedLiveIp as any).dynamic === 'true';
+        const wasOriginalDynamic = originalIp.dynamic === true || (originalIp as any).dynamic === 'true';
+        if (isLiveDynamic || wasOriginalDynamic !== isLiveDynamic) {
+          this.logger.warn(`[State Drift] Targeted IP dynamic state changed: id=${targetId}, wasDynamic=${wasOriginalDynamic}, liveDynamic=${isLiveDynamic}`);
+          return {
+            success: false,
+            deviceId: device.id,
+            deviceName: device.name,
+            executedStages,
+            failedStage: 'PRE_VERIFICATION',
+            failureReason: `اكتشاف تغير في حالة عنوان IP (State Drift): عنوان IP بالمعرف (${targetId}) أصبح ديناميكياً (Dynamic) في الراوتر ولا يمكن حذفه تلقائياً. تم إيقاف التنفيذ فوراً لحماية الراوتر.`,
+            recoveryInstructions: 'أعد فحص المعاينة (Preview) لمزامنة أحدث حالة للراوتر.',
+            verification: {
+              internetReachable: false,
+              wanConfigured: false,
+              defaultRouteActive: false,
+              hotspotOperational: false,
+              securityPoliciesVerified: false,
+              pingPacketsReceived: 0,
+              overallStatus: 'VERIFICATION_FAILED',
+              diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب تحول العنوان إلى ديناميكي.',
+            },
+          };
+        }
+      } else if (cmdItem.command.includes('/interface/bridge/port/remove')) {
+        const matchedPort = liveBridgePorts.find((bp) => bp.id === targetId);
+        if (!matchedPort) {
+          this.logger.warn(`[State Drift] Targeted bridge port id (${targetId}) not found in live router state`);
+          return {
+            success: false,
+            deviceId: device.id,
+            deviceName: device.name,
+            executedStages,
+            failedStage: 'PRE_VERIFICATION',
+            failureReason: `اكتشاف تغير في حالة الراوتر (State Drift): منفذ الجسر (${targetId}) لم يعد موجوداً. تم إيقاف التنفيذ فوراً قبل إجراء أي تعديل.`,
+            recoveryInstructions: 'أعد فحص المعاينة (Preview) لمزامنة أحدث حالة للراوتر.',
+            verification: {
+              internetReachable: false,
+              wanConfigured: false,
+              defaultRouteActive: false,
+              hotspotOperational: false,
+              securityPoliciesVerified: false,
+              pingPacketsReceived: 0,
+              overallStatus: 'VERIFICATION_FAILED',
+              diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب تغير منافذ الجسور.',
+            },
+          };
+        }
+
+        const originalBp = previewRes.discovery.bridgePorts.find((bp) => bp.id === targetId);
+        if (!originalBp) {
+          this.logger.warn(`[State Drift] Targeted bridge port id (${targetId}) was not present in original preview snapshot`);
+          return {
+            success: false,
+            deviceId: device.id,
+            deviceName: device.name,
+            executedStages,
+            failedStage: 'PRE_VERIFICATION',
+            failureReason: `اكتشاف خطأ في هوية المورد (Pre-Cleanup Identity): منفذ الجسر بالمعرف (${targetId}) غير موجود في لقطة المعاينة الأصلية (Preview Snapshot). تم إيقاف التنفيذ فوراً لحماية الراوتر من حذف موارد غير معتمدة.`,
+            recoveryInstructions: 'أعد فحص المعاينة (Preview) لمزامنة أحدث حالة للراوتر.',
+            verification: {
+              internetReachable: false,
+              wanConfigured: false,
+              defaultRouteActive: false,
+              hotspotOperational: false,
+              securityPoliciesVerified: false,
+              pingPacketsReceived: 0,
+              overallStatus: 'VERIFICATION_FAILED',
+              diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب غياب منفذ الجسر من المعاينة.',
+            },
+          };
+        }
+          if (originalBp.interface !== matchedPort.interface) {
+            this.logger.warn(`[State Drift] Targeted bridge port interface changed: original=${originalBp.interface}, live=${matchedPort.interface}`);
+            return {
+              success: false,
+              deviceId: device.id,
+              deviceName: device.name,
+              executedStages,
+              failedStage: 'PRE_VERIFICATION',
+              failureReason: `اكتشاف تغير في إعدادات منفذ الجسر (State Drift): منفذ الجسر بالمعرف (${targetId}) تغيرت واجهته (كانت ${originalBp.interface} والآن ${matchedPort.interface}). تم إيقاف التنفيذ فوراً لحماية الراوتر.`,
+              recoveryInstructions: 'أعد فحص المعاينة (Preview) لمزامنة أحدث حالة للراوتر.',
+              verification: {
+                internetReachable: false,
+                wanConfigured: false,
+                defaultRouteActive: false,
+                hotspotOperational: false,
+                securityPoliciesVerified: false,
+                pingPacketsReceived: 0,
+                overallStatus: 'VERIFICATION_FAILED',
+                diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب تغير واجهة منفذ الجسر.',
+              },
+            };
+          }
+          if (originalBp.bridge !== matchedPort.bridge) {
+            this.logger.warn(`[State Drift] Targeted bridge port bridge changed: original=${originalBp.bridge}, live=${matchedPort.bridge}`);
+            return {
+              success: false,
+              deviceId: device.id,
+              deviceName: device.name,
+              executedStages,
+              failedStage: 'PRE_VERIFICATION',
+              failureReason: `اكتشاف تغير في عضوية الجسور وإعدادات منفذ الجسر (Bridge Membership Drift): منفذ الجسر بالمعرف (${targetId}) تغير الجسر المرتبط به (كان ${originalBp.bridge} والآن ${matchedPort.bridge}). تم إيقاف التنفيذ فوراً لحماية الراوتر.`,
+              recoveryInstructions: 'أعد فحص المعاينة (Preview) لمزامنة أحدث حالة للراوتر.',
+              verification: {
+                internetReachable: false,
+                wanConfigured: false,
+                defaultRouteActive: false,
+                hotspotOperational: false,
+                securityPoliciesVerified: false,
+                pingPacketsReceived: 0,
+                overallStatus: 'VERIFICATION_FAILED',
+                diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب تغير الجسر التابع له المنفذ.',
+              },
+            };
+          }
+        }
+      }
+
+    // 0B. Holistic WAN Topology & Independence Invariant
+    const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
+    const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
+    const memberPorts = rawMemberPorts.map((m: any) => (m ? String(m).trim() : '')).filter(Boolean);
+    const proposedGateway = (dto.lan?.gatewayIp || '').trim();
+    const proposedSubnet = this.extractSubnetBase(proposedGateway);
+
+    const liveWanCheck = this.verifyWanTopology(
+      {
+        interfaces: liveInterfaces,
+        ipAddresses: liveIps,
+        bridgePorts: liveBridgePorts,
+        bridges: liveBridges,
+        routes: liveRoutes,
+        dhcpClients: liveDhcpClients,
+      },
+      wanIfaceName,
+      memberPorts,
+      proposedSubnet,
+      dto.wan?.mode,
+    );
+
+    if (!liveWanCheck.isValid) {
+      this.logger.warn(`[State Drift] Live WAN topology compromised: ${liveWanCheck.failureReason}`);
+      return {
+        success: false,
+        deviceId: device.id,
+        deviceName: device.name,
+        executedStages,
+        failedStage: 'PRE_VERIFICATION',
+        failureReason: `اكتشاف تغير حرج في مسار الإنترنت WAN (State Drift): ${liveWanCheck.failureReason}. تم إيقاف التنفيذ فوراً قبل إجراء أي تعديل.`,
+        recoveryInstructions: 'تحقق من إعدادات منفذ WAN واستقلاليته عن منافذ المشتركين وأعد طلب المعاينة Preview.',
+        verification: {
+          internetReachable: false,
+          wanConfigured: false,
+          defaultRouteActive: false,
+          hotspotOperational: false,
+          securityPoliciesVerified: false,
+          pingPacketsReceived: 0,
+          overallStatus: 'VERIFICATION_FAILED',
+          diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب تغير بنية WAN.',
+        },
+      };
+    }
+
+    // 0C. Re-verify Management Topology on Live State: Management path must remain determined & unsevered
+    const currentHost = (device.host || '').trim();
+    const protectWanAccess = !!(dto.securityPolicies as any)?.protectWanAccess;
+
+    const liveMgmtTopo = this.resolveManagementTopology(
+      {
+        ipAddresses: liveIps,
+        bridgePorts: liveBridgePorts,
+        bridges: liveBridges,
+        interfaces: liveInterfaces,
+      },
+      currentHost,
+      memberPorts,
+      wanIfaceName,
+      protectWanAccess,
+    );
+
+    if (!liveMgmtTopo.isDetermined || liveMgmtTopo.isSevered) {
+      this.logger.warn(`[State Drift] Live management path compromised: ${liveMgmtTopo.errorMessage}`);
+      return {
+        success: false,
+        deviceId: device.id,
+        deviceName: device.name,
+        executedStages,
+        failedStage: 'PRE_VERIFICATION',
+        failureReason: `اكتشاف تغير حرج في مسار الإدارة (State Drift): ${liveMgmtTopo.errorMessage || 'تعذر إثبات مسار الإدارة في حالة الراوتر الحية'}. تم إيقاف التنفيذ فوراً لحماية الراوتر من الانعزال.`,
+        recoveryInstructions: 'تحقق من مسار الإدارة النشط للراوتر وأعد طلب المعاينة Preview.',
+        verification: {
+          internetReachable: false,
+          wanConfigured: false,
+          defaultRouteActive: false,
+          hotspotOperational: false,
+          securityPoliciesVerified: false,
+          pingPacketsReceived: 0,
+          overallStatus: 'VERIFICATION_FAILED',
+          diagnosticsMessage: 'توقف الإعداد لحماية مسار إدارة الراوتر من الانقطاع.',
+        },
+      };
+    }
+
+    // 0D. Default Route Invariant: If preview had default route, live router must still have it with matching gateway
+    const previewRoutes = previewRes.discovery.routes || [];
+    const previewDefaultRoute = previewRoutes.find(
+      (r: any) => r?.dstAddress === '0.0.0.0/0' || r?.['dst-address'] === '0.0.0.0/0',
+    );
+    if (previewDefaultRoute) {
+      const liveDefaultRoute = (liveRoutes || []).find(
+        (r: any) => r?.dstAddress === '0.0.0.0/0' || r?.['dst-address'] === '0.0.0.0/0',
+      );
+      if (!liveDefaultRoute) {
+        this.logger.warn('[State Drift] Default route (0.0.0.0/0) vanished in live router state!');
+        return {
+          success: false,
+          deviceId: device.id,
+          deviceName: device.name,
+          executedStages,
+          failedStage: 'PRE_VERIFICATION',
+          failureReason: 'اكتشاف تغير في المسار الافتراضي (Default Route Drift): مسار الإنترنت 0.0.0.0/0 لم يعد موجوداً في الراوتر.',
+          recoveryInstructions: 'تحقق من اتصال الإنترنت الافتراضي للراوتر وأعد طلب المعاينة Preview.',
+          verification: {
+            internetReachable: false,
+            wanConfigured: false,
+            defaultRouteActive: false,
+            hotspotOperational: false,
+            securityPoliciesVerified: false,
+            pingPacketsReceived: 0,
+            overallStatus: 'VERIFICATION_FAILED',
+            diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب اختفاء المسار الافتراضي.',
+          },
+        };
+      }
+
+      const prevGw = (previewDefaultRoute.gateway || (previewDefaultRoute as any)['gateway-status'] || '').trim();
+      const liveGw = (liveDefaultRoute.gateway || (liveDefaultRoute as any)['gateway-status'] || '').trim();
+      if (prevGw && liveGw && prevGw !== liveGw) {
+        this.logger.warn(`[State Drift] Default route gateway changed: prev=${prevGw}, live=${liveGw}`);
+        return {
+          success: false,
+          deviceId: device.id,
+          deviceName: device.name,
+          executedStages,
+          failedStage: 'PRE_VERIFICATION',
+          failureReason: `اكتشاف تغير في بوابة المسار الافتراضي (Default Route Gateway Drift): البوابة كانت (${prevGw}) وتغيرت إلى (${liveGw}). تم إيقاف التنفيذ فوراً.`,
+          recoveryInstructions: 'أعد فحص المعاينة (Preview) لمراجعة مسار الإنترنت.',
+          verification: {
+            internetReachable: false,
+            wanConfigured: false,
+            defaultRouteActive: false,
+            hotspotOperational: false,
+            securityPoliciesVerified: false,
+            pingPacketsReceived: 0,
+            overallStatus: 'VERIFICATION_FAILED',
+            diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب تغير بوابة المسار الافتراضي.',
+          },
+        };
+      }
+    }
+
+    // 0E. Bridge Membership Drift: Verify that no member port joined another bridge between preview and apply
+    for (const port of memberPorts) {
+      const previewBp = (previewRes.discovery.bridgePorts || []).find((bp) => bp?.interface === port);
+      const liveBp = liveBridgePorts.find((bp) => bp?.interface === port);
+      if (liveBp && (!previewBp || liveBp.bridge !== previewBp.bridge)) {
+        this.logger.warn(
+          `[State Drift] Port ${port} bridge membership changed: prev=${previewBp?.bridge || 'none'}, live=${liveBp.bridge}`,
+        );
+        return {
+          success: false,
+          deviceId: device.id,
+          deviceName: device.name,
+          executedStages,
+          failedStage: 'PRE_VERIFICATION',
+          failureReason: `اكتشاف تغير في عضوية الجسور (Bridge Membership Drift): المنفذ (${port}) تغيرت عضويته في الجسور بعد المعاينة (أصبح في الجسر [${liveBp.bridge}]). تم إيقاف التنفيذ فوراً لحماية الراوتر.`,
+          recoveryInstructions: 'أعد فحص المعاينة (Preview) لمزامنة أحدث حالة للراوتر.',
+          verification: {
+            internetReachable: false,
+            wanConfigured: false,
+            defaultRouteActive: false,
+            hotspotOperational: false,
+            securityPoliciesVerified: false,
+            pingPacketsReceived: 0,
+            overallStatus: 'VERIFICATION_FAILED',
+            diagnosticsMessage: 'توقف الإعداد قبل تنفيذ أي أمر بسبب تغير عضوية الجسور.',
+          },
+        };
+      }
+    }
+
+    // =========================================================================
     // STAGE 1: Automatic Pre-Configuration Backup
     // =========================================================================
     const nowStr = new Date().toISOString().replace(/[:.]/g, '-');
@@ -1026,9 +1533,6 @@ export class RouterProvisioningService {
     // =========================================================================
     // STAGE 2: Execute Commands Step-by-Step
     // =========================================================================
-    const isV7 = (device.rosVersion || '').toUpperCase().includes('V7');
-    const commands = this.generateRouterCommands(dto, isV7, previewRes.discovery);
-
     for (const item of commands) {
       try {
         const words = this.commandStringToWords(item.command);
@@ -1472,6 +1976,901 @@ export class RouterProvisioningService {
   }
 
   /**
+   * Recursively traces any interface (Bridge, VLAN, Bonding, Physical) down to its underlying physical Ethernet ports.
+   * Rejects cycles, unknown interfaces, virtual interfaces without physical backing, and bridges with 0 ports.
+   */
+  private traceToPhysicalPorts(
+    ifaceName: string,
+    discovery: {
+      interfaces?: any[];
+      bridges?: any[];
+      bridgePorts?: any[];
+    },
+    visited: Set<string> = new Set(),
+    depth = 0,
+  ): {
+    success: boolean;
+    physicalPorts: string[];
+    chain: string[];
+    failureReason?: string;
+  } {
+    const cleanName = (ifaceName || '').trim();
+    if (!cleanName) {
+      return { success: false, physicalPorts: [], chain: [], failureReason: 'اسم الواجهة فارغ أو غير محدد.' };
+    }
+    if (visited.has(cleanName)) {
+      return {
+        success: false,
+        physicalPorts: [],
+        chain: [cleanName],
+        failureReason: `اكتشاف حلقة تكرار دائرية (Cyclic loop) في بنية الواجهات عند الواجهة (${cleanName}).`,
+      };
+    }
+    if (depth > 8) {
+      return {
+        success: false,
+        physicalPorts: [],
+        chain: [cleanName],
+        failureReason: `تجاوز الحد الأقصى لعمق الواجهات المتداخلة (Max depth exceeded) عند (${cleanName}).`,
+      };
+    }
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(cleanName);
+
+    const ifaceList = discovery.interfaces || [];
+    const ifaceObj = ifaceList.find((i) => i?.name === cleanName);
+    const ifaceType = ifaceObj?.type ? String(ifaceObj.type).toLowerCase() : undefined;
+
+    // 1. Is it a Bridge?
+    const isBridge = (discovery.bridges || []).some((b) => b?.name === cleanName) || ifaceType === 'bridge';
+    if (isBridge) {
+      const bridgePorts = (discovery.bridgePorts || [])
+        .filter((bp) => bp?.bridge === cleanName)
+        .map((bp) => (bp?.interface || '').trim())
+        .filter(Boolean);
+
+      if (bridgePorts.length === 0) {
+        return {
+          success: false,
+          physicalPorts: [],
+          chain: [cleanName],
+          failureReason: `الجسر (${cleanName}) لا يحتوي على أي منافذ تابعة (Zero member ports)، مما يمنع إثبات الوصول الفيزيائي.`,
+        };
+      }
+
+      const allPhysical: string[] = [];
+      const subChains: string[] = [cleanName];
+
+      for (const bp of bridgePorts) {
+        const sub = this.traceToPhysicalPorts(bp, discovery, nextVisited, depth + 1);
+        if (!sub.success || sub.physicalPorts.length === 0) {
+          return {
+            success: false,
+            physicalPorts: [],
+            chain: [cleanName, ...sub.chain],
+            failureReason: `فشل تتبع المنفذ التابع (${bp}) للجسر (${cleanName}): ${sub.failureReason || 'منفذ مجهول أو غير فيزيائي'}`,
+          };
+        }
+        allPhysical.push(...sub.physicalPorts);
+        subChains.push(...sub.chain);
+      }
+
+      return {
+        success: true,
+        physicalPorts: Array.from(new Set(allPhysical)),
+        chain: Array.from(new Set(subChains)),
+      };
+    }
+
+    // 2. Is it a VLAN?
+    const isVlan = ifaceType === 'vlan' || (ifaceObj && ('vlan-id' in ifaceObj || 'vlanId' in ifaceObj));
+    if (isVlan) {
+      const parentIface = (
+        ifaceObj?.parentInterface ||
+        (ifaceObj as any)?.interface ||
+        (ifaceObj as any)?.['vlan-interface'] ||
+        ''
+      ).trim();
+
+      if (!parentIface) {
+        return {
+          success: false,
+          physicalPorts: [],
+          chain: [cleanName],
+          failureReason: `تعذر تحديد الواجهة الأم للـ VLAN (${cleanName}).`,
+        };
+      }
+
+      const parentExists = ifaceList.some((i) => i?.name === parentIface) || (discovery.bridges || []).some((b) => b?.name === parentIface);
+      if (!parentExists) {
+        return {
+          success: false,
+          physicalPorts: [],
+          chain: [cleanName, parentIface],
+          failureReason: `الواجهة الأم (${parentIface}) للـ VLAN (${cleanName}) غير موجودة في واجهات الراوتر المستكشفة.`,
+        };
+      }
+
+      const parentTrace = this.traceToPhysicalPorts(parentIface, discovery, nextVisited, depth + 1);
+      if (!parentTrace.success) {
+        return {
+          success: false,
+          physicalPorts: [],
+          chain: [cleanName, ...parentTrace.chain],
+          failureReason: `فشل تتبع الواجهة الأم (${parentIface}) للـ VLAN (${cleanName}): ${parentTrace.failureReason}`,
+        };
+      }
+
+      return {
+        success: true,
+        physicalPorts: parentTrace.physicalPorts,
+        chain: [cleanName, ...parentTrace.chain],
+      };
+    }
+
+    // 3. Is it a Bonding interface?
+    const isBonding = ifaceType === 'bonding';
+    if (isBonding) {
+      const rawSlaves = ifaceObj?.slaves ?? (ifaceObj as any)?.interfaces;
+      let slaves: string[] = [];
+      if (Array.isArray(rawSlaves)) {
+        for (const item of rawSlaves) {
+          if (typeof item !== 'string' || !item.trim()) {
+            return {
+              success: false,
+              physicalPorts: [],
+              chain: [cleanName],
+              failureReason: `بيانات منافذ واجهة الربط Bonding (${cleanName}) غير صالحة: تحتوي على عناصر غير نصية أو فارغة.`,
+            };
+          }
+          slaves.push(item.trim());
+        }
+      } else if (typeof rawSlaves === 'string') {
+        slaves = rawSlaves.split(',').map((s) => s.trim()).filter(Boolean);
+      } else {
+        return {
+          success: false,
+          physicalPorts: [],
+          chain: [cleanName],
+          failureReason: `بيانات منافذ واجهة الربط Bonding (${cleanName}) ذات صيغة غير مدعومة أو غير صالحة (يجب أن تكون نصوصاً أو مصفوفة نصوص).`,
+        };
+      }
+
+      if (slaves.length === 0) {
+        return {
+          success: false,
+          physicalPorts: [],
+          chain: [cleanName],
+          failureReason: `واجهة الربط Bonding (${cleanName}) لا تحتوي على أي منافذ تابعة (Slaves).`,
+        };
+      }
+
+      const allPhysical: string[] = [];
+      const subChains: string[] = [cleanName];
+
+      for (const slave of slaves) {
+        const slaveExists = ifaceList.some((i) => i?.name === slave);
+        if (!slaveExists) {
+          return {
+            success: false,
+            physicalPorts: [],
+            chain: [cleanName, slave],
+            failureReason: `المنفذ التابع (${slave}) لواجهة Bonding (${cleanName}) غير مسجل في واجهات الراوتر.`,
+          };
+        }
+        const slaveTrace = this.traceToPhysicalPorts(slave, discovery, nextVisited, depth + 1);
+        if (!slaveTrace.success) {
+          return {
+            success: false,
+            physicalPorts: [],
+            chain: [cleanName, ...slaveTrace.chain],
+            failureReason: `فشل تتبع المنفذ التابع (${slave}) لـ Bonding (${cleanName}): ${slaveTrace.failureReason}`,
+          };
+        }
+        allPhysical.push(...slaveTrace.physicalPorts);
+        subChains.push(...slaveTrace.chain);
+      }
+
+      return {
+        success: true,
+        physicalPorts: Array.from(new Set(allPhysical)),
+        chain: Array.from(new Set(subChains)),
+      };
+    }
+
+    // 3.5. Is it a PPPoE interface?
+    const isPppoe = ifaceType === 'pppoe-out' || ifaceType === 'pppoe' || cleanName.toLowerCase().startsWith('pppoe-');
+    if (isPppoe) {
+      const parentIface = (
+        ifaceObj?.parentInterface ||
+        (ifaceObj as any)?.interface ||
+        ''
+      ).trim();
+
+      if (!parentIface) {
+        return {
+          success: false,
+          physicalPorts: [],
+          chain: [cleanName],
+          failureReason: `تعذر تحديد الواجهة الحاملة لاتصال PPPoE (${cleanName}).`,
+        };
+      }
+
+      const parentTrace = this.traceToPhysicalPorts(parentIface, discovery, nextVisited, depth + 1);
+      if (!parentTrace.success) {
+        return {
+          success: false,
+          physicalPorts: [],
+          chain: [cleanName, ...parentTrace.chain],
+          failureReason: `فشل تتبع الواجهة الحاملة (${parentIface}) لاتصال PPPoE (${cleanName}): ${parentTrace.failureReason}`,
+        };
+      }
+
+      return {
+        success: true,
+        physicalPorts: parentTrace.physicalPorts,
+        chain: [cleanName, ...parentTrace.chain],
+      };
+    }
+
+    // 4. Pure Virtual / Tunnel Interfaces with no physical layer
+    const VIRTUAL_TYPES = new Set(['loopback', 'gre', 'ipip', 'eoip', 'wireguard', 'ovpn', 'pptp', 'sstp', 'virtual']);
+    if (ifaceType && VIRTUAL_TYPES.has(ifaceType)) {
+      return {
+        success: false,
+        physicalPorts: [],
+        chain: [cleanName],
+        failureReason: `واجهة افتراضية (${cleanName}) من نوع [${ifaceType}] بدون مسار فيزيائي مثبت.`,
+      };
+    }
+
+    if (!ifaceObj) {
+      return {
+        success: false,
+        physicalPorts: [],
+        chain: [cleanName],
+        failureReason: `الواجهة (${cleanName}) غير مسجلة في قائمة واجهات الراوتر المستكشفة.`,
+      };
+    }
+
+    if (!ifaceType) {
+      return {
+        success: false,
+        physicalPorts: [],
+        chain: [cleanName],
+        failureReason: `الواجهة (${cleanName}) لا تملك نوعاً محدداً (Missing interface type). لا يمكن افتراض أنها منفذ فيزيائي.`,
+      };
+    }
+
+    // 5. Physical Ethernet / SFP interface (Strict whitelist)
+    const KNOWN_PHYSICAL_TYPES = new Set(['ether', 'sfp', 'sfp-plus', 'sfp28', 'qsfp+', 'qsfp28']);
+    if (KNOWN_PHYSICAL_TYPES.has(ifaceType)) {
+      return {
+        success: true,
+        physicalPorts: [cleanName],
+        chain: [cleanName],
+      };
+    }
+
+    return {
+      success: false,
+      physicalPorts: [],
+      chain: [cleanName],
+      failureReason: `نوع الواجهة (${cleanName}) [${ifaceType}] مجهول أو غير معتمد كمنفذ فيزيائي.`,
+    };
+  }
+
+  /**
+   * Topologically proves the management path from device.host -> interface -> physical ports.
+   * Does NOT rely on superficial comments or interface naming patterns.
+   * Recursively traces Bridges, VLANs, Bonds, and physical interfaces.
+   */
+  private resolveManagementTopology(
+    discovery: {
+      ipAddresses?: any[];
+      bridges?: any[];
+      bridgePorts?: any[];
+      interfaces?: any[];
+    },
+    deviceHost: string,
+    memberPorts: string[],
+    wanIfaceName: string,
+    protectWanAccess?: boolean,
+  ): {
+    isDetermined: boolean;
+    isSevered: boolean;
+    mgmtInterface?: string;
+    interfaceType?: 'physical' | 'bridge' | 'vlan' | 'bonding' | 'virtual' | 'unknown';
+    bridgePhysicalPorts?: string[];
+    stolenBridgePorts?: string[];
+    vlanParentInterface?: string;
+    conflictType?:
+      | 'MANAGEMENT_PATH_INDETERMINATE'
+      | 'MANAGEMENT_PORT_BRIDGED'
+      | 'WAN_MANAGEMENT_LOCKOUT'
+      | 'MANAGEMENT_BRIDGE_DEPLETED';
+    errorMessage?: string;
+  } {
+    const hostClean = (deviceHost || '').trim().split('/')[0];
+    if (!hostClean) {
+      return {
+        isDetermined: false,
+        isSevered: true,
+        conflictType: 'MANAGEMENT_PATH_INDETERMINATE',
+        errorMessage: 'عنوان اتصال الراوتر غير محدد في النظام.',
+      };
+    }
+
+    const ipList = discovery.ipAddresses || [];
+    const hostIpEntry = ipList.find((ip) => {
+      if (!ip?.address) return false;
+      const clean = String(ip.address).trim().split('/')[0];
+      return clean === hostClean;
+    });
+
+    if (!hostIpEntry) {
+      return {
+        isDetermined: false,
+        isSevered: true,
+        conflictType: 'MANAGEMENT_PATH_INDETERMINATE',
+        errorMessage: `عنوان اتصال الراوتر (${hostClean}) غير مسجل على أي واجهة في قائمة عناوين الراوتر المستكشفة.`,
+      };
+    }
+
+    const mgmtInterface = (hostIpEntry.interface || '').trim();
+    if (!mgmtInterface) {
+      return {
+        isDetermined: false,
+        isSevered: true,
+        conflictType: 'MANAGEMENT_PATH_INDETERMINATE',
+        errorMessage: `واجهة الإدارة للعنوان (${hostClean}) غير معينة.`,
+      };
+    }
+
+    // Direct check: if management interface is explicitly in memberPorts (subscriber bridge)
+    if (memberPorts.includes(mgmtInterface)) {
+      return {
+        isDetermined: true,
+        isSevered: true,
+        mgmtInterface,
+        interfaceType: 'physical',
+        conflictType: 'MANAGEMENT_PORT_BRIDGED',
+        errorMessage: `واجهة الإدارة المباشرة (${mgmtInterface}) مجدولة لضمها إلى جسر المشتركين، مما يسبب عزلها وفقدان الاتصال بالراوتر فورياً.`,
+      };
+    }
+
+    // Direct check: if management interface is on WAN with WAN protection active
+    if (mgmtInterface === wanIfaceName && protectWanAccess) {
+      return {
+        isDetermined: true,
+        isSevered: true,
+        mgmtInterface,
+        conflictType: 'WAN_MANAGEMENT_LOCKOUT',
+        errorMessage: `عنوان الإدارة (${hostClean}) يقع على منفذ الإنترنت (${wanIfaceName}) مع تفعيل حظر منافذ الإدارة على WAN.`,
+      };
+    }
+
+    // Recursive physical reachability trace
+    const trace = this.traceToPhysicalPorts(mgmtInterface, discovery);
+    if (!trace.success || trace.physicalPorts.length === 0) {
+      return {
+        isDetermined: false,
+        isSevered: true,
+        mgmtInterface,
+        conflictType: 'MANAGEMENT_PATH_INDETERMINATE',
+        errorMessage: trace.failureReason || 'تعذر إثبات مسار فيزيائي لواجهة الإدارة.',
+      };
+    }
+
+    const ifaceObj = (discovery.interfaces || []).find((i) => i?.name === mgmtInterface);
+    const ifaceType = ifaceObj?.type ? String(ifaceObj.type).toLowerCase() : undefined;
+    const isBridge = (discovery.bridges || []).some((b) => b?.name === mgmtInterface) || ifaceType === 'bridge';
+    const isVlan = ifaceType === 'vlan' || (ifaceObj && ('vlan-id' in ifaceObj || 'vlanId' in ifaceObj));
+    const isBonding = ifaceType === 'bonding';
+
+    let isParentBridge = false;
+    if (isVlan) {
+      const parentIface = (
+        ifaceObj?.parentInterface ||
+        (ifaceObj as any)?.interface ||
+        (ifaceObj as any)?.['vlan-interface'] ||
+        ''
+      ).trim();
+      isParentBridge = (discovery.bridges || []).some((b) => b?.name === parentIface);
+    }
+
+    // Trace WAN physical path as well to compare actual physical ports
+    const wanTrace = this.traceToPhysicalPorts(wanIfaceName, discovery);
+    const wanPhysicalSet = new Set(wanTrace.physicalPorts);
+    const sharedWithWan = trace.physicalPorts.filter(
+      (p) => wanPhysicalSet.has(p) || p === wanIfaceName,
+    );
+    const directWanInManagementBridge =
+      (isBridge || isParentBridge) &&
+      (trace.chain.includes(wanIfaceName) ||
+        trace.physicalPorts.includes(wanIfaceName) ||
+        (discovery.bridgePorts || []).some(
+          (bp) => bp?.bridge === mgmtInterface && bp?.interface === wanIfaceName,
+        ));
+
+    // 1. Recursive WAN Overlap Verification
+    // Direct WAN inside management bridge, or management directly on WAN with protection,
+    // or non-bridge topology sharing physical port with WAN:
+    if (
+      directWanInManagementBridge ||
+      (mgmtInterface === wanIfaceName && protectWanAccess) ||
+      (!isBridge && !isParentBridge && mgmtInterface !== wanIfaceName && (sharedWithWan.length > 0 || trace.chain.some((c) => wanTrace.chain.includes(c))))
+    ) {
+      return {
+        isDetermined: true,
+        isSevered: true,
+        mgmtInterface,
+        interfaceType: isBridge ? 'bridge' : isVlan ? 'vlan' : isBonding ? 'bonding' : 'physical',
+        bridgePhysicalPorts: trace.physicalPorts,
+        conflictType: 'WAN_MANAGEMENT_LOCKOUT',
+        errorMessage: mgmtInterface === wanIfaceName
+          ? `عنوان الإدارة (${hostClean}) يقع على منفذ الإنترنت (${wanIfaceName}) مع تفعيل حظر منافذ الإدارة على WAN.`
+          : `مسار الإدارة (${mgmtInterface}) يشترك في المنفذ الفيزيائي أو الواجهة [${sharedWithWan.length > 0 ? sharedWithWan.join(', ') : wanIfaceName}] مع منفذ الإنترنت WAN (${wanIfaceName}). تداخل مسار الإدارة مع WAN يهدد بعزل الراوتر وانقطاع الاتصال.`,
+      };
+    }
+
+    // 2. Multi-Port Bridge / VLAN over Bridge Handling
+    // A bridge can host multiple physical ports. If some ports remain, management is not severed,
+    // but if ALL physical ports reachable by the bridge are stolen, the bridge is depleted and severed.
+    if (isBridge || isParentBridge) {
+      const allBridgePhysical = trace.physicalPorts;
+      const compromisedPorts = allBridgePhysical.filter(
+        (p) => memberPorts.includes(p) || p === wanIfaceName || sharedWithWan.includes(p),
+      );
+
+      const remainingBridgePorts = allBridgePhysical.filter((p) => !compromisedPorts.includes(p));
+      const operationalRemainingPorts = remainingBridgePorts.filter((p) => {
+        const iface = (discovery.interfaces || []).find((i) => i?.name === p);
+        if (!iface) return false;
+        if (iface.disabled === true || iface.disabled === 'true') return false;
+        if (iface.running === false || iface.running === 'false') return false;
+        return true;
+      });
+
+      if (compromisedPorts.length >= allBridgePhysical.length && allBridgePhysical.length > 0) {
+        return {
+          isDetermined: true,
+          isSevered: true,
+          mgmtInterface,
+          interfaceType: isBridge ? 'bridge' : 'vlan',
+          bridgePhysicalPorts: allBridgePhysical,
+          stolenBridgePorts: compromisedPorts,
+          conflictType: sharedWithWan.length > 0 ? 'WAN_MANAGEMENT_LOCKOUT' : 'MANAGEMENT_BRIDGE_DEPLETED',
+          errorMessage: `الجسر الحامل لمسار الإدارة (${mgmtInterface}) سيفقد كافة منافذه الفيزيائية [${compromisedPorts.join(', ')}] لصالح المشتركين أو WAN، مما يعزل الراوتر تماماً.`,
+        };
+      }
+
+      if (remainingBridgePorts.length > 0 && operationalRemainingPorts.length === 0) {
+        return {
+          isDetermined: true,
+          isSevered: true,
+          mgmtInterface,
+          interfaceType: isBridge ? 'bridge' : 'vlan',
+          bridgePhysicalPorts: allBridgePhysical,
+          stolenBridgePorts: compromisedPorts,
+          conflictType: 'MANAGEMENT_BRIDGE_DEPLETED',
+          errorMessage: `المنافذ الفيزيائية المتبقية [${remainingBridgePorts.join(', ')}] لجسر الإدارة (${mgmtInterface}) معطلة أو مفصولة (running: false / disabled: true). بقاء منفذ غير نشط لا يثبت استمرارية الإدارة.`,
+        };
+      }
+
+      return {
+        isDetermined: true,
+        isSevered: false,
+        mgmtInterface,
+        interfaceType: isBridge ? 'bridge' : 'vlan',
+        bridgePhysicalPorts: allBridgePhysical,
+        stolenBridgePorts: compromisedPorts,
+      };
+    }
+
+    // 3. Non-Bridge Topology (Dedicated Bonding, Dedicated VLAN, or Dedicated Physical Port)
+    // In a non-bridge topology, any theft of an underlying physical port or intermediate component severs the path.
+    const stolenNonBridgeComponent = [...trace.physicalPorts, ...trace.chain].find(
+      (c) => memberPorts.includes(c),
+    );
+    if (stolenNonBridgeComponent) {
+      return {
+        isDetermined: true,
+        isSevered: true,
+        mgmtInterface,
+        interfaceType: isVlan ? 'vlan' : isBonding ? 'bonding' : 'physical',
+        bridgePhysicalPorts: trace.physicalPorts,
+        conflictType: 'MANAGEMENT_PORT_BRIDGED',
+        errorMessage: `المنفذ الفيزيائي أو الواجهة الوسيطة (${stolenNonBridgeComponent}) التابعة لمسار الإدارة (${mgmtInterface}) مجدولة للضم إلى جسر المشتركين.`,
+      };
+    }
+
+    // 4. If mgmtInterface is a direct physical Ethernet port:
+    if (!isBridge && !isVlan && !isBonding) {
+      const existingBridgePort = (discovery.bridgePorts || []).find((bp) => bp?.interface === mgmtInterface);
+      if (existingBridgePort) {
+        return {
+          isDetermined: true,
+          isSevered: true,
+          mgmtInterface,
+          interfaceType: 'physical',
+          conflictType: 'MANAGEMENT_PORT_BRIDGED',
+          errorMessage: `منفذ الإدارة الفيزيائي (${mgmtInterface}) هو منفذ تابع (Slave) للجسر [${existingBridgePort.bridge}]. حمل عنوان IP على منفذ تابع يخالف معمارية RouterOS ويقطع الاتصال.`,
+        };
+      }
+    }
+
+    return {
+      isDetermined: true,
+      isSevered: false,
+      mgmtInterface,
+      interfaceType: isBridge ? 'bridge' : isVlan ? 'vlan' : isBonding ? 'bonding' : 'physical',
+      bridgePhysicalPorts: trace.physicalPorts,
+      stolenBridgePorts: [],
+    };
+  }
+
+  /**
+   * Topologically verifies the integrity and independence of WAN interface,
+   * its recursive parent interfaces (if VLAN/Bond), secondary WAN IPs, and default route.
+   */
+  private verifyWanTopology(
+    discovery: {
+      interfaces?: any[];
+      ipAddresses?: any[];
+      bridgePorts?: any[];
+      bridges?: any[];
+      routes?: any[];
+      dhcpClients?: any[];
+    },
+    wanIfaceName: string,
+    memberPorts: string[],
+    proposedSubnet?: string | null,
+    wanMode?: string,
+  ): {
+    isValid: boolean;
+    failureReason?: string;
+  } {
+    if (!wanIfaceName) {
+      return { isValid: false, failureReason: 'اسم منفذ الإنترنت (WAN) غير محدد.' };
+    }
+
+    // 1. Presence in discovery.interfaces
+    const ifaceList = discovery.interfaces || [];
+    const wanIface = ifaceList.find((i) => i?.name === wanIfaceName);
+    if (!wanIface) {
+      return {
+        isValid: false,
+        failureReason: `منفذ الإنترنت WAN (${wanIfaceName}) غير موجود في قائمة واجهات الراوتر.`,
+      };
+    }
+
+    if (wanIface.disabled === true || wanIface.disabled === 'true') {
+      return {
+        isValid: false,
+        failureReason: `منفذ الإنترنت WAN (${wanIfaceName}) معطل (disabled) في الراوتر.`,
+      };
+    }
+
+    // 2. Direct bridge membership check
+    const bpList = discovery.bridgePorts || [];
+    const wanInBridge = bpList.find((bp) => bp?.interface === wanIfaceName);
+    if (wanInBridge) {
+      return {
+        isValid: false,
+        failureReason: `منفذ الإنترنت WAN (${wanIfaceName}) مرتبط بالجسر [${wanInBridge.bridge}]. هذا يمنع عزل WAN واستقلاليته.`,
+      };
+    }
+
+    // 3. Member ports overlap
+    if (memberPorts.includes(wanIfaceName)) {
+      return {
+        isValid: false,
+        failureReason: `منفذ الإنترنت WAN (${wanIfaceName}) تم اختياره أيضاً كمنفذ مشتركين (LAN).`,
+      };
+    }
+
+    // 4. Recursive Physical Trace for WAN interface
+    const wanTrace = this.traceToPhysicalPorts(wanIfaceName, discovery);
+    if (!wanTrace.success || wanTrace.physicalPorts.length === 0) {
+      return {
+        isValid: false,
+        failureReason: `تعذر إثبات مسار منفذ الإنترنت WAN (${wanIfaceName}) فيزيائياً: ${wanTrace.failureReason || 'مسار فيزيائي غير مكتمل'}`,
+      };
+    }
+
+    // 5. Check if any interface in the WAN chain or physical ports is stolen by memberPorts
+    const stolenWanComponent = [
+      ...wanTrace.chain,
+      ...wanTrace.physicalPorts,
+    ].find((c) => memberPorts.includes(c));
+    if (stolenWanComponent) {
+      return {
+        isValid: false,
+        failureReason: `الواجهة أو المنفذ الفيزيائي (${stolenWanComponent}) التابع لمنفذ WAN (${wanIfaceName}) مجدول للضم إلى جسر المشتركين.`,
+      };
+    }
+
+    // Check if any underlying interface (parent or slave) is in a local bridge
+    const bridgedWanComponent = wanTrace.chain.find(
+      (c) => c !== wanIfaceName && bpList.some((bp) => bp?.interface === c),
+    );
+    if (bridgedWanComponent) {
+      const bp = bpList.find((b) => b?.interface === bridgedWanComponent);
+      return {
+        isValid: false,
+        failureReason: `الواجهة التابعة (${bridgedWanComponent}) لمنفذ WAN (${wanIfaceName}) مرتبطة بالجسر [${bp?.bridge}].`,
+      };
+    }
+
+    // 6. Secondary WAN & Subnet Overlap check across ALL interfaces in WAN chain
+    const ipList = discovery.ipAddresses || [];
+    const relevantWanInterfaces = new Set([wanIfaceName, ...wanTrace.chain]);
+    const associatedWanIps = ipList.filter((ip) => relevantWanInterfaces.has(ip?.interface));
+
+    if (proposedSubnet) {
+      for (const wanIp of associatedWanIps) {
+        if (!wanIp?.address) continue;
+        const ipSubnet = this.extractSubnetBase(wanIp.address);
+        if (ipSubnet && ipSubnet === proposedSubnet) {
+          return {
+            isValid: false,
+            failureReason: `عنوان الإنترنت على WAN (${wanIp.address}) يتعارض مع نطاق شبكة المشتركين المقترحة (${proposedSubnet}).`,
+          };
+        }
+      }
+    }
+
+    // 7. Authoritative Default route validation & clear operational policy
+    const routes = discovery.routes || [];
+    const defaultRoutes = routes.filter(
+      (r) => r && (r.dstAddress === '0.0.0.0/0' || r['dst-address'] === '0.0.0.0/0'),
+    );
+
+    const authorizedWanTargets = new Set([wanIfaceName, ...wanTrace.chain, ...wanTrace.physicalPorts]);
+
+    if (defaultRoutes.length === 0) {
+      if (wanMode === 'DHCP') {
+        const dhcpClients = discovery.dhcpClients || [];
+        // Check if there is a conflicting foreign DHCP client on another interface adding default route
+        const conflictingForeignDhcp = dhcpClients.find((dc: any) => {
+          if (!dc) return false;
+          const dcIface = (dc.interface || '').trim();
+          if (authorizedWanTargets.has(dcIface)) return false;
+          if (dc.disabled === true || dc.disabled === 'true') return false;
+          const addGw = dc.addDefaultRoute ?? dc['add-default-route'];
+          return addGw !== false && addGw !== 'no' && addGw !== 'false';
+        });
+
+        if (conflictingForeignDhcp) {
+          return {
+            isValid: false,
+            failureReason: `تعارض في مسار الإنترنت التلقائي: يوجد عميل DHCP مفعل على واجهة غير تابعة للإنترنت (${conflictingForeignDhcp.interface}) يقوم بإضافة مسار افتراضي.`,
+          };
+        }
+
+        // Operational policy proven: In DHCP mode, default route is dynamically obtained on WAN
+        return { isValid: true };
+      }
+
+      return {
+        isValid: false,
+        failureReason:
+          wanMode === 'STATIC'
+            ? 'إعداد WAN بنمط عنوان ثابت (Static IP) يتطلب وجود المسار الافتراضي نشطاً (Default Route 0.0.0.0/0) للإنترنت.'
+            : `لا يوجد المسار الافتراضي نشطاً (Default Route 0.0.0.0/0) ولا يوجد عميل DHCP مفعل مع إضافة مسار تلقائي على منفذ WAN (${wanIfaceName}).`,
+      };
+    }
+
+    // Check active / disabled state of default routes
+    const activeDefaultRoutes = defaultRoutes.filter((r) => {
+      const isRouteDisabled = r.disabled === true || (r as any).disabled === 'true';
+      const isRouteInactive =
+        r.inactive === true ||
+        (r as any).inactive === 'true' ||
+        r.active === false ||
+        (r as any).active === 'false';
+      return !isRouteDisabled && !isRouteInactive;
+    });
+
+    if (activeDefaultRoutes.length === 0) {
+      return {
+        isValid: false,
+        failureReason: 'المسار الافتراضي للإنترنت (Default Route 0.0.0.0/0) معطل (disabled) أو غير نشط (inactive) في الراوتر.',
+      };
+    }
+
+    const seenEgressIfaces = new Set<string>();
+
+    for (const defaultRoute of activeDefaultRoutes) {
+      // Authoritative egress interface resolution
+      let resolvedEgressIface: string | null = null;
+      const gwStatus = String((defaultRoute as any)['gateway-status'] || '').trim();
+      const rawGw = String(defaultRoute.gateway || '').trim();
+      const immediateGw = String((defaultRoute as any)['immediate-gw'] || '').trim();
+
+      // Step A: Parse immediate-gw if present
+      let immediateIface: string | null = null;
+      if (immediateGw) {
+        if (immediateGw.includes('%')) {
+          immediateIface = immediateGw.split('%')[1].trim();
+        } else if ((discovery.interfaces || []).some((i) => i?.name === immediateGw)) {
+          immediateIface = immediateGw;
+        }
+      }
+
+      // Step B: Parse gateway-status if present
+      let statusIface: string | null = null;
+      if (gwStatus) {
+        const viaMatch = gwStatus.match(/via\s+([^\s,]+)/i);
+        if (viaMatch && viaMatch[1]) {
+          statusIface = viaMatch[1].trim();
+        } else {
+          const firstWord = gwStatus.split(' ')[0].trim();
+          if ((discovery.interfaces || []).some((i) => i?.name === firstWord)) {
+            statusIface = firstWord;
+          }
+        }
+      }
+
+      // Step C: Parse gateway attribute
+      let gwScopedIface: string | null = null;
+      let gwDirectIface: string | null = null;
+      let gwSubnetIface: string | null = null;
+
+      if (rawGw) {
+        if (rawGw.includes('%')) {
+          gwScopedIface = rawGw.split('%')[1].trim();
+        } else if ((discovery.interfaces || []).some((i) => i?.name === rawGw)) {
+          gwDirectIface = rawGw;
+        } else {
+          // IP address: match against router IP subnets
+          const gwCleanIp = rawGw.split(',')[0].trim();
+          const gwSubnet = this.extractSubnetBase(gwCleanIp);
+          if (gwSubnet) {
+            const matchingIps = (discovery.ipAddresses || []).filter((ip) => {
+              if (!ip?.address || !ip?.interface) return false;
+              return this.extractSubnetBase(ip.address) === gwSubnet;
+            });
+            const candidateIfaces = Array.from(new Set(matchingIps.map((ip) => ip.interface.trim())));
+            if (candidateIfaces.length > 1) {
+              if (!statusIface && !immediateIface) {
+                return {
+                  isValid: false,
+                  failureReason: `تعارض وتعدد في واجهات الراوتر التي تشارك نفس نطاق بوابة المسار الافتراضي (${gwCleanIp}): [${candidateIfaces.join(', ')}]. لا يمكن اعتماد واجهة خروج دون gateway-status محدد.`,
+                };
+              }
+            } else if (candidateIfaces.length === 1) {
+              gwSubnetIface = candidateIfaces[0];
+            }
+          }
+        }
+      }
+
+      // Step D: Contradiction Check (immediate-gw vs gateway inference)
+      const inferredGwIface = gwScopedIface || gwDirectIface || gwSubnetIface;
+      if (immediateIface && inferredGwIface && immediateIface !== inferredGwIface) {
+        return {
+          isValid: false,
+          failureReason: `تناقض في واجهة خروج المسار الافتراضي: immediate-gw يشير إلى (${immediateIface}) بينما البوابة gateway تشير إلى (${inferredGwIface}).`,
+        };
+      }
+      if (statusIface && inferredGwIface && statusIface !== inferredGwIface) {
+        return {
+          isValid: false,
+          failureReason: `تناقض في واجهة خروج المسار الافتراضي: gateway-status يشير إلى (${statusIface}) بينما البوابة gateway تشير إلى (${inferredGwIface}).`,
+        };
+      }
+
+      // Authoritative egress for this route
+      resolvedEgressIface = statusIface || immediateIface || inferredGwIface;
+      if (!resolvedEgressIface) {
+        return {
+          isValid: false,
+          failureReason: `تعذر تحديد واجهة الخروج الفعلية لبوابة المسار الافتراضي (${rawGw || immediateGw || '0.0.0.0/0'}) بصورة موثوقة.`,
+        };
+      }
+
+      seenEgressIfaces.add(resolvedEgressIface);
+
+      // Step E: Trace egress interface down to physical ports
+      const egressTrace = this.traceToPhysicalPorts(resolvedEgressIface, discovery);
+      if (!egressTrace.success || egressTrace.physicalPorts.length === 0) {
+        return {
+          isValid: false,
+          failureReason: `فشل تتبع واجهة خروج المسار الافتراضي (${resolvedEgressIface}) فيزيائياً: ${egressTrace.failureReason || 'مسار فيزيائي غير مكتمل'}`,
+        };
+      }
+
+      // Step F: Egress or its physical ports must NOT overlap with memberPorts (LAN)
+      const conflictingMember = [resolvedEgressIface, ...egressTrace.chain, ...egressTrace.physicalPorts].find(
+        (p) => memberPorts.includes(p),
+      );
+      if (conflictingMember) {
+        return {
+          isValid: false,
+          failureReason: `المسار الافتراضي للإنترنت (Default Route) يوجه الحزم عبر الواجهة أو المنفذ الفيزيائي (${conflictingMember}) المخصص لمنافذ المشتركين (LAN).`,
+        };
+      }
+
+      // Step G: Egress interface MUST connect to authorized WAN targets
+      const isAssociatedWithWan =
+        authorizedWanTargets.has(resolvedEgressIface) ||
+        egressTrace.physicalPorts.some((p) => wanTrace.physicalPorts.includes(p));
+
+      if (!isAssociatedWithWan) {
+        return {
+          isValid: false,
+          failureReason: `المسار الافتراضي للإنترنت (Default Route) يوجه الحزم عبر الواجهة (${resolvedEgressIface}) وهي لا تطابق ولا ترتبط بمنفذ الإنترنت المحدد WAN (${wanIfaceName}).`,
+        };
+      }
+    }
+
+    // Step H: Multipath / ECMP consistency check
+    if (seenEgressIfaces.size > 1) {
+      return {
+        isValid: false,
+        failureReason: `تعدد وتعارض في مسارات الإنترنت الافتراضية (ECMP Conflict): تم اكتشاف مسارات افتراضية متعددة تخرج عبر واجهات مختلفة [${Array.from(seenEgressIfaces).join(', ')}].`,
+      };
+    }
+
+    return { isValid: true };
+  }
+
+  /**
+   * Helper to determine whether an IP or interface carries primary or secondary management access
+   */
+  private isManagementIpOrInterface(
+    ipEntry: any,
+    discovery?: RouterDiscoverySnapshot,
+    deviceHost?: string,
+  ): boolean {
+    if (!ipEntry) return false;
+    const rawAddress = String(ipEntry.address || '').trim();
+    const cleanIp = rawAddress.includes('/') ? rawAddress.split('/')[0] : rawAddress;
+    const hostClean = (deviceHost || '').trim().split('/')[0];
+
+    // 1. Matches device.host exactly
+    if (hostClean && cleanIp === hostClean) return true;
+
+    // 2. Marked with management/admin/oob comments
+    const comment = String(ipEntry.comment || '').toLowerCase();
+    if (
+      comment.includes('mgmt') ||
+      comment.includes('management') ||
+      comment.includes('admin') ||
+      comment.includes('oob')
+    ) {
+      return true;
+    }
+
+    // 3. Interface name indicates management
+    const ifaceName = String(ipEntry.interface || '').toLowerCase();
+    if (
+      ifaceName.includes('mgmt') ||
+      ifaceName.includes('management') ||
+      ifaceName.includes('admin') ||
+      ifaceName.includes('oob')
+    ) {
+      return true;
+    }
+
+    // 4. IP is on the same bridge or interface that hosts device.host
+    if (hostClean && discovery?.ipAddresses) {
+      const hostIpEntry = discovery.ipAddresses.find((ip) => {
+        const clean = String(ip?.address || '').trim().split('/')[0];
+        return clean === hostClean;
+      });
+      if (hostIpEntry && hostIpEntry.interface && hostIpEntry.interface === ipEntry.interface) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Generates RouterOS command list formatted for v6 and v7
    * Orders LAN_IP on bridge before adding member ports, and avoids duplicate rules when discovery is provided
    */
@@ -1479,6 +2878,8 @@ export class RouterProvisioningService {
     dto: ProvisionPreviewDto,
     _isV7: boolean,
     discovery?: RouterDiscoverySnapshot,
+    device?: { host?: string },
+    resolvedConflictKeys?: Set<string>,
   ): GeneratedCommandItem[] {
     const commands: GeneratedCommandItem[] = [];
     const bridgeName = dto.lan?.bridgeName || 'bridge-hotspot';
@@ -1493,6 +2894,82 @@ export class RouterProvisioningService {
     const security = dto.securityPolicies || {};
 
     const isClean = dto.template === 'CLEAN_SETUP';
+
+    // 0. Pre-Cleanup for CLEAN_SETUP: safely remove conflicting IPs on member ports and overlapping subnets
+    if (isClean && discovery) {
+      const currentHost = (device?.host || '').trim();
+      const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
+      const memberPorts = rawMemberPorts.map((m: any) => (m ? String(m).trim() : '')).filter(Boolean);
+
+      // 0a. Remove direct IP on member ports (excluding router management IP, dynamic IPs, and secondary mgmt)
+      for (const port of memberPorts) {
+        const portDirectIps = (discovery.ipAddresses || []).filter((ip) => ip?.interface === port);
+        if (portDirectIps.length === 0) continue;
+
+        // Strict Check: If the port contains ANY dynamic IP or ANY management IP (primary or secondary)
+        // RouterOS forbids removing dynamic addresses, and management addresses cause immediate lockout.
+        const hasDynamicIp = portDirectIps.some((ip) => ip.dynamic === true || ip.dynamic === 'true');
+        const hasManagementIp = portDirectIps.some((ip) => {
+          const raw = String(ip.address || '').trim();
+          const clean = raw.includes('/') ? raw.split('/')[0] : raw;
+          return clean === currentHost || this.isManagementIpOrInterface(ip, discovery, currentHost);
+        });
+
+        if (hasDynamicIp || hasManagementIp) {
+          // Unsafe port! Do NOT claim resolution for DIRECT_IP_PORT_BRIDGED for this port!
+          // We also do not delete other static IPs on this port to avoid leaving the port half-cleared.
+          continue;
+        }
+
+        let allValid = true;
+        for (const portDirectIp of portDirectIps) {
+          if (!portDirectIp || !portDirectIp.address) continue;
+          // Must have a valid hexadecimal RouterOS ID. Missing or non-hex ID strictly invalidates cleanup!
+          if (!portDirectIp.id || !isValidRouterOsId(portDirectIp.id)) {
+            allValid = false;
+            break;
+          }
+        }
+        if (!allValid) {
+          // If any IP on this port lacks a valid ID, do not touch this port and do not claim resolution!
+          continue;
+        }
+
+        for (const portDirectIp of portDirectIps) {
+          if (!portDirectIp || !portDirectIp.address || !portDirectIp.id) continue;
+          const rawAddress = String(portDirectIp.address).trim();
+          commands.push({
+            stage: 'PRE_CLEANUP',
+            command: `/ip/address/remove =.id=${portDirectIp.id}`,
+            description: `إزالة عنوان IP السابق (${rawAddress}) عن المنفذ (${port}) تمهيداً لضمه لجسر المشتركين`,
+          });
+          resolvedConflictKeys?.add(`IP_SUBNET_OVERLAP:${port}:${rawAddress}`);
+        }
+
+        // Only mark port conflict as resolved if all IPs on it were static, had valid IDs, and were scheduled for removal!
+        resolvedConflictKeys?.add(`DIRECT_IP_PORT_BRIDGED:${port}`);
+      }
+
+      // 0b. Remove member port from existing other bridge
+      for (const port of memberPorts) {
+        const existingBridgePort = (discovery.bridgePorts || []).find((p) => p?.interface === port);
+        if (existingBridgePort && existingBridgePort.bridge !== bridgeName) {
+          // Reject removal if ID is missing or not a valid RouterOS ID (no fallback)
+          if (!existingBridgePort.id || !isValidRouterOsId(existingBridgePort.id)) {
+            continue;
+          }
+          commands.push({
+            stage: 'PRE_CLEANUP',
+            command: `/interface/bridge/port/remove =.id=${existingBridgePort.id}`,
+            description: `إزالة المنفذ (${port}) من الجسر السابق [${existingBridgePort.bridge}] لنقله إلى جسر المشتركين`,
+          });
+        }
+      }
+
+      // 0c. Protection of non-member interfaces:
+      // Non-member interfaces (WAN, secondary management, unknown roles) are strictly protected
+      // and NEVER deleted via PRE_CLEANUP. Any subnet overlap on them remains an unresolvable hard conflict.
+    }
 
     // 1. LAN Bridge Creation (only if not already created, or full clean template)
     const bridgeExists = !isClean && discovery?.bridges?.some((b) => b?.name === bridgeName);
@@ -2012,7 +3489,8 @@ export class RouterProvisioningService {
   }
 
   private extractSubnetBase(ipWithCidr?: string | null): string | null {
-    if (!ipWithCidr || typeof ipWithCidr !== 'string' || !ipWithCidr.includes('/')) return null;
+    if (!ipWithCidr || typeof ipWithCidr !== 'string') return null;
+    if (!isValidIpv4Cidr(ipWithCidr)) return null;
     const parts = ipWithCidr.split('/')[0].split('.');
     if (parts.length < 4) return null;
     return `${parts[0]}.${parts[1]}.${parts[2]}`;

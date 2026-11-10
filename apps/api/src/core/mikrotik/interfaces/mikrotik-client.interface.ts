@@ -91,6 +91,7 @@ export interface RouterIpAddressItem {
   interface: string;
   disabled?: boolean;
   comment?: string;
+  dynamic?: boolean | string;
 }
 
 export interface RouterDhcpClientItem {

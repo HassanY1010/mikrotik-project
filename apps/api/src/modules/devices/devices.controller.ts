@@ -10,8 +10,6 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  Logger,
-  HttpException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
@@ -38,8 +36,6 @@ import { RouterResource, ConnectedDeviceItem } from '../../core/mikrotik/interfa
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 @Controller('devices')
 export class DevicesController {
-  private readonly logger = new Logger(DevicesController.name);
-
   constructor(
     private readonly devicesService: DevicesService,
     private readonly provisioningService: RouterProvisioningService,
@@ -324,120 +320,7 @@ export class DevicesController {
     @Param('id') id: string,
     @Body() dto: ProvisionPreviewDto,
   ) {
-    try {
-      return await this.provisioningService.preview(tenantId, id, dto);
-    } catch (err: unknown) {
-      if (err instanceof HttpException) {
-        throw err;
-      }
-      const error = err instanceof Error ? err : new Error(String(err));
-      this.logger.error(
-        `[Preview Controller Safe Guard] Unexpected error while generating preview for router ${id}: ${error.message}`,
-        error.stack,
-      );
-
-      const bridgeName = dto.lan?.bridgeName || 'bridge-hotspot';
-      const gatewayIp = dto.lan?.gatewayIp || '10.5.50.1/24';
-      const serverName = dto.hotspot?.serverName || 'hs-sudafi';
-
-      const fallbackPlannedSteps = [
-        {
-          id: 'step-1',
-          stage: 'BRIDGE',
-          title: 'إنشاء جسر شبكة المشتركين',
-          description: `إنشاء الجسر (${bridgeName}) وتعيين البوابة وضم المنافذ إليه.`,
-        },
-        {
-          id: 'step-2',
-          stage: 'WAN',
-          title: `إعداد بطاقة الإنترنت (${dto.wan?.mode || 'DHCP'})`,
-          description: `ربط المنفذ ${dto.wan?.interface || 'ether1'} بالإنترنت وتفعيل محول العناوين (Masquerade).`,
-        },
-        {
-          id: 'step-3',
-          stage: 'LAN_DHCP',
-          title: 'إعداد توزيع العناوين التلقائي (DHCP)',
-          description: `تعيين البوابة ${gatewayIp} وإنشاء نطاق العناوين وخادم الـ DHCP.`,
-        },
-        {
-          id: 'step-4',
-          stage: 'HOTSPOT',
-          title: 'برمجة وتشغيل خادم الهوتسبوت',
-          description: `إنشاء خادم الهوتسبوت (${serverName}) مع دومين الدخول (${dto.hotspot?.dnsName || 'login.sudafi.net'}).`,
-        },
-        {
-          id: 'step-5',
-          stage: 'SECURITY',
-          title: 'سياسات الحماية والحد من مشاركة الإنترنت',
-          description: 'تطبيق TTL Lock وعزل المنافذ (Horizon) وتوجيه DNS وحماية منافذ الإدارة.',
-        },
-        {
-          id: 'step-6',
-          stage: 'VERIFICATION',
-          title: 'الفحص النهائي والتشغيل الحي',
-          description: 'التحقق من جاهزية الخدمة وعملية المصادقة وحفظ النسخة الاحتياطية.',
-        },
-      ];
-
-      const fallbackCommands = [
-        {
-          stage: 'BRIDGE_SETUP',
-          command: `/interface/bridge/add =name=${bridgeName} =comment=SudaFi Hotspot Bridge`,
-          description: `إنشاء جسر موحد لمنافذ المشتركين (${bridgeName})`,
-        },
-        {
-          stage: 'LAN_IP',
-          command: `/ip/address/add =address=${gatewayIp} =interface=${bridgeName} =comment=SudaFi Hotspot Gateway`,
-          description: `تعيين عنوان بوابة الهوتسبوت (${gatewayIp}) على الجسر`,
-        },
-        {
-          stage: 'DHCP_POOL',
-          command: `/ip/pool/add =name=hs-pool-sudafi =ranges=10.5.50.10-10.5.50.254 =comment=SudaFi Hotspot Pool`,
-          description: 'إنشاء نطاق توزيع العناوين (10.5.50.10-10.5.50.254)',
-        },
-        {
-          stage: 'HOTSPOT_SERVER',
-          command: `/ip/hotspot/add =name=${serverName} =interface=${bridgeName} =address-pool=hs-pool-sudafi =disabled=no =comment=SudaFi Hotspot Server`,
-          description: `إنشاء خادم الهوتسبوت الرئيسي وتفعيله على (${bridgeName})`,
-        },
-      ];
-
-      // Return a safe degraded preview instead of throwing 500
-      return {
-        template: dto.template || 'CLEAN_SETUP',
-        routerVersion: 'V7',
-        discovery: {
-          resource: { uptime: '0s', version: 'unknown', cpuLoad: 0, freeMemory: 0, totalMemory: 0, freeHdd: 0, totalHdd: 0 },
-          interfaces: [],
-          bridges: [],
-          bridgePorts: [],
-          ipAddresses: [],
-          dhcpClients: [],
-          dhcpServers: [],
-          natRules: [],
-          routes: [],
-          hotspotServers: [],
-          mangleRules: [],
-          filterRules: [],
-          hotspotUserProfiles: [],
-        },
-        plannedSteps: fallbackPlannedSteps,
-        securityPoliciesReport: [],
-        generatedCommands: fallbackCommands,
-        warnings: [
-          {
-            type: 'CONTROLLER_FALLBACK',
-            severity: 'WARNING',
-            message: `تم توليد المعاينة بنجاح وفق القالب المختار (${dto.template || 'CLEAN_SETUP'}). تعذر جلب بعض الإعدادات المباشرة: ${error.message}`,
-            suggestedAction: 'يمكنك مراجعة الأوامر وتأكيد التطبيق.',
-          },
-        ],
-        conflicts: [],
-        canProceed: fallbackCommands.length > 0 && fallbackPlannedSteps.length > 0,
-        requiresCleanConfirmation: dto.template === 'CLEAN_SETUP',
-        backupRecommended: true,
-      };
-    }
+    return this.provisioningService.preview(tenantId, id, dto);
   }
 
   @Post(':id/provision/apply')

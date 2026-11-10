@@ -841,6 +841,7 @@ export class RouterOsApiClient implements IMikrotikClient {
         name: r.attributes['name'] ?? '',
         disabled: r.attributes['disabled'] === 'true',
         comment: r.attributes['comment'],
+        dynamic: r.attributes['dynamic'] === 'true',
       }));
   }
 
@@ -870,6 +871,7 @@ export class RouterOsApiClient implements IMikrotikClient {
         interface: r.attributes['interface'] ?? '',
         disabled: r.attributes['disabled'] === 'true',
         comment: r.attributes['comment'],
+        dynamic: r.attributes['dynamic'] === 'true',
       }));
   }
 
@@ -902,6 +904,7 @@ export class RouterOsApiClient implements IMikrotikClient {
         addressPool: r.attributes['address-pool'],
         disabled: r.attributes['disabled'] === 'true',
         comment: r.attributes['comment'],
+        dynamic: r.attributes['dynamic'] === 'true',
       }));
   }
 
@@ -975,6 +978,7 @@ export class RouterOsApiClient implements IMikrotikClient {
         outInterface: r.attributes['out-interface'],
         disabled: r.attributes['disabled'] === 'true',
         comment: r.attributes['comment'],
+        dynamic: r.attributes['dynamic'] === 'true',
       }));
   }
 
@@ -1018,6 +1022,7 @@ export class RouterOsApiClient implements IMikrotikClient {
         active: r.attributes['active'] === 'true',
         disabled: r.attributes['disabled'] === 'true',
         comment: r.attributes['comment'],
+        dynamic: r.attributes['dynamic'] === 'true',
       }));
   }
 
