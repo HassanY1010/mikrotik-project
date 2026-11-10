@@ -73,7 +73,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(`HttpException ${status} [${errorCode}]: ${errorMessage}`, exception.stack);
     } else {
-      this.logger.warn(`HttpException ${status} [${errorCode}]: ${errorMessage}`);
+      // Silence benign browser favicon requests from cluttering logs
+      if (!request.url.includes('favicon.ico')) {
+        this.logger.warn(`HttpException ${status} [${errorCode}]: ${errorMessage}`);
+      }
     }
 
     response.status(status).json(errorPayload);
