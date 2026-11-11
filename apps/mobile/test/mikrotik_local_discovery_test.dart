@@ -159,6 +159,26 @@ void main() {
         expect(op.body!['name'], 'pre-sudafi-123');
         expect(op.body!['password'], 'SecretPass2026!');
       });
+
+      test('DELETE for /interface/bridge/port/remove =.id=*3 maps to DELETE collection resource ID', () {
+        final op = MikrotikDiscoveryService.parseRouterCommand('/interface/bridge/port/remove =.id=*3');
+        expect(op.method, 'DELETE');
+        expect(op.path, '/interface/bridge/port/*3');
+        expect(op.body, isNull);
+      });
+    });
+
+    group('5b. Raw Record .id Normalization Tests', () {
+      test('normalizeRawEntriesWithIds exposes RouterOS .id as id on bridgePorts while preserving fields', () {
+        final normalized = MikrotikDiscoveryService.normalizeRawEntriesWithIds([
+          {'.id': '*7', 'bridge': 'LAN', 'interface': 'ether2'},
+          {'id': '*8', '.id': '*8', 'bridge': 'LAN', 'interface': 'ether3'},
+        ]);
+        expect(normalized[0]['id'], '*7');
+        expect(normalized[0]['.id'], '*7');
+        expect(normalized[0]['interface'], 'ether2');
+        expect(normalized[1]['id'], '*8');
+      });
     });
 
     group('6. Ed25519 Cryptographic Plan Verification Tests', () {

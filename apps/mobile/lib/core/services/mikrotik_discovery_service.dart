@@ -591,6 +591,21 @@ class MikrotikDiscoveryService {
     );
   }
 
+  /// Normalizes RouterOS raw record maps so `.id` (e.g. `*3`) is also exposed as `id`.
+  static List<Map<String, dynamic>> normalizeRawEntriesWithIds(
+    List<Map<String, dynamic>> rawList,
+  ) {
+    return rawList.map((raw) {
+      final copy = Map<String, dynamic>.from(raw);
+      final dotId = copy['.id']?.toString().trim() ?? '';
+      final currentId = copy['id']?.toString().trim() ?? '';
+      if (currentId.isEmpty && dotId.isNotEmpty) {
+        copy['id'] = dotId;
+      }
+      return copy;
+    }).toList();
+  }
+
   RouterDiscoverySnapshotModel _buildDiscoverySnapshotFromRaw({
     required Map<String, dynamic> resRaw,
     required List<Map<String, dynamic>> ifacesRaw,
@@ -612,6 +627,18 @@ class MikrotikDiscoveryService {
     required String rosVersion,
     required bool isComplete,
   }) {
+    final normalizedBridgePorts = normalizeRawEntriesWithIds(bridgePortsRaw);
+    final normalizedRoutes = normalizeRawEntriesWithIds(routesRaw);
+    final normalizedDhcpServers = normalizeRawEntriesWithIds(dhcpServersRaw);
+    final normalizedDhcpNetworks = normalizeRawEntriesWithIds(dhcpNetworksRaw);
+    final normalizedDhcpClients = normalizeRawEntriesWithIds(dhcpClientsRaw);
+    final normalizedPools = normalizeRawEntriesWithIds(poolsRaw);
+    final normalizedHsProfiles = normalizeRawEntriesWithIds(hsProfilesRaw);
+    final normalizedHsUserProfiles = normalizeRawEntriesWithIds(hsUserProfilesRaw);
+    final normalizedNatRules = normalizeRawEntriesWithIds(natRulesRaw);
+    final normalizedFilterRules = normalizeRawEntriesWithIds(filterRulesRaw);
+    final normalizedMangleRules = normalizeRawEntriesWithIds(mangleRulesRaw);
+
     final ifaces = ifacesRaw.map((m) {
       return RouterInterfaceModel(
         id: m['.id']?.toString(),
@@ -651,11 +678,11 @@ class MikrotikDiscoveryService {
       'resource': resRaw,
       'interfaces': ifaces.map((i) => i.toJson()).toList(),
       'bridges': bridges,
-      'bridgePorts': bridgePortsRaw,
+      'bridgePorts': normalizedBridgePorts,
       'ipAddresses': ipAddresses.map((a) => a.toJson()).toList(),
       'hotspotServers': hotspots,
-      'routes': routesRaw,
-      'dhcpServers': dhcpServersRaw,
+      'routes': normalizedRoutes,
+      'dhcpServers': normalizedDhcpServers,
     });
     final computedHash = sha256.convert(utf8.encode(canonicalSummary)).toString();
 
@@ -667,17 +694,17 @@ class MikrotikDiscoveryService {
       version: resRaw['version']?.toString() ?? rosVersion,
       cpuLoad: int.tryParse(resRaw['cpu-load']?.toString() ?? '') ?? 0,
       uptime: resRaw['uptime']?.toString() ?? '',
-      bridgePorts: bridgePortsRaw,
-      dhcpServers: dhcpServersRaw,
-      dhcpClients: dhcpClientsRaw,
-      dhcpNetworks: dhcpNetworksRaw,
-      pools: poolsRaw,
-      natRules: natRulesRaw,
-      filterRules: filterRulesRaw,
-      mangleRules: mangleRulesRaw,
-      routes: routesRaw,
-      hotspotProfiles: hsProfilesRaw,
-      hotspotUserProfiles: hsUserProfilesRaw,
+      bridgePorts: normalizedBridgePorts,
+      dhcpServers: normalizedDhcpServers,
+      dhcpClients: normalizedDhcpClients,
+      dhcpNetworks: normalizedDhcpNetworks,
+      pools: normalizedPools,
+      natRules: normalizedNatRules,
+      filterRules: normalizedFilterRules,
+      mangleRules: normalizedMangleRules,
+      routes: normalizedRoutes,
+      hotspotProfiles: normalizedHsProfiles,
+      hotspotUserProfiles: normalizedHsUserProfiles,
       dns: dnsRaw,
       snapshotHash: computedHash,
       discoveredAt: now,
@@ -1207,9 +1234,18 @@ class MikrotikDiscoveryService {
       try {
         final op = parseRouterCommand(item.command);
         var cmdRes = await sendRest(op.method, op.path, body: op.body);
-        // RouterOS 7 Compatibility Fallback: if PATCH is rejected with 405 Method Not Allowed, fallback to POST
+        // RouterOS 7 Compatibility Fallback: if PATCH is rejected with 405 Method Not Allowed, fallback to POST /set
         if (op.method == 'PATCH' && cmdRes['statusCode'] == 405) {
           cmdRes = await sendRest('POST', '${op.path}/set', body: op.body);
+        } else if (op.method == 'DELETE' &&
+            (cmdRes['statusCode'] == 405 || cmdRes['statusCode'] == 400 || cmdRes['statusCode'] == 501)) {
+          // RouterOS 7 Compatibility Fallback: some ROS builds reject DELETE on /*id, fallback to POST /remove
+          final lastSlash = op.path.lastIndexOf('/');
+          if (lastSlash > 0 && lastSlash < op.path.length - 1) {
+            final collection = op.path.substring(0, lastSlash);
+            final targetId = Uri.decodeComponent(op.path.substring(lastSlash + 1));
+            cmdRes = await sendRest('POST', '$collection/remove', body: {'numbers': targetId});
+          }
         }
         final statusCode = cmdRes['statusCode'] as int;
         final rawStr = cmdRes['raw']?.toString() ?? '';

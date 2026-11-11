@@ -1937,6 +1937,121 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
         await expect(service.preview('tenant-001', 'dev-001', dto)).rejects.toThrow(BadRequestException);
       });
 
+      it('should normalize dot-prefixed .id on bridgePorts and ipAddresses and emit PRE_CLEANUP commands', async () => {
+        mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({
+          ...sampleDevice,
+          host: '192.168.88.1',
+          rosVersion: 'V7',
+        });
+
+        const rawMobileSnapshot = {
+          resource: { version: '7.23.8' },
+          interfaces: [
+            { name: 'ether1', type: 'ether', running: true },
+            { name: 'ether2', type: 'ether', running: true },
+            { name: 'ether3', type: 'ether', running: true },
+          ],
+          bridges: [{ name: 'LAN' }],
+          bridgePorts: [
+            { '.id': '*7', interface: 'ether2', bridge: 'LAN' },
+            { '.id': '*8', interface: 'ether3', bridge: 'LAN' },
+          ],
+          ipAddresses: [
+            { '.id': '*1', address: '192.168.88.1/24', interface: 'LAN' },
+            { '.id': '*9', address: '10.5.50.1/24', interface: 'ether2' },
+          ],
+          hotspotServers: [{ name: 'hs-old' }],
+        };
+
+        const preview = await service.preview('tenant-001', 'dev-001', {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP', enableNat: true },
+          lan: {
+            bridgeName: 'bridge-hotspot',
+            memberInterfaces: ['ether2'],
+            gatewayIp: '10.5.50.1/24',
+          },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi' },
+          snapshot: rawMobileSnapshot,
+          discoveredAt: new Date().toISOString(),
+        });
+
+        const cleanupCmds = preview.generatedCommands.filter((c) => c.stage === 'PRE_CLEANUP');
+        expect(cleanupCmds.some((c) => c.command.includes('/interface/bridge/port/remove =.id=*7'))).toBe(true);
+        expect(cleanupCmds.some((c) => c.command.includes('/ip/address/remove =.id=*9'))).toBe(true);
+        expect(preview.canProceed).toBe(true);
+      });
+
+      it('Negative 5b: should reject snapshot with invalid/malicious .id format on bridgePorts with BadRequestException', async () => {
+        mockPrisma.mikroTikDevice.findFirst.mockResolvedValue(sampleDevice);
+        const maliciousSnapshot = {
+          interfaces: [{ name: 'ether1', type: 'ether' }, { name: 'ether2', type: 'ether' }],
+          bridges: [{ name: 'LAN' }],
+          bridgePorts: [{ '.id': '*bad!id;reboot', interface: 'ether2', bridge: 'LAN' }],
+          ipAddresses: [{ address: '192.168.88.1/24', interface: 'LAN' }],
+        };
+        const dto: any = {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP' },
+          lan: { memberInterfaces: ['ether2'], gatewayIp: '10.5.50.1/24' },
+          snapshot: maliciousSnapshot,
+          discoveredAt: new Date().toISOString(),
+        };
+        await expect(service.preview('tenant-001', 'dev-001', dto)).rejects.toThrow(BadRequestException);
+      });
+
+      it('should not re-emit bridge/port/add for ether2 already in bridge-hotspot on CLEAN_SETUP retry while still removing/re-adding ether3 from LAN', async () => {
+        mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({
+          ...sampleDevice,
+          host: '192.168.88.1',
+          rosVersion: 'V7',
+        });
+
+        const partialRetrySnapshot = {
+          resource: { version: '7.23.8' },
+          interfaces: [
+            { name: 'ether1', type: 'ether', running: true },
+            { name: 'ether2', type: 'ether', running: true },
+            { name: 'ether3', type: 'ether', running: true },
+            { name: 'ether4', type: 'ether', running: true },
+          ],
+          bridges: [{ name: 'LAN' }, { name: 'bridge-hotspot' }],
+          bridgePorts: [
+            { '.id': '*7', interface: 'ether2', bridge: 'bridge-hotspot', horizon: 1 },
+            { '.id': '*8', interface: 'ether3', bridge: 'LAN' },
+            { '.id': '*9', interface: 'ether4', bridge: 'LAN' },
+          ],
+          ipAddresses: [
+            { '.id': '*1', address: '192.168.88.1/24', interface: 'LAN' },
+            { '.id': '*2', address: '10.5.50.1/24', interface: 'bridge-hotspot' },
+          ],
+        };
+
+        const preview = await service.preview('tenant-001', 'dev-001', {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP', enableNat: true },
+          lan: {
+            bridgeName: 'bridge-hotspot',
+            memberInterfaces: ['ether2', 'ether3'],
+            gatewayIp: '10.5.50.1/24',
+          },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi' },
+          snapshot: partialRetrySnapshot,
+          discoveredAt: new Date().toISOString(),
+        });
+
+        const cleanupCmds = preview.generatedCommands.filter((c) => c.stage === 'PRE_CLEANUP');
+        const bridgePortAdds = preview.generatedCommands.filter(
+          (c) => c.stage === 'BRIDGE_PORT' && c.command.includes('/interface/bridge/port/add'),
+        );
+
+        expect(cleanupCmds.some((c) => c.command.includes('/interface/bridge/port/remove =.id=*8'))).toBe(true);
+        expect(cleanupCmds.some((c) => c.command.includes('*7'))).toBe(false);
+        expect(bridgePortAdds.some((c) => c.command.includes('=interface=ether2'))).toBe(false);
+        expect(bridgePortAdds.some((c) => c.command.includes('=interface=ether3'))).toBe(true);
+        expect(preview.canProceed).toBe(true);
+      });
+
       // 6. Dynamic IP conflict cannot be cleaned up and is NOT downgraded (blocks canProceed: false)
       it('Negative 6: should not remove dynamic IP via PRE_CLEANUP and must keep conflict hard-blocking (canProceed=false)', async () => {
         mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({

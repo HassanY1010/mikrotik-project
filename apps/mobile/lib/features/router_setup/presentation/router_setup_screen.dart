@@ -692,20 +692,32 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         _isDiscovering = false;
         _discovery = snapshot;
 
+        final bridgeNames = _discoverBridgeNames(snapshot);
+        final directMgmtIfaces = _discoverDirectManagementInterfaces(snapshot, bridgeNames);
+        final nonBridgeIfaces = snapshot.interfaces.where((i) => !bridgeNames.contains(i.name)).toList();
+
         // Auto-select smart defaults if not set
         if (_selectedWanInterface == null && snapshot.interfaces.isNotEmpty) {
-          final ether1 = snapshot.interfaces.firstWhere(
+          final wanCandidates = nonBridgeIfaces.isNotEmpty ? nonBridgeIfaces : snapshot.interfaces;
+          final ether1 = wanCandidates.firstWhere(
             (i) => i.name.toLowerCase() == 'ether1',
-            orElse: () => snapshot.interfaces.first,
+            orElse: () => wanCandidates.first,
           );
           _selectedWanInterface = ether1.name;
         }
 
         if (_selectedLanInterfaces.isEmpty && snapshot.interfaces.isNotEmpty) {
-          for (final iface in snapshot.interfaces) {
-            if (iface.name != _selectedWanInterface && iface.type == 'ether') {
-              _selectedLanInterfaces.add(iface.name);
-            }
+          final etherCandidates = snapshot.interfaces.where(
+            (i) =>
+                i.name != _selectedWanInterface &&
+                !bridgeNames.contains(i.name) &&
+                i.type == 'ether',
+          ).toList();
+          final safeCandidates = etherCandidates
+              .where((i) => !directMgmtIfaces.contains(i.name))
+              .toList();
+          for (final iface in (safeCandidates.isNotEmpty ? safeCandidates : etherCandidates)) {
+            _selectedLanInterfaces.add(iface.name);
           }
         }
       });
@@ -716,6 +728,53 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         _discoveryError = e.toString().replaceFirst('Exception: ', '');
       });
     }
+  }
+
+  Set<String> _discoverBridgeNames(RouterDiscoverySnapshotModel? snapshot) {
+    if (snapshot == null) return const {};
+    return <String>{
+      ...snapshot.bridges,
+      ...snapshot.interfaces
+          .where((i) => i.type.toLowerCase() == 'bridge')
+          .map((i) => i.name),
+    };
+  }
+
+  Set<String> _discoverDirectManagementInterfaces(
+    RouterDiscoverySnapshotModel? snapshot,
+    Set<String> bridgeNames,
+  ) {
+    if (snapshot == null) return const {};
+    final mgmtHost = _hostController.text.trim().split('/').first;
+    if (mgmtHost.isEmpty) return const {};
+    return <String>{
+      for (final ip in snapshot.ipAddresses)
+        if (ip.address.trim().split('/').first == mgmtHost &&
+            !bridgeNames.contains(ip.interface))
+          ip.interface,
+    };
+  }
+
+  Future<void> _retryProvisioningFromFreshDiscovery() async {
+    setState(() {
+      _applyResult = null;
+      _applyError = null;
+      _preview = null;
+      _previewError = null;
+      _isPreviewing = true;
+      _currentStep = 4;
+    });
+
+    await _handleFetchDiscovery();
+    if (!mounted) return;
+    if (_discoveryError != null) {
+      setState(() {
+        _isPreviewing = false;
+        _previewError = _discoveryError;
+      });
+      return;
+    }
+    await _handleGeneratePreview();
   }
 
   // ===========================================================================
@@ -2825,8 +2884,21 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   // Step 4: LAN Ports, Subnet, and Hotspot Setup
   // ---------------------------------------------------------------------------
   Widget _buildStep4LanAndHotspot() {
-    final availableIfaces = _discovery?.interfaces.map((i) => i.name).toList() ??
-        ['ether1', 'ether2', 'ether3', 'ether4', 'ether5'];
+    final allIfaces = _discovery?.interfaces ?? const <RouterInterfaceModel>[];
+    final bridgeNames = _discoverBridgeNames(_discovery);
+    final directMgmtIfaces = _discoverDirectManagementInterfaces(_discovery, bridgeNames);
+    final physicalIfaces = allIfaces
+        .where((i) => !bridgeNames.contains(i.name))
+        .map((i) => i.name)
+        .toList();
+    final availableIfaces = physicalIfaces.isNotEmpty
+        ? physicalIfaces
+        : (allIfaces.isNotEmpty
+            ? allIfaces.map((i) => i.name).toList()
+            : ['ether1', 'ether2', 'ether3', 'ether4', 'ether5']);
+    final wanDropdownValue = availableIfaces.contains(_selectedWanInterface)
+        ? _selectedWanInterface
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2854,7 +2926,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               isExpanded: true,
-              value: _selectedWanInterface,
+              value: wanDropdownValue,
               hint: const Text('اختر منفذ الإنترنت'),
               items: availableIfaces.map((name) {
                 return DropdownMenuItem(
@@ -2885,10 +2957,16 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           runSpacing: 8,
           children: availableIfaces.map((port) {
             final isWan = port == _selectedWanInterface;
+            final isMgmt = directMgmtIfaces.contains(port);
             final isSelected = _selectedLanInterfaces.contains(port);
+            final chipSuffix = isWan
+                ? ' (WAN)'
+                : isMgmt
+                    ? ' (إدارة حالية)'
+                    : '';
 
             return FilterChip(
-              label: Text(port + (isWan ? ' (WAN)' : '')),
+              label: Text('$port$chipSuffix'),
               selected: isSelected,
               selectedColor: AppTheme.primary.withValues(alpha: 0.25),
               checkmarkColor: AppTheme.primary,
@@ -3142,7 +3220,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                     ] else ...[
                       const SizedBox(height: 4),
                       Text(
-                        'تعارض حرج لحماية الراوتر من الانقطاع — لا يمكن تجاوزه تلقائياً ويجب حله أعلاه أو بتعديل المنافذ.',
+                        _preview!.conflicts.any((c) => c.resolutionOptions.isNotEmpty)
+                            ? 'تعارض حرج لحماية الراوتر من الانقطاع — لا يمكن تجاوزه تلقائياً ويجب حله أعلاه أو بتعديل المنافذ.'
+                            : 'تعارض حرج لحماية الراوتر من الانقطاع — لا يمكن تجاوزه تلقائياً ويجب حله بتعديل المنافذ في الخطوة السابقة.',
                         style: TextStyle(fontSize: 10.5, color: conflictRed, fontWeight: FontWeight.w600),
                       ),
                     ],
@@ -3642,6 +3722,26 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   ),
                 ],
               ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+
+        if (!isSuccess) ...[
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: ElevatedButton.icon(
+              onPressed: _isDiscovering || _isPreviewing ? null : _retryProvisioningFromFreshDiscovery,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
+              label: const Text(
+                'إعادة فحص الراوتر وتكرار المحاولة',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
             ),
           ),
           const SizedBox(height: 14),
@@ -4242,7 +4342,13 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         children: [
           if (_currentStep > 0 && !_isApplying)
             OutlinedButton.icon(
-              onPressed: () => setState(() => _currentStep--),
+              onPressed: () => setState(() {
+                if (_currentStep == 5 && ((_applyResult != null && !_applyResult!.success) || _applyError != null)) {
+                  _applyResult = null;
+                  _applyError = null;
+                }
+                _currentStep--;
+              }),
               icon: const Icon(Icons.arrow_forward, size: 16),
               label: const Text('السابق'),
             )

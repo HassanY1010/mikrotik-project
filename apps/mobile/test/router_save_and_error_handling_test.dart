@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/core/models/models.dart';
+import 'package:mobile/core/models/router_provisioning_models.dart';
 import 'package:mobile/core/network/api_client.dart';
 import 'package:mobile/core/providers.dart';
 import 'package:mobile/core/services/mikrotik_discovery_service.dart';
+import 'package:mobile/core/services/router_provisioning_service.dart';
 import 'package:mobile/core/storage/local_storage.dart';
 import 'package:mobile/features/router_setup/presentation/router_setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -32,8 +34,95 @@ class _StubHttpClientAdapter implements HttpClientAdapter {
 
 class _FakeDiscoveryService extends MikrotikDiscoveryService {
   final List<DiscoveredRouterModel> fakeDiscovered;
+  int discoverLocallyCalls = 0;
+  int executePlanCalls = 0;
+  RouterDiscoverySnapshotModel? customSnapshot;
+  bool failNextExecute = false;
 
   _FakeDiscoveryService(this.fakeDiscovered);
+
+  @override
+  Future<RouterDiscoverySnapshotModel> discoverLocally({
+    required String host,
+    required String username,
+    required String password,
+    int apiPort = 8728,
+    int restPort = 80,
+    String rosVersion = 'V7',
+    bool useSsl = false,
+  }) async {
+    discoverLocallyCalls++;
+    if (customSnapshot != null) return customSnapshot!;
+    return super.discoverLocally(
+      host: host,
+      username: username,
+      password: password,
+      apiPort: apiPort,
+      restPort: restPort,
+      rosVersion: rosVersion,
+      useSsl: useSsl,
+    );
+  }
+
+  @override
+  Future<ProvisionApplyResult> executePlanLocally({
+    required String host,
+    required int restPort,
+    required String username,
+    required String password,
+    required List<GeneratedCommandModel> commands,
+    required String rosVersion,
+    bool useSsl = false,
+    String? customBackupName,
+    String? customBackupPassword,
+    void Function(String stage, int current, int total)? onProgress,
+  }) async {
+    executePlanCalls++;
+    if (failNextExecute) {
+      failNextExecute = false;
+      return const ProvisionApplyResult(
+        success: false,
+        deviceId: 'new-router-uuid',
+        deviceName: 'Test Router',
+        backupFilename: 'pre-sudafi-test.backup',
+        failedStage: 'BRIDGE_PORT',
+        failureReason: 'failure: device already added as bridge',
+        recoveryInstructions: 'يمكن استعادة النسخة الاحتياطية',
+        executedStages: [
+          ExecutedStageLogModel(stage: 'PRE_BACKUP', status: 'SUCCESS', timestamp: '2026-11-11T00:00:00Z'),
+          ExecutedStageLogModel(stage: 'BRIDGE_PORT', status: 'FAILED', error: 'device already added as bridge', timestamp: '2026-11-11T00:00:01Z'),
+        ],
+        verification: ProvisionVerificationResultModel(
+          internetReachable: false,
+          wanConfigured: false,
+          defaultRouteActive: false,
+          hotspotOperational: false,
+          securityPoliciesVerified: false,
+          pingPacketsReceived: 0,
+          overallStatus: 'VERIFICATION_FAILED',
+          diagnosticsMessage: 'تعذر إتمام الإعداد',
+        ),
+      );
+    }
+    return const ProvisionApplyResult(
+      success: true,
+      deviceId: 'new-router-uuid',
+      deviceName: 'Test Router',
+      executedStages: [
+        ExecutedStageLogModel(stage: 'HOTSPOT_SERVER', status: 'SUCCESS', timestamp: '2026-11-11T00:00:00Z'),
+      ],
+      verification: ProvisionVerificationResultModel(
+        internetReachable: true,
+        wanConfigured: true,
+        defaultRouteActive: true,
+        hotspotOperational: true,
+        securityPoliciesVerified: true,
+        pingPacketsReceived: 3,
+        overallStatus: 'VERIFIED_READY',
+        diagnosticsMessage: 'جاهز للعمل',
+      ),
+    );
+  }
 
   @override
   Stream<DiscoveredRouterModel> discoverStream({
@@ -396,5 +485,169 @@ void main() {
       expect(find.text('سيتم إضافة هذا الجهاز كراوتر جديد منفصل في الحساب'), findsOneWidget);
       expect(find.textContaining('سيتم تحديث الراوتر المحفوظ [Old Tower]'), findsNothing);
     });
+
+    testWidgets('Step 4 filters bridge interfaces, marks direct management port, and Step 6 failure supports clean retry and back-reset', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final storage = LocalStorage(prefs);
+
+      final fakeNotifier = _FakeSaveRoutersNotifier([]);
+      final fakeDiscovery = _FakeDiscoveryService([])
+        ..failNextExecute = true
+        ..customSnapshot = RouterDiscoverySnapshotModel(
+          interfaces: const [
+            RouterInterfaceModel(name: 'ether1', type: 'ether', running: true),
+            RouterInterfaceModel(name: 'LAN', type: 'bridge', running: true),
+            RouterInterfaceModel(name: 'ether2', type: 'ether', running: true),
+            RouterInterfaceModel(name: 'ether3', type: 'ether', running: true),
+          ],
+          ipAddresses: const [
+            RouterIpAddressModel(id: '*1', address: '192.168.1.147/24', interface: 'ether2'),
+          ],
+          bridges: const ['LAN'],
+          bridgePorts: const [
+            {'.id': '*7', 'id': '*7', 'bridge': 'LAN', 'interface': 'ether3'},
+          ],
+          hotspotServers: const [],
+          version: '7.23.8',
+          cpuLoad: 2,
+          uptime: '1h',
+          isComplete: true,
+          discoveredAt: DateTime.now().toUtc(),
+        );
+      final fakeProv = _FakeProvisioningService(storage);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            localStorageProvider.overrideWithValue(storage),
+            routersProvider.overrideWith(() => fakeNotifier),
+            mikrotikDiscoveryServiceProvider.overrideWithValue(fakeDiscovery),
+            routerProvisioningServiceProvider.overrideWithValue(fakeProv),
+          ],
+          child: const MaterialApp(
+            home: RouterSetupScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Step 1: Switch to Manual tab, enter name, host & password, and test connection -> saves device cleanly
+      await tester.tap(find.text('إدخال يدوي'));
+      await tester.pumpAndSettle();
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.at(0), 'Lab Router');
+      await tester.enterText(fields.at(1), '192.168.1.147');
+      await tester.enterText(fields.at(4), 'MIX25110');
+      await tester.ensureVisible(find.text('اختبار الاتصال المباشر والمصادقة'));
+      await tester.tap(find.text('اختبار الاتصال المباشر والمصادقة'));
+      await tester.pumpAndSettle();
+
+      // Step 1 -> Step 2 (Discovery) -> Step 3 -> Step 4
+      await tester.tap(find.text('التالي'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('التالي'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('التالي'));
+      await tester.pumpAndSettle();
+
+      // Step 4: bridge interface 'LAN' must NOT appear in physical port chips, while ether2 is annotated as management
+      expect(find.widgetWithText(FilterChip, 'LAN'), findsNothing);
+      expect(find.widgetWithText(FilterChip, 'ether2 (إدارة حالية)'), findsOneWidget);
+      expect(find.widgetWithText(FilterChip, 'ether3'), findsOneWidget);
+      // Management port ether2 must NOT be auto-selected when ether3 is available
+      final ether2Chip = tester.widget<FilterChip>(find.widgetWithText(FilterChip, 'ether2 (إدارة حالية)'));
+      final ether3Chip = tester.widget<FilterChip>(find.widgetWithText(FilterChip, 'ether3'));
+      expect(ether2Chip.selected, false);
+      expect(ether3Chip.selected, true);
+
+      // Step 4 -> Step 5 (Preview) -> Confirm Clean Setup -> Step 6 (Execution)
+      await tester.tap(find.text('التالي'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byType(Checkbox));
+      await tester.tap(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('التالي'));
+      await tester.pumpAndSettle();
+
+      // Step 6: Execute -> simulate partial failure
+      await tester.ensureVisible(find.text('تأكيد وبدء برمجة الراوتر الآن'));
+      await tester.tap(find.text('تأكيد وبدء برمجة الراوتر الآن'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('نعم، ابدأ البرمجة الآن'));
+      await tester.pumpAndSettle();
+
+      expect(fakeDiscovery.executePlanCalls, 1);
+      expect(find.text('فشل تنفيذ البرمجة جزئياً'), findsOneWidget);
+      expect(find.text('إعادة فحص الراوتر وتكرار المحاولة'), findsOneWidget);
+
+      // Pressing السابق from failed Step 6 must clear stale _applyResult so التالي returns to confirmation card
+      await tester.tap(find.text('السابق'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('التالي'));
+      await tester.pumpAndSettle();
+      expect(find.text('تأكيد وبدء برمجة الراوتر الآن'), findsOneWidget);
+
+      // Simulate another failure and verify retry button triggers fresh discovery + preview at Step 5
+      fakeDiscovery.failNextExecute = true;
+      await tester.ensureVisible(find.text('تأكيد وبدء برمجة الراوتر الآن'));
+      await tester.tap(find.text('تأكيد وبدء برمجة الراوتر الآن'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('نعم، ابدأ البرمجة الآن'));
+      await tester.pumpAndSettle();
+
+      final prevDiscCalls = fakeDiscovery.discoverLocallyCalls;
+      final prevPrevCalls = fakeProv.previewCalls;
+      await tester.ensureVisible(find.text('إعادة فحص الراوتر وتكرار المحاولة'));
+      await tester.tap(find.text('إعادة فحص الراوتر وتكرار المحاولة'));
+      await tester.pumpAndSettle();
+
+      expect(fakeDiscovery.discoverLocallyCalls, prevDiscCalls + 1);
+      expect(fakeProv.previewCalls, prevPrevCalls + 1);
+      expect(find.textContaining('5. المعاينة وفحص التعارضات'), findsOneWidget);
+    });
   });
+}
+
+class _FakeProvisioningService extends RouterProvisioningService {
+  int previewCalls = 0;
+
+  _FakeProvisioningService(LocalStorage storage) : super(ApiClient(localStorage: storage));
+
+  @override
+  Future<void> syncSnapshot(String deviceId, RouterDiscoverySnapshotModel snapshot) async {}
+
+  @override
+  Future<ProvisionPreviewResponse> preview(String deviceId, Map<String, dynamic> payload) async {
+    previewCalls++;
+    return const ProvisionPreviewResponse(
+      template: 'CLEAN_SETUP',
+      routerVersion: 'V7',
+      conflicts: [],
+      warnings: [],
+      requiresCleanConfirmation: false,
+      backupRecommended: true,
+      canProceed: true,
+      plannedSteps: [
+        PlannedStepModel(
+          id: 'step-1',
+          stage: 'BRIDGE_PORT',
+          title: 'إضافة المنافذ',
+          description: 'إضافة ether3',
+        ),
+      ],
+      generatedCommands: [
+        GeneratedCommandModel(
+          stage: 'BRIDGE_PORT',
+          command: '/interface/bridge/port/add =bridge=bridge-hotspot =interface=ether3',
+          description: 'إضافة ether3',
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<ProvisionApplyResult> apply(String deviceId, Map<String, dynamic> payload) async {
+    return ProvisionApplyResult.fromJson(payload['clientExecutionResult'] as Map<String, dynamic>);
+  }
 }

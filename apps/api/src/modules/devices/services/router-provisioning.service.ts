@@ -113,6 +113,23 @@ export class RouterProvisioningService {
    * Normalizes discovery snapshot ensuring all arrays and fields are non-null and safe
    */
   private normalizeSnapshot(raw: Partial<RouterDiscoverySnapshot> | any | undefined): RouterDiscoverySnapshot {
+    const normalizeEntry = <T>(item: T): T => {
+      if (!item || typeof item !== 'object') return item;
+      const record = item as Record<string, any>;
+      const resolvedId =
+        typeof record.id === 'string' && record.id.trim().length > 0
+          ? record.id
+          : typeof record['.id'] === 'string' && record['.id'].trim().length > 0
+            ? record['.id'].trim()
+            : undefined;
+      if (resolvedId !== undefined && record.id !== resolvedId) {
+        return { ...record, id: resolvedId } as T;
+      }
+      return item;
+    };
+    const normalizeArray = <T>(arr: any): T[] =>
+      Array.isArray(arr) ? arr.filter(Boolean).map(normalizeEntry) : [];
+
     return {
       resource: raw?.resource || {
         uptime: raw?.uptime || '0s',
@@ -123,26 +140,26 @@ export class RouterProvisioningService {
         freeHdd: 0,
         totalHdd: 0,
       },
-      interfaces: Array.isArray(raw?.interfaces) ? raw.interfaces.filter(Boolean) : [],
+      interfaces: normalizeArray(raw?.interfaces),
       bridges: Array.isArray(raw?.bridges)
         ? raw.bridges
-            .map((b: any) => (typeof b === 'string' ? { name: b } : b))
+            .map((b: any) => (typeof b === 'string' ? { name: b } : normalizeEntry(b)))
             .filter(Boolean)
         : [],
-      bridgePorts: Array.isArray(raw?.bridgePorts) ? raw.bridgePorts.filter(Boolean) : [],
-      ipAddresses: Array.isArray(raw?.ipAddresses) ? raw.ipAddresses.filter(Boolean) : [],
-      dhcpClients: Array.isArray(raw?.dhcpClients) ? raw.dhcpClients.filter(Boolean) : [],
-      dhcpServers: Array.isArray(raw?.dhcpServers) ? raw.dhcpServers.filter(Boolean) : [],
-      natRules: Array.isArray(raw?.natRules) ? raw.natRules.filter(Boolean) : [],
-      routes: Array.isArray(raw?.routes) ? raw.routes.filter(Boolean) : [],
+      bridgePorts: normalizeArray(raw?.bridgePorts),
+      ipAddresses: normalizeArray(raw?.ipAddresses),
+      dhcpClients: normalizeArray(raw?.dhcpClients),
+      dhcpServers: normalizeArray(raw?.dhcpServers),
+      natRules: normalizeArray(raw?.natRules),
+      routes: normalizeArray(raw?.routes),
       hotspotServers: Array.isArray(raw?.hotspotServers)
         ? raw.hotspotServers
-            .map((h: any) => (typeof h === 'string' ? { name: h } : h))
+            .map((h: any) => (typeof h === 'string' ? { name: h } : normalizeEntry(h)))
             .filter(Boolean)
         : [],
-      mangleRules: Array.isArray(raw?.mangleRules) ? raw.mangleRules.filter(Boolean) : [],
-      filterRules: Array.isArray(raw?.filterRules) ? raw.filterRules.filter(Boolean) : [],
-      hotspotUserProfiles: Array.isArray(raw?.hotspotUserProfiles) ? raw.hotspotUserProfiles.filter(Boolean) : [],
+      mangleRules: normalizeArray(raw?.mangleRules),
+      filterRules: normalizeArray(raw?.filterRules),
+      hotspotUserProfiles: normalizeArray(raw?.hotspotUserProfiles),
     };
   }
 
@@ -3124,9 +3141,9 @@ export class RouterProvisioningService {
     for (const port of rawMemberPorts) {
       if (!port) continue;
       const portName = String(port).trim();
-      const existingBridgePort = !isClean
-        ? discovery?.bridgePorts?.find((p) => p?.bridge === bridgeName && p?.interface === portName)
-        : undefined;
+      const existingBridgePort = discovery?.bridgePorts?.find(
+        (p) => p?.bridge === bridgeName && p?.interface === portName,
+      );
 
       if (!existingBridgePort) {
         const horizonArg = security.clientIsolation !== false ? ' =horizon=1' : '';

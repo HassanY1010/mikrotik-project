@@ -228,7 +228,9 @@ export function validateSnapshotIntegrity(
       missingSections.push('ipAddresses_invalid_entries');
     }
     const hasValidIpIds = snapshot.ipAddresses.every(
-      (ip: any) => !ip.id || isValidRouterOsId(ip.id),
+      (ip: any) =>
+        (!ip.id || isValidRouterOsId(ip.id)) &&
+        (!ip['.id'] || isValidRouterOsId(ip['.id'])),
     );
     if (!hasValidIpIds) {
       missingSections.push('ipAddresses_invalid_ids');
@@ -252,7 +254,9 @@ export function validateSnapshotIntegrity(
       missingSections.push('bridgePorts_invalid_entries');
     }
     const hasValidBridgePortIds = snapshot.bridgePorts.every(
-      (bp: any) => !bp.id || isValidRouterOsId(bp.id),
+      (bp: any) =>
+        (!bp.id || isValidRouterOsId(bp.id)) &&
+        (!bp['.id'] || isValidRouterOsId(bp['.id'])),
     );
     if (!hasValidBridgePortIds) {
       missingSections.push('bridgePorts_invalid_ids');
