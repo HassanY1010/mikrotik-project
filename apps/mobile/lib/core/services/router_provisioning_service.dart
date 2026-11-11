@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../constants/api_endpoints.dart';
@@ -10,13 +11,37 @@ class RouterProvisioningService {
 
   RouterProvisioningService(this._apiClient);
 
+  /// Unwraps NestJS TransformInterceptor `{ success, data, timestamp }` response
+  /// envelopes cleanly while preserving direct/unwrapped payloads.
+  Map<String, dynamic>? _unwrapResponseMap(dynamic raw) {
+    dynamic normalized = raw;
+    if (normalized is String && normalized.trim().isNotEmpty) {
+      try {
+        normalized = jsonDecode(normalized);
+      } catch (_) {
+        return null;
+      }
+    }
+    if (normalized is! Map) return null;
+
+    final outer = Map<String, dynamic>.from(normalized);
+    if (outer.containsKey('data')) {
+      final inner = outer['data'];
+      if (inner is Map) {
+        return Map<String, dynamic>.from(inner);
+      }
+      return null;
+    }
+    return outer;
+  }
+
   /// 1. Discover live interfaces, IP addresses, bridges, and services on the router
   Future<RouterDiscoverySnapshotModel> discover(String deviceId) async {
     try {
       final res = await _apiClient.get(ApiEndpoints.deviceProvisionDiscover(deviceId));
-      final raw = res.data;
-      if (raw is Map<String, dynamic>) {
-        return RouterDiscoverySnapshotModel.fromJson(raw);
+      final payloadMap = _unwrapResponseMap(res.data);
+      if (payloadMap != null) {
+        return RouterDiscoverySnapshotModel.fromJson(payloadMap);
       }
       throw Exception('استجابة غير متوقعة من الخادم أثناء استكشاف الراوتر');
     } catch (e) {
@@ -50,9 +75,9 @@ class RouterProvisioningService {
           receiveTimeout: const Duration(seconds: 60),
         ),
       );
-      final raw = res.data;
-      if (raw is Map<String, dynamic>) {
-        return ProvisionPreviewResponse.fromJson(raw);
+      final payloadMap = _unwrapResponseMap(res.data);
+      if (payloadMap != null) {
+        return ProvisionPreviewResponse.fromJson(payloadMap);
       }
       throw Exception('استجابة غير متوقعة أثناء توليد المعاينة');
     } catch (e) {
@@ -74,9 +99,9 @@ class RouterProvisioningService {
           receiveTimeout: const Duration(seconds: 90),
         ),
       );
-      final raw = res.data;
-      if (raw is Map<String, dynamic>) {
-        return ProvisionApplyResult.fromJson(raw);
+      final payloadMap = _unwrapResponseMap(res.data);
+      if (payloadMap != null) {
+        return ProvisionApplyResult.fromJson(payloadMap);
       }
       throw Exception('استجابة غير متوقعة أثناء تطبيق البرمجة على الراوتر');
     } catch (e) {

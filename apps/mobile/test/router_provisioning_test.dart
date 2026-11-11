@@ -1,6 +1,31 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mobile/core/models/router_provisioning_models.dart';
 import 'package:mobile/core/constants/api_endpoints.dart';
+import 'package:mobile/core/network/api_client.dart';
+import 'package:mobile/core/services/router_provisioning_service.dart';
+import 'package:mobile/core/storage/local_storage.dart';
+
+class _StubHttpClientAdapter implements HttpClientAdapter {
+  final FutureOr<ResponseBody> Function(RequestOptions options) onFetch;
+
+  _StubHttpClientAdapter(this.onFetch);
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return onFetch(options);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
 
 void main() {
   group('Router Provisioning Models - JSON Serialization & Parsing (Phase 2)', () {
@@ -324,6 +349,199 @@ void main() {
       expect(ApiEndpoints.deviceProvisionDiscover('dev-1'), '/devices/dev-1/provision/discover');
       expect(ApiEndpoints.deviceProvisionPreview('dev-1'), '/devices/dev-1/provision/preview');
       expect(ApiEndpoints.deviceProvisionApply('dev-1'), '/devices/dev-1/provision/apply');
+    });
+  });
+
+  group('RouterProvisioningService - TransformInterceptor Envelope Handling', () {
+    late LocalStorage storage;
+
+    setUp(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      storage = await LocalStorage.init();
+    });
+
+    RouterProvisioningService buildServiceWithResponse(
+      FutureOr<ResponseBody> Function(RequestOptions options) handler,
+    ) {
+      final apiClient = ApiClient(localStorage: storage);
+      apiClient.dio.httpClientAdapter = _StubHttpClientAdapter(handler);
+      return RouterProvisioningService(apiClient);
+    }
+
+    ResponseBody jsonResponse(Object body, {int statusCode = 200}) {
+      return ResponseBody.fromString(
+        jsonEncode(body),
+        statusCode,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
+
+    test('preview() unwraps { success, data, timestamp } envelope from TransformInterceptor', () async {
+      final service = buildServiceWithResponse((options) {
+        expect(options.path, contains('devices/dev-7/provision/preview'));
+        return jsonResponse({
+          'success': true,
+          'data': {
+            'template': 'CLEAN_SETUP',
+            'routerVersion': 'V7',
+            'plannedSteps': [
+              {
+                'id': 'step-1',
+                'stage': 'PRE_BACKUP',
+                'title': 'نسخة احتياطية',
+                'description': 'حفظ نسخة قبل التعديل',
+              },
+              {
+                'id': 'step-2',
+                'stage': 'LAN_BRIDGE',
+                'title': 'جسر الشبكة المحلية',
+                'description': 'إنشاء bridge-hotspot',
+              },
+            ],
+            'generatedCommands': [
+              {
+                'stage': 'LAN_BRIDGE',
+                'command': '/interface/bridge/add name=bridge-hotspot',
+                'description': 'إضافة الجسر',
+              },
+            ],
+            'securityPoliciesReport': [],
+            'warnings': [],
+            'conflicts': [],
+            'canProceed': true,
+            'requiresCleanConfirmation': true,
+            'backupRecommended': true,
+            'planToken': {
+              'tenantId': 't-1',
+              'deviceId': 'dev-7',
+              'signature': 'sig-abc',
+            },
+          },
+          'timestamp': '2026-11-11T10:20:00.000Z',
+        });
+      });
+
+      final preview = await service.preview('dev-7', {'template': 'CLEAN_SETUP'});
+
+      expect(preview.canProceed, isTrue);
+      expect(preview.requiresCleanConfirmation, isTrue);
+      expect(preview.plannedSteps.length, 2);
+      expect(preview.generatedCommands.length, 1);
+      expect(preview.generatedCommands.first.command, contains('bridge-hotspot'));
+      expect(preview.planToken?['signature'], 'sig-abc');
+    });
+
+    test('discover() unwraps { success, data, timestamp } envelope correctly', () async {
+      final service = buildServiceWithResponse((options) {
+        expect(options.path, contains('devices/dev-7/provision/discover'));
+        return jsonResponse({
+          'success': true,
+          'data': {
+            'resource': {'version': '7.19.1', 'cpuLoad': 5, 'uptime': '1h'},
+            'interfaces': [
+              {'name': 'ether1', 'type': 'ether', 'running': true, 'disabled': false},
+              {'name': 'ether2', 'type': 'ether', 'running': true, 'disabled': false},
+            ],
+            'bridges': [
+              {'name': 'bridge'},
+            ],
+            'ipAddresses': [
+              {'address': '192.168.88.1/24', 'interface': 'bridge', 'disabled': false},
+            ],
+            'hotspotServers': [],
+          },
+          'timestamp': '2026-11-11T10:20:00.000Z',
+        });
+      });
+
+      final snapshot = await service.discover('dev-7');
+
+      expect(snapshot.version, '7.19.1');
+      expect(snapshot.interfaces.length, 2);
+      expect(snapshot.bridges, ['bridge']);
+      expect(snapshot.ipAddresses.first.address, '192.168.88.1/24');
+    });
+
+    test('apply() handles both direct (unwrapped) and { success, data } responses', () async {
+      final directService = buildServiceWithResponse((_) {
+        return jsonResponse({
+          'success': true,
+          'deviceId': 'dev-7',
+          'deviceName': 'L009UiGS',
+          'executedStages': [
+            {
+              'stage': 'PRE_BACKUP',
+              'status': 'SUCCESS',
+              'timestamp': '2026-11-11T10:20:01.000Z',
+            },
+          ],
+          'verification': {
+            'internetReachable': true,
+            'wanConfigured': true,
+            'defaultRouteActive': true,
+            'hotspotOperational': true,
+            'overallStatus': 'VERIFIED_READY',
+            'diagnosticsMessage': 'تم التحقق بنجاح',
+          },
+        });
+      });
+
+      final directResult = await directService.apply('dev-7', {'template': 'CLEAN_SETUP'});
+      expect(directResult.success, isTrue);
+      expect(directResult.deviceId, 'dev-7');
+      expect(directResult.executedStages.length, 1);
+      expect(directResult.verification.overallStatus, 'VERIFIED_READY');
+
+      final wrappedService = buildServiceWithResponse((_) {
+        return jsonResponse({
+          'success': true,
+          'data': {
+            'success': true,
+            'deviceId': 'dev-7',
+            'deviceName': 'L009UiGS',
+            'executedStages': [
+              {
+                'stage': 'VERIFICATION',
+                'status': 'SUCCESS',
+                'timestamp': '2026-11-11T10:20:02.000Z',
+              },
+            ],
+            'verification': {
+              'internetReachable': true,
+              'wanConfigured': true,
+              'defaultRouteActive': true,
+              'hotspotOperational': true,
+              'overallStatus': 'VERIFIED_READY',
+              'diagnosticsMessage': 'جاهز',
+            },
+          },
+          'timestamp': '2026-11-11T10:20:02.000Z',
+        });
+      });
+
+      final wrappedResult = await wrappedService.apply('dev-7', {'template': 'CLEAN_SETUP'});
+      expect(wrappedResult.success, isTrue);
+      expect(wrappedResult.deviceName, 'L009UiGS');
+      expect(wrappedResult.executedStages.length, 1);
+      expect(wrappedResult.verification.overallStatus, 'VERIFIED_READY');
+    });
+
+    test('preview() rejects wrapped null data payload explicitly instead of silently returning empty preview', () async {
+      final service = buildServiceWithResponse((_) {
+        return jsonResponse({
+          'success': true,
+          'data': null,
+          'timestamp': '2026-11-11T10:20:00.000Z',
+        });
+      });
+
+      await expectLater(
+        () => service.preview('dev-7', {'template': 'CLEAN_SETUP'}),
+        throwsA(isA<Exception>()),
+      );
     });
   });
 }
