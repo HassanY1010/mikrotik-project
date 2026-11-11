@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -10,6 +11,89 @@ import 'services/backup_downloader.dart';
 import 'services/card_template_import_service.dart';
 import 'services/card_pdf_archive_service.dart';
 import '../features/auto_provisioning/services/auto_provisioning_service.dart';
+
+class ApiErrorDetails {
+  final String message;
+  final bool isNetworkError;
+  final int? statusCode;
+
+  const ApiErrorDetails({
+    required this.message,
+    this.isNetworkError = false,
+    this.statusCode,
+  });
+}
+
+String? _normalizeErrorField(dynamic val) {
+  if (val is List) {
+    final joined = val
+        .map((item) => item.toString().trim())
+        .where((s) => s.isNotEmpty)
+        .join(' | ');
+    return joined.isNotEmpty ? joined : null;
+  }
+  if (val != null) {
+    final str = val.toString().trim();
+    if (str.isNotEmpty) return str;
+  }
+  return null;
+}
+
+/// Extracts human-readable Arabic/server error messages from NestJS `{ message }`
+/// or `{ error: { code, message } }` payloads, distinguishing offline/network failures.
+ApiErrorDetails parseApiError(
+  Object e, {
+  required String fallback,
+  String? networkMessage,
+}) {
+  if (e is DioException) {
+    final statusCode = e.response?.statusCode;
+    dynamic raw = e.response?.data;
+
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        raw = jsonDecode(raw);
+      } catch (_) {}
+    }
+
+    if (raw is Map) {
+      final map = Map<String, dynamic>.from(raw);
+      String? extracted = _normalizeErrorField(map['message']);
+      if (extracted == null && map['error'] is Map) {
+        extracted = _normalizeErrorField((map['error'] as Map)['message']);
+      } else if (extracted == null && map['error'] != null) {
+        extracted = _normalizeErrorField(map['error']);
+      }
+
+      if (extracted != null) {
+        return ApiErrorDetails(message: extracted, statusCode: statusCode);
+      }
+      if (statusCode == 401) {
+        return ApiErrorDetails(
+          message: 'انتهت جلسة تسجيل الدخول. يرجى إعادة تسجيل الدخول مجدداً.',
+          statusCode: statusCode,
+        );
+      }
+      return ApiErrorDetails(message: fallback, statusCode: statusCode);
+    }
+
+    if (e.response == null &&
+        (e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.sendTimeout ||
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.connectionError ||
+            e.type == DioExceptionType.unknown)) {
+      return ApiErrorDetails(
+        message: networkMessage ??
+            'تعذر الوصول إلى سيرفر النظام — تأكد من توفر اتصال بالإنترنت على الهاتف وحاول مجدداً.',
+        isNetworkError: true,
+      );
+    }
+
+    return ApiErrorDetails(message: fallback, statusCode: statusCode);
+  }
+  return ApiErrorDetails(message: fallback);
+}
 
 // Initialized at main startup
 final localStorageProvider = Provider<LocalStorage>((ref) {
@@ -139,17 +223,12 @@ class CurrentUserNotifier extends Notifier<AuthUser?> {
       }
       return {'success': true, 'message': 'تم تغيير كلمة المرور بنجاح'};
     } catch (e) {
-      if (e is DioException && e.response?.data is Map) {
-        final err = Map<String, dynamic>.from(e.response!.data as Map);
-        return {
-          'success': false,
-          'message': err['message']?.toString() ?? 'كلمة المرور الحالية غير صحيحة',
-        };
-      }
-      return {
-        'success': false,
-        'message': 'تعذر الاتصال بالخادم لتغيير كلمة المرور',
-      };
+      final details = parseApiError(
+        e,
+        fallback: 'كلمة المرور الحالية غير صحيحة',
+        networkMessage: 'تعذر الاتصال بالخادم لتغيير كلمة المرور',
+      );
+      return {'success': false, 'message': details.message};
     }
   }
 
@@ -174,17 +253,12 @@ class CurrentUserNotifier extends Notifier<AuthUser?> {
       }
       return {'success': true, 'message': 'تم حذف الحساب بنجاح'};
     } catch (e) {
-      if (e is DioException && e.response?.data is Map) {
-        final err = Map<String, dynamic>.from(e.response!.data as Map);
-        return {
-          'success': false,
-          'message': err['message']?.toString() ?? 'فشل حذف الحساب',
-        };
-      }
-      return {
-        'success': false,
-        'message': 'تعذر الاتصال بالخادم لحذف الحساب',
-      };
+      final details = parseApiError(
+        e,
+        fallback: 'فشل حذف الحساب',
+        networkMessage: 'تعذر الاتصال بالخادم لحذف الحساب',
+      );
+      return {'success': false, 'message': details.message};
     }
   }
 }
@@ -377,20 +451,12 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
       }
       return {'success': true, 'message': 'تم إنشاء البروفايل ومزامنته مع الراوتر بنجاح'};
     } catch (e) {
-      if (e is DioException && e.response?.data is Map) {
-        final err = Map<String, dynamic>.from(e.response!.data as Map);
-        final rawMsg = err['message'] ??
-            (err['error'] is Map ? (err['error'] as Map)['message'] : null) ??
-            err['error'];
-        return {
-          'success': false,
-          'message': rawMsg?.toString() ?? 'فشل إنشاء البروفايل على الراوتر',
-        };
-      }
-      return {
-        'success': false,
-        'message': 'تعذر الاتصال بالخادم لإنشاء البروفايل (${e.toString()})',
-      };
+      final details = parseApiError(
+        e,
+        fallback: 'فشل إنشاء البروفايل على الراوتر',
+        networkMessage: 'تعذر الاتصال بالخادم لإنشاء البروفايل (${e.toString()})',
+      );
+      return {'success': false, 'message': details.message};
     }
   }
 
@@ -430,17 +496,12 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
       return {'success': true, 'message': 'تم تعديل البروفايل بنجاح'};
     } catch (e) {
-      if (e is DioException && e.response?.data is Map) {
-        final err = Map<String, dynamic>.from(e.response!.data as Map);
-        final rawMsg = err['message'] ??
-            (err['error'] is Map ? (err['error'] as Map)['message'] : null) ??
-            err['error'];
-        return {
-          'success': false,
-          'message': rawMsg?.toString() ?? 'فشل تعديل البروفايل',
-        };
-      }
-      return {'success': false, 'message': 'تعذر الاتصال بالخادم'};
+      final details = parseApiError(
+        e,
+        fallback: 'فشل تعديل البروفايل',
+        networkMessage: 'تعذر الاتصال بالخادم',
+      );
+      return {'success': false, 'message': details.message};
     }
   }
 
@@ -453,17 +514,12 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
       return {'success': true, 'message': 'تم حذف البروفايل بنجاح'};
     } catch (e) {
-      if (e is DioException && e.response?.data is Map) {
-        final err = Map<String, dynamic>.from(e.response!.data as Map);
-        final rawMsg = err['message'] ??
-            (err['error'] is Map ? (err['error'] as Map)['message'] : null) ??
-            err['error'];
-        return {
-          'success': false,
-          'message': rawMsg?.toString() ?? 'فشل حذف البروفايل',
-        };
-      }
-      return {'success': false, 'message': 'تعذر الاتصال بالخادم لحذف البروفايل'};
+      final details = parseApiError(
+        e,
+        fallback: 'فشل حذف البروفايل',
+        networkMessage: 'تعذر الاتصال بالخادم لحذف البروفايل',
+      );
+      return {'success': false, 'message': details.message};
     }
   }
 
@@ -476,14 +532,12 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
       return {'success': true, 'message': 'تمت مزامنة البروفايلات مع الراوتر بنجاح'};
     } catch (e) {
-      if (e is DioException && e.response?.data is Map) {
-        final err = Map<String, dynamic>.from(e.response!.data as Map);
-        return {
-          'success': false,
-          'message': err['message']?.toString() ?? 'فشل مزامنة البروفايلات',
-        };
-      }
-      return {'success': false, 'message': 'تعذر الاتصال بالخادم لمزامنة الراوتر'};
+      final details = parseApiError(
+        e,
+        fallback: 'فشل مزامنة البروفايلات',
+        networkMessage: 'تعذر الاتصال بالخادم لمزامنة الراوتر',
+      );
+      return {'success': false, 'message': details.message};
     }
   }
 }
@@ -600,20 +654,61 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
 
   Future<Map<String, dynamic>> saveRouter(Map<String, dynamic> data, {String? id}) async {
     final apiClient = ref.read(apiClientProvider);
+    final Response<dynamic> res;
     try {
-      final res = id != null
+      res = id != null
           ? await apiClient.patch(ApiEndpoints.deviceItem(id), data: data)
           : await apiClient.post(ApiEndpoints.devices, data: data);
-      await refresh();
-      return {'success': true, 'data': res.data};
     } catch (e) {
-      String errorMsg = 'فشل حفظ بيانات الراوتر في السيرفر';
-      if (e is DioException && e.response?.data is Map) {
-        final map = e.response!.data as Map;
-        errorMsg = map['message']?.toString() ?? errorMsg;
-      }
-      return {'success': false, 'message': errorMsg};
+      final details = parseApiError(
+        e,
+        fallback: 'فشل حفظ بيانات الراوتر في السيرفر',
+        networkMessage:
+            'تعذر الوصول إلى سيرفر النظام لحفظ الراوتر — تأكد من توفر إنترنت على الهاتف ثم أعد المحاولة.',
+      );
+      return {
+        'success': false,
+        'message': details.message,
+        'isNetworkError': details.isNetworkError,
+      };
     }
+
+    // Update cached state optimistically first so a transient refresh failure
+    // never rolls back or marks a successful save as failed.
+    final raw = res.data;
+    Map<String, dynamic>? savedMap;
+    if (raw is Map) {
+      final outer = Map<String, dynamic>.from(raw);
+      if (outer['data'] is Map) {
+        savedMap = Map<String, dynamic>.from(outer['data'] as Map);
+      } else if (outer['id'] != null) {
+        savedMap = outer;
+      }
+    }
+
+    if (savedMap != null && (savedMap['id']?.toString().isNotEmpty ?? false)) {
+      try {
+        final savedModel = RouterDeviceModel.fromJson(savedMap);
+        final currentList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
+        final idx = currentList.indexWhere((r) => r.id == savedModel.id);
+        if (idx >= 0) {
+          currentList[idx] = savedModel;
+        } else {
+          currentList.insert(0, savedModel);
+        }
+        state = AsyncValue.data(currentList);
+      } catch (_) {
+        // Optimistic cache update must not mask a successful server response.
+      }
+    }
+
+    try {
+      await refresh();
+    } catch (_) {
+      // Refresh is best-effort; save already succeeded on the server.
+    }
+
+    return {'success': true, 'data': res.data};
   }
 
   Future<Map<String, dynamic>> toggleEmergencyLock(String deviceId, bool lock) async {

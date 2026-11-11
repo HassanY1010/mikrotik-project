@@ -54,6 +54,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   bool? _testSuccess;
   int? _latencyMs;
   Map<String, dynamic>? _routerMetrics;
+  bool _isSavingDevice = false;
+  String? _saveError;
+  bool _saveIsNetworkError = false;
 
   // Step 2: Discovery State
   bool _isDiscovering = false;
@@ -234,9 +237,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     setState(() {
       _hasManuallySwitchedMode = true;
       _selectedDiscoveredRouter = router;
-      if (matchedSaved != null) {
-        _selectedDeviceId = matchedSaved.id;
-      }
+      // Only bind to an existing account router if its saved IP matches this discovered router;
+      // otherwise default to adding a new router instead of silently overwriting another device.
+      _selectedDeviceId = matchedSaved?.id;
       _nameController.text = router.identity.isNotEmpty ? router.identity : 'MikroTik (${router.ip})';
       _hostController.text = router.ip;
       _rosVersion = router.rosVersion;
@@ -266,6 +269,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       _setupMode = 'MANUAL';
       _testResult = null;
       _testSuccess = null;
+      _saveError = null;
+      _saveIsNetworkError = false;
       _discovery = null;
       _discoveryError = null;
       _preview = null;
@@ -277,7 +282,11 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('تم اختيار [${router.identity}] (${router.ip}). أدخل كلمة المرور واضغط اختبار الاتصال.'),
+        content: Text(
+          matchedSaved != null
+              ? 'تم اختيار [${router.identity}] (${router.ip}) — مرتبط بالراوتر المحفوظ.'
+              : 'تم اختيار [${router.identity}] (${router.ip}) كراوتر جديد. أدخل كلمة المرور واضغط اختبار الاتصال.',
+        ),
         backgroundColor: AppTheme.primary,
         duration: const Duration(seconds: 4),
       ),
@@ -286,6 +295,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
   void _selectAccountRouter(RouterDeviceModel r) {
     setState(() {
+      _selectedDiscoveredRouter = null;
       _selectedDeviceId = r.id;
       _nameController.text = r.name;
       _hostController.text = r.host;
@@ -307,6 +317,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       _testResult = null;
       _latencyMs = null;
       _routerMetrics = null;
+      _saveError = null;
+      _saveIsNetworkError = false;
       _discovery = null;
       _discoveryError = null;
       _preview = null;
@@ -314,6 +326,35 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       _allowOverwrite = false;
       _confirmedManagementHost = null;
       _confirmedManagementInterface = null;
+    });
+  }
+
+  void _startNewRouterDraft() {
+    setState(() {
+      _hasManuallySwitchedMode = true;
+      _selectedDeviceId = null;
+      _testSuccess = null;
+      _testResult = null;
+      _latencyMs = null;
+      _routerMetrics = null;
+      _saveError = null;
+      _saveIsNetworkError = false;
+      _discovery = null;
+      _discoveryError = null;
+      _preview = null;
+      _previewError = null;
+      _allowOverwrite = false;
+      _confirmedManagementHost = null;
+      _confirmedManagementInterface = null;
+    });
+  }
+
+  void _bindExistingRouter(RouterDeviceModel r) {
+    setState(() {
+      _hasManuallySwitchedMode = true;
+      _selectedDeviceId = r.id;
+      _saveError = null;
+      _saveIsNetworkError = false;
     });
   }
 
@@ -335,6 +376,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       _testSuccess = null;
       _latencyMs = null;
       _routerMetrics = null;
+      _saveError = null;
+      _saveIsNetworkError = false;
     });
 
     final resolvedApiPort = int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728);
@@ -458,6 +501,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   }
 
   Future<bool> _handleSaveNewDeviceSilently() async {
+    if (_isSavingDevice) return false;
+
     final host = _hostController.text.trim();
     final name = _nameController.text.trim();
     final user = _userController.text.trim();
@@ -520,6 +565,12 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       'useSsl': _useSsl,
     };
 
+    setState(() {
+      _isSavingDevice = true;
+      _saveError = null;
+      _saveIsNetworkError = false;
+    });
+
     final saveRes = await ref.read(routersProvider.notifier).saveRouter(payload, id: targetId);
     if (!mounted) return false;
 
@@ -540,14 +591,21 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             ?.id;
       }
       setState(() {
+        _isSavingDevice = false;
         _selectedDeviceId = resolvedId;
+        _saveError = null;
+        _saveIsNetworkError = false;
       });
       return true;
     } else {
-      final errorMsg = saveRes['message']?.toString() ?? 'فشل حفظ الراوتر في السيرفر';
+      final errorMsg = saveRes['message']?.toString() ?? 'فشل حفظ بيانات الراوتر في السيرفر';
+      final isNetErr = saveRes['isNetworkError'] == true;
+      // Preserve _testSuccess = true if router connectivity already passed so the user
+      // clearly sees that router connection succeeded and only server saving needs attention.
       setState(() {
-        _testSuccess = false;
-        _testResult = 'فشل حفظ الراوتر:\n$errorMsg';
+        _isSavingDevice = false;
+        _saveError = errorMsg;
+        _saveIsNetworkError = isNetErr;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1680,6 +1738,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   metrics: _routerMetrics,
                 ),
               ],
+              _buildServerSaveErrorBanner(),
             ],
           ],
         );
@@ -2027,6 +2086,169 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     );
   }
 
+  Widget _buildDeviceTargetModeBanner() {
+    final existingRouters = ref.watch(routersProvider).asData?.value ?? [];
+    if (existingRouters.isEmpty) return const SizedBox.shrink();
+
+    final boundRouter = _selectedDeviceId != null
+        ? existingRouters.where((r) => r.id == _selectedDeviceId).firstOrNull
+        : null;
+
+    final isUpdatingExisting = boundRouter != null;
+    final bannerColor = isUpdatingExisting ? Colors.amber : AppTheme.primary;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bannerColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: bannerColor.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isUpdatingExisting ? Icons.edit_outlined : Icons.add_circle_outline,
+            color: isUpdatingExisting ? Colors.amber.shade800 : AppTheme.primary,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isUpdatingExisting
+                  ? 'سيتم تحديث الراوتر المحفوظ [${boundRouter.name}] (${boundRouter.host})'
+                  : 'سيتم إضافة هذا الجهاز كراوتر جديد منفصل في الحساب',
+              style: TextStyle(
+                color: context.textPrimary,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (isUpdatingExisting)
+            TextButton(
+              onPressed: _startNewRouterDraft,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text(
+                'إضافة كراوتر جديد منفصل',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            )
+          else
+            PopupMenuButton<RouterDeviceModel>(
+              tooltip: 'تحديث راوتر موجود بدلاً من الإضافة',
+              onSelected: _bindExistingRouter,
+              itemBuilder: (_) => existingRouters
+                  .map(
+                    (r) => PopupMenuItem<RouterDeviceModel>(
+                      value: r,
+                      child: Text(
+                        'تحديث: ${r.name} (${r.host})',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  )
+                  .toList(),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Text(
+                  'تحديث راوتر موجود',
+                  style: TextStyle(
+                    color: AppTheme.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildServerSaveErrorBanner() {
+    if (_saveError == null) return const SizedBox.shrink();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final titleColor = isDark ? Colors.redAccent.shade100 : Colors.red.shade800;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade400),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                _saveIsNetworkError ? Icons.wifi_off_rounded : Icons.cloud_off_rounded,
+                color: titleColor,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _saveIsNetworkError
+                      ? 'تعذر الوصول إلى السيرفر لحفظ الراوتر'
+                      : 'رفض السيرفر حفظ بيانات الراوتر',
+                  style: TextStyle(
+                    color: titleColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _saveError!,
+            style: TextStyle(color: context.textPrimary, fontSize: 11.5, height: 1.4),
+          ),
+          if (_saveIsNetworkError) ...[
+            const SizedBox(height: 6),
+            Text(
+              'ملاحظة: فحص الراوتر المحلي نجح، لكن يلزم وجود إنترنت على الهاتف لتسجيل الراوتر في السيرفر.',
+              style: TextStyle(color: context.textSecondary, fontSize: 11, height: 1.35),
+            ),
+          ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSavingDevice ? null : _handleSaveNewDeviceSilently,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: _isSavingDevice
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.refresh, color: Colors.white, size: 18),
+              label: Text(
+                _isSavingDevice ? 'جارِ حفظ الراوتر في السيرفر...' : 'إعادة محاولة الحفظ في السيرفر',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Option 1: Manual Mode Section (Preserves all existing inputs)
   // ---------------------------------------------------------------------------
@@ -2034,6 +2256,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildDeviceTargetModeBanner(),
         if (_selectedDiscoveredRouter != null) ...[
           Container(
             padding: const EdgeInsets.all(12),
@@ -2213,22 +2436,30 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           ),
         ],
 
+        _buildServerSaveErrorBanner(),
+
         // Confirmation & Save Button
-        if (_testSuccess == true && _selectedDeviceId == null) ...[
+        if (_testSuccess == true && _selectedDeviceId == null && _saveError == null) ...[
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
             height: 48,
             child: ElevatedButton.icon(
-              onPressed: _handleSaveNewDeviceSilently,
+              onPressed: _isSavingDevice ? null : _handleSaveNewDeviceSilently,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              icon: const Icon(Icons.save, color: Colors.white),
-              label: const Text(
-                'تأكيد وحفظ الراوتر في النظام',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              icon: _isSavingDevice
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.save, color: Colors.white),
+              label: Text(
+                _isSavingDevice ? 'جارِ حفظ الراوتر في النظام...' : 'تأكيد وحفظ الراوتر في النظام',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
               ),
             ),
           ),
@@ -4025,6 +4256,17 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 const SizedBox(width: 4),
                 Text(
                   'اختبر الاتصال بالمصادقة للمتابعة',
+                  style: TextStyle(fontSize: 11, color: Colors.amber.shade700),
+                ),
+              ],
+            )
+          else if (_currentStep == 0 && _selectedDeviceId == null)
+            Row(
+              children: [
+                Icon(Icons.cloud_upload_outlined, size: 14, color: Colors.amber.shade700),
+                const SizedBox(width: 4),
+                Text(
+                  'أكمل حفظ الراوتر في السيرفر للمتابعة',
                   style: TextStyle(fontSize: 11, color: Colors.amber.shade700),
                 ),
               ],

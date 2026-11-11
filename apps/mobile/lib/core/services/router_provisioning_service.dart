@@ -112,26 +112,24 @@ class RouterProvisioningService {
   Exception _parseError(dynamic e, {required String defaultMsg}) {
     if (e is DioException) {
       final statusCode = e.response?.statusCode;
-      final data = e.response?.data;
-
-      String serverMessage = '';
-      if (data is Map) {
-        serverMessage = data['message']?.toString() ??
-            (data['error'] is Map ? data['error']['message']?.toString() : data['error']?.toString()) ??
-            '';
-      }
+      final parsed = parseApiError(
+        e,
+        fallback: defaultMsg,
+        networkMessage:
+            'تعذر الوصول إلى سيرفر النظام — تأكد من توفر اتصال بالإنترنت على الهاتف ثم أعد المحاولة.',
+      );
 
       if (statusCode == 401) {
         return Exception('انتهت جلسة تسجيل الدخول. يرجى إعادة تسجيل الدخول مجددًا.');
       } else if (statusCode == 403) {
-        return Exception(serverMessage.isNotEmpty
-            ? serverMessage
+        return Exception(parsed.message != defaultMsg
+            ? parsed.message
             : 'غير مصرح: باقة الاشتراك الحالية لا تسمح ببرمجة أو إضافة هذا الراوتر.');
       } else if (statusCode == 404) {
         return Exception('لم يتم العثور على جهاز الراوتر المحدد في النظام.');
       } else if (statusCode == 409) {
-        return Exception(serverMessage.isNotEmpty
-            ? serverMessage
+        return Exception(parsed.message != defaultMsg
+            ? parsed.message
             : 'يوجد تعارض في إعدادات الراوتر المختارة. راجع تفاصيل المعاينة.');
       } else if (e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.receiveTimeout ||
@@ -141,8 +139,8 @@ class RouterProvisioningService {
           'إذا كان الراوتر مبرمجاً مسبقاً ويحتوي على جداول شبكية كبيرة، '
           'يرجى الضغط على "إعادة فحص المعاينة" لإعادة المحاولة.',
         );
-      } else if (serverMessage.isNotEmpty) {
-        return Exception(serverMessage);
+      } else {
+        return Exception(parsed.message);
       }
     }
     return Exception(e.toString().replaceFirst('Exception: ', defaultMsg.isNotEmpty ? '$defaultMsg: ' : ''));
