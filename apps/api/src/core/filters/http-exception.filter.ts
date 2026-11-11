@@ -12,6 +12,7 @@ import type { Request, Response } from 'express';
 export interface ApiErrorResponse {
   success: false;
   statusCode: number;
+  message?: string;
   error: {
     code: string;
     message: string;
@@ -43,7 +44,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
       const resp = exceptionResponse as Record<string, unknown>;
-      if (resp['error'] && typeof resp['error'] === 'string') {
+      if (resp['code'] && typeof resp['code'] === 'string') {
+        errorCode = resp['code'].trim();
+      } else if (resp['error'] && typeof resp['error'] === 'string') {
         errorCode = resp['error'].toUpperCase().replace(/\s+/g, '_');
       }
       if (resp['message']) {
@@ -60,6 +63,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const errorPayload: ApiErrorResponse = {
       success: false,
       statusCode: status,
+      message: errorMessage,
       error: {
         code: errorCode,
         message: errorMessage,

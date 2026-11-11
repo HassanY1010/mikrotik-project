@@ -97,11 +97,76 @@ export class DevicesService {
     };
   }
 
+  private isPrivateHost(host: string): boolean {
+    const clean = host.trim().toLowerCase();
+    return (
+      clean === 'localhost' ||
+      /^(127\.|192\.168\.|10\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|fc|fd)/.test(clean)
+    );
+  }
+
+  private isArchivedHost(host: string): boolean {
+    return /__deleted_[a-zA-Z0-9_-]+$/.test(host);
+  }
+
+  private buildArchivedHost(host: string, id: string): string {
+    return this.isArchivedHost(host) ? host : `${host}__deleted_${id}`;
+  }
+
+  /**
+   * Renames soft-deleted device hosts holding the same (tenantId, host, apiPort)
+   * so historical FK-linked records remain intact while the endpoint can be reused.
+   */
+  private async releaseSoftDeletedEndpoint(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    host: string,
+    apiPort: number,
+    excludeDeviceId?: string,
+  ): Promise<void> {
+    const softDeletedMatches = await tx.mikroTikDevice.findMany({
+      where: {
+        tenantId,
+        host,
+        apiPort,
+        deletedAt: { not: null },
+        ...(excludeDeviceId ? { id: { not: excludeDeviceId } } : {}),
+      },
+    });
+
+    if (!Array.isArray(softDeletedMatches) || softDeletedMatches.length === 0) {
+      return;
+    }
+
+    for (const deletedDevice of softDeletedMatches) {
+      if (this.isArchivedHost(deletedDevice.host)) {
+        continue;
+      }
+      await tx.mikroTikDevice.update({
+        where: { id: deletedDevice.id },
+        data: {
+          host: this.buildArchivedHost(deletedDevice.host, deletedDevice.id),
+        },
+      });
+    }
+  }
+
   async create(tenantId: string, dto: CreateDeviceDto): Promise<DeviceResponse> {
     if (this.activeDeviceCreationLocks.has(tenantId)) {
       throw new ConflictException({
         code: 'CONCURRENT_DEVICE_CREATION',
         message: 'توجد عملية إضافة راوتر جارية حالياً لهذه الشبكة، يرجى الانتظار حتى اكتمالها',
+      });
+    }
+
+    const cleanName = dto.name?.trim() ?? '';
+    const cleanHost = dto.host?.trim() ?? '';
+    const cleanUsername = dto.username?.trim() ?? '';
+
+    if (!cleanName || !cleanHost || !cleanUsername) {
+      throw new BadRequestException({
+        code: 'INVALID_DEVICE_FIELDS',
+        message: 'اسم الراوتر وعنوان IP واسم المستخدم مطلوبة ولا يمكن أن تكون فارغة',
       });
     }
 
@@ -188,11 +253,11 @@ export class DevicesService {
           });
         }
 
-        // 2. Check duplicate host + port
+        // 2. Check duplicate active host + port and free any soft-deleted collision
         const existing = await tx.mikroTikDevice.findFirst({
           where: {
             tenantId: effectiveTenantId,
-            host: dto.host,
+            host: cleanHost,
             apiPort: resolvedApiPort,
             deletedAt: null,
           },
@@ -201,19 +266,21 @@ export class DevicesService {
         if (existing) {
           throw new ConflictException({
             code: 'DEVICE_EXISTS',
-            message: `الراوتر بالعنوان ${dto.host} والمنفذ ${resolvedApiPort} مسجل مسبقاً لهذا الحساب`,
+            message: `الراوتر بالعنوان ${cleanHost} والمنفذ ${resolvedApiPort} مسجل مسبقاً لهذا الحساب`,
           });
         }
+
+        await this.releaseSoftDeletedEndpoint(tx, effectiveTenantId, cleanHost, resolvedApiPort);
 
         return tx.mikroTikDevice.create({
           data: {
             tenantId: effectiveTenantId,
-            name: dto.name,
-            host: dto.host,
+            name: cleanName,
+            host: cleanHost,
             apiPort: resolvedApiPort,
             restPort: resolvedRestPort,
             useSsl: resolvedUseSsl,
-            username: dto.username,
+            username: cleanUsername,
             passwordEncrypted: ciphertext,
             iv,
             authTag,
@@ -224,9 +291,13 @@ export class DevicesService {
         });
       });
 
-    // 5. Attempt initial live handshake check
+    // 5. Attempt initial live handshake check (skip private LAN IPs unreachable from cloud API)
     try {
-      if (device && typeof this.mikrotikClientFactory?.createDirectClient === 'function') {
+      if (
+        device &&
+        !this.isPrivateHost(device.host) &&
+        typeof this.mikrotikClientFactory?.createDirectClient === 'function'
+      ) {
         const { client } = this.mikrotikClientFactory.createDirectClient({
           host: device.host,
           apiPort: device.apiPort,
@@ -388,49 +459,143 @@ export class DevicesService {
     return this.transformDevice(device);
   }
 
-  async update(tenantId: string, id: string, dto: UpdateDeviceDto): Promise<DeviceResponse> {
-    const existing = await this.prisma.mikroTikDevice.findFirst({
-      where: { id, tenantId, deletedAt: null },
-    });
+  async update(
+    tenantId: string | undefined | null,
+    id: string,
+    dto: UpdateDeviceDto,
+  ): Promise<DeviceResponse> {
+    const encryptedPassword = dto.password
+      ? this.encryptionService.encrypt(dto.password)
+      : null;
 
-    if (!existing) {
-      throw new NotFoundException({
-        code: 'DEVICE_NOT_FOUND',
-        message: `Device with ID ${id} was not found`,
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const whereClause: Prisma.MikroTikDeviceWhereInput = {
+        id,
+        deletedAt: null,
+      };
+      if (tenantId) {
+        whereClause.tenantId = tenantId;
+      }
+
+      const existing = await tx.mikroTikDevice.findFirst({
+        where: whereClause,
       });
-    }
 
-    const isRest = dto.connectionType === 'REST';
-    const data: Prisma.MikroTikDeviceUpdateInput = {};
-    if (dto.name !== undefined) data.name = dto.name;
-    if (dto.host !== undefined) data.host = dto.host;
-    if (dto.apiPort !== undefined) data.apiPort = dto.apiPort;
-    else if (dto.port !== undefined && !isRest) data.apiPort = dto.port;
-    if (dto.restPort !== undefined) data.restPort = dto.restPort;
-    else if (dto.port !== undefined && isRest) data.restPort = dto.port;
-    if (dto.useSsl !== undefined) data.useSsl = dto.useSsl;
-    else if (dto.useTls !== undefined) data.useSsl = dto.useTls;
-    if (dto.username !== undefined) data.username = dto.username;
-    if (dto.rosVersion !== undefined) data.rosVersion = dto.rosVersion;
+      if (!existing) {
+        throw new NotFoundException({
+          code: 'DEVICE_NOT_FOUND',
+          message: `Device with ID ${id} was not found`,
+        });
+      }
 
-    if (dto.password) {
-      const { ciphertext, iv, authTag } = this.encryptionService.encrypt(dto.password);
-      data.passwordEncrypted = ciphertext;
-      data.iv = iv;
-      data.authTag = authTag;
-    }
+      const isRest = dto.connectionType === 'REST';
+      const data: Prisma.MikroTikDeviceUpdateInput = {};
 
-    const updated = await this.prisma.mikroTikDevice.update({
-      where: { id },
-      data,
+      if (dto.name !== undefined) {
+        const cleanName = dto.name.trim();
+        if (!cleanName) {
+          throw new BadRequestException({
+            code: 'INVALID_NAME',
+            message: 'اسم الراوتر لا يمكن أن يكون فارغاً',
+          });
+        }
+        data.name = cleanName;
+      }
+
+      let targetHost = existing.host;
+      if (dto.host !== undefined) {
+        const cleanHost = dto.host.trim();
+        if (!cleanHost) {
+          throw new BadRequestException({
+            code: 'INVALID_HOST',
+            message: 'عنوان IP أو الدومين لا يمكن أن يكون فارغاً',
+          });
+        }
+        data.host = cleanHost;
+        targetHost = cleanHost;
+      }
+
+      let targetApiPort = existing.apiPort;
+      if (dto.apiPort !== undefined) {
+        data.apiPort = dto.apiPort;
+        targetApiPort = dto.apiPort;
+      } else if (dto.port !== undefined && !isRest) {
+        data.apiPort = dto.port;
+        targetApiPort = dto.port;
+      }
+
+      if (dto.restPort !== undefined) {
+        data.restPort = dto.restPort;
+      } else if (dto.port !== undefined && isRest) {
+        data.restPort = dto.port;
+      }
+
+      if (dto.useSsl !== undefined) data.useSsl = dto.useSsl;
+      else if (dto.useTls !== undefined) data.useSsl = dto.useTls;
+
+      if (dto.username !== undefined) {
+        const cleanUsername = dto.username.trim();
+        if (!cleanUsername) {
+          throw new BadRequestException({
+            code: 'INVALID_USERNAME',
+            message: 'اسم مستخدم الراوتر لا يمكن أن يكون فارغاً',
+          });
+        }
+        data.username = cleanUsername;
+      }
+
+      if (dto.rosVersion !== undefined) data.rosVersion = dto.rosVersion;
+
+      if (encryptedPassword) {
+        data.passwordEncrypted = encryptedPassword.ciphertext;
+        data.iv = encryptedPassword.iv;
+        data.authTag = encryptedPassword.authTag;
+      }
+
+      if (targetHost !== existing.host || targetApiPort !== existing.apiPort) {
+        const duplicateActive = await tx.mikroTikDevice.findFirst({
+          where: {
+            id: { not: id },
+            tenantId: existing.tenantId,
+            host: targetHost,
+            apiPort: targetApiPort,
+            deletedAt: null,
+          },
+        });
+
+        if (duplicateActive) {
+          throw new ConflictException({
+            code: 'DEVICE_EXISTS',
+            message: `الراوتر بالعنوان ${targetHost} والمنفذ ${targetApiPort} مسجل مسبقاً لهذا الحساب`,
+          });
+        }
+      }
+
+      await this.releaseSoftDeletedEndpoint(tx, existing.tenantId, targetHost, targetApiPort, id);
+
+      return tx.mikroTikDevice.update({
+        where: { id },
+        data,
+      });
     });
 
     return this.transformDevice(updated);
   }
 
-  async remove(tenantId: string, id: string): Promise<{ success: boolean; message: string }> {
+  async remove(
+    tenantId: string | undefined | null,
+    id: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const whereClause: Prisma.MikroTikDeviceWhereInput = {
+      id,
+      deletedAt: null,
+    };
+    if (tenantId) {
+      whereClause.tenantId = tenantId;
+    }
+
     const existing = await this.prisma.mikroTikDevice.findFirst({
-      where: { id, tenantId, deletedAt: null },
+      where: whereClause,
     });
 
     if (!existing) {
@@ -442,10 +607,13 @@ export class DevicesService {
 
     await this.prisma.mikroTikDevice.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: {
+        deletedAt: new Date(),
+        host: this.buildArchivedHost(existing.host, existing.id),
+      },
     });
 
-    this.logger.log(`Soft deleted MikroTik device ${id} for tenant ${tenantId}`);
+    this.logger.log(`Soft deleted MikroTik device ${id} for tenant ${existing.tenantId}`);
     return { success: true, message: 'Device deleted successfully' };
   }
 
@@ -515,9 +683,8 @@ export class DevicesService {
       };
     }
 
-    // Check private RFC1918 IP address
-    const isPrivateIp =
-      /^(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|[fF][cCdD])/.test(host);
+    // Check private RFC1918 / local IP address
+    const isPrivateIp = this.isPrivateHost(host);
 
     const startTime = Date.now();
     let targetPort: number | undefined;

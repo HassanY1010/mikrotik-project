@@ -70,6 +70,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const errorPayload: ApiErrorResponse = {
       success: false,
       statusCode,
+      message: errorMessage,
       error: {
         code: errorCode,
         message: errorMessage,

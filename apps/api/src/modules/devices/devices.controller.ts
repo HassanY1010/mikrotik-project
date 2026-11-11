@@ -42,7 +42,14 @@ export class DevicesController {
   ) {}
 
   @Get()
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'List all MikroTik routers belonging to the current tenant' })
   @ApiResponse({ status: 200, description: 'List of devices' })
   async findAll(
@@ -53,7 +60,13 @@ export class DevicesController {
   }
 
   @Post('test-connection')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Test direct live connectivity to a MikroTik router before saving' })
   @ApiResponse({ status: 200, description: 'Test result with detailed stages and latency' })
   async testDirectConnection(
@@ -84,7 +97,13 @@ export class DevicesController {
   }
 
   @Post()
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a new MikroTik router (enforces subscription maxRouters limit)' })
   @ApiResponse({ status: 201, description: 'Device created and credentials encrypted' })
@@ -98,7 +117,13 @@ export class DevicesController {
   }
 
   @Patch(':id')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Update MikroTik router settings or credentials' })
   @ApiResponse({ status: 200, description: 'Device updated' })
   @ApiResponse({ status: 404, description: 'Device not found' })
@@ -111,7 +136,13 @@ export class DevicesController {
   }
 
   @Delete(':id')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Soft delete a MikroTik router' })
   @ApiResponse({ status: 200, description: 'Device deleted' })
   @ApiResponse({ status: 404, description: 'Device not found' })
@@ -123,7 +154,13 @@ export class DevicesController {
   }
 
   @Post(':id/test-connection')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Test live connectivity to MikroTik router and sync status' })
   @ApiResponse({ status: 200, description: 'Test result with latency and router resource metrics' })
   async testConnection(
@@ -134,7 +171,13 @@ export class DevicesController {
   }
 
   @Get(':id/resources')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({
     summary: 'Fetch live system resources (CPU, RAM, Uptime) directly from RouterOS',
   })
@@ -147,7 +190,13 @@ export class DevicesController {
   }
 
   @Get(':id/diagnostics')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Get unified diagnostics metrics for a router' })
   @ApiResponse({ status: 200, description: 'Diagnostics metrics' })
   async getDiagnostics(@TenantId() tenantId: string, @Param('id') id: string) {
@@ -155,7 +204,13 @@ export class DevicesController {
   }
 
   @Post(':id/ping')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Quick ping / test connection to MikroTik router' })
   @ApiResponse({ status: 200, description: 'Ping response' })
   async pingDevice(@TenantId() tenantId: string, @Param('id') id: string) {
@@ -163,7 +218,7 @@ export class DevicesController {
   }
 
   @Post(':id/reboot')
-  @Roles(RoleName.TENANT_ADMIN)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.OWNER, RoleName.TENANT_ADMIN, RoleName.ADMIN)
   @ApiOperation({ summary: 'Remotely reboot MikroTik router' })
   @ApiResponse({ status: 200, description: 'Reboot signal sent' })
   async rebootDevice(@TenantId() tenantId: string, @Param('id') id: string) {
@@ -171,7 +226,14 @@ export class DevicesController {
   }
 
   @Post(':id/emergency-lock')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'Toggle emergency lock to halt or resume router operations' })
   @ApiResponse({ status: 200, description: 'Emergency lock status updated' })
   async toggleEmergencyLock(
@@ -185,7 +247,14 @@ export class DevicesController {
   }
 
   @Post(':id/anti-tethering')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'Toggle anti-tethering (TTL rule) to prevent hotspot sharing' })
   @ApiResponse({ status: 200, description: 'Anti-tethering status updated' })
   async toggleAntiTethering(
@@ -199,7 +268,13 @@ export class DevicesController {
   }
 
   @Post(':id/backup')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Create a live system backup on the MikroTik router' })
   @ApiResponse({ status: 201, description: 'Backup created successfully on router' })
   async createBackup(
@@ -212,7 +287,13 @@ export class DevicesController {
   }
 
   @Get(':id/backups')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'List backup files stored on the MikroTik router' })
   @ApiResponse({ status: 200, description: 'List of backup files' })
   async listBackups(@TenantId() tenantId: string, @Param('id') id: string) {
@@ -220,7 +301,13 @@ export class DevicesController {
   }
 
   @Get(':id/backups/:filename/download')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Securely download a backup file from the MikroTik router' })
   @ApiResponse({ status: 200, description: 'Binary backup file stream' })
   async downloadBackup(
@@ -248,7 +335,7 @@ export class DevicesController {
   }
 
   @Post(':id/backups/restore')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN)
+  @Roles(RoleName.SUPER_ADMIN, RoleName.OWNER, RoleName.TENANT_ADMIN, RoleName.ADMIN)
   @ApiOperation({ summary: 'Restore a backup file on the MikroTik router and reboot it' })
   @ApiResponse({ status: 200, description: 'Backup restore initiated, router rebooting' })
   async restoreBackup(
@@ -268,7 +355,14 @@ export class DevicesController {
   }
 
   @Get(':id/connected-devices')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({
     summary: 'List all connected devices (DHCP leases, ARP entries, Neighbors) for a specific router',
   })
@@ -289,7 +383,13 @@ export class DevicesController {
   // ===========================================================================
 
   @Get(':id/provision/discover')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Discover live network interfaces, bridges, IPs and hotspot services on router' })
   @ApiResponse({ status: 200, description: 'Live router network discovery snapshot' })
   async discoverNetwork(
@@ -300,7 +400,13 @@ export class DevicesController {
   }
 
   @Post(':id/provision/discover')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Save or sync client-discovered live network snapshot' })
   @ApiResponse({ status: 200, description: 'Snapshot synchronized successfully' })
   async syncDiscoveredNetwork(
@@ -312,7 +418,13 @@ export class DevicesController {
   }
 
   @Post(':id/provision/preview')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Generate a non-destructive preview with conflict checks and RouterOS commands' })
   @ApiResponse({ status: 200, description: 'Provisioning preview plan with commands and warnings' })
   async previewProvisioning(
@@ -324,7 +436,13 @@ export class DevicesController {
   }
 
   @Post(':id/provision/apply')
-  @Roles(RoleName.SUPER_ADMIN, RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Safely execute router provisioning with backup and multi-point verification' })
   @ApiResponse({ status: 200, description: 'Provisioning execution results with step logs and diagnostics' })
   async applyProvisioning(

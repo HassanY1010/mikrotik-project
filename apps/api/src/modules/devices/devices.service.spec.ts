@@ -306,6 +306,195 @@ describe('DevicesService', () => {
       expect((result as any).iv).toBeUndefined();
       expect((result as any).authTag).toBeUndefined();
     });
+
+    it('should archive soft-deleted duplicate host+port before creating and skip cloud handshake for private LAN host', async () => {
+      mikrotikClientFactory.createDirectClient = jest.fn();
+      prisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        maxRouters: 3,
+        plan: { name: 'PRO', maxRouters: 3 },
+        expiresAt: new Date(Date.now() + 86400000),
+      });
+      prisma.mikroTikDevice.count.mockResolvedValue(0);
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(null);
+      prisma.mikroTikDevice.findMany.mockResolvedValue([
+        {
+          id: 'soft-deleted-1',
+          tenantId: mockTenantId,
+          host: '192.168.1.147',
+          apiPort: 8728,
+          deletedAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ]);
+      prisma.mikroTikDevice.update.mockResolvedValue({ id: 'soft-deleted-1' });
+      prisma.mikroTikDevice.create.mockResolvedValue({
+        id: 'router-new-1',
+        tenantId: mockTenantId,
+        name: 'FASTT NET',
+        host: '192.168.1.147',
+        apiPort: 8728,
+        restPort: 80,
+        useSsl: false,
+        username: 'admin',
+        rosVersion: RouterOsVersion.V7,
+        isOnline: false,
+        status: 'OFFLINE',
+        lastSyncAt: null,
+        lastError: null,
+        cpuLoad: null,
+        memoryFree: null,
+        memoryTotal: null,
+        diskFree: null,
+        diskTotal: null,
+        uptime: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await service.create(mockTenantId, {
+        name: '  FASTT NET  ',
+        host: ' 192.168.1.147 ',
+        apiPort: 8728,
+        restPort: 80,
+        useSsl: false,
+        username: ' admin ',
+        password: 'MIX25110',
+        rosVersion: RouterOsVersion.V7,
+      });
+
+      expect(prisma.mikroTikDevice.update).toHaveBeenCalledWith({
+        where: { id: 'soft-deleted-1' },
+        data: { host: '192.168.1.147__deleted_soft-deleted-1' },
+      });
+      expect(prisma.mikroTikDevice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            name: 'FASTT NET',
+            host: '192.168.1.147',
+            username: 'admin',
+            restPort: 80,
+          }),
+        }),
+      );
+      expect(mikrotikClientFactory.createDirectClient).not.toHaveBeenCalled();
+      expect(res.id).toBe('router-new-1');
+    });
+  });
+
+  describe('update & remove', () => {
+    const existingDevice = {
+      id: mockDeviceId,
+      tenantId: mockTenantId,
+      name: 'Old Router',
+      host: '192.168.88.1',
+      apiPort: 8728,
+      restPort: 443,
+      useSsl: false,
+      username: 'admin',
+      passwordEncrypted: 'old_enc',
+      iv: '1122',
+      authTag: '3344',
+      rosVersion: RouterOsVersion.V7,
+      isOnline: false,
+      status: 'OFFLINE',
+      lastSyncAt: null,
+      lastError: null,
+      cpuLoad: null,
+      memoryFree: null,
+      memoryTotal: null,
+      diskFree: null,
+      diskTotal: null,
+      uptime: null,
+      modelName: null,
+      isLocked: false,
+      antiTetheringEnabled: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    };
+
+    it('should update router host, ports and re-encrypt password cleanly while releasing soft-deleted collisions', async () => {
+      prisma.mikroTikDevice.findFirst
+        .mockResolvedValueOnce(existingDevice) // existing lookup
+        .mockResolvedValueOnce(null); // duplicate active check
+      prisma.mikroTikDevice.findMany.mockResolvedValue([
+        {
+          id: 'old-deleted-device',
+          tenantId: mockTenantId,
+          host: '192.168.1.147',
+          apiPort: 8728,
+          deletedAt: new Date(),
+        },
+      ]);
+      prisma.mikroTikDevice.update
+        .mockResolvedValueOnce({ id: 'old-deleted-device' })
+        .mockResolvedValueOnce({
+          ...existingDevice,
+          name: 'FASTT NET',
+          host: '192.168.1.147',
+          restPort: 80,
+          passwordEncrypted: 'encrypted_hex_payload',
+        });
+
+      const updated = await service.update(mockTenantId, mockDeviceId, {
+        name: ' FASTT NET ',
+        host: ' 192.168.1.147 ',
+        apiPort: 8728,
+        restPort: 80,
+        password: 'MIX25110',
+      });
+
+      expect(encryptionService.encrypt).toHaveBeenCalledWith('MIX25110');
+      expect(prisma.mikroTikDevice.update).toHaveBeenNthCalledWith(1, {
+        where: { id: 'old-deleted-device' },
+        data: { host: '192.168.1.147__deleted_old-deleted-device' },
+      });
+      expect(prisma.mikroTikDevice.update).toHaveBeenNthCalledWith(2, {
+        where: { id: mockDeviceId },
+        data: expect.objectContaining({
+          name: 'FASTT NET',
+          host: '192.168.1.147',
+          restPort: 80,
+          passwordEncrypted: 'encrypted_hex_payload',
+        }),
+      });
+      expect(updated.host).toBe('192.168.1.147');
+      expect((updated as any).passwordEncrypted).toBeUndefined();
+    });
+
+    it('should throw ConflictException (DEVICE_EXISTS) when updating host+apiPort to another active device', async () => {
+      prisma.mikroTikDevice.findFirst
+        .mockResolvedValueOnce(existingDevice)
+        .mockResolvedValueOnce({ id: 'other-active-device', host: '192.168.1.147', apiPort: 8728 });
+
+      await expect(
+        service.update(mockTenantId, mockDeviceId, { host: '192.168.1.147', apiPort: 8728 }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should throw NotFoundException when updating a non-existent device', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update(mockTenantId, 'missing-id', { name: 'Test' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should soft-delete device and archive its host to free the unique slot', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValue(existingDevice);
+      prisma.mikroTikDevice.update.mockResolvedValue({ ...existingDevice, deletedAt: new Date() });
+
+      const res = await service.remove(mockTenantId, mockDeviceId);
+
+      expect(res.success).toBe(true);
+      expect(prisma.mikroTikDevice.update).toHaveBeenCalledWith({
+        where: { id: mockDeviceId },
+        data: expect.objectContaining({
+          deletedAt: expect.any(Date),
+          host: `192.168.88.1__deleted_${mockDeviceId}`,
+        }),
+      });
+    });
   });
 
   describe('findById', () => {
