@@ -543,6 +543,53 @@ void main() {
         throwsA(isA<Exception>()),
       );
     });
+
+    test('ProvisionConflictModel parses isOverridable and resolutionOptions accurately', () {
+      final nonOverridable = ProvisionConflictModel.fromJson({
+        'resource': 'MANAGEMENT_PATH_INDETERMINATE',
+        'existingValue': 'العنوان المسجل: 192.168.88.1',
+        'proposedValue': 'تحديد مسار الإدارة الصحيح للراوتر',
+        'details': 'تعذر تحديد مسار الإدارة',
+        'isOverridable': false,
+        'resolutionOptions': [
+          {
+            'type': 'SELECT_HOST',
+            'label': 'استخدام عنوان الراوتر 10.0.0.1 (LAN)',
+            'host': '10.0.0.1',
+            'interfaceName': 'LAN',
+          },
+          {
+            'type': 'SELECT_INTERFACE',
+            'label': 'الإدارة عبر منفذ الإنترنت / NAT (ether1)',
+            'interfaceName': 'ether1',
+          },
+        ],
+      });
+
+      expect(nonOverridable.isOverridable, isFalse);
+      expect(nonOverridable.resolutionOptions.length, 2);
+      expect(nonOverridable.resolutionOptions.first.type, 'SELECT_HOST');
+      expect(nonOverridable.resolutionOptions.first.host, '10.0.0.1');
+      expect(nonOverridable.resolutionOptions.last.type, 'SELECT_INTERFACE');
+      expect(nonOverridable.resolutionOptions.last.interfaceName, 'ether1');
+
+      // Fallback when isOverridable field is omitted in legacy payloads
+      final fallbackCritical = ProvisionConflictModel.fromJson({
+        'resource': 'MANAGEMENT_PORT_BRIDGED',
+        'existingValue': '192.168.88.1 on ether2',
+        'proposedValue': 'bridge ether2',
+        'details': 'lockout risk',
+      });
+      expect(fallbackCritical.isOverridable, isFalse);
+
+      final fallbackSoft = ProvisionConflictModel.fromJson({
+        'resource': 'HOTSPOT_DUPLICATE_SERVER',
+        'existingValue': 'hs-old',
+        'proposedValue': 'hs-sudafi',
+        'details': 'duplicate hotspot',
+      });
+      expect(fallbackSoft.isOverridable, isTrue);
+    });
   });
 }
 

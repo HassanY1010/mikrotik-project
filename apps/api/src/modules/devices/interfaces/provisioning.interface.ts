@@ -60,11 +60,20 @@ export interface RouterDiscoverySnapshot {
   hotspotServers: RouterHotspotServerItem[];
 }
 
+export interface ProvisioningConflictResolutionOption {
+  type: 'SELECT_HOST' | 'SELECT_INTERFACE';
+  label: string;
+  host?: string;
+  interfaceName?: string;
+}
+
 export interface ProvisioningConflict {
   resource: string;
   existingValue: string;
   proposedValue: string;
   details: string;
+  isOverridable?: boolean;
+  resolutionOptions?: ProvisioningConflictResolutionOption[];
 }
 
 export interface ProvisioningWarning {

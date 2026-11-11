@@ -252,5 +252,20 @@ export class ProvisionPreviewDto {
   @IsString()
   @IsOptional()
   sessionId?: string;
+
+  @ApiPropertyOptional({ description: 'Actual router host/IP currently connected from client UI' })
+  @IsString()
+  @IsOptional()
+  connectedHost?: string;
+
+  @ApiPropertyOptional({ description: 'Explicit router IP confirmed by operator as management path' })
+  @IsString()
+  @IsOptional()
+  confirmedManagementHost?: string;
+
+  @ApiPropertyOptional({ description: 'Explicit router interface confirmed by operator for NAT/indirect management' })
+  @IsString()
+  @IsOptional()
+  confirmedManagementInterface?: string;
 }
 

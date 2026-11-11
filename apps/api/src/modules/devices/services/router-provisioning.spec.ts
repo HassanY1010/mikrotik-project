@@ -4578,6 +4578,108 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
         expect(mockMikrotikClient.runRawCommand).not.toHaveBeenCalled();
       });
     });
+
+    describe('16. Connected Host Reconciliation, Resolution Options & Overridable Flags', () => {
+      const programmedL009Snapshot = {
+        resource: { version: '7.16', uptime: '5d 2h', cpuLoad: 2 },
+        interfaces: [
+          { name: 'ether1', type: 'ether', running: true, disabled: false },
+          { name: 'ether2', type: 'ether', running: true, disabled: false },
+          { name: 'ether3', type: 'ether', running: true, disabled: false },
+          { name: 'sfp1', type: 'ether', running: false, disabled: false },
+          { name: 'ether5', type: 'ether', running: false, disabled: false },
+          { name: 'LAN', type: 'bridge', running: true, disabled: false },
+        ],
+        bridges: [{ name: 'LAN' }],
+        bridgePorts: [
+          { id: '*1', interface: 'ether2', bridge: 'LAN' },
+          { id: '*2', interface: 'ether3', bridge: 'LAN' },
+        ],
+        ipAddresses: [
+          { id: '*1', address: '10.0.0.1/22', interface: 'LAN', disabled: false },
+          { id: '*2', address: '192.168.1.55/24', interface: 'ether1', disabled: false },
+        ],
+        routes: [{ 'dst-address': '0.0.0.0/0', gateway: '192.168.1.1', 'gateway-status': '192.168.1.1 reachable ether1' }],
+        dhcpServers: [],
+        natRules: [],
+        hotspotServers: [{ name: 'Mikrotik', interface: 'LAN' }],
+      };
+
+      it('should reconcile stale DB host (192.168.88.1) when connectedHost (10.0.0.1) or confirmedManagementHost exists in discovery', async () => {
+        mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({
+          ...sampleDevice,
+          host: '192.168.88.1', // Stale host saved in PostgreSQL
+          rosVersion: 'V7',
+        });
+
+        // Pre-condition: without connectedHost, still triggers MANAGEMENT_PATH_INDETERMINATE with options & isOverridable=false
+        const blockedDto: ProvisionPreviewDto = {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP', enableNat: true },
+          lan: {
+            bridgeName: 'bridge-hotspot',
+            memberInterfaces: ['ether2', 'ether3'],
+            gatewayIp: '10.5.50.1/24',
+          },
+          snapshot: programmedL009Snapshot,
+          discoveredAt: new Date().toISOString(),
+        };
+        const blockedPreview = await service.preview('tenant-001', 'dev-001', blockedDto);
+        expect(blockedPreview.canProceed).toBe(false);
+        const mgmtConflict = blockedPreview.conflicts.find(
+          (c) => c.resource === 'MANAGEMENT_PATH_INDETERMINATE',
+        );
+        expect(mgmtConflict).toBeDefined();
+        expect(mgmtConflict?.isOverridable).toBe(false);
+        expect(mgmtConflict?.resolutionOptions?.some((o) => o.type === 'SELECT_HOST' && o.host === '192.168.1.55')).toBe(true);
+        expect(mgmtConflict?.resolutionOptions?.some((o) => o.type === 'SELECT_INTERFACE' && o.interfaceName === 'ether1')).toBe(true);
+        expect(mgmtConflict?.existingValue).not.toContain('غير مسجل على أي واجهة');
+
+        // With connectedHost from WAN IP (not depleted!) -> proves management path cleanly
+        const reconciledDto: ProvisionPreviewDto = {
+          ...blockedDto,
+          connectedHost: '192.168.1.55',
+        };
+        const okPreview = await service.preview('tenant-001', 'dev-001', reconciledDto);
+        expect(okPreview.conflicts.some((c) => c.resource === 'MANAGEMENT_PATH_INDETERMINATE')).toBe(false);
+        expect(okPreview.canProceed).toBe(true);
+      });
+
+      it('should allow explicitly confirmed indirect WAN/NAT management interface while still enforcing member-port lockout rules', async () => {
+        mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({
+          ...sampleDevice,
+          host: '192.168.88.1', // NAT / upstream IP not present verbatim in MikroTik /ip/address
+          rosVersion: 'V7',
+        });
+
+        // Confirming WAN interface ether1 passes topology safely
+        const natDto: ProvisionPreviewDto = {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP', enableNat: true },
+          lan: {
+            bridgeName: 'bridge-hotspot',
+            memberInterfaces: ['ether2', 'ether3'],
+            gatewayIp: '10.5.50.1/24',
+          },
+          confirmedManagementInterface: 'ether1',
+          snapshot: programmedL009Snapshot,
+          discoveredAt: new Date().toISOString(),
+        };
+
+        const natPreview = await service.preview('tenant-001', 'dev-001', natDto);
+        expect(natPreview.conflicts.some((c) => c.resource === 'MANAGEMENT_PATH_INDETERMINATE')).toBe(false);
+        expect(natPreview.canProceed).toBe(true);
+
+        // Security invariant: confirming an interface that IS in memberInterfaces must STILL block with MANAGEMENT_PORT_BRIDGED
+        const unsafeDto: ProvisionPreviewDto = {
+          ...natDto,
+          confirmedManagementInterface: 'ether2',
+        };
+        const unsafePreview = await service.preview('tenant-001', 'dev-001', unsafeDto);
+        expect(unsafePreview.canProceed).toBe(false);
+        expect(unsafePreview.conflicts.some((c) => c.resource === 'MANAGEMENT_PORT_BRIDGED')).toBe(true);
+      });
+    });
   });
 });
 

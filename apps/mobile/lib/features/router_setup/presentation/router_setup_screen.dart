@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/models/router_provisioning_models.dart';
@@ -90,6 +91,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   bool _cleanSetupConfirmed = false;
   bool _allowOverwrite = false;
   final bool _updateRouterHostIfChanged = true;
+  String? _confirmedManagementHost;
+  String? _confirmedManagementInterface;
 
   // Step 6: Execution (Apply) State
   bool _isApplying = false;
@@ -223,8 +226,17 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   }
 
   void _selectDiscoveredRouter(DiscoveredRouterModel router) {
+    final existingRouters = ref.read(routersProvider).asData?.value ?? [];
+    final matchedSaved = existingRouters
+        .where((x) => x.host.trim() == router.ip.trim())
+        .firstOrNull;
+
     setState(() {
+      _hasManuallySwitchedMode = true;
       _selectedDiscoveredRouter = router;
+      if (matchedSaved != null) {
+        _selectedDeviceId = matchedSaved.id;
+      }
       _nameController.text = router.identity.isNotEmpty ? router.identity : 'MikroTik (${router.ip})';
       _hostController.text = router.ip;
       _rosVersion = router.rosVersion;
@@ -254,6 +266,13 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       _setupMode = 'MANUAL';
       _testResult = null;
       _testSuccess = null;
+      _discovery = null;
+      _discoveryError = null;
+      _preview = null;
+      _previewError = null;
+      _allowOverwrite = false;
+      _confirmedManagementHost = null;
+      _confirmedManagementInterface = null;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -290,6 +309,11 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       _routerMetrics = null;
       _discovery = null;
       _discoveryError = null;
+      _preview = null;
+      _previewError = null;
+      _allowOverwrite = false;
+      _confirmedManagementHost = null;
+      _confirmedManagementInterface = null;
     });
   }
 
@@ -361,9 +385,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             }
           });
 
-          if (_selectedDeviceId == null) {
-            await _handleSaveNewDeviceSilently();
-          }
+          await _handleSaveNewDeviceSilently();
           return;
         } else if (localRes['code'] == 'INVALID_CREDENTIALS') {
           setState(() {
@@ -421,8 +443,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         _routerMetrics = info;
       });
 
-      if (isOk && _selectedDeviceId == null) {
-        // Auto save newly tested device so it gets an ID for discovery
+      if (isOk) {
+        // Auto-save new device or synchronize host/port updates for existing device
         await _handleSaveNewDeviceSilently();
       }
     } catch (e) {
@@ -436,25 +458,89 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   }
 
   Future<bool> _handleSaveNewDeviceSilently() async {
-    if (_selectedDeviceId != null) return true;
-    final payload = {
-      'name': _nameController.text.trim(),
-      'host': _hostController.text.trim(),
-      'apiPort': int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728),
-      'restPort': int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80),
-      'username': _userController.text.trim(),
-      'password': _passController.text.trim(),
+    final host = _hostController.text.trim();
+    final name = _nameController.text.trim();
+    final user = _userController.text.trim();
+    final pass = _passController.text.trim();
+    final resolvedApiPort = int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728);
+    final resolvedRestPort = int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80);
+
+    final existingRouters = ref.read(routersProvider).asData?.value ?? [];
+
+    // Re-point to an existing saved device that already owns (host, apiPort) to prevent 409 Conflict
+    final sameEndpoint = existingRouters
+        .where((x) => x.host.trim() == host && x.apiPort == resolvedApiPort)
+        .firstOrNull;
+    if (sameEndpoint != null && _selectedDeviceId != sameEndpoint.id) {
+      setState(() {
+        _selectedDeviceId = sameEndpoint.id;
+      });
+    }
+
+    String? targetId = _selectedDeviceId;
+    if (targetId != null && _setupMode == 'ACCOUNT') {
+      return true;
+    }
+
+    if (targetId != null) {
+      final currentSaved = existingRouters.where((x) => x.id == targetId).firstOrNull;
+      if (currentSaved != null) {
+        final savedRos = currentSaved.rosVersion.toUpperCase().contains('V6') ? 'V6' : 'V7';
+        int normalizedSavedRest = currentSaved.restPort;
+        if (!currentSaved.useSsl && normalizedSavedRest == 443) normalizedSavedRest = 80;
+        if (currentSaved.useSsl && normalizedSavedRest == 80) normalizedSavedRest = 443;
+        int normalizedSavedApi = currentSaved.apiPort;
+        if (!currentSaved.useSsl && normalizedSavedApi == 8729) normalizedSavedApi = 8728;
+        if (currentSaved.useSsl && normalizedSavedApi == 8728) normalizedSavedApi = 8729;
+
+        final hasChanges =
+            host != currentSaved.host.trim() ||
+            (name.isNotEmpty && name != currentSaved.name.trim()) ||
+            resolvedApiPort != normalizedSavedApi ||
+            resolvedRestPort != normalizedSavedRest ||
+            user != currentSaved.username.trim() ||
+            _rosVersion != savedRos ||
+            _useSsl != currentSaved.useSsl ||
+            pass.isNotEmpty;
+
+        if (!hasChanges) {
+          return true;
+        }
+      }
+    }
+
+    final payload = <String, dynamic>{
+      if (name.isNotEmpty) 'name': name,
+      'host': host,
+      'apiPort': resolvedApiPort,
+      'restPort': resolvedRestPort,
+      'username': user,
+      if (targetId == null || pass.isNotEmpty) 'password': pass,
       'rosVersion': _rosVersion,
       'useSsl': _useSsl,
     };
 
-    final saveRes = await ref.read(routersProvider.notifier).saveRouter(payload, id: _selectedDeviceId);
+    final saveRes = await ref.read(routersProvider.notifier).saveRouter(payload, id: targetId);
     if (!mounted) return false;
 
-    if (saveRes['success'] == true && saveRes['data'] != null) {
-      final dev = saveRes['data'] as Map<String, dynamic>;
+    if (saveRes['success'] == true) {
+      final rawData = saveRes['data'];
+      Map<String, dynamic>? dev;
+      if (rawData is Map<String, dynamic>) {
+        dev = rawData['data'] is Map<String, dynamic>
+            ? rawData['data'] as Map<String, dynamic>
+            : rawData;
+      }
+      String? resolvedId = dev?['id']?.toString() ?? targetId;
+      if (resolvedId == null) {
+        final refreshed = ref.read(routersProvider).asData?.value ?? [];
+        resolvedId = refreshed
+            .where((x) => x.host.trim() == host && x.apiPort == resolvedApiPort)
+            .firstOrNull
+            ?.id;
+      }
       setState(() {
-        _selectedDeviceId = dev['id']?.toString() ?? _selectedDeviceId;
+        _selectedDeviceId = resolvedId;
       });
       return true;
     } else {
@@ -622,6 +708,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         'defaultSessionTimeout': '1d',
       },
       'securityPolicies': _securityPolicies.toJson(),
+      if (_hostController.text.trim().isNotEmpty) 'connectedHost': _hostController.text.trim(),
+      if (_confirmedManagementHost != null) 'confirmedManagementHost': _confirmedManagementHost,
+      if (_confirmedManagementInterface != null) 'confirmedManagementInterface': _confirmedManagementInterface,
       if (_discovery != null) ...{
         'snapshot': _discovery!.toJson(),
         if (_discovery!.snapshotHash != null) 'snapshotHash': _discovery!.snapshotHash,
@@ -655,6 +744,9 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         _preview = previewData;
         if (previewData.requiresCleanConfirmation) {
           _cleanSetupConfirmed = false;
+        }
+        if (!previewData.conflicts.any((c) => c.isOverridable)) {
+          _allowOverwrite = false;
         }
       });
     } catch (e) {
@@ -1207,7 +1299,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               children: [
                 Expanded(
                   child: InkWell(
-                    onTap: () => setState(() => _setupMode = 'ACCOUNT'),
+                    onTap: () => setState(() {
+                      _hasManuallySwitchedMode = true;
+                      _setupMode = 'ACCOUNT';
+                    }),
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1239,7 +1334,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 ),
                 Expanded(
                   child: InkWell(
-                    onTap: () => setState(() => _setupMode = 'DISCOVERY'),
+                    onTap: () => setState(() {
+                      _hasManuallySwitchedMode = true;
+                      _setupMode = 'DISCOVERY';
+                    }),
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1271,7 +1369,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 ),
                 Expanded(
                   child: InkWell(
-                    onTap: () => setState(() => _setupMode = 'MANUAL'),
+                    onTap: () => setState(() {
+                      _hasManuallySwitchedMode = true;
+                      _setupMode = 'MANUAL';
+                    }),
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -2694,53 +2795,135 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         ] else if (_preview != null) ...[
           // Conflicts Card (if any)
           if (_preview!.conflicts.isNotEmpty) ...[
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.redAccent),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.error_outline, color: Colors.redAccent, size: 20),
-                      SizedBox(width: 8),
+            Builder(builder: (context) {
+              final isDark = Theme.of(context).brightness == Brightness.dark;
+              final conflictRed = isDark ? const Color(0xFFF87171) : const Color(0xFFB91C1C);
+              final hasOverridableConflicts = _preview!.conflicts.any((c) => c.isOverridable);
+
+              return Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: conflictRed.withValues(alpha: 0.7)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.error_outline, color: conflictRed, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'تم اكتشاف تعارضات شبكية:',
+                            style: TextStyle(color: conflictRed, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ..._preview!.conflicts.map((c) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '• ${c.details}',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: context.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.4,
+                                ),
+                              ),
+                              if (c.existingValue.isNotEmpty || c.proposedValue.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  'الحالية: ${c.existingValue}  |  المطلوب: ${c.proposedValue}',
+                                  style: TextStyle(fontSize: 10.5, color: context.textSecondary, height: 1.35),
+                                ),
+                              ],
+                              if (c.resolutionOptions.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'اختر مسار الإدارة المعتمد لإعادة الفحص:',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: context.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 6,
+                                  children: c.resolutionOptions.map((opt) {
+                                    return OutlinedButton.icon(
+                                      onPressed: _isPreviewing
+                                          ? null
+                                          : () {
+                                              setState(() {
+                                                if (opt.type == 'SELECT_HOST' && (opt.host ?? '').isNotEmpty) {
+                                                  _confirmedManagementHost = opt.host;
+                                                  _confirmedManagementInterface = null;
+                                                } else if ((opt.interfaceName ?? '').isNotEmpty) {
+                                                  _confirmedManagementInterface = opt.interfaceName;
+                                                  _confirmedManagementHost = null;
+                                                }
+                                              });
+                                              _handleGeneratePreview();
+                                            },
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppTheme.primary,
+                                        backgroundColor: context.bgCard,
+                                        side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.6)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                      icon: Icon(
+                                        opt.type == 'SELECT_HOST' ? Icons.router_outlined : Icons.settings_ethernet,
+                                        size: 15,
+                                      ),
+                                      label: Text(
+                                        opt.label,
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
+                            ],
+                          ),
+                        )),
+                    if (hasOverridableConflicts) ...[
+                      const SizedBox(height: 6),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          'الموافقة على تجاوز وتكييف هذه التعارضات تلقائياً',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary),
+                        ),
+                        value: _allowOverwrite,
+                        activeThumbColor: conflictRed,
+                        onChanged: (v) => setState(() => _allowOverwrite = v),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 4),
                       Text(
-                        'تم اكتشاف تعارضات شبكية:',
-                        style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 13),
+                        'تعارض حرج لحماية الراوتر من الانقطاع — لا يمكن تجاوزه تلقائياً ويجب حله أعلاه أو بتعديل المنافذ.',
+                        style: TextStyle(fontSize: 10.5, color: conflictRed, fontWeight: FontWeight.w600),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 8),
-                  ..._preview!.conflicts.map((c) => Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          '• ${c.details} (القيمة الحالية: ${c.existingValue} | المقترحة: ${c.proposedValue})',
-                          style: TextStyle(fontSize: 11, color: context.textSecondary),
-                        ),
-                      )),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      'الموافقة على تجاوز وتكييف هذه التعارضات تلقائياً',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary),
-                    ),
-                    value: _allowOverwrite,
-                    activeThumbColor: Colors.redAccent,
-                    onChanged: (v) => setState(() => _allowOverwrite = v),
-                  ),
-                ],
-              ),
-            ),
+                  ],
+                ),
+              );
+            }),
             const SizedBox(height: 14),
           ],
 
-          // Red error card when preview is empty or cannot proceed
-          if (!_preview!.canProceed || _preview!.plannedSteps.isEmpty || _preview!.generatedCommands.isEmpty) ...[
+          // Show failure banner only when preview actually failed to produce steps/commands (or blocked with no conflict details)
+          if (_preview!.plannedSteps.isEmpty || _preview!.generatedCommands.isEmpty) ...[
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -2754,7 +2937,33 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'تعذر قراءة إعدادات الراوتر - لا يمكن المتابعة',
+                      'تعذر قراءة إعدادات الراوتر أو توليد الأوامر - لا يمكن المتابعة',
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+          ] else if (!_preview!.canProceed && _preview!.conflicts.isEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.redAccent, width: 1.5),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.redAccent, size: 24),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'لا يمكن المتابعة لتطبيق الإعداد في الحالة الحالية للراوتر',
                       style: TextStyle(
                         color: Colors.redAccent,
                         fontWeight: FontWeight.bold,
@@ -2891,34 +3100,94 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
               tilePadding: EdgeInsets.zero,
-              title: const Text(
-                'عرض أوامر RouterOS الفعلية (RouterOS Script)',
-                style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold),
+              title: Text(
+                'عرض أوامر RouterOS الفعلية (${_preview!.generatedCommands.length})',
+                style: const TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold),
               ),
               children: [
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.5),
+                    color: const Color(0xFF0F172A),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white12),
+                    border: Border.all(color: const Color(0xFF334155)),
                   ),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _preview!.generatedCommands
-                        .map((c) => Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: Text(
-                                c.command,
-                                style: const TextStyle(
-                                  color: Color(0xFF10B981),
-                                  fontFamily: 'monospace',
-                                  fontSize: 10,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF1E293B),
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(9)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'RouterOS Script',
+                              style: TextStyle(
+                                color: Color(0xFF94A3B8),
+                                fontFamily: 'monospace',
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            InkWell(
+                              onTap: () async {
+                                final messenger = ScaffoldMessenger.of(context);
+                                final fullScript = _preview!.generatedCommands
+                                    .map((c) => c.command)
+                                    .join('\n');
+                                await Clipboard.setData(ClipboardData(text: fullScript));
+                                if (!mounted) return;
+                                messenger.showSnackBar(
+                                  const SnackBar(
+                                    content: Text('تم نسخ أوامر RouterOS بنجاح'),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(6),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.copy_rounded, size: 13, color: Color(0xFF34D399)),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'نسخ',
+                                      style: TextStyle(
+                                        color: Color(0xFF34D399),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ))
-                        .toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Directionality(
+                        textDirection: TextDirection.ltr,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.all(12),
+                          child: SelectableText(
+                            _preview!.generatedCommands.map((c) => c.command).join('\n'),
+                            style: const TextStyle(
+                              color: Color(0xFF34D399),
+                              fontFamily: 'monospace',
+                              fontSize: 11.5,
+                              height: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -3631,23 +3900,29 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           ),
           const SizedBox(height: 10),
           ...reports.map((r) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final activeGreen = isDark ? const Color(0xFF4ADE80) : const Color(0xFF15803D);
+            final proposedTeal = isDark ? const Color(0xFF2DD4BF) : AppTheme.primary;
+            final disabledSlate = isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569);
+            final warnAmber = isDark ? const Color(0xFFFBBF24) : const Color(0xFFB45309);
+
             Color statusColor;
             String statusText;
             switch (r.status) {
               case 'ACTIVE_ON_ROUTER':
-                statusColor = Colors.green;
+                statusColor = activeGreen;
                 statusText = 'مفعلة على الراوتر';
                 break;
               case 'PROPOSED':
-                statusColor = AppTheme.primary;
+                statusColor = proposedTeal;
                 statusText = 'سيتم تطبيقها';
                 break;
               case 'DISABLED':
-                statusColor = Colors.grey;
+                statusColor = disabledSlate;
                 statusText = 'معطلة';
                 break;
               default:
-                statusColor = Colors.orange;
+                statusColor = warnAmber;
                 statusText = 'غير مدعومة';
             }
 
@@ -3663,23 +3938,38 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: Text(
                           r.name,
-                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 11),
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 11.5, height: 1.35),
                         ),
                       ),
+                      const SizedBox(width: 10),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: statusColor),
+                          color: statusColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: statusColor.withValues(alpha: 0.85)),
                         ),
                         child: Text(
                           statusText,
-                          style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('• القدرة الواقعية: ', style: TextStyle(fontSize: 10.5, color: activeGreen, fontWeight: FontWeight.bold)),
+                      Expanded(
+                        child: Text(
+                          r.realisticEffect,
+                          style: TextStyle(fontSize: 10.5, color: context.textSecondary, height: 1.35),
                         ),
                       ),
                     ],
@@ -3688,24 +3978,11 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('• القدرة الواقعية: ', style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
-                      Expanded(
-                        child: Text(
-                          r.realisticEffect,
-                          style: TextStyle(fontSize: 10, color: context.textSecondary),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('• الحدود التقنية: ', style: TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold)),
+                      Text('• الحدود التقنية: ', style: TextStyle(fontSize: 10.5, color: warnAmber, fontWeight: FontWeight.bold)),
                       Expanded(
                         child: Text(
                           r.knownLimitations,
-                          style: TextStyle(fontSize: 10, color: context.textSecondary),
+                          style: TextStyle(fontSize: 10.5, color: context.textSecondary, height: 1.35),
                         ),
                       ),
                     ],
@@ -3809,10 +4086,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   void _handleNextStep() async {
     if (_currentStep == 0) {
       if (_testSuccess != true) return;
-      if (_selectedDeviceId == null) {
-        final saved = await _handleSaveNewDeviceSilently();
-        if (!saved || _selectedDeviceId == null) return;
-      }
+      final saved = await _handleSaveNewDeviceSilently();
+      if (!saved || _selectedDeviceId == null) return;
       if (!mounted) return;
       setState(() => _currentStep = 1);
       if (_discovery == null) {
@@ -3837,9 +4112,12 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         return;
       }
       if (!_preview!.canProceed || _preview!.plannedSteps.isEmpty || _preview!.generatedCommands.isEmpty) {
+        final msg = (_preview!.plannedSteps.isNotEmpty && _preview!.generatedCommands.isNotEmpty && _preview!.conflicts.isNotEmpty)
+            ? 'لا يمكن المتابعة قبل حل التعارضات المانعة أعلاه'
+            : 'تعذر قراءة إعدادات الراوتر أو توليد الأوامر - لا يمكن المتابعة';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تعذر قراءة إعدادات الراوتر - لا يمكن المتابعة'),
+          SnackBar(
+            content: Text(msg),
             backgroundColor: Colors.redAccent,
           ),
         );

@@ -230,25 +230,68 @@ class ProvisionWarningModel {
   }
 }
 
+class ProvisionConflictResolutionOption {
+  final String type; // 'SELECT_HOST' | 'SELECT_INTERFACE'
+  final String label;
+  final String? host;
+  final String? interfaceName;
+
+  const ProvisionConflictResolutionOption({
+    required this.type,
+    required this.label,
+    this.host,
+    this.interfaceName,
+  });
+
+  factory ProvisionConflictResolutionOption.fromJson(Map<String, dynamic> json) {
+    return ProvisionConflictResolutionOption(
+      type: json['type'] as String? ?? 'SELECT_HOST',
+      label: json['label'] as String? ?? '',
+      host: json['host'] as String?,
+      interfaceName: json['interfaceName'] as String?,
+    );
+  }
+}
+
 class ProvisionConflictModel {
+  static const Set<String> hardBlockingResources = {
+    'MANAGEMENT_PORT_BRIDGED',
+    'MANAGEMENT_BRIDGE_DEPLETED',
+    'MANAGEMENT_PATH_INDETERMINATE',
+    'WAN_MANAGEMENT_LOCKOUT',
+    'WAN_LAN_OVERLAP',
+    'WAN_BRIDGE_CONFLICT',
+  };
+
   final String resource;
   final String existingValue;
   final String proposedValue;
   final String details;
+  final bool isOverridable;
+  final List<ProvisionConflictResolutionOption> resolutionOptions;
 
   const ProvisionConflictModel({
     required this.resource,
     required this.existingValue,
     required this.proposedValue,
     required this.details,
+    this.isOverridable = true,
+    this.resolutionOptions = const [],
   });
 
   factory ProvisionConflictModel.fromJson(Map<String, dynamic> json) {
+    final resource = json['resource'] as String? ?? '';
+    final optsRaw = json['resolutionOptions'] as List<dynamic>? ?? const [];
     return ProvisionConflictModel(
-      resource: json['resource'] as String? ?? '',
+      resource: resource,
       existingValue: json['existingValue'] as String? ?? '',
       proposedValue: json['proposedValue'] as String? ?? '',
       details: json['details'] as String? ?? '',
+      isOverridable: json['isOverridable'] as bool? ?? !hardBlockingResources.contains(resource),
+      resolutionOptions: optsRaw
+          .whereType<Map<String, dynamic>>()
+          .map(ProvisionConflictResolutionOption.fromJson)
+          .toList(),
     );
   }
 }

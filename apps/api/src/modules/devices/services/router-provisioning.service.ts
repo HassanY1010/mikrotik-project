@@ -338,6 +338,10 @@ export class RouterProvisioningService {
         `[Preview Discovery] Retrieved router state in ${discoveryDuration}ms (Interfaces: ${discovery.interfaces?.length ?? 0}, Bridges: ${discovery.bridges?.length ?? 0}, IPs: ${discovery.ipAddresses?.length ?? 0})`,
       );
 
+      const mgmtCtx = this.resolveEffectiveManagementContext(device.host || '', discovery, dto);
+      const effectiveHost = mgmtCtx.effectiveHost;
+      const effectiveDevice = { ...device, host: effectiveHost };
+
       const conflicts: ProvisioningConflict[] = [];
       const warnings: ProvisioningWarning[] = [];
       let requiresCleanConfirmation = false;
@@ -403,12 +407,12 @@ export class RouterProvisioningService {
           if (portDirectIp && portDirectIp.address) {
             const rawAddress = String(portDirectIp.address).trim();
             const ipClean = rawAddress.includes('/') ? rawAddress.split('/')[0] : rawAddress;
-            const isManagementHost = ipClean === (device.host || '').trim();
+            const isManagementHost = ipClean === effectiveHost;
             warnings.push({
               type: 'PORT_DIRECT_IP_RISK',
               severity: 'CRITICAL',
               message: isManagementHost
-                ? `المنفذ (${port}) يحمل عنوان IP الحالي للراوتر (${device.host}) المستخدم للاتصال بالنظام. ضم هذا المنفذ إلى الجسر قد يسبب انقطاع الاتصال بالإدارة فوراً.`
+                ? `المنفذ (${port}) يحمل عنوان IP الحالي للراوتر (${effectiveHost}) المستخدم للاتصال بالنظام. ضم هذا المنفذ إلى الجسر قد يسبب انقطاع الاتصال بالإدارة فوراً.`
                 : `المنفذ (${port}) يحمل عنوان IP مباشر (${rawAddress}) قد يكون مخصصاً للإدارة الاحتياطية أو شبكة خارج النطاق. ضم هذا المنفذ إلى جسر المشتركين يجعله تابعاً (Slave) وقد يسبب انقطاع الوصول إليه وعزله (Client Isolation).`,
               suggestedAction: isManagementHost
                 ? 'تأكد من إمكانية الوصول للراوتر عبر منفذ آخر أو استثنِ هذا المنفذ من منافذ المشتركين.'
@@ -440,7 +444,7 @@ export class RouterProvisioningService {
               if (existingIp.interface !== (dto.lan?.bridgeName || 'bridge-hotspot')) {
                 const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
                 const isWan = existingIp.interface === wanIfaceName;
-                const isMgmt = this.isManagementIpOrInterface(existingIp, discovery, device.host || '');
+                const isMgmt = this.isManagementIpOrInterface(existingIp, discovery, effectiveHost);
                 const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
                 const memberPorts = rawMemberPorts.map((m: any) => (m ? String(m).trim() : '')).filter(Boolean);
                 const isMember = memberPorts.includes(existingIp.interface);
@@ -522,7 +526,7 @@ export class RouterProvisioningService {
 
       // 6. Rigorous Multi-Layer Management Path Verification
       try {
-        const currentHost = (device.host || '').trim();
+        const currentHost = effectiveHost;
         const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
         const memberPorts = rawMemberPorts.map((m: any) => (m ? String(m).trim() : '')).filter(Boolean);
         const wanIfaceName = (dto.wan?.interface || 'ether1').trim();
@@ -534,14 +538,61 @@ export class RouterProvisioningService {
           memberPorts,
           wanIfaceName,
           protectWanAccess,
+          mgmtCtx.overrideMgmtInterface,
         );
 
         if (!mgmtTopo.isDetermined) {
+          const resolutionOptions: Array<{
+            type: 'SELECT_HOST' | 'SELECT_INTERFACE';
+            label: string;
+            host?: string;
+            interfaceName?: string;
+          }> = [];
+
+          // Only offer path selection when failure is simply missing host IP (not malformed bridge/bonding)
+          if (!mgmtTopo.mgmtInterface) {
+            const seenHosts = new Set<string>();
+            for (const ip of discovery.ipAddresses || []) {
+              if (!ip?.address || ip.disabled === true || (ip.disabled as any) === 'true') continue;
+              const cleanIp = String(ip.address).trim().split('/')[0];
+              const ifaceName = String(ip.interface || '').trim();
+              if (!cleanIp || seenHosts.has(cleanIp)) continue;
+              if (ifaceName && memberPorts.includes(ifaceName)) continue;
+              seenHosts.add(cleanIp);
+              resolutionOptions.push({
+                type: 'SELECT_HOST',
+                label: `استخدام عنوان الراوتر ${cleanIp} (${ifaceName || 'غير محدد'})`,
+                host: cleanIp,
+                interfaceName: ifaceName || undefined,
+              });
+            }
+            if (
+              wanIfaceName &&
+              !memberPorts.includes(wanIfaceName) &&
+              !protectWanAccess &&
+              (discovery.interfaces || []).some((i) => i?.name === wanIfaceName)
+            ) {
+              resolutionOptions.push({
+                type: 'SELECT_INTERFACE',
+                label: `الإدارة عبر منفذ الإنترنت / NAT (${wanIfaceName})`,
+                interfaceName: wanIfaceName,
+              });
+            }
+          }
+
+          const ipsSummary = (discovery.ipAddresses || [])
+            .filter((ip) => ip?.address)
+            .map((ip) => `${ip.address} (${ip.interface || 'غير محدد'})`)
+            .join('، ');
+
           conflicts.push({
             resource: 'MANAGEMENT_PATH_INDETERMINATE',
-            existingValue: `عنوان اتصال الراوتر (${currentHost}) غير مسجل على أي واجهة في قائمة عناوين الراوتر المستكشفة`,
-            proposedValue: 'تحديد مسار الإدارة المعتمد قبل تطبيق الإعداد',
+            existingValue: ipsSummary
+              ? `العنوان المسجل: ${currentHost || 'غير محدد'} | عناوين الراوتر: ${ipsSummary}`
+              : `العنوان المسجل: ${currentHost || 'غير محدد'}`,
+            proposedValue: 'تحديد مسار الإدارة الصحيح للراوتر',
             details: mgmtTopo.errorMessage || 'تعذر تحديد مسار الإدارة بصورة موثوقة عبر واجهات الراوتر، مما يمنع ضمان استمرارية الاتصال.',
+            ...(resolutionOptions.length > 0 ? { resolutionOptions } : {}),
           });
           warnings.push({
             type: 'MANAGEMENT_PATH_INDETERMINATE',
@@ -614,7 +665,7 @@ export class RouterProvisioningService {
       let generatedCommands: GeneratedCommandItem[] = [];
       const resolvedConflictKeys = new Set<string>();
       try {
-        generatedCommands = this.generateRouterCommands(dto, isV7, discovery, device, resolvedConflictKeys);
+        generatedCommands = this.generateRouterCommands(dto, isV7, discovery, effectiveDevice, resolvedConflictKeys);
       } catch (cmdErr) {
         this.logger.error(`[Preview Error] Error generating router commands: ${cmdErr instanceof Error ? cmdErr.message : String(cmdErr)}`);
         warnings.push({
@@ -705,6 +756,12 @@ export class RouterProvisioningService {
         return true;
       });
 
+      const activeHardConflictSet = new Set(activeHardConflicts);
+      const annotatedConflicts = conflicts.map((c) => ({
+        ...c,
+        isOverridable: !HARD_BLOCKING_CONFLICTS.has(c.resource) && !activeHardConflictSet.has(c),
+      }));
+
       const canProceed =
         activeHardConflicts.length === 0 &&
         sanitizedCommands.length > 0 &&
@@ -743,7 +800,7 @@ export class RouterProvisioningService {
         securityPoliciesReport,
         generatedCommands: sanitizedCommands,
         warnings,
-        conflicts,
+        conflicts: annotatedConflicts,
         canProceed,
         requiresCleanConfirmation,
         backupRecommended: true,
@@ -1031,7 +1088,9 @@ export class RouterProvisioningService {
     // Verifies that live router state has not drifted since preview before any changes
     // =========================================================================
     const isV7 = (device.rosVersion || '').toUpperCase().includes('V7');
-    const commands = this.generateRouterCommands(dto, isV7, previewRes.discovery, device);
+    const applyMgmtCtx = this.resolveEffectiveManagementContext(device.host || '', previewRes.discovery, dto);
+    const effectiveApplyDevice = { ...device, host: applyMgmtCtx.effectiveHost };
+    const commands = this.generateRouterCommands(dto, isV7, previewRes.discovery, effectiveApplyDevice);
     const cleanupCommands = commands.filter((c) => c.stage === 'PRE_CLEANUP');
 
     let liveIps: RouterIpAddressItem[] = [];
@@ -1338,7 +1397,12 @@ export class RouterProvisioningService {
     }
 
     // 0C. Re-verify Management Topology on Live State: Management path must remain determined & unsevered
-    const currentHost = (device.host || '').trim();
+    const liveMgmtCtx = this.resolveEffectiveManagementContext(
+      device.host || '',
+      { ipAddresses: liveIps, interfaces: liveInterfaces },
+      dto,
+    );
+    const currentHost = liveMgmtCtx.effectiveHost;
     const protectWanAccess = !!(dto.securityPolicies as any)?.protectWanAccess;
 
     const liveMgmtTopo = this.resolveManagementTopology(
@@ -1352,6 +1416,7 @@ export class RouterProvisioningService {
       memberPorts,
       wanIfaceName,
       protectWanAccess,
+      liveMgmtCtx.overrideMgmtInterface,
     );
 
     if (!liveMgmtTopo.isDetermined || liveMgmtTopo.isSevered) {
@@ -2262,6 +2327,56 @@ export class RouterProvisioningService {
   }
 
   /**
+   * Resolves the authoritative management host/interface for preview & apply.
+   * Reconciles stale DB device.host against verified connectedHost / explicit operator selection.
+   */
+  private resolveEffectiveManagementContext(
+    deviceHost: string,
+    discovery: { ipAddresses?: any[]; interfaces?: any[] },
+    dto: Pick<
+      ProvisionPreviewDto,
+      'connectedHost' | 'confirmedManagementHost' | 'confirmedManagementInterface'
+    >,
+  ): {
+    effectiveHost: string;
+    hostChangedFromDb: boolean;
+    overrideMgmtInterface?: string;
+  } {
+    const normalizeIp = (val?: string | null) => String(val || '').trim().split('/')[0];
+    const hasIpInDiscovery = (targetHost: string) =>
+      !!targetHost &&
+      (discovery.ipAddresses || []).some(
+        (ip) => ip?.address && normalizeIp(ip.address) === targetHost,
+      );
+
+    const dbHost = normalizeIp(deviceHost);
+    if (hasIpInDiscovery(dbHost)) {
+      return { effectiveHost: dbHost, hostChangedFromDb: false };
+    }
+
+    const confirmedHost = normalizeIp(dto?.confirmedManagementHost);
+    if (confirmedHost && hasIpInDiscovery(confirmedHost)) {
+      return { effectiveHost: confirmedHost, hostChangedFromDb: true };
+    }
+
+    const connectedHost = normalizeIp(dto?.connectedHost);
+    if (connectedHost && hasIpInDiscovery(connectedHost)) {
+      return { effectiveHost: connectedHost, hostChangedFromDb: true };
+    }
+
+    const confirmedIface = String(dto?.confirmedManagementInterface || '').trim();
+    const ifaceExists =
+      !!confirmedIface &&
+      (discovery.interfaces || []).some((i) => i?.name === confirmedIface);
+
+    return {
+      effectiveHost: dbHost || connectedHost,
+      hostChangedFromDb: false,
+      ...(ifaceExists ? { overrideMgmtInterface: confirmedIface } : {}),
+    };
+  }
+
+  /**
    * Topologically proves the management path from device.host -> interface -> physical ports.
    * Does NOT rely on superficial comments or interface naming patterns.
    * Recursively traces Bridges, VLANs, Bonds, and physical interfaces.
@@ -2277,6 +2392,7 @@ export class RouterProvisioningService {
     memberPorts: string[],
     wanIfaceName: string,
     protectWanAccess?: boolean,
+    overrideMgmtInterface?: string,
   ): {
     isDetermined: boolean;
     isSevered: boolean;
@@ -2293,32 +2409,42 @@ export class RouterProvisioningService {
     errorMessage?: string;
   } {
     const hostClean = (deviceHost || '').trim().split('/')[0];
-    if (!hostClean) {
-      return {
-        isDetermined: false,
-        isSevered: true,
-        conflictType: 'MANAGEMENT_PATH_INDETERMINATE',
-        errorMessage: 'عنوان اتصال الراوتر غير محدد في النظام.',
-      };
-    }
-
     const ipList = discovery.ipAddresses || [];
-    const hostIpEntry = ipList.find((ip) => {
-      if (!ip?.address) return false;
-      const clean = String(ip.address).trim().split('/')[0];
-      return clean === hostClean;
-    });
+    const hostIpEntry = hostClean
+      ? ipList.find((ip) => {
+          if (!ip?.address) return false;
+          const clean = String(ip.address).trim().split('/')[0];
+          return clean === hostClean;
+        })
+      : undefined;
+
+    let mgmtInterface = hostIpEntry ? (hostIpEntry.interface || '').trim() : '';
 
     if (!hostIpEntry) {
-      return {
-        isDetermined: false,
-        isSevered: true,
-        conflictType: 'MANAGEMENT_PATH_INDETERMINATE',
-        errorMessage: `عنوان اتصال الراوتر (${hostClean}) غير مسجل على أي واجهة في قائمة عناوين الراوتر المستكشفة.`,
-      };
+      const candidateOverride = (overrideMgmtInterface || '').trim();
+      const overrideExists =
+        candidateOverride.length > 0 &&
+        (discovery.interfaces || []).some((i) => i?.name === candidateOverride);
+
+      if (overrideExists) {
+        mgmtInterface = candidateOverride;
+      } else if (!hostClean) {
+        return {
+          isDetermined: false,
+          isSevered: true,
+          conflictType: 'MANAGEMENT_PATH_INDETERMINATE',
+          errorMessage: 'عنوان اتصال الراوتر غير محدد في النظام.',
+        };
+      } else {
+        return {
+          isDetermined: false,
+          isSevered: true,
+          conflictType: 'MANAGEMENT_PATH_INDETERMINATE',
+          errorMessage: `عنوان اتصال الراوتر (${hostClean}) غير مسجل على أي واجهة في قائمة عناوين الراوتر المستكشفة.`,
+        };
+      }
     }
 
-    const mgmtInterface = (hostIpEntry.interface || '').trim();
     if (!mgmtInterface) {
       return {
         isDetermined: false,
