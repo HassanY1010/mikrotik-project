@@ -325,10 +325,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         host.startsWith('172.2') ||
         host.startsWith('172.3');
 
-    // 1. Local-First Check for Private LAN IPs:
-    // If router is on private LAN (e.g. 192.168.88.1), test from phone over Wi-Fi FIRST
-    // so user gets an instant response (<300ms) without waiting 8s for cloud timeout!
-    if (isPrivateIp) {
+    // 1. Local-First Check for Private LAN IPs when password is provided locally:
+    // Note: in ACCOUNT mode, password is stored encrypted on backend (pass is empty),
+    // so we delegate to backend testConnectionDirect which uses stored credentials.
+    if (isPrivateIp && pass.isNotEmpty) {
       try {
         final localRes = await ref.read(mikrotikDiscoveryServiceProvider).verifyCredentialsLocally(
           host: host,
@@ -345,18 +345,19 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         if (localRes['success'] == true) {
           final latency = localRes['latencyMs'] as int?;
           final info = localRes['routerInfo'] as Map<String, dynamic>?;
-          final isSocket = info?['protocol']?.toString().contains('Socket') == true;
+          final detectedVersion = info?['version']?.toString().trim() ?? '';
 
           setState(() {
             _isTesting = false;
             _testSuccess = true;
-            _testResult = isSocket
-                ? 'تم التحقق من إمكانية الوصول للراوتر محلياً عبر منفذ API ($resolvedApiPort) بنجاح.'
-                : (localRes['message']?.toString() ?? 'تم الاتصال والمصادقة محلياً من الهاتف بنجاح');
+            _testResult =
+                localRes['message']?.toString() ?? 'تم الاتصال والمصادقة محلياً من الهاتف بنجاح';
             _latencyMs = latency;
             _routerMetrics = info;
-            if (isSocket && _rosVersion == 'V7') {
+            if (detectedVersion.startsWith('6.')) {
               _rosVersion = 'V6';
+            } else if (detectedVersion.startsWith('7.')) {
+              _rosVersion = 'V7';
             }
           });
 
@@ -377,7 +378,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         setState(() {
           _isTesting = false;
           _testSuccess = false;
-          _testResult = 'تعذر الوصول للراوتر ($host). تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة (وليس بيانات الهاتف)، أو جرب التبديل إلى خيار RouterOS v6 (Socket) ومنفذ 8728.';
+          _testResult = 'تعذر الوصول للراوتر ($host) عبر REST أو API ($resolvedApiPort). تأكد من اتصال هاتفك بشبكة الراوتر وتفعيل خدمة API أو WWW.';
         });
         return;
       } catch (e) {
@@ -506,8 +507,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           host.startsWith('172.2') ||
           host.startsWith('172.3');
 
-      // 1. If Private IP or local discovery mode, discover directly from the phone over Wi-Fi
-      if (isPrivateIp || _setupMode == 'DISCOVERY') {
+      // 1. If Private IP AND password is provided locally, discover from phone (supports REST & Binary API 8728)
+      if (isPrivateIp && pass.isNotEmpty) {
         try {
           snap = await ref.read(mikrotikDiscoveryServiceProvider).discoverLocally(
             host: host,
@@ -518,16 +519,22 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
             rosVersion: _rosVersion,
             useSsl: _useSsl,
           );
-          // Sync snapshot to backend in background
-          service.syncSnapshot(_selectedDeviceId!, snap);
+          if (!snap.isComplete || snap.interfaces.isEmpty) {
+            throw Exception('فحص الراوتر غير مكتمل: لم يتم قراءة جميع واجهات وإعدادات الشبكة الأساسية.');
+          }
+          // Await snapshot sync so backend holds fresh topology before advancing steps
+          await service.syncSnapshot(_selectedDeviceId!, snap);
         } catch (localErr) {
           final localMsg = localErr.toString().replaceFirst('Exception: ', '');
           throw Exception('تعذر استكشاف الراوتر محلياً عبر الشبكة ($host): $localMsg');
         }
       } else {
-        // 2. Otherwise (Public IP), query discovery from backend
+        // 2. Otherwise (ACCOUNT saved device with empty local password, or Public IP), discover via backend
         try {
           snap = await service.discover(_selectedDeviceId!);
+          if (!snap.isComplete || snap.interfaces.isEmpty) {
+            throw Exception('بيانات الاستكشاف الواردة من الخادم غير مكتملة (لم تُقرأ الواجهات الأساسية).');
+          }
         } catch (backendErr) {
           final backendErrorMsg = backendErr.toString().replaceFirst('Exception: ', '');
           throw Exception(backendErrorMsg);
@@ -753,7 +760,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         }
       }
 
-      if (isPrivateIp && _preview != null && _preview!.generatedCommands.isNotEmpty) {
+      if (isPrivateIp && pass.isNotEmpty && _preview != null && _preview!.generatedCommands.isNotEmpty) {
         // Local Execution Architecture:
         // Execute commands step-by-step from phone directly to router over LAN/Wi-Fi
         final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
@@ -3766,7 +3773,10 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       return _selectedDeviceId != null && _testSuccess == true;
     }
     if (_currentStep == 1) {
-      return _discovery != null;
+      return !_isDiscovering &&
+          _discovery != null &&
+          _discovery!.isComplete &&
+          _discovery!.interfaces.isNotEmpty;
     }
     if (_currentStep == 3) {
       return _selectedWanInterface != null && _selectedLanInterfaces.isNotEmpty;
@@ -3798,15 +3808,23 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
   void _handleNextStep() async {
     if (_currentStep == 0) {
+      if (_testSuccess != true) return;
       if (_selectedDeviceId == null) {
         final saved = await _handleSaveNewDeviceSilently();
-        if (!saved) return;
+        if (!saved || _selectedDeviceId == null) return;
       }
+      if (!mounted) return;
       setState(() => _currentStep = 1);
       if (_discovery == null) {
-        _handleFetchDiscovery();
+        await _handleFetchDiscovery();
       }
     } else if (_currentStep == 1) {
+      if (_isDiscovering ||
+          _discovery == null ||
+          !_discovery!.isComplete ||
+          _discovery!.interfaces.isEmpty) {
+        return;
+      }
       setState(() => _currentStep = 2);
     } else if (_currentStep == 2) {
       setState(() => _currentStep = 3);

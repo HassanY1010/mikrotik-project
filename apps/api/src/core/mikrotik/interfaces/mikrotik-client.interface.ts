@@ -8,6 +8,120 @@ export interface RouterResource {
   totalHdd: number;
   boardName?: string;
   architecture?: string;
+  platform?: string;
+  model?: string;
+  factorySoftware?: string;
+}
+
+export interface RouterboardInfo {
+  model?: string;
+  serialNumber?: string;
+  firmwareType?: string;
+  currentFirmware?: string;
+  upgradeFirmware?: string;
+  factoryFirmware?: string;
+}
+
+export interface RouterPackageItem {
+  id?: string;
+  name: string;
+  version?: string;
+  disabled?: boolean;
+  scheduled?: string;
+}
+
+export interface RouterVlanItem {
+  id?: string;
+  name: string;
+  vlanId: number;
+  interface: string;
+  disabled?: boolean;
+  running?: boolean;
+  comment?: string;
+}
+
+export interface RouterWirelessInterfaceItem {
+  id?: string;
+  name: string;
+  defaultName?: string;
+  ssid?: string;
+  mode?: string;
+  band?: string;
+  frequency?: string;
+  securityProfile?: string;
+  wpsMode?: string;
+  country?: string;
+  disabled?: boolean;
+  running?: boolean;
+  comment?: string;
+}
+
+export interface RouterWifiInterfaceItem {
+  id?: string;
+  name: string;
+  defaultName?: string;
+  ssid?: string;
+  mode?: string;
+  country?: string;
+  securityAuthenticationTypes?: string;
+  disabled?: boolean;
+  running?: boolean;
+  masterInterface?: string;
+  comment?: string;
+}
+
+export interface RouterIpPoolItem {
+  id?: string;
+  name: string;
+  ranges: string;
+  nextPool?: string;
+  comment?: string;
+}
+
+export interface RouterDhcpNetworkItem {
+  id?: string;
+  address: string;
+  gateway?: string;
+  dnsServer?: string;
+  domain?: string;
+  comment?: string;
+}
+
+export interface RouterDnsConfigItem {
+  servers?: string[];
+  dynamicServers?: string[];
+  allowRemoteRequests?: boolean;
+  cacheSize?: number;
+}
+
+export interface RouterHotspotServerProfileItem {
+  id?: string;
+  name: string;
+  hotspotAddress?: string;
+  dnsName?: string;
+  htmlDirectory?: string;
+  loginBy?: string;
+  httpCookieLifetime?: string;
+  useRadius?: boolean;
+  isDefault?: boolean;
+}
+
+export interface RouterQueueTypeItem {
+  id?: string;
+  name: string;
+  kind: string;
+  isDefault?: boolean;
+}
+
+export interface RouterSchedulerItem {
+  id?: string;
+  name: string;
+  interval?: string;
+  startDate?: string;
+  startTime?: string;
+  onEvent?: string;
+  disabled?: boolean;
+  comment?: string;
 }
 
 export interface HotspotProfileItem {
@@ -82,6 +196,7 @@ export interface RouterBridgePortItem {
   interface: string;
   horizon?: number;
   disabled?: boolean;
+  comment?: string;
 }
 
 export interface RouterIpAddressItem {
@@ -99,6 +214,7 @@ export interface RouterDhcpClientItem {
   interface: string;
   status?: string;
   address?: string;
+  gateway?: string;
   disabled?: boolean;
   addDefaultRoute?: boolean;
   usePeerDns?: boolean;
@@ -119,6 +235,9 @@ export interface RouterNatRuleItem {
   chain: string;
   action: string;
   outInterface?: string;
+  protocol?: string;
+  dstPort?: string;
+  toPorts?: string;
   disabled?: boolean;
   comment?: string;
 }
@@ -127,8 +246,33 @@ export interface RouterRouteItem {
   id?: string;
   dstAddress: string;
   gateway?: string;
+  gatewayStatus?: string;
+  immediateGw?: string;
+  distance?: number;
+  routingTable?: string;
   active?: boolean;
   disabled?: boolean;
+  comment?: string;
+  dynamic?: boolean;
+}
+
+export interface RouterBondingItem {
+  id?: string;
+  name: string;
+  slaves: string[];
+  mode?: string;
+  disabled?: boolean;
+  running?: boolean;
+  comment?: string;
+}
+
+export interface RouterPppoeClientItem {
+  id?: string;
+  name: string;
+  interface: string;
+  disabled?: boolean;
+  running?: boolean;
+  addDefaultRoute?: boolean;
   comment?: string;
 }
 
@@ -253,11 +397,32 @@ export interface IMikrotikClient {
   listArpTable?(): Promise<RouterArpItem[]>;
   listNeighbors?(): Promise<RouterNeighborItem[]>;
   listNatRules?(): Promise<RouterNatRuleItem[]>;
-  listMangleRules?(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>>;
-  listFilterRules?(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>>;
+  listMangleRules?(): Promise<Array<{ id?: string; chain?: string; action?: string; outInterface?: string; comment?: string; disabled?: boolean }>>;
+  listFilterRules?(): Promise<Array<{ id?: string; chain?: string; action?: string; inInterface?: string; protocol?: string; dstPort?: string; comment?: string; disabled?: boolean }>>;
   listRoutes?(): Promise<RouterRouteItem[]>;
+  listBondingInterfaces?(): Promise<RouterBondingItem[]>;
+  listPppoeClients?(): Promise<RouterPppoeClientItem[]>;
+  fetchFileFromUrl?(url: string, dstPath: string): Promise<{ filename: string }>;
   listHotspotServers?(): Promise<RouterHotspotServerItem[]>;
   pingHost?(host: string, count?: number): Promise<RouterPingResult>;
   runRawCommand?(words: string[]): Promise<any>;
+  getSystemIdentity?(): Promise<string>;
+  getRouterboardInfo?(): Promise<RouterboardInfo>;
+  listPackages?(): Promise<RouterPackageItem[]>;
+  listVlans?(): Promise<RouterVlanItem[]>;
+  listWirelessInterfaces?(): Promise<RouterWirelessInterfaceItem[]>;
+  listWifiInterfaces?(): Promise<RouterWifiInterfaceItem[]>;
+  listPools?(): Promise<RouterIpPoolItem[]>;
+  listDhcpNetworks?(): Promise<RouterDhcpNetworkItem[]>;
+  getDnsConfig?(): Promise<RouterDnsConfigItem>;
+  listHotspotServerProfiles?(): Promise<RouterHotspotServerProfileItem[]>;
+  listQueueTypes?(): Promise<RouterQueueTypeItem[]>;
+  listSchedulers?(): Promise<RouterSchedulerItem[]>;
+  listFiles?(): Promise<RouterBackupItem[]>;
+  createRscExport?(
+    name?: string,
+    redactSensitive?: boolean,
+  ): Promise<{ filename: string; size?: number; creationTime?: string }>;
+  downloadFile?(filename: string): Promise<Buffer>;
 }
 

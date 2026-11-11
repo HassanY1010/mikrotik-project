@@ -19,6 +19,11 @@ export interface PlanSignatureResult {
   publicKey: string;
 }
 
+const KNOWN_DEV_FALLBACK_KEYS = new Set([
+  'sudafi-default-dev-master-encryption-key-32bytes!',
+  '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+]);
+
 @Injectable()
 export class PlanSigningService {
   private readonly privKey: crypto.KeyObject;
@@ -26,10 +31,29 @@ export class PlanSigningService {
   private readonly rawPubKeyHex: string;
 
   constructor(@Optional() private readonly configService?: ConfigService) {
-    const rawKey =
+    const nodeEnv =
       (this.configService && typeof this.configService.get === 'function'
+        ? this.configService.get<string>('NODE_ENV')
+        : undefined) || process.env.NODE_ENV;
+    const configuredKey =
+      this.configService && typeof this.configService.get === 'function'
         ? this.configService.get<string>('ENCRYPTION_KEY')
-        : null) || 'sudafi-default-dev-master-encryption-key-32bytes!';
+        : process.env.ENCRYPTION_KEY;
+
+    if (
+      nodeEnv === 'production' &&
+      (!configuredKey ||
+        configuredKey.trim().length < 32 ||
+        KNOWN_DEV_FALLBACK_KEYS.has(configuredKey.trim()))
+    ) {
+      throw new Error(
+        'FATAL SECURITY ERROR: NODE_ENV=production requires a strong non-default ENCRYPTION_KEY (>=32 chars) for Ed25519 plan signing.',
+      );
+    }
+
+    const rawKey =
+      (configuredKey && configuredKey.trim().length > 0 ? configuredKey.trim() : null) ||
+      'sudafi-default-dev-master-encryption-key-32bytes!';
     // Derive deterministic 32-byte Ed25519 seed using HMAC-SHA256
     const seed = crypto.createHmac('sha256', rawKey).update('sudafi-ed25519-plan-signing-v1').digest();
     // RFC 8410 PKCS#8 prefix for 32-byte Ed25519 private key

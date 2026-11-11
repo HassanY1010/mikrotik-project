@@ -124,5 +124,35 @@ class ApiEndpoints {
   static const String cardPdfArchivesUpload = '/card-pdf-archives/upload';
   static String cardPdfArchiveItem(String id) => '/card-pdf-archives/$id';
   static String cardPdfArchiveDownload(String id) => '/card-pdf-archives/$id/download';
+
+  // MikroTik Auto Provisioning Engine
+  static String autoProvisionDiscover(String deviceId) =>
+      '/mikrotik-provisioning/devices/$deviceId/discover';
+  static String autoProvisionCapabilities(String deviceId) =>
+      '/mikrotik-provisioning/devices/$deviceId/capabilities';
+  static String autoProvisionPlan(String deviceId) =>
+      '/mikrotik-provisioning/devices/$deviceId/plan';
+  static String autoProvisionPreview(String deviceId) =>
+      '/mikrotik-provisioning/devices/$deviceId/preview';
+  static String autoProvisionBackup(String deviceId) =>
+      '/mikrotik-provisioning/devices/$deviceId/backup';
+  static String autoProvisionBackups(String deviceId) =>
+      '/mikrotik-provisioning/devices/$deviceId/backups';
+  static String autoProvisionBackupDownload(String backupId) =>
+      '/mikrotik-provisioning/backups/$backupId/download';
+  static String autoProvisionRestore(String deviceId) =>
+      '/mikrotik-provisioning/devices/$deviceId/restore';
+  static String autoProvisionApply(String deviceId) =>
+      '/mikrotik-provisioning/devices/$deviceId/apply';
+  static String autoProvisionOperations(String deviceId) =>
+      '/mikrotik-provisioning/devices/$deviceId/operations';
+  static String autoProvisionOperation(String operationId) =>
+      '/mikrotik-provisioning/operations/$operationId';
+  static String autoProvisionOperationCancel(String operationId) =>
+      '/mikrotik-provisioning/operations/$operationId/cancel';
+  static String autoProvisionOperationCommands(String operationId) =>
+      '/mikrotik-provisioning/operations/$operationId/commands';
+  static String autoProvisionOperationLogs(String operationId) =>
+      '/mikrotik-provisioning/operations/$operationId/logs';
 }
 

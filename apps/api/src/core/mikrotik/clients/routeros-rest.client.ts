@@ -1,6 +1,17 @@
 import type {
   IMikrotikClient,
   RouterResource,
+  RouterboardInfo,
+  RouterPackageItem,
+  RouterVlanItem,
+  RouterWirelessInterfaceItem,
+  RouterWifiInterfaceItem,
+  RouterIpPoolItem,
+  RouterDhcpNetworkItem,
+  RouterDnsConfigItem,
+  RouterHotspotServerProfileItem,
+  RouterQueueTypeItem,
+  RouterSchedulerItem,
   HotspotProfileItem,
   HotspotUserItem,
   HotspotActiveSessionItem,
@@ -16,10 +27,13 @@ import type {
   RouterNeighborItem,
   RouterNatRuleItem,
   RouterRouteItem,
+  RouterBondingItem,
+  RouterPppoeClientItem,
   RouterHotspotServerItem,
   RouterPingResult,
 } from '../interfaces/mikrotik-client.interface';
 import { isValidRouterOsId } from '../../security/snapshot-integrity.util';
+import { downloadRouterFileOverHttp } from '../utils/router-file-transfer.util';
 
 export interface RouterOsRestConfig {
   host: string;
@@ -148,6 +162,9 @@ export class RouterOsRestClient implements IMikrotikClient {
       totalHdd: parseInt(res['total-hdd-space'] ?? '0', 10),
       boardName: res['board-name'],
       architecture: res['architecture-name'],
+      platform: res['platform'],
+      model: res['board-name'] || res['platform'],
+      factorySoftware: res['factory-software'],
     };
   }
 
@@ -736,6 +753,7 @@ export class RouterOsRestClient implements IMikrotikClient {
       interface: r['interface'] ?? '',
       status: r['status'],
       address: r['address'],
+      gateway: r['gateway'],
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
       addDefaultRoute: r['add-default-route'] === 'yes' || r['add-default-route'] === true,
       usePeerDns: r['use-peer-dns'] === 'yes' || r['use-peer-dns'] === true,
@@ -817,31 +835,51 @@ export class RouterOsRestClient implements IMikrotikClient {
       chain: r['chain'] ?? '',
       action: r['action'] ?? '',
       outInterface: r['out-interface'],
+      protocol: r['protocol'],
+      dstPort: r['dst-port'],
+      toPorts: r['to-ports'],
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
       comment: r['comment'],
       dynamic: r['dynamic'] === 'true' || r['dynamic'] === true,
     }));
   }
 
-  async listMangleRules(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>> {
+  async listMangleRules(): Promise<
+    Array<{ id?: string; chain?: string; action?: string; outInterface?: string; comment?: string; disabled?: boolean }>
+  > {
     await this.connect();
     const items = await this.request<any>('/ip/firewall/mangle');
     return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       chain: r['chain'] ?? '',
       action: r['action'] ?? '',
+      outInterface: r['out-interface'],
       comment: r['comment'],
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
     }));
   }
 
-  async listFilterRules(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>> {
+  async listFilterRules(): Promise<
+    Array<{
+      id?: string;
+      chain?: string;
+      action?: string;
+      inInterface?: string;
+      protocol?: string;
+      dstPort?: string;
+      comment?: string;
+      disabled?: boolean;
+    }>
+  > {
     await this.connect();
     const items = await this.request<any>('/ip/firewall/filter');
     return this.toArray<any>(items).map((r) => ({
       id: r['.id'],
       chain: r['chain'] ?? '',
       action: r['action'] ?? '',
+      inInterface: r['in-interface'],
+      protocol: r['protocol'],
+      dstPort: r['dst-port'],
       comment: r['comment'],
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
     }));
@@ -854,11 +892,78 @@ export class RouterOsRestClient implements IMikrotikClient {
       id: r['.id'],
       dstAddress: r['dst-address'] ?? '',
       gateway: r['gateway'],
+      gatewayStatus: r['gateway-status'],
+      immediateGw: r['immediate-gw'],
+      distance: r['distance'] !== undefined ? parseInt(String(r['distance']), 10) : undefined,
+      routingTable: r['routing-table'],
       active: r['active'] === 'true' || r['active'] === true,
       disabled: r['disabled'] === 'true' || r['disabled'] === true,
       comment: r['comment'],
       dynamic: r['dynamic'] === 'true' || r['dynamic'] === true,
     }));
+  }
+
+  async listBondingInterfaces(): Promise<RouterBondingItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/interface/bonding');
+    return this.toArray<any>(items).map((r) => {
+      const rawSlaves = r['slaves'];
+      let slaves: string[] = [];
+      if (typeof rawSlaves === 'string') {
+        slaves = rawSlaves.split(',').map((s) => s.trim()).filter(Boolean);
+      } else if (Array.isArray(rawSlaves)) {
+        const allStrings = rawSlaves.every((s) => typeof s === 'string');
+        slaves = allStrings
+          ? rawSlaves.map((s) => (s as string).trim()).filter(Boolean)
+          : [];
+      } else {
+        // Reject Object / non-String / unknown shapes instead of coercing to "[object Object]"
+        slaves = [];
+      }
+      return {
+        id: r['.id'],
+        name: r['name'] ?? '',
+        slaves,
+        mode: r['mode'],
+        disabled: r['disabled'] === 'true' || r['disabled'] === true,
+        running: r['running'] === 'true' || r['running'] === true,
+        comment: r['comment'],
+      };
+    });
+  }
+
+  async listPppoeClients(): Promise<RouterPppoeClientItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/interface/pppoe-client');
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      interface: r['interface'] ?? '',
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      running: r['running'] === 'true' || r['running'] === true,
+      addDefaultRoute: r['add-default-route'] === 'yes' || r['add-default-route'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async fetchFileFromUrl(url: string, dstPath: string): Promise<{ filename: string }> {
+    if (!url || !url.toLowerCase().startsWith('https://')) {
+      throw new Error('يُشترط استخدام رابط HTTPS موثق لتحميل النسخة الاحتياطية إلى الراوتر.');
+    }
+    const safeDst = dstPath.replace(/[^a-zA-Z0-9_.-]/g, '');
+    if (!safeDst) {
+      throw new Error('اسم الملف الوجهة غير صالح على ذاكرة الراوتر.');
+    }
+    await this.connect();
+    await this.request('/tool/fetch', {
+      method: 'POST',
+      body: JSON.stringify({
+        url,
+        mode: 'https',
+        'dst-path': safeDst,
+      }),
+    });
+    return { filename: safeDst };
   }
 
   async listHotspotServers(): Promise<RouterHotspotServerItem[]> {
@@ -907,34 +1012,41 @@ export class RouterOsRestClient implements IMikrotikClient {
     }
   }
 
+  private static readonly SINGLETON_SET_PATHS = new Set([
+    '/ip/dns/set',
+    '/system/identity/set',
+    '/system/clock/set',
+    '/system/ntp/client/set',
+    '/system/note/set',
+  ]);
+
   async runRawCommand(words: string[]): Promise<any> {
     if (!words || words.length === 0) {
       throw new Error('أمر RouterOS فارغ.');
     }
-    // Maps raw words into REST path & payload
-    const rawCmd = words[0];
-    let path = rawCmd.startsWith('/') ? rawCmd : `/${rawCmd}`;
-    let method: 'PUT' | 'POST' | 'PATCH' = 'PUT';
 
-    if (path.endsWith('/add')) {
-      path = path.slice(0, -4);
-      method = 'PUT';
-    } else if (path.endsWith('/set') || path.endsWith('/remove')) {
-      method = 'POST';
-    }
+    const rawCmd = words[0];
+    const normalizedCmd = rawCmd.startsWith('/') ? rawCmd : `/${rawCmd}`;
+    let path = normalizedCmd;
+    let method: 'PUT' | 'POST' | 'PATCH' = 'POST';
 
     const payload: Record<string, any> = {};
     for (let i = 1; i < words.length; i++) {
       const w = words[i];
       if (w.startsWith('=')) {
-        const parts = w.substring(1).split('=');
-        const k = parts[0];
-        const v = parts.slice(1).join('=');
-        payload[k] = v;
+        const eqIdx = w.indexOf('=', 1);
+        if (eqIdx > 1) {
+          const k = w.substring(1, eqIdx);
+          const v = w.substring(eqIdx + 1);
+          payload[k] = v;
+        }
       }
     }
 
-    if (path.endsWith('/remove')) {
+    if (normalizedCmd.endsWith('/add')) {
+      path = normalizedCmd.slice(0, -4);
+      method = 'PUT';
+    } else if (normalizedCmd.endsWith('/remove')) {
       const targetNumber = payload['numbers'] || payload['.id'];
       if (!targetNumber || !isValidRouterOsId(targetNumber)) {
         throw new Error(
@@ -942,14 +1054,323 @@ export class RouterOsRestClient implements IMikrotikClient {
         );
       }
       payload['numbers'] = targetNumber;
-      // RouterOS 7 REST CLI dispatcher accepts 'numbers' and rejects extraneous '.id' with 400 Bad Request
       delete payload['.id'];
+      method = 'POST';
+    } else if (normalizedCmd.endsWith('/set')) {
+      if (RouterOsRestClient.SINGLETON_SET_PATHS.has(normalizedCmd)) {
+        delete payload['.id'];
+        delete payload['numbers'];
+        method = 'POST';
+      } else {
+        const targetId = payload['.id'] || payload['numbers'];
+        if (!targetId || typeof targetId !== 'string' || !targetId.trim()) {
+          throw new Error(
+            `أمر التعديل (${normalizedCmd}) عبر REST يتطلب تحديد المعرف (.id أو numbers).`,
+          );
+        }
+        const trimmedTarget = targetId.trim();
+        delete payload['.id'];
+        delete payload['numbers'];
+
+        await this.connect();
+        if (isValidRouterOsId(trimmedTarget)) {
+          const collection = normalizedCmd.slice(0, -4);
+          try {
+            return await this.request(`${collection}/${encodeURIComponent(trimmedTarget)}`, {
+              method: 'PATCH',
+              body: JSON.stringify(payload),
+            });
+          } catch (patchErr) {
+            const msg = patchErr instanceof Error ? patchErr.message : String(patchErr);
+            // Only fallback to CLI POST .../set if REST server rejected PATCH syntax/method
+            if (/\(405\b|\(400\b|\(501\b/i.test(msg)) {
+              return this.request(normalizedCmd, {
+                method: 'POST',
+                body: JSON.stringify({ ...payload, numbers: trimmedTarget }),
+              });
+            }
+            throw patchErr;
+          }
+        }
+
+        // Named target (e.g., =numbers=wlan1 or =numbers=default): RouterOS 7 CLI POST /set accepts numbers by name
+        return this.request(normalizedCmd, {
+          method: 'POST',
+          body: JSON.stringify({ ...payload, numbers: trimmedTarget }),
+        });
+      }
+    } else if (normalizedCmd.endsWith('/enable') || normalizedCmd.endsWith('/disable')) {
+      const targetNumber = payload['numbers'] || payload['.id'];
+      if (!targetNumber) {
+        throw new Error(`الأمر (${normalizedCmd}) عبر REST يتطلب المعرف (.id أو numbers).`);
+      }
+      payload['numbers'] = targetNumber;
+      delete payload['.id'];
+      method = 'POST';
     }
 
     await this.connect();
     return this.request(path, {
       method,
       body: JSON.stringify(payload),
+    });
+  }
+
+  async getSystemIdentity(): Promise<string> {
+    await this.connect();
+    const res = await this.request<Record<string, string>>('/system/identity', { method: 'GET' });
+    return res?.['name'] ?? 'MikroTik';
+  }
+
+  async getRouterboardInfo(): Promise<RouterboardInfo> {
+    await this.connect();
+    try {
+      const res = await this.request<Record<string, string>>('/system/routerboard', { method: 'GET' });
+      return {
+        model: res?.['model'],
+        serialNumber: res?.['serial-number'],
+        firmwareType: res?.['firmware-type'],
+        currentFirmware: res?.['current-firmware'],
+        upgradeFirmware: res?.['upgrade-firmware'],
+        factoryFirmware: res?.['factory-firmware'],
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  async listPackages(): Promise<RouterPackageItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/system/package', { method: 'GET' });
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      version: r['version'],
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      scheduled: r['scheduled'],
+    }));
+  }
+
+  async listVlans(): Promise<RouterVlanItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/interface/vlan', { method: 'GET' });
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      vlanId: parseInt(String(r['vlan-id'] ?? '0'), 10),
+      interface: r['interface'] ?? '',
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      running: r['running'] === 'true' || r['running'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async listWirelessInterfaces(): Promise<RouterWirelessInterfaceItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/interface/wireless', { method: 'GET' });
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      defaultName: r['default-name'],
+      ssid: r['ssid'],
+      mode: r['mode'],
+      band: r['band'],
+      frequency: r['frequency'],
+      securityProfile: r['security-profile'],
+      wpsMode: r['wps-mode'],
+      country: r['country'],
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      running: r['running'] === 'true' || r['running'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async listWifiInterfaces(): Promise<RouterWifiInterfaceItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/interface/wifi', { method: 'GET' });
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      defaultName: r['default-name'],
+      ssid: r['configuration.ssid'] ?? r['ssid'],
+      mode: r['configuration.mode'] ?? r['mode'],
+      country: r['configuration.country'] ?? r['country'],
+      securityAuthenticationTypes: r['security.authentication-types'],
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      running: r['running'] === 'true' || r['running'] === true,
+      masterInterface: r['master-interface'],
+      comment: r['comment'],
+    }));
+  }
+
+  async listPools(): Promise<RouterIpPoolItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/ip/pool', { method: 'GET' });
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      ranges: r['ranges'] ?? '',
+      nextPool: r['next-pool'],
+      comment: r['comment'],
+    }));
+  }
+
+  async listDhcpNetworks(): Promise<RouterDhcpNetworkItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/ip/dhcp-server/network', { method: 'GET' });
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      address: r['address'] ?? '',
+      gateway: r['gateway'],
+      dnsServer: r['dns-server'],
+      domain: r['domain'],
+      comment: r['comment'],
+    }));
+  }
+
+  async getDnsConfig(): Promise<RouterDnsConfigItem> {
+    await this.connect();
+    const res = await this.request<any>('/ip/dns', { method: 'GET' });
+    const record = Array.isArray(res) ? (res[0] ?? {}) : (res ?? {});
+    const splitCsv = (val: unknown) =>
+      typeof val === 'string'
+        ? val.split(',').map((s) => s.trim()).filter(Boolean)
+        : Array.isArray(val)
+          ? val.map(String)
+          : [];
+    return {
+      servers: splitCsv(record['servers']),
+      dynamicServers: splitCsv(record['dynamic-servers']),
+      allowRemoteRequests:
+        record['allow-remote-requests'] === 'true' || record['allow-remote-requests'] === true,
+      cacheSize: record['cache-size'] ? parseInt(String(record['cache-size']), 10) : undefined,
+    };
+  }
+
+  async listHotspotServerProfiles(): Promise<RouterHotspotServerProfileItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/ip/hotspot/profile', { method: 'GET' });
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      hotspotAddress: r['hotspot-address'],
+      dnsName: r['dns-name'],
+      htmlDirectory: r['html-directory'],
+      loginBy: r['login-by'],
+      httpCookieLifetime: r['http-cookie-lifetime'],
+      useRadius: r['use-radius'] === 'true' || r['use-radius'] === true,
+      isDefault: r['default'] === 'true' || r['default'] === true,
+    }));
+  }
+
+  async listQueueTypes(): Promise<RouterQueueTypeItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/queue/type', { method: 'GET' });
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      kind: r['kind'] ?? '',
+      isDefault: r['default'] === 'true' || r['default'] === true,
+    }));
+  }
+
+  async listSchedulers(): Promise<RouterSchedulerItem[]> {
+    await this.connect();
+    const items = await this.request<any>('/system/scheduler', { method: 'GET' });
+    return this.toArray<any>(items).map((r) => ({
+      id: r['.id'],
+      name: r['name'] ?? '',
+      interval: r['interval'],
+      startDate: r['start-date'],
+      startTime: r['start-time'],
+      onEvent: r['on-event'],
+      disabled: r['disabled'] === 'true' || r['disabled'] === true,
+      comment: r['comment'],
+    }));
+  }
+
+  async listFiles(): Promise<RouterBackupItem[]> {
+    await this.connect();
+    const files = await this.request<Record<string, string>[]>('/file', { method: 'GET' });
+    return this.toArray<Record<string, string>>(files).map((f) => ({
+      name: f['name'] ?? '',
+      size: f['size'] ? parseInt(String(f['size']), 10) : undefined,
+      type: f['type'] ?? '',
+      creationTime: f['creation-time'] ?? '',
+    }));
+  }
+
+  async createRscExport(
+    name?: string,
+    redactSensitive = true,
+  ): Promise<{ filename: string; size?: number; creationTime?: string }> {
+    await this.connect();
+    const safeName = (name || `sudafi_export_${Date.now()}`)
+      .replace(/\.rsc$/i, '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    const payload: Record<string, string> = { file: safeName };
+    if (redactSensitive) {
+      payload['show-sensitive'] = 'no';
+    }
+
+    try {
+      await this.request('/export', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/unknown parameter|show-sensitive/i.test(msg)) {
+        await this.request('/export', {
+          method: 'POST',
+          body: JSON.stringify({ file: safeName }),
+        });
+      } else {
+        throw err;
+      }
+    }
+
+    const expectedFilename = `${safeName}.rsc`;
+    let fileRecord: Record<string, string> | undefined;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      try {
+        const files = await this.request<Record<string, string>[] | Record<string, string>>('/file', {
+          method: 'GET',
+        });
+        fileRecord = this.toArray<Record<string, string>>(files).find(
+          (f) => f['name'] === expectedFilename || f['name'] === `flash/${expectedFilename}`,
+        );
+        if (fileRecord) break;
+      } catch {
+        // Retry poll
+      }
+    }
+
+    if (!fileRecord) {
+      throw new Error(
+        `فشل التحقق من إنشاء ملف التصدير النصي (${expectedFilename}) على ذاكرة الراوتر.`,
+      );
+    }
+
+    return {
+      filename: fileRecord['name'] || expectedFilename,
+      size: fileRecord['size'] ? parseInt(String(fileRecord['size']), 10) : undefined,
+      creationTime: fileRecord['creation-time'] || new Date().toISOString(),
+    };
+  }
+
+  async downloadFile(filename: string): Promise<Buffer> {
+    return downloadRouterFileOverHttp({
+      host: this.config.host,
+      port: this.config.port,
+      useSsl: Boolean(this.config.useSsl),
+      username: this.config.username,
+      password: this.config.password,
+      filename,
     });
   }
 }

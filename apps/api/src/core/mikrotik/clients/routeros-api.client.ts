@@ -2,9 +2,21 @@ import * as net from 'net';
 import * as tls from 'tls';
 import * as crypto from 'crypto';
 import { RouterOsSocketProtocol } from '../protocols/routeros-socket-protocol';
+import { downloadRouterFileOverHttp } from '../utils/router-file-transfer.util';
 import type {
   IMikrotikClient,
   RouterResource,
+  RouterboardInfo,
+  RouterPackageItem,
+  RouterVlanItem,
+  RouterWirelessInterfaceItem,
+  RouterWifiInterfaceItem,
+  RouterIpPoolItem,
+  RouterDhcpNetworkItem,
+  RouterDnsConfigItem,
+  RouterHotspotServerProfileItem,
+  RouterQueueTypeItem,
+  RouterSchedulerItem,
   HotspotProfileItem,
   HotspotUserItem,
   HotspotActiveSessionItem,
@@ -20,6 +32,8 @@ import type {
   RouterNeighborItem,
   RouterNatRuleItem,
   RouterRouteItem,
+  RouterBondingItem,
+  RouterPppoeClientItem,
   RouterHotspotServerItem,
   RouterPingResult,
 } from '../interfaces/mikrotik-client.interface';
@@ -292,6 +306,9 @@ export class RouterOsApiClient implements IMikrotikClient {
       totalHdd: parseInt(record['total-hdd-space'] ?? '0', 10),
       boardName: record['board-name'],
       architecture: record['architecture-name'],
+      platform: record['platform'],
+      model: record['board-name'] || record['platform'],
+      factorySoftware: record['factory-software'],
     };
   }
 
@@ -885,6 +902,7 @@ export class RouterOsApiClient implements IMikrotikClient {
         interface: r.attributes['interface'] ?? '',
         status: r.attributes['status'],
         address: r.attributes['address'],
+        gateway: r.attributes['gateway'],
         disabled: r.attributes['disabled'] === 'true',
         addDefaultRoute: r.attributes['add-default-route'] === 'yes',
         usePeerDns: r.attributes['use-peer-dns'] === 'yes',
@@ -976,13 +994,18 @@ export class RouterOsApiClient implements IMikrotikClient {
         chain: r.attributes['chain'] ?? '',
         action: r.attributes['action'] ?? '',
         outInterface: r.attributes['out-interface'],
+        protocol: r.attributes['protocol'],
+        dstPort: r.attributes['dst-port'],
+        toPorts: r.attributes['to-ports'],
         disabled: r.attributes['disabled'] === 'true',
         comment: r.attributes['comment'],
         dynamic: r.attributes['dynamic'] === 'true',
       }));
   }
 
-  async listMangleRules(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>> {
+  async listMangleRules(): Promise<
+    Array<{ id?: string; chain?: string; action?: string; outInterface?: string; comment?: string; disabled?: boolean }>
+  > {
     await this.connect();
     const responses = await this.executeCommand(['/ip/firewall/mangle/print']);
     return responses
@@ -991,12 +1014,24 @@ export class RouterOsApiClient implements IMikrotikClient {
         id: r.attributes['.id'],
         chain: r.attributes['chain'] ?? '',
         action: r.attributes['action'] ?? '',
+        outInterface: r.attributes['out-interface'],
         comment: r.attributes['comment'],
         disabled: r.attributes['disabled'] === 'true',
       }));
   }
 
-  async listFilterRules(): Promise<Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>> {
+  async listFilterRules(): Promise<
+    Array<{
+      id?: string;
+      chain?: string;
+      action?: string;
+      inInterface?: string;
+      protocol?: string;
+      dstPort?: string;
+      comment?: string;
+      disabled?: boolean;
+    }>
+  > {
     await this.connect();
     const responses = await this.executeCommand(['/ip/firewall/filter/print']);
     return responses
@@ -1005,6 +1040,9 @@ export class RouterOsApiClient implements IMikrotikClient {
         id: r.attributes['.id'],
         chain: r.attributes['chain'] ?? '',
         action: r.attributes['action'] ?? '',
+        inInterface: r.attributes['in-interface'],
+        protocol: r.attributes['protocol'],
+        dstPort: r.attributes['dst-port'],
         comment: r.attributes['comment'],
         disabled: r.attributes['disabled'] === 'true',
       }));
@@ -1019,6 +1057,10 @@ export class RouterOsApiClient implements IMikrotikClient {
         id: r.attributes['.id'],
         dstAddress: r.attributes['dst-address'] ?? '',
         gateway: r.attributes['gateway'],
+        gatewayStatus: r.attributes['gateway-status'],
+        immediateGw: r.attributes['immediate-gw'],
+        distance: r.attributes['distance'] ? parseInt(r.attributes['distance'], 10) : undefined,
+        routingTable: r.attributes['routing-table'],
         active: r.attributes['active'] === 'true',
         disabled: r.attributes['disabled'] === 'true',
         comment: r.attributes['comment'],
@@ -1074,6 +1116,331 @@ export class RouterOsApiClient implements IMikrotikClient {
   async runRawCommand(words: string[]): Promise<any> {
     await this.connect();
     return this.executeCommand(words);
+  }
+
+  async getSystemIdentity(): Promise<string> {
+    await this.connect();
+    const responses = await this.executeCommand(['/system/identity/print']);
+    const record = responses.find((r) => r.type === '!re')?.attributes ?? {};
+    return record['name'] ?? 'MikroTik';
+  }
+
+  async getRouterboardInfo(): Promise<RouterboardInfo> {
+    await this.connect();
+    try {
+      const responses = await this.executeCommand(['/system/routerboard/print']);
+      const record = responses.find((r) => r.type === '!re')?.attributes ?? {};
+      return {
+        model: record['model'],
+        serialNumber: record['serial-number'],
+        firmwareType: record['firmware-type'],
+        currentFirmware: record['current-firmware'],
+        upgradeFirmware: record['upgrade-firmware'],
+        factoryFirmware: record['factory-firmware'],
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  async listPackages(): Promise<RouterPackageItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/system/package/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        version: r.attributes['version'],
+        disabled: r.attributes['disabled'] === 'true',
+        scheduled: r.attributes['scheduled'],
+      }));
+  }
+
+  async listVlans(): Promise<RouterVlanItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/interface/vlan/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        vlanId: parseInt(r.attributes['vlan-id'] ?? '0', 10),
+        interface: r.attributes['interface'] ?? '',
+        disabled: r.attributes['disabled'] === 'true',
+        running: r.attributes['running'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listWirelessInterfaces(): Promise<RouterWirelessInterfaceItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/interface/wireless/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        defaultName: r.attributes['default-name'],
+        ssid: r.attributes['ssid'],
+        mode: r.attributes['mode'],
+        band: r.attributes['band'],
+        frequency: r.attributes['frequency'],
+        securityProfile: r.attributes['security-profile'],
+        wpsMode: r.attributes['wps-mode'],
+        country: r.attributes['country'],
+        disabled: r.attributes['disabled'] === 'true',
+        running: r.attributes['running'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listWifiInterfaces(): Promise<RouterWifiInterfaceItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/interface/wifi/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        defaultName: r.attributes['default-name'],
+        ssid: r.attributes['configuration.ssid'] ?? r.attributes['ssid'],
+        mode: r.attributes['configuration.mode'] ?? r.attributes['mode'],
+        country: r.attributes['configuration.country'] ?? r.attributes['country'],
+        securityAuthenticationTypes: r.attributes['security.authentication-types'],
+        disabled: r.attributes['disabled'] === 'true',
+        running: r.attributes['running'] === 'true',
+        masterInterface: r.attributes['master-interface'],
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listPools(): Promise<RouterIpPoolItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/pool/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        ranges: r.attributes['ranges'] ?? '',
+        nextPool: r.attributes['next-pool'],
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listDhcpNetworks(): Promise<RouterDhcpNetworkItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/dhcp-server/network/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        address: r.attributes['address'] ?? '',
+        gateway: r.attributes['gateway'],
+        dnsServer: r.attributes['dns-server'],
+        domain: r.attributes['domain'],
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async getDnsConfig(): Promise<RouterDnsConfigItem> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/dns/print']);
+    const record = responses.find((r) => r.type === '!re')?.attributes ?? {};
+    return {
+      servers: record['servers'] ? record['servers'].split(',').map((s) => s.trim()).filter(Boolean) : [],
+      dynamicServers: record['dynamic-servers']
+        ? record['dynamic-servers'].split(',').map((s) => s.trim()).filter(Boolean)
+        : [],
+      allowRemoteRequests: record['allow-remote-requests'] === 'true',
+      cacheSize: record['cache-size'] ? parseInt(record['cache-size'], 10) : undefined,
+    };
+  }
+
+  async listHotspotServerProfiles(): Promise<RouterHotspotServerProfileItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/ip/hotspot/profile/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        hotspotAddress: r.attributes['hotspot-address'],
+        dnsName: r.attributes['dns-name'],
+        htmlDirectory: r.attributes['html-directory'],
+        loginBy: r.attributes['login-by'],
+        httpCookieLifetime: r.attributes['http-cookie-lifetime'],
+        useRadius: r.attributes['use-radius'] === 'true',
+        isDefault: r.attributes['default'] === 'true',
+      }));
+  }
+
+  async listQueueTypes(): Promise<RouterQueueTypeItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/queue/type/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        kind: r.attributes['kind'] ?? '',
+        isDefault: r.attributes['default'] === 'true',
+      }));
+  }
+
+  async listSchedulers(): Promise<RouterSchedulerItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/system/scheduler/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        interval: r.attributes['interval'],
+        startDate: r.attributes['start-date'],
+        startTime: r.attributes['start-time'],
+        onEvent: r.attributes['on-event'],
+        disabled: r.attributes['disabled'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listFiles(): Promise<RouterBackupItem[]> {
+    await this.connect();
+    const files = await this.executeCommand(['/file/print']);
+    return files
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        name: r.attributes['name'] ?? '',
+        size: r.attributes['size'] ? parseInt(r.attributes['size'], 10) : undefined,
+        type: r.attributes['type'] ?? '',
+        creationTime: r.attributes['creation-time'] ?? '',
+      }));
+  }
+
+  async createRscExport(
+    name?: string,
+    redactSensitive = true,
+  ): Promise<{ filename: string; size?: number; creationTime?: string }> {
+    await this.connect();
+    const safeName = (name || `sudafi_export_${Date.now()}`)
+      .replace(/\.rsc$/i, '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    const words = ['/export', `=file=${safeName}`];
+    if (redactSensitive) {
+      words.push('=show-sensitive=no');
+    }
+
+    try {
+      await this.executeCommand(words);
+    } catch (err) {
+      // Fallback for RouterOS 6.x where /export uses default redacted export without show-sensitive param
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/unknown parameter|invalid.*show-sensitive|expected end of command/i.test(msg)) {
+        await this.executeCommand(['/export', `=file=${safeName}`]);
+      } else {
+        throw err;
+      }
+    }
+
+    const expectedFilename = `${safeName}.rsc`;
+    let fileRecord: CommandResponse | undefined;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      try {
+        const files = await this.executeCommand(['/file/print']);
+        fileRecord = files
+          .filter((r) => r.type === '!re')
+          .find(
+            (r) =>
+              r.attributes['name'] === expectedFilename ||
+              r.attributes['name'] === `flash/${expectedFilename}`,
+          );
+        if (fileRecord) break;
+      } catch {
+        // Retry poll
+      }
+    }
+
+    if (!fileRecord) {
+      throw new Error(
+        `فشل التحقق من إنشاء ملف التصدير النصي (${expectedFilename}) على ذاكرة الراوتر.`,
+      );
+    }
+
+    return {
+      filename: fileRecord.attributes['name'] || expectedFilename,
+      size: fileRecord.attributes['size'] ? parseInt(fileRecord.attributes['size'], 10) : undefined,
+      creationTime: fileRecord.attributes['creation-time'] || new Date().toISOString(),
+    };
+  }
+
+  async downloadFile(filename: string): Promise<Buffer> {
+    return downloadRouterFileOverHttp({
+      host: this.config.host,
+      port: this.config.useSsl ? 443 : 80,
+      useSsl: Boolean(this.config.useSsl),
+      username: this.config.username,
+      password: this.config.password,
+      filename,
+    });
+  }
+
+  async listBondingInterfaces(): Promise<RouterBondingItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/interface/bonding/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        slaves: (r.attributes['slaves'] ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        mode: r.attributes['mode'],
+        disabled: r.attributes['disabled'] === 'true',
+        running: r.attributes['running'] === 'true',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async listPppoeClients(): Promise<RouterPppoeClientItem[]> {
+    await this.connect();
+    const responses = await this.executeCommand(['/interface/pppoe-client/print']);
+    return responses
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        interface: r.attributes['interface'] ?? '',
+        disabled: r.attributes['disabled'] === 'true',
+        running: r.attributes['running'] === 'true',
+        addDefaultRoute: r.attributes['add-default-route'] === 'yes',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async fetchFileFromUrl(url: string, dstPath: string): Promise<{ filename: string }> {
+    if (!url || !url.toLowerCase().startsWith('https://')) {
+      throw new Error('يُشترط استخدام رابط HTTPS موثق لتحميل النسخة الاحتياطية إلى الراوتر.');
+    }
+    const safeDst = dstPath.replace(/[^a-zA-Z0-9_.-]/g, '');
+    if (!safeDst) {
+      throw new Error('اسم الملف الوجهة غير صالح على ذاكرة الراوتر.');
+    }
+    await this.connect();
+    await this.executeCommand([
+      '/tool/fetch',
+      `=url=${url}`,
+      '=mode=https',
+      `=dst-path=${safeDst}`,
+    ]);
+    return { filename: safeDst };
   }
 }
 

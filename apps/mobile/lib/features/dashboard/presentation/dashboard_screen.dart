@@ -9,6 +9,7 @@ import '../../radar/presentation/radar_screen.dart';
 import '../../portal/presentation/hotspot_portal_designer_screen.dart';
 import '../../devices/presentation/connected_devices_screen.dart';
 import '../../router_setup/presentation/router_setup_screen.dart';
+import '../../auto_provisioning/presentation/auto_provisioning_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   final Function(int tabIndex)? onNavigateTab;
@@ -239,6 +240,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       context,
       MaterialPageRoute(
         builder: (_) => RouterSetupScreen(router: selectedRouter),
+      ),
+    );
+  }
+
+  void _navigateToAutoProvisioning() {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    RouterDeviceModel? selectedRouter;
+    if (selectedId != null && routers.isNotEmpty) {
+      for (final r in routers) {
+        if (r.id == selectedId) {
+          selectedRouter = r;
+          break;
+        }
+      }
+    }
+    selectedRouter ??= routers.isNotEmpty ? routers.first : null;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AutoProvisioningScreen(initialRouter: selectedRouter),
       ),
     );
   }
@@ -2769,6 +2791,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         Icons.settings_suggest_rounded,
         AppTheme.primary,
         _navigateToRouterProvisioning,
+      ),
+      _ActionItem(
+        'برمجة MikroTik تلقائياً',
+        Icons.auto_fix_high_rounded,
+        const Color(0xFF136D6F),
+        _navigateToAutoProvisioning,
       ),
       _ActionItem(
         'أجهزة البث',

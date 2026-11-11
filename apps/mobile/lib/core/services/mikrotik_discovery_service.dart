@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart' as crypto_pkg;
 import 'package:flutter/foundation.dart';
@@ -361,32 +362,60 @@ class MikrotikDiscoveryService {
       httpClient?.close(force: true);
     }
 
-    // Strategy B: Socket API test on port 8728
-    Socket? socket;
+    // Strategy B: Authenticated RouterOS Binary API on port 8728/8729
+    final binClient = _LocalMikrotikBinaryApiClient(
+      host: host,
+      port: apiPort,
+      useSsl: useSsl,
+    );
     try {
-      socket = await Socket.connect(host, apiPort, timeout: const Duration(seconds: 3));
+      await binClient.connect(timeout: const Duration(seconds: 4));
+      final authOk = await binClient.login(username, password);
       final latency = DateTime.now().difference(start).inMilliseconds;
-      await socket.close();
+      if (!authOk) {
+        return {
+          'success': false,
+          'stage': 'AUTH',
+          'code': 'INVALID_CREDENTIALS',
+          'message': 'بيانات تسجيل الدخول غير صحيحة عبر منفذ API ($apiPort)',
+        };
+      }
+
+      Map<String, String> resAttrs = {};
+      try {
+        final resRows = await binClient.sendCommand(['/system/resource/print']);
+        if (resRows.isNotEmpty) resAttrs = resRows.first;
+      } catch (_) {}
+
       return {
         'success': true,
         'stage': 'CONNECTED',
         'code': 'CONNECTED_SUCCESS',
         'latencyMs': latency,
-        'message': 'تم التحقق من إمكانية الوصول لمنفذ API ($apiPort) محلياً بنجاح (زمن الاستجابة: ${latency}ms)',
+        'message': 'تم الاتصال والمصادقة عبر منفذ API ($apiPort) بنجاح (زمن الاستجابة: ${latency}ms)',
         'routerInfo': {
-          'model': 'MikroTik Router',
-          'version': rosVersion,
-          'protocol': 'Socket API (Local)',
+          'model': resAttrs['board-name'] ?? resAttrs['platform'] ?? 'MikroTik Router',
+          'version': resAttrs['version'] ?? rosVersion,
+          'cpuLoad': resAttrs['cpu-load'],
+          'protocol': 'API Socket (Authenticated)',
         },
       };
-    } catch (e) {
-      socket?.destroy();
+    } on _LocalBinaryAuthException catch (authErr) {
+      return {
+        'success': false,
+        'stage': 'AUTH',
+        'code': 'INVALID_CREDENTIALS',
+        'message': authErr.message,
+      };
+    } catch (_) {
       return {
         'success': false,
         'stage': 'NETWORK',
         'code': 'CONNECTION_FAILED',
-        'message': 'تعذر الاتصال بالراوتر محلياً عبر العنوان ($host): تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة (وليس بيانات الهاتف).',
+        'message': 'تعذر الاتصال بالراوتر محلياً عبر العنوان ($host): تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة وتفعيل API أو REST.',
       };
+    } finally {
+      await binClient.close();
     }
   }
 
@@ -497,91 +526,241 @@ class MikrotikDiscoveryService {
         final mangleRulesRaw = normalizeList(results[15]);
         final dnsRaw = results[16] is Map<String, dynamic> ? results[16] as Map<String, dynamic> : null;
 
-        if (ifacesRaw.isNotEmpty || resRaw.isNotEmpty) {
-          final ifaces = ifacesRaw.map((m) {
-            return RouterInterfaceModel(
-              id: m['.id']?.toString(),
-              name: m['name']?.toString() ?? '',
-              type: m['type']?.toString() ?? 'ether',
-              running: m['running'] == true || m['running'] == 'true',
-              disabled: m['disabled'] == true || m['disabled'] == 'true',
-              macAddress: m['mac-address']?.toString(),
-              comment: m['comment']?.toString(),
-              mtu: int.tryParse(m['mtu']?.toString() ?? ''),
-            );
-          }).toList();
+        final authError = endpointErrors.values.any((v) => v.contains('HTTP 401') || v.contains('HTTP 403'));
+        if (authError) {
+          throw Exception('بيانات تسجيل الدخول للراوتر غير صحيحة (REST 401/403).');
+        }
 
-          final ipAddresses = ipsRaw.map((m) {
-            return RouterIpAddressModel(
-              id: m['.id']?.toString(),
-              address: m['address']?.toString() ?? '',
-              network: m['network']?.toString(),
-              interface: m['interface']?.toString() ?? '',
-              disabled: m['disabled'] == true || m['disabled'] == 'true',
-              comment: m['comment']?.toString(),
-            );
-          }).toList();
+        const coreEndpoints = [
+          '/system/resource',
+          '/interface',
+          '/interface/bridge',
+          '/interface/bridge/port',
+          '/ip/address',
+          '/ip/route',
+        ];
+        final coreComplete = coreEndpoints.every((ep) => !endpointErrors.containsKey(ep));
 
-          final bridges = bridgesRaw
-              .map((m) => m['name']?.toString() ?? '')
-              .where((s) => s.isNotEmpty)
-              .toList();
-
-          final hotspots = hsRaw
-              .map((m) => m['name']?.toString() ?? '')
-              .where((s) => s.isNotEmpty)
-              .toList();
-
-          final now = DateTime.now().toUtc();
-          final canonicalSummary = jsonEncode({
-            'resource': resRaw,
-            'interfaces': ifaces.map((i) => i.toJson()).toList(),
-            'bridges': bridges,
-            'bridgePorts': bridgePortsRaw,
-            'ipAddresses': ipAddresses.map((a) => a.toJson()).toList(),
-            'hotspotServers': hotspots,
-            'routes': routesRaw,
-            'dhcpServers': dhcpServersRaw,
-          });
-          final computedHash = sha256.convert(utf8.encode(canonicalSummary)).toString();
-
-          return RouterDiscoverySnapshotModel(
-            interfaces: ifaces,
-            ipAddresses: ipAddresses,
-            bridges: bridges,
-            hotspotServers: hotspots,
-            version: resRaw['version']?.toString() ?? rosVersion,
-            cpuLoad: int.tryParse(resRaw['cpu-load']?.toString() ?? '') ?? 0,
-            uptime: resRaw['uptime']?.toString() ?? '',
-            bridgePorts: bridgePortsRaw,
-            dhcpServers: dhcpServersRaw,
-            dhcpClients: dhcpClientsRaw,
-            dhcpNetworks: dhcpNetworksRaw,
-            pools: poolsRaw,
-            natRules: natRulesRaw,
-            filterRules: filterRulesRaw,
-            mangleRules: mangleRulesRaw,
-            routes: routesRaw,
-            hotspotProfiles: hsProfilesRaw,
-            hotspotUserProfiles: hsUserProfilesRaw,
-            dns: dnsRaw,
-            snapshotHash: computedHash,
-            discoveredAt: now,
+        if (ifacesRaw.isNotEmpty && coreComplete) {
+          return _buildDiscoverySnapshotFromRaw(
+            resRaw: resRaw,
+            ifacesRaw: ifacesRaw,
+            bridgesRaw: bridgesRaw,
+            bridgePortsRaw: bridgePortsRaw,
+            ipsRaw: ipsRaw,
+            routesRaw: routesRaw,
+            dhcpServersRaw: dhcpServersRaw,
+            dhcpNetworksRaw: dhcpNetworksRaw,
+            dhcpClientsRaw: dhcpClientsRaw,
+            poolsRaw: poolsRaw,
+            hsRaw: hsRaw,
+            hsProfilesRaw: hsProfilesRaw,
+            hsUserProfilesRaw: hsUserProfilesRaw,
+            natRulesRaw: natRulesRaw,
+            filterRulesRaw: filterRulesRaw,
+            mangleRulesRaw: mangleRulesRaw,
+            dnsRaw: dnsRaw,
+            rosVersion: rosVersion,
             isComplete: endpointErrors.isEmpty,
           );
         }
       } catch (err) {
+        if (err.toString().contains('401/403')) rethrow;
         lastError = err;
       } finally {
         client?.close(force: true);
       }
     }
 
+    // Strategy B Fallback for ROS7/ROS6 routers with REST disabled or blocked: Binary API 8728/8729
+    try {
+      return await _discoverViaBinaryApi(
+        host: host,
+        username: username,
+        password: password,
+        apiPort: apiPort,
+        rosVersion: rosVersion,
+        useSsl: useSsl,
+      );
+    } catch (binErr) {
+      lastError = binErr;
+    }
+
     throw Exception(
-      lastError != null
-          ? 'تعذر جلب منافذ الراوتر محلياً عبر REST ($host): $lastError'
-          : 'لم يتم العثور على واجهات نشطة عبر استعلام REST بالراوتر ($host). تأكد من تفعيل خدمة WWW أو REST وصحة كلمة المرور.',
+      'تعذر جلب منافذ الراوتر محلياً عبر REST أو API ($host): ${lastError.toString().replaceFirst('Exception: ', '')}',
     );
+  }
+
+  RouterDiscoverySnapshotModel _buildDiscoverySnapshotFromRaw({
+    required Map<String, dynamic> resRaw,
+    required List<Map<String, dynamic>> ifacesRaw,
+    required List<Map<String, dynamic>> bridgesRaw,
+    required List<Map<String, dynamic>> bridgePortsRaw,
+    required List<Map<String, dynamic>> ipsRaw,
+    required List<Map<String, dynamic>> routesRaw,
+    required List<Map<String, dynamic>> dhcpServersRaw,
+    required List<Map<String, dynamic>> dhcpNetworksRaw,
+    required List<Map<String, dynamic>> dhcpClientsRaw,
+    required List<Map<String, dynamic>> poolsRaw,
+    required List<Map<String, dynamic>> hsRaw,
+    required List<Map<String, dynamic>> hsProfilesRaw,
+    required List<Map<String, dynamic>> hsUserProfilesRaw,
+    required List<Map<String, dynamic>> natRulesRaw,
+    required List<Map<String, dynamic>> filterRulesRaw,
+    required List<Map<String, dynamic>> mangleRulesRaw,
+    required Map<String, dynamic>? dnsRaw,
+    required String rosVersion,
+    required bool isComplete,
+  }) {
+    final ifaces = ifacesRaw.map((m) {
+      return RouterInterfaceModel(
+        id: m['.id']?.toString(),
+        name: m['name']?.toString() ?? '',
+        type: m['type']?.toString() ?? 'ether',
+        running: m['running'] == true || m['running'] == 'true',
+        disabled: m['disabled'] == true || m['disabled'] == 'true',
+        macAddress: m['mac-address']?.toString(),
+        comment: m['comment']?.toString(),
+        mtu: int.tryParse(m['mtu']?.toString() ?? ''),
+      );
+    }).toList();
+
+    final ipAddresses = ipsRaw.map((m) {
+      return RouterIpAddressModel(
+        id: m['.id']?.toString(),
+        address: m['address']?.toString() ?? '',
+        network: m['network']?.toString(),
+        interface: m['interface']?.toString() ?? '',
+        disabled: m['disabled'] == true || m['disabled'] == 'true',
+        comment: m['comment']?.toString(),
+      );
+    }).toList();
+
+    final bridges = bridgesRaw
+        .map((m) => m['name']?.toString() ?? '')
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final hotspots = hsRaw
+        .map((m) => m['name']?.toString() ?? '')
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final now = DateTime.now().toUtc();
+    final canonicalSummary = jsonEncode({
+      'resource': resRaw,
+      'interfaces': ifaces.map((i) => i.toJson()).toList(),
+      'bridges': bridges,
+      'bridgePorts': bridgePortsRaw,
+      'ipAddresses': ipAddresses.map((a) => a.toJson()).toList(),
+      'hotspotServers': hotspots,
+      'routes': routesRaw,
+      'dhcpServers': dhcpServersRaw,
+    });
+    final computedHash = sha256.convert(utf8.encode(canonicalSummary)).toString();
+
+    return RouterDiscoverySnapshotModel(
+      interfaces: ifaces,
+      ipAddresses: ipAddresses,
+      bridges: bridges,
+      hotspotServers: hotspots,
+      version: resRaw['version']?.toString() ?? rosVersion,
+      cpuLoad: int.tryParse(resRaw['cpu-load']?.toString() ?? '') ?? 0,
+      uptime: resRaw['uptime']?.toString() ?? '',
+      bridgePorts: bridgePortsRaw,
+      dhcpServers: dhcpServersRaw,
+      dhcpClients: dhcpClientsRaw,
+      dhcpNetworks: dhcpNetworksRaw,
+      pools: poolsRaw,
+      natRules: natRulesRaw,
+      filterRules: filterRulesRaw,
+      mangleRules: mangleRulesRaw,
+      routes: routesRaw,
+      hotspotProfiles: hsProfilesRaw,
+      hotspotUserProfiles: hsUserProfilesRaw,
+      dns: dnsRaw,
+      snapshotHash: computedHash,
+      discoveredAt: now,
+      isComplete: isComplete,
+    );
+  }
+
+  Future<RouterDiscoverySnapshotModel> _discoverViaBinaryApi({
+    required String host,
+    required String username,
+    required String password,
+    required int apiPort,
+    required String rosVersion,
+    required bool useSsl,
+  }) async {
+    final binClient = _LocalMikrotikBinaryApiClient(
+      host: host,
+      port: apiPort,
+      useSsl: useSsl,
+    );
+    try {
+      await binClient.connect(timeout: const Duration(seconds: 5));
+      final authOk = await binClient.login(username, password);
+      if (!authOk) {
+        throw Exception('بيانات تسجيل الدخول غير صحيحة عبر منفذ Binary API ($apiPort).');
+      }
+
+      Future<List<Map<String, dynamic>>> printList(String path, {bool required = false}) async {
+        try {
+          final rows = await binClient.sendCommand([path]);
+          return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+        } catch (e) {
+          if (required) rethrow;
+          return [];
+        }
+      }
+
+      final resList = await printList('/system/resource/print', required: true);
+      final ifacesRaw = await printList('/interface/print', required: true);
+      final bridgesRaw = await printList('/interface/bridge/print', required: true);
+      final bridgePortsRaw = await printList('/interface/bridge/port/print', required: true);
+      final ipsRaw = await printList('/ip/address/print', required: true);
+      final routesRaw = await printList('/ip/route/print', required: true);
+      final dhcpServersRaw = await printList('/ip/dhcp-server/print');
+      final dhcpNetworksRaw = await printList('/ip/dhcp-server/network/print');
+      final dhcpClientsRaw = await printList('/ip/dhcp-client/print');
+      final poolsRaw = await printList('/ip/pool/print');
+      final hsRaw = await printList('/ip/hotspot/print');
+      final hsProfilesRaw = await printList('/ip/hotspot/profile/print');
+      final hsUserProfilesRaw = await printList('/ip/hotspot/user/profile/print');
+      final natRulesRaw = await printList('/ip/firewall/nat/print');
+      final filterRulesRaw = await printList('/ip/firewall/filter/print');
+      final mangleRulesRaw = await printList('/ip/firewall/mangle/print');
+      final dnsRows = await printList('/ip/dns/print');
+
+      if (ifacesRaw.isEmpty) {
+        throw Exception('تعذر قراءة واجهات الشبكة من الراوتر عبر Binary API.');
+      }
+
+      return _buildDiscoverySnapshotFromRaw(
+        resRaw: resList.isNotEmpty ? resList.first : {},
+        ifacesRaw: ifacesRaw,
+        bridgesRaw: bridgesRaw,
+        bridgePortsRaw: bridgePortsRaw,
+        ipsRaw: ipsRaw,
+        routesRaw: routesRaw,
+        dhcpServersRaw: dhcpServersRaw,
+        dhcpNetworksRaw: dhcpNetworksRaw,
+        dhcpClientsRaw: dhcpClientsRaw,
+        poolsRaw: poolsRaw,
+        hsRaw: hsRaw,
+        hsProfilesRaw: hsProfilesRaw,
+        hsUserProfilesRaw: hsUserProfilesRaw,
+        natRulesRaw: natRulesRaw,
+        filterRulesRaw: filterRulesRaw,
+        mangleRulesRaw: mangleRulesRaw,
+        dnsRaw: dnsRows.isNotEmpty ? dnsRows.first : null,
+        rosVersion: rosVersion,
+        isComplete: true,
+      );
+    } finally {
+      await binClient.close();
+    }
   }
 
   /// Probe a single TCP port with tight timeout
@@ -1110,23 +1289,73 @@ class MikrotikDiscoveryService {
       }
     }
 
-    // STAGE 3: Multi-point verification
+    // STAGE 3: Multi-point live REST verification after execution (never hardcode true)
     if (onProgress != null) onProgress('VERIFICATION', commands.length + 1, commands.length + 1);
+
+    bool wanConfigured = false;
+    bool defaultRouteActive = false;
+    bool hotspotOperational = false;
+    bool securityPoliciesVerified = false;
+    bool internetReachable = false;
+
+    try {
+      final resIps = await sendRest('GET', '/ip/address');
+      final resDhcp = await sendRest('GET', '/ip/dhcp-client');
+      final resRoutes = await sendRest('GET', '/ip/route');
+      final resHs = await sendRest('GET', '/ip/hotspot');
+      final resNat = await sendRest('GET', '/ip/firewall/nat');
+
+      List<dynamic> asList(dynamic body) =>
+          body is List ? body : (body is Map ? [body] : const []);
+
+      final ips = asList(resIps['body']);
+      final dhcps = asList(resDhcp['body']);
+      final routes = asList(resRoutes['body']);
+      final hotspots = asList(resHs['body']);
+      final nats = asList(resNat['body']);
+
+      wanConfigured = ips.isNotEmpty || dhcps.any((d) => d is Map && d['disabled'] != 'true' && d['disabled'] != true);
+      defaultRouteActive = routes.any(
+        (r) =>
+            r is Map &&
+            (r['dst-address'] == '0.0.0.0/0' || r['dst-address'] == '0.0.0.0') &&
+            r['disabled'] != 'true' &&
+            r['disabled'] != true,
+      );
+      hotspotOperational = hotspots.any(
+        (h) => h is Map && h['disabled'] != 'true' && h['disabled'] != true,
+      );
+      securityPoliciesVerified = nats.any(
+        (n) => n is Map && n['action'] == 'masquerade' && n['disabled'] != 'true' && n['disabled'] != true,
+      );
+      internetReachable = defaultRouteActive && wanConfigured;
+    } catch (_) {}
+
+    final overallStatus = (hotspotOperational && wanConfigured && defaultRouteActive && securityPoliciesVerified)
+        ? 'VERIFIED_READY'
+        : (hotspotOperational && wanConfigured)
+            ? 'DEGRADED'
+            : 'VERIFICATION_FAILED';
+
     return ProvisionApplyResult(
-      success: true,
+      success: overallStatus != 'VERIFICATION_FAILED',
       deviceId: host,
       deviceName: host,
       backupFilename: backupFilename,
       executedStages: executedStages,
-      verification: const ProvisionVerificationResultModel(
-        internetReachable: true,
-        wanConfigured: true,
-        defaultRouteActive: true,
-        hotspotOperational: true,
-        securityPoliciesVerified: true,
-        pingPacketsReceived: 3,
-        overallStatus: 'VERIFIED_READY',
-        diagnosticsMessage: 'تم تطبيق وبرمجة الراوتر بنجاح والتحقق من حالته محلياً.',
+      verification: ProvisionVerificationResultModel(
+        internetReachable: internetReachable,
+        wanConfigured: wanConfigured,
+        defaultRouteActive: defaultRouteActive,
+        hotspotOperational: hotspotOperational,
+        securityPoliciesVerified: securityPoliciesVerified,
+        pingPacketsReceived: internetReachable ? 1 : 0,
+        overallStatus: overallStatus,
+        diagnosticsMessage: overallStatus == 'VERIFIED_READY'
+            ? 'تم تطبيق وبرمجة الراوتر بنجاح والتحقق الفعلي من WAN و Hotspot و NAT.'
+            : overallStatus == 'DEGRADED'
+                ? 'تم تشغيل الهوتسبوت و WAN لكن بعض مؤشرات الوصول الخارجي أو الجدار الناري غير مكتملة.'
+                : 'فشل التحقق المستقل على الراوتر: تعذر إثبات جاهزية الهوتسبوت أو واجهة WAN.',
       ),
     );
   }
@@ -1141,6 +1370,271 @@ class MikrotikDiscoveryService {
         ip.startsWith('172.2') ||
         ip.startsWith('172.30.') ||
         ip.startsWith('172.31.');
+  }
+}
+
+class _LocalBinaryAuthException implements Exception {
+  final String message;
+  _LocalBinaryAuthException(this.message);
+  @override
+  String toString() => message;
+}
+
+/// Minimal authenticated RouterOS Binary API wire protocol client for local LAN checks (port 8728/8729).
+class _LocalMikrotikBinaryApiClient {
+  final String host;
+  final int port;
+  final bool useSsl;
+
+  Socket? _socket;
+  final BytesBuilder _buffer = BytesBuilder(copy: false);
+  final StreamController<List<String>> _sentenceController = StreamController<List<String>>.broadcast();
+  StreamSubscription<Uint8List>? _sub;
+  final List<String> _currentSentence = [];
+
+  _LocalMikrotikBinaryApiClient({
+    required this.host,
+    required this.port,
+    this.useSsl = false,
+  });
+
+  Future<void> connect({Duration timeout = const Duration(seconds: 4)}) async {
+    if (useSsl) {
+      _socket = await SecureSocket.connect(
+        host,
+        port,
+        timeout: timeout,
+        onBadCertificate: (_) => true,
+      );
+    } else {
+      _socket = await Socket.connect(host, port, timeout: timeout);
+    }
+
+    _sub = _socket!.listen(
+      (chunk) {
+        _buffer.add(chunk);
+        _drainFrames();
+      },
+      onError: (err) {
+        if (!_sentenceController.isClosed) {
+          _sentenceController.addError(err);
+        }
+      },
+      onDone: () {
+        if (!_sentenceController.isClosed) {
+          _sentenceController.close();
+        }
+      },
+    );
+  }
+
+  void _drainFrames() {
+    while (true) {
+      final bytes = _buffer.toBytes();
+      if (bytes.isEmpty) return;
+
+      final decoded = _tryDecodeLength(bytes);
+      if (decoded == null) return; // wait for more bytes
+
+      final headerLen = decoded.headerBytes;
+      final wordLen = decoded.length;
+      if (bytes.length < headerLen + wordLen) return; // partial word
+
+      final wordBytes = bytes.sublist(headerLen, headerLen + wordLen);
+      final remaining = bytes.sublist(headerLen + wordLen);
+      _buffer.clear();
+      if (remaining.isNotEmpty) _buffer.add(remaining);
+
+      if (wordLen == 0) {
+        final sentence = List<String>.from(_currentSentence);
+        _currentSentence.clear();
+        if (sentence.isNotEmpty && !_sentenceController.isClosed) {
+          _sentenceController.add(sentence);
+        }
+      } else {
+        _currentSentence.add(utf8.decode(wordBytes, allowMalformed: true));
+      }
+    }
+  }
+
+  ({int length, int headerBytes})? _tryDecodeLength(Uint8List b) {
+    final c = b[0];
+    if ((c & 0x80) == 0) {
+      return (length: c, headerBytes: 1);
+    }
+    if ((c & 0xC0) == 0x80) {
+      if (b.length < 2) return null;
+      return (length: ((c & ~0x80) << 8) + b[1], headerBytes: 2);
+    }
+    if ((c & 0xE0) == 0xC0) {
+      if (b.length < 3) return null;
+      return (length: ((c & ~0xC0) << 16) + (b[1] << 8) + b[2], headerBytes: 3);
+    }
+    if ((c & 0xF0) == 0xE0) {
+      if (b.length < 4) return null;
+      return (length: ((c & ~0xE0) << 24) + (b[1] << 16) + (b[2] << 8) + b[3], headerBytes: 4);
+    }
+    if (b.length < 5) return null;
+    return (
+      length: (b[1] << 24) + (b[2] << 16) + (b[3] << 8) + b[4],
+      headerBytes: 5,
+    );
+  }
+
+  Uint8List _encodeWord(String word) {
+    final data = utf8.encode(word);
+    final len = data.length;
+    final out = BytesBuilder(copy: false);
+    if (len < 0x80) {
+      out.addByte(len);
+    } else if (len < 0x4000) {
+      final v = len | 0x8000;
+      out.add([(v >> 8) & 0xFF, v & 0xFF]);
+    } else if (len < 0x200000) {
+      final v = len | 0xC00000;
+      out.add([(v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF]);
+    } else if (len < 0x10000000) {
+      final v = len | 0xE0000000;
+      out.add([(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF]);
+    } else {
+      out.add([0xF0, (len >> 24) & 0xFF, (len >> 16) & 0xFF, (len >> 8) & 0xFF, len & 0xFF]);
+    }
+    out.add(data);
+    return out.toBytes();
+  }
+
+  Future<List<List<String>>> _writeAndReadSentences(
+    List<String> words, {
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    final sock = _socket;
+    if (sock == null) throw StateError('Socket not connected');
+
+    final replies = <List<String>>[];
+    final doneCompleter = Completer<void>();
+
+    late StreamSubscription<List<String>> listener;
+    listener = _sentenceController.stream.listen(
+      (sentence) {
+        replies.add(sentence);
+        final tag = sentence.isNotEmpty ? sentence.first : '';
+        if (tag == '!done' || tag == '!fatal') {
+          if (!doneCompleter.isCompleted) doneCompleter.complete();
+        }
+      },
+      onError: (err) {
+        if (!doneCompleter.isCompleted) doneCompleter.completeError(err);
+      },
+      onDone: () {
+        if (!doneCompleter.isCompleted) {
+          doneCompleter.completeError(StateError('Socket closed before !done'));
+        }
+      },
+    );
+
+    try {
+      final frame = BytesBuilder(copy: false);
+      for (final w in words) {
+        frame.add(_encodeWord(w));
+      }
+      frame.addByte(0); // end of sentence
+      sock.add(frame.takeBytes());
+      await sock.flush().timeout(timeout);
+      await doneCompleter.future.timeout(timeout);
+      return replies;
+    } finally {
+      await listener.cancel();
+    }
+  }
+
+  Map<String, String> _parseAttrs(List<String> sentence) {
+    final map = <String, String>{};
+    for (final w in sentence.skip(1)) {
+      if (!w.startsWith('=')) continue;
+      final idx = w.indexOf('=', 1);
+      if (idx > 1) {
+        map[w.substring(1, idx)] = w.substring(idx + 1);
+      }
+    }
+    return map;
+  }
+
+  Future<bool> login(String username, String password) async {
+    final replies = await _writeAndReadSentences([
+      '/login',
+      '=name=$username',
+      '=password=$password',
+    ]);
+
+    String? trapMsg;
+    String? challengeHex;
+    bool gotDone = false;
+
+    for (final s in replies) {
+      if (s.isEmpty) continue;
+      if (s.first == '!trap' || s.first == '!fatal') {
+        final attrs = _parseAttrs(s);
+        trapMsg = attrs['message'] ?? 'Invalid username or password';
+      } else if (s.first == '!done') {
+        gotDone = true;
+        final attrs = _parseAttrs(s);
+        challengeHex = attrs['ret'];
+      }
+    }
+
+    if (trapMsg != null) {
+      throw _LocalBinaryAuthException('فشلت المصادقة عبر API: $trapMsg');
+    }
+
+    // Legacy RouterOS (< 6.43) MD5 challenge-response
+    if (gotDone && challengeHex != null && challengeHex.isNotEmpty) {
+      final challengeBytes = <int>[];
+      for (var i = 0; i + 1 < challengeHex.length; i += 2) {
+        challengeBytes.add(int.parse(challengeHex.substring(i, i + 2), radix: 16));
+      }
+      final input = <int>[0, ...utf8.encode(password), ...challengeBytes];
+      final digestHex = md5.convert(input).toString();
+
+      final r2 = await _writeAndReadSentences([
+        '/login',
+        '=name=$username',
+        '=response=00$digestHex',
+      ]);
+      for (final s in r2) {
+        if (s.isNotEmpty && (s.first == '!trap' || s.first == '!fatal')) {
+          final attrs = _parseAttrs(s);
+          throw _LocalBinaryAuthException(
+            'فشلت المصادقة عبر API: ${attrs['message'] ?? 'كلمة المرور غير صحيحة'}',
+          );
+        }
+      }
+    }
+
+    return gotDone;
+  }
+
+  Future<List<Map<String, String>>> sendCommand(List<String> words) async {
+    final replies = await _writeAndReadSentences(words);
+    final rows = <Map<String, String>>[];
+    for (final s in replies) {
+      if (s.isEmpty) continue;
+      if (s.first == '!re') {
+        rows.add(_parseAttrs(s));
+      } else if (s.first == '!trap') {
+        final attrs = _parseAttrs(s);
+        throw Exception(attrs['message'] ?? 'RouterOS API error');
+      }
+    }
+    return rows;
+  }
+
+  Future<void> close() async {
+    await _sub?.cancel();
+    await _socket?.close().catchError((_) {});
+    _socket?.destroy();
+    if (!_sentenceController.isClosed) {
+      await _sentenceController.close();
+    }
   }
 }
 

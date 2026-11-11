@@ -1,5 +1,5 @@
 import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -94,6 +94,25 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       }
     }
     this.logger.log('Database schema verified and synced successfully');
+  }
+
+  /**
+   * Executes a database unit-of-work inside an interactive transaction with
+   * PostgreSQL session GUC `app.current_tenant_id` bound locally (TRANSACTION-scoped),
+   * enforcing multi-tenant RLS for non-bypass DB roles without leaking across pooled connections.
+   */
+  async withTenantRls<T>(
+    tenantId: string,
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const normalizedTenant = (tenantId || '').trim();
+    if (!normalizedTenant) {
+      throw new Error('withTenantRls requires a non-empty tenantId');
+    }
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${normalizedTenant}, true)`;
+      return fn(tx);
+    });
   }
 
   async onModuleDestroy(): Promise<void> {

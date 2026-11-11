@@ -106,11 +106,58 @@ export const envSchema = z.object({
   SUPABASE_URL: z.string().url().default('https://mtstlpvqjxfzsrkzuvhq.supabase.co'),
   SUPABASE_SECRET_KEY: z.string().optional(),
   SUPABASE_STORAGE_BUCKET: z.string().default('card-pdf-archive'),
+  SUPABASE_BACKUP_BUCKET: z.string().default('router-backups'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
 
+const INSECURE_PRODUCTION_SECRET_VALUES = new Set([
+  'development_jwt_access_secret_key_minimum_32_characters_long_12345',
+  'development_jwt_refresh_secret_key_minimum_32_characters_long_67890',
+  '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+  'development_agent_pairing_secret_key_minimum_32_characters_long_12345',
+  'development_cookie_secret_key_minimum_32_characters_long_abcde',
+  'sudafi-default-dev-master-encryption-key-32bytes!',
+]);
+
+const REQUIRED_PROD_ENV_VARS = [
+  'DATABASE_URL',
+  'JWT_ACCESS_SECRET',
+  'JWT_REFRESH_SECRET',
+  'ENCRYPTION_KEY',
+  'AGENT_PAIRING_SECRET',
+  'COOKIE_SECRET',
+  'SUPABASE_URL',
+  'SUPABASE_SECRET_KEY',
+] as const;
+
 export function validateConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const isProduction =
+    String(config?.NODE_ENV ?? process.env.NODE_ENV ?? 'development') === 'production';
+
+  if (isProduction) {
+    const missingOrInsecure: string[] = [];
+    for (const key of REQUIRED_PROD_ENV_VARS) {
+      const val = typeof config?.[key] === 'string' ? (config[key] as string).trim() : '';
+      if (!val || INSECURE_PRODUCTION_SECRET_VALUES.has(val)) {
+        missingOrInsecure.push(key);
+      }
+    }
+    const hasRedisUrl =
+      typeof config?.REDIS_URL === 'string' && config.REDIS_URL.trim().length > 0;
+    const hasRedisHost =
+      typeof config?.REDIS_HOST === 'string' && config.REDIS_HOST.trim().length > 0;
+    if (!hasRedisUrl && !hasRedisHost) {
+      missingOrInsecure.push('REDIS_URL/REDIS_HOST');
+    }
+
+    if (missingOrInsecure.length > 0) {
+      throw new Error(
+        `❌ Production security validation failed — missing or default dev secrets are forbidden in NODE_ENV=production: ${missingOrInsecure.join(', ')}`,
+      );
+    }
+  }
+
   const result = envSchema.safeParse(config);
 
   if (!result.success) {
