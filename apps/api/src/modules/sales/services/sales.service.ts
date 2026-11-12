@@ -120,9 +120,18 @@ export class SalesService {
     const now = new Date();
     const yy = (now.getFullYear() % 100).toString().padStart(2, '0');
     const mm = (now.getMonth() + 1).toString().padStart(2, '0');
-    const dd = now.getDate().toString().padStart(2, '0');
+    const dd = (now.getDate()).toString().padStart(2, '0');
     const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
     return `INV-${yy}${mm}${dd}-${rand}`;
+  }
+
+  private isPrivateHost(host?: string | null): boolean {
+    if (!host) return false;
+    const clean = host.trim().toLowerCase();
+    return (
+      clean === 'localhost' ||
+      /^(127\.|192\.168\.|10\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|fc|fd)/.test(clean)
+    );
   }
 
   async checkout(
@@ -254,6 +263,8 @@ export class SalesService {
         );
 
         try {
+          // Financial POS checkout stays decoupled from private-LAN router probing;
+          // cards are created immediately in DB and synced when router is cloud-reachable.
           await this.cardsService.createBatch(tenantId, cashierId, {
             deviceId: effectiveDeviceId,
             profileId: dto.profileId,
@@ -261,7 +272,7 @@ export class SalesService {
             length: 6,
             pattern: 'NUMERIC',
             singleCredential: true,
-            syncToRouter: device.isOnline,
+            syncToRouter: Boolean(device.isOnline) && !this.isPrivateHost(device.host),
           });
 
           // Re-query available cards after batch generation
@@ -522,7 +533,12 @@ export class SalesService {
     transactionId: string,
     _cashierId: string,
     dto: RefundSaleDto,
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{
+    success: boolean;
+    message: string;
+    routerSyncStatus?: 'SYNCED' | 'SKIPPED_OFFLINE' | 'SKIPPED_PRIVATE_LAN' | 'FAILED';
+    routerSyncWarning?: string;
+  }> {
     const tx = await this.prisma.saleTransaction.findFirst({
       where: { id: transactionId, tenantId },
       include: {
@@ -551,8 +567,12 @@ export class SalesService {
       data: { status: CardStatus.DISABLED },
     });
 
-    // Command router to disable HotSpot user (only if device is currently online)
-    if (tx.device?.isOnline !== false) {
+    // Decoupled best-effort router sync AFTER financial refund & card DB disable succeed
+    let routerSyncStatus: 'SYNCED' | 'SKIPPED_OFFLINE' | 'SKIPPED_PRIVATE_LAN' | 'FAILED' =
+      'SKIPPED_OFFLINE';
+    let routerSyncWarning: string | undefined;
+
+    if (tx.device && tx.device.isOnline !== false) {
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: tx.device.id,
@@ -569,8 +589,15 @@ export class SalesService {
         });
 
         await client.disableHotspotUser(tx.card.username);
+        routerSyncStatus = 'SYNCED';
       } catch (err) {
-        this.logger.warn(`Could not disable hotspot user on router during refund: ${err}`);
+        await this.mikrotikClientFactory?.invalidateClient?.(tx.device.id);
+        const privateLan = this.isPrivateHost(tx.device.host);
+        routerSyncStatus = privateLan ? 'SKIPPED_PRIVATE_LAN' : 'FAILED';
+        routerSyncWarning = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Financial refund succeeded; could not disable hotspot user on router (${tx.device.host}): ${routerSyncWarning}`,
+        );
       }
     } else {
       this.logger.log(`Skipping router sync on refund: device ${tx.device?.name} is offline`);
@@ -611,6 +638,8 @@ export class SalesService {
     return {
       success: true,
       message: `Card ${tx.card.serialNumber} refunded and disabled successfully`,
+      routerSyncStatus,
+      ...(routerSyncWarning ? { routerSyncWarning } : {}),
     };
   }
 

@@ -60,6 +60,8 @@ export class RouterOsApiClient implements IMikrotikClient {
   private pendingRejecter: ((error: Error) => void) | null = null;
   private currentResponses: CommandResponse[] = [];
   private connected = false;
+  private connectPromise: Promise<void> | null = null;
+  private commandQueue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly config: RouterOsApiConfig) {}
 
@@ -69,17 +71,21 @@ export class RouterOsApiClient implements IMikrotikClient {
 
   async connect(): Promise<void> {
     if (this.isConnected()) return;
+    if (this.connectPromise) return this.connectPromise;
 
     const timeout = this.config.timeoutMs ?? 10000;
 
-    await new Promise<void>((resolve, reject) => {
+    this.connectPromise = new Promise<void>((resolve, reject) => {
+      let settled = false;
       const timer = setTimeout(() => {
-        this.disconnect();
-        reject(
-          new Error(
+        if (!settled) {
+          settled = true;
+          const err = new Error(
             `Connection to MikroTik (${this.config.host}:${this.config.port}) timed out after ${timeout}ms`,
-          ),
-        );
+          );
+          void this.disconnect(err);
+          reject(err);
+        }
       }, timeout);
 
       const onConnect = async (): Promise<void> => {
@@ -87,21 +93,30 @@ export class RouterOsApiClient implements IMikrotikClient {
         try {
           await this.performLogin();
           this.connected = true;
-          resolve();
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
         } catch (err) {
-          this.disconnect();
-          reject(err);
+          const wrapped = err instanceof Error ? err : new Error(String(err));
+          void this.disconnect(wrapped);
+          if (!settled) {
+            settled = true;
+            reject(wrapped);
+          }
         }
       };
 
       const onError = (err: Error): void => {
         clearTimeout(timer);
-        this.disconnect();
-        reject(
-          new Error(
-            `Failed to connect to MikroTik (${this.config.host}:${this.config.port}): ${err.message}`,
-          ),
+        const wrapped = new Error(
+          `Failed to connect to MikroTik (${this.config.host}:${this.config.port}): ${err.message}`,
         );
+        void this.disconnect(wrapped);
+        if (!settled) {
+          settled = true;
+          reject(wrapped);
+        }
       };
 
       if (this.config.useSsl) {
@@ -125,13 +140,27 @@ export class RouterOsApiClient implements IMikrotikClient {
 
       this.socket.on('data', (data: Buffer) => this.onData(data));
       this.socket.on('error', onError);
-      this.socket.on('close', () => {
+      this.socket.on('end', () => {
         this.connected = false;
       });
+      this.socket.on('close', () => {
+        this.connected = false;
+        this.socket = null;
+        if (this.pendingRejecter) {
+          const rejecter = this.pendingRejecter;
+          this.pendingResolver = null;
+          this.pendingRejecter = null;
+          rejecter(new Error('Connection closed by remote MikroTik host'));
+        }
+      });
+    }).finally(() => {
+      this.connectPromise = null;
     });
+
+    return this.connectPromise;
   }
 
-  async disconnect(): Promise<void> {
+  async disconnect(reason?: Error): Promise<void> {
     this.connected = false;
     if (this.socket) {
       this.socket.removeAllListeners();
@@ -140,10 +169,12 @@ export class RouterOsApiClient implements IMikrotikClient {
     }
     this.buffer = Buffer.alloc(0);
     this.currentSentence = [];
+    this.currentResponses = [];
     if (this.pendingRejecter) {
-      this.pendingRejecter(new Error('Connection closed'));
+      const rejecter = this.pendingRejecter;
       this.pendingResolver = null;
       this.pendingRejecter = null;
+      rejecter(reason ?? new Error('Connection closed'));
     }
   }
 
@@ -245,8 +276,20 @@ export class RouterOsApiClient implements IMikrotikClient {
     }
   }
 
-  private async executeCommand(words: (string | Buffer)[], timeoutMs?: number): Promise<CommandResponse[]> {
-    if (!this.socket) {
+  private executeCommand(words: (string | Buffer)[], timeoutMs?: number): Promise<CommandResponse[]> {
+    const run = this.commandQueue.then(
+      () => this.executeCommandImmediate(words, timeoutMs),
+      () => this.executeCommandImmediate(words, timeoutMs),
+    );
+    this.commandQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async executeCommandImmediate(
+    words: (string | Buffer)[],
+    timeoutMs?: number,
+  ): Promise<CommandResponse[]> {
+    if (!this.socket || this.socket.destroyed) {
       throw new Error('Socket not initialized');
     }
 
@@ -254,10 +297,13 @@ export class RouterOsApiClient implements IMikrotikClient {
 
     return new Promise<CommandResponse[]>((resolve, reject) => {
       const timer = setTimeout(() => {
-        if (this.pendingRejecter === reject) {
+        if (this.pendingRejecter) {
+          const timeoutErr = new Error(`RouterOS command timed out after ${effectiveTimeout}ms`);
           this.pendingResolver = null;
           this.pendingRejecter = null;
-          reject(new Error(`RouterOS command timed out after ${effectiveTimeout}ms`));
+          // Destroy socket on timeout so stale partial/late frames cannot poison subsequent commands.
+          void this.disconnect(timeoutErr);
+          reject(timeoutErr);
         }
       }, effectiveTimeout);
 
@@ -272,7 +318,16 @@ export class RouterOsApiClient implements IMikrotikClient {
       this.currentResponses = [];
 
       const encoded = RouterOsSocketProtocol.encodeSentence(words);
-      this.socket!.write(encoded);
+      this.socket!.write(encoded, (writeErr) => {
+        if (writeErr && this.pendingRejecter) {
+          clearTimeout(timer);
+          const rejecter = this.pendingRejecter;
+          this.pendingResolver = null;
+          this.pendingRejecter = null;
+          void this.disconnect(writeErr);
+          rejecter(writeErr);
+        }
+      });
     });
   }
 

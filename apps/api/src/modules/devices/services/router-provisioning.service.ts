@@ -26,6 +26,7 @@ import {
 } from '../../../core/mikrotik/interfaces/mikrotik-client.interface';
 import { ProvisionPreviewDto } from '../dto/provision-preview.dto';
 import { ProvisionApplyDto } from '../dto/provision-apply.dto';
+import { DeviceStatus } from '@prisma/client';
 import {
   RouterDiscoverySnapshot,
   ProvisioningConflict,
@@ -1067,16 +1068,58 @@ export class RouterProvisioningService {
             },
           });
 
-          // Strict online promotion: update isOnline ONLY if router was physically verified
+          // Strict online promotion: update isOnline AND status consistently ONLY if router was physically verified
+          const clientResource = clientRes.resource as Record<string, any> | undefined;
+          const now = new Date();
           await this.prisma.mikroTikDevice.update({
             where: { id: device.id },
             data: {
               isOnline: isFullyVerified,
-              lastSyncAt: new Date(),
+              status: isFullyVerified ? DeviceStatus.ONLINE : DeviceStatus.ERROR,
+              lastSyncAt: now,
+              lastError: isFullyVerified
+                ? null
+                : (clientRes.failureReason || 'فشل التحقق الفعلي من جاهزية الراوتر بعد البرمجة.'),
+              ...(isFullyVerified && clientResource
+                ? {
+                    ...(typeof clientResource.cpuLoad === 'number'
+                      ? { cpuLoad: Math.round(clientResource.cpuLoad) }
+                      : {}),
+                    ...(typeof clientResource.freeMemory === 'number'
+                      ? { memoryFree: BigInt(Math.round(clientResource.freeMemory)) }
+                      : {}),
+                    ...(typeof clientResource.totalMemory === 'number'
+                      ? { memoryTotal: BigInt(Math.round(clientResource.totalMemory)) }
+                      : {}),
+                    ...(typeof clientResource.freeHdd === 'number'
+                      ? { diskFree: BigInt(Math.round(clientResource.freeHdd)) }
+                      : {}),
+                    ...(typeof clientResource.totalHdd === 'number'
+                      ? { diskTotal: BigInt(Math.round(clientResource.totalHdd)) }
+                      : {}),
+                    ...(typeof clientResource.uptime === 'string' && clientResource.uptime
+                      ? { uptime: clientResource.uptime }
+                      : {}),
+                    ...(typeof clientResource.boardName === 'string' && clientResource.boardName
+                      ? { modelName: clientResource.boardName }
+                      : {}),
+                  }
+                : {}),
               ...(dto.updateRouterHostIfChanged && dto.lan?.gatewayIp
                 ? { host: dto.lan.gatewayIp.split('/')[0] }
                 : {}),
             },
+          });
+
+          DevicesService.updateChannelState(device.id, {
+            localStatus: isFullyVerified ? 'ONLINE' : 'ERROR',
+            localCheckedAt: now,
+            ...(isFullyVerified
+              ? {
+                  lastVerifiedSource: 'LOCAL_LAN',
+                  lastVerifiedAt: now,
+                }
+              : {}),
           });
         } catch (syncErr) {
           this.logger.warn(`Failed to synchronize platform DB after client provisioning: ${syncErr}`);
@@ -1836,16 +1879,46 @@ export class RouterProvisioningService {
         },
       });
 
-      // Update router last seen and online status
+      // Fetch fresh telemetry on completion so dashboard gauges are immediately populated
+      let liveResource: RouterResource | null = null;
+      try {
+        if (typeof client.getSystemResource === 'function') {
+          liveResource = await client.getSystemResource();
+        }
+      } catch {
+        // Non-fatal: keep provisioning completion intact
+      }
+
+      const syncedAt = new Date();
+      // Update router last seen, unified status, and online state
       await this.prisma.mikroTikDevice.update({
         where: { id: device.id },
         data: {
           isOnline: true,
-          lastSyncAt: new Date(),
+          status: DeviceStatus.ONLINE,
+          lastSyncAt: syncedAt,
+          lastError: null,
+          ...(liveResource
+            ? {
+                cpuLoad: liveResource.cpuLoad,
+                memoryFree: BigInt(liveResource.freeMemory),
+                memoryTotal: BigInt(liveResource.totalMemory),
+                diskFree: BigInt(liveResource.freeHdd),
+                diskTotal: BigInt(liveResource.totalHdd),
+                modelName: liveResource.boardName ?? null,
+                uptime: liveResource.uptime,
+              }
+            : {}),
           ...(dto.updateRouterHostIfChanged && dto.lan.gatewayIp
             ? { host: dto.lan.gatewayIp.split('/')[0] }
             : {}),
         },
+      });
+      DevicesService.updateChannelState(device.id, {
+        cloudStatus: 'ONLINE',
+        cloudCheckedAt: syncedAt,
+        lastVerifiedSource: 'PROVISIONING',
+        lastVerifiedAt: syncedAt,
       });
     } catch (syncErr) {
       this.logger.warn(`Failed to synchronize platform DB after provisioning: ${syncErr}`);

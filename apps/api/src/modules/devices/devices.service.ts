@@ -14,6 +14,7 @@ import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.facto
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
+import { ReportLocalTelemetryDto } from './dto/report-local-telemetry.dto';
 import { DeviceStatus, RouterOsVersion, MikroTikDevice, Prisma } from '@prisma/client';
 import {
   RouterResource,
@@ -22,6 +23,26 @@ import {
 } from '../../core/mikrotik/interfaces/mikrotik-client.interface';
 import { RoleName } from '@mikrotik-saas/shared-types';
 import type { RequestUser } from '../../core/decorators/current-user.decorator';
+
+export type ChannelConnectivityStatus = 'ONLINE' | 'OFFLINE' | 'ERROR' | 'UNKNOWN';
+export type CloudConnectivityStatus =
+  | 'ONLINE'
+  | 'OFFLINE'
+  | 'ERROR'
+  | 'UNREACHABLE_PRIVATE_LAN'
+  | 'UNKNOWN';
+export type EffectiveConnectivityState = 'ONLINE' | 'OFFLINE' | 'ERROR' | 'UNKNOWN';
+export type VerificationSource = 'LOCAL_LAN' | 'CLOUD_API' | 'CLOUD_REST' | 'PROVISIONING';
+
+interface DeviceChannelSnapshot {
+  localStatus: ChannelConnectivityStatus;
+  localCheckedAt: Date | null;
+  cloudStatus: CloudConnectivityStatus;
+  cloudCheckedAt: Date | null;
+  lastVerifiedSource: VerificationSource | null;
+  lastVerifiedAt: Date | null;
+  activeHotspotSessions: number | null;
+}
 
 export interface DeviceResponse {
   id: string;
@@ -37,6 +58,15 @@ export interface DeviceResponse {
   rosVersion: RouterOsVersion;
   isOnline: boolean;
   status: DeviceStatus;
+  connectivityState: EffectiveConnectivityState;
+  isPrivateLan: boolean;
+  localStatus: ChannelConnectivityStatus;
+  cloudStatus: CloudConnectivityStatus;
+  lastVerifiedSource: VerificationSource | null;
+  lastVerifiedAt: Date | null;
+  localCheckedAt: Date | null;
+  cloudCheckedAt: Date | null;
+  activeHotspotSessions: number | null;
   lastSyncAt: Date | null;
   lastSeenAt?: Date | null;
   lastError: string | null;
@@ -58,6 +88,7 @@ export class DevicesService {
   private readonly logger = new Logger(DevicesService.name);
   private readonly activeDeviceCreationLocks = new Set<string>();
   public static readonly activeDeviceOperations = new Set<string>();
+  private static readonly deviceChannelStates = new Map<string, DeviceChannelSnapshot>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -65,7 +96,68 @@ export class DevicesService {
     private readonly mikrotikClientFactory: MikrotikClientFactory,
   ) {}
 
+  public static updateChannelState(
+    deviceId: string,
+    patch: Partial<DeviceChannelSnapshot>,
+  ): DeviceChannelSnapshot {
+    const existing = DevicesService.deviceChannelStates.get(deviceId) ?? {
+      localStatus: 'UNKNOWN',
+      localCheckedAt: null,
+      cloudStatus: 'UNKNOWN',
+      cloudCheckedAt: null,
+      lastVerifiedSource: null,
+      lastVerifiedAt: null,
+      activeHotspotSessions: null,
+    };
+    const next = { ...existing, ...patch };
+    DevicesService.deviceChannelStates.set(deviceId, next);
+    return next;
+  }
+
+  public static clearChannelState(deviceId: string): void {
+    DevicesService.deviceChannelStates.delete(deviceId);
+  }
+
+  private resolveEffectiveConnectivityState(device: MikroTikDevice): EffectiveConnectivityState {
+    if (device.isOnline || device.status === DeviceStatus.ONLINE) {
+      return 'ONLINE';
+    }
+    if (device.status === DeviceStatus.ERROR) {
+      return 'ERROR';
+    }
+    if (device.lastSyncAt == null && !device.lastError) {
+      return 'UNKNOWN';
+    }
+    return 'OFFLINE';
+  }
+
   private transformDevice(device: MikroTikDevice): DeviceResponse {
+    const isPrivateLan = this.isPrivateHost(device.host || '');
+    const effectiveState = this.resolveEffectiveConnectivityState(device);
+    const channel = DevicesService.deviceChannelStates.get(device.id);
+
+    const cloudStatus: CloudConnectivityStatus =
+      channel?.cloudStatus ??
+      (isPrivateLan
+        ? 'UNKNOWN'
+        : effectiveState === 'ONLINE'
+          ? 'ONLINE'
+          : effectiveState);
+
+    const localStatus: ChannelConnectivityStatus =
+      channel?.localStatus ??
+      (isPrivateLan && effectiveState === 'ONLINE' ? 'ONLINE' : 'UNKNOWN');
+
+    const lastVerifiedSource: VerificationSource | null =
+      channel?.lastVerifiedSource ??
+      (effectiveState === 'ONLINE'
+        ? isPrivateLan
+          ? 'LOCAL_LAN'
+          : device.restPort === 80 || device.restPort === 443
+            ? 'CLOUD_REST'
+            : 'CLOUD_API'
+        : null);
+
     return {
       id: device.id,
       tenantId: device.tenantId,
@@ -80,6 +172,15 @@ export class DevicesService {
       rosVersion: device.rosVersion,
       isOnline: device.isOnline,
       status: device.status,
+      connectivityState: effectiveState,
+      isPrivateLan,
+      localStatus,
+      cloudStatus,
+      lastVerifiedSource,
+      lastVerifiedAt: channel?.lastVerifiedAt ?? (device.isOnline ? device.lastSyncAt : null),
+      localCheckedAt: channel?.localCheckedAt ?? null,
+      cloudCheckedAt: channel?.cloudCheckedAt ?? null,
+      activeHotspotSessions: channel?.activeHotspotSessions ?? null,
       lastSyncAt: device.lastSyncAt,
       lastSeenAt: device.lastSyncAt,
       lastError: device.lastError,
@@ -334,13 +435,31 @@ export class DevicesService {
           this.logger.log(
             `Created and verified MikroTik device "${updated.name}" (${updated.id}) - ONLINE`,
           );
+          DevicesService.updateChannelState(updated.id, {
+            cloudStatus: 'ONLINE',
+            cloudCheckedAt: new Date(),
+            lastVerifiedSource:
+              dto.rosVersion === RouterOsVersion.V7 && (device.restPort === 80 || device.restPort === 443)
+                ? 'CLOUD_REST'
+                : 'CLOUD_API',
+            lastVerifiedAt: new Date(),
+          });
           return this.transformDevice(updated);
         }
       }
     } catch (testErr) {
       this.logger.warn(
-        `New MikroTik device "${device?.name ?? dto.name}" saved as OFFLINE (initial probe failed: ${testErr})`,
+        `New MikroTik device "${device?.name ?? dto.name}" saved as UNKNOWN/OFFLINE (initial probe failed: ${testErr})`,
       );
+    }
+
+    if (device && this.isPrivateHost(device.host)) {
+      DevicesService.updateChannelState(device.id, {
+        localStatus: 'UNKNOWN',
+        cloudStatus: 'UNKNOWN',
+        lastVerifiedSource: null,
+        lastVerifiedAt: null,
+      });
     }
 
     this.logger.log(
@@ -573,11 +692,42 @@ export class DevicesService {
 
       await this.releaseSoftDeletedEndpoint(tx, existing.tenantId, targetHost, targetApiPort, id);
 
+      const connectivityConfigChanged =
+        dto.host !== undefined ||
+        dto.apiPort !== undefined ||
+        dto.restPort !== undefined ||
+        dto.useSsl !== undefined ||
+        dto.useTls !== undefined ||
+        dto.username !== undefined ||
+        Boolean(encryptedPassword) ||
+        dto.rosVersion !== undefined;
+
+      if (connectivityConfigChanged) {
+        data.isOnline = false;
+        data.status = DeviceStatus.OFFLINE;
+        data.lastSyncAt = null;
+        data.lastError = null;
+      }
+
       return tx.mikroTikDevice.update({
         where: { id },
         data,
       });
     });
+
+    await this.mikrotikClientFactory?.invalidateClient?.(id);
+    if (
+      dto.host !== undefined ||
+      dto.apiPort !== undefined ||
+      dto.restPort !== undefined ||
+      dto.useSsl !== undefined ||
+      dto.useTls !== undefined ||
+      dto.username !== undefined ||
+      Boolean(dto.password) ||
+      dto.rosVersion !== undefined
+    ) {
+      DevicesService.clearChannelState(id);
+    }
 
     return this.transformDevice(updated);
   }
@@ -609,9 +759,14 @@ export class DevicesService {
       where: { id },
       data: {
         deletedAt: new Date(),
+        isOnline: false,
+        status: DeviceStatus.OFFLINE,
         host: this.buildArchivedHost(existing.host, existing.id),
       },
     });
+
+    await this.mikrotikClientFactory?.invalidateClient?.(id);
+    DevicesService.clearChannelState(id);
 
     this.logger.log(`Soft deleted MikroTik device ${id} for tenant ${existing.tenantId}`);
     return { success: true, message: 'Device deleted successfully' };
@@ -629,6 +784,8 @@ export class DevicesService {
     resource?: RouterResource;
     routerInfo?: Record<string, unknown>;
     error?: string;
+    isPrivateLan?: boolean;
+    localPreserved?: boolean;
   }> {
     // 1. Validation Stage
     const host = dto.host?.trim();
@@ -715,7 +872,8 @@ export class DevicesService {
         await client.disconnect();
       } catch (_) {}
 
-      // If testing an existing device, update its online state in DB
+      // If testing an existing device, update its online state & cloud channel in DB
+      const verifiedAt = new Date();
       if (targetDevice) {
         await this.prisma.mikroTikDevice.update({
           where: { id: targetDevice.id },
@@ -729,9 +887,15 @@ export class DevicesService {
             diskTotal: BigInt(resource.totalHdd),
             modelName: resource.boardName ?? null,
             uptime: resource.uptime,
-            lastSyncAt: new Date(),
+            lastSyncAt: verifiedAt,
             lastError: null,
           },
+        });
+        DevicesService.updateChannelState(targetDevice.id, {
+          cloudStatus: 'ONLINE',
+          cloudCheckedAt: verifiedAt,
+          lastVerifiedSource: isRest ? 'CLOUD_REST' : 'CLOUD_API',
+          lastVerifiedAt: verifiedAt,
         });
       }
 
@@ -744,6 +908,7 @@ export class DevicesService {
         code: 'CONNECTED_SUCCESS',
         latencyMs,
         resource,
+        isPrivateLan: isPrivateIp,
         routerInfo: {
           model: board,
           version: resource.version,
@@ -751,6 +916,8 @@ export class DevicesService {
           cpuLoad: resource.cpuLoad,
           freeMemory: resource.freeMemory,
           totalMemory: resource.totalMemory,
+          freeHdd: resource.freeHdd,
+          totalHdd: resource.totalHdd,
           protocol: isRest ? 'REST API' : 'Socket API',
           port: targetPort,
         },
@@ -760,6 +927,10 @@ export class DevicesService {
       const latencyMs = Date.now() - startTime;
       const rawError = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Direct connection test failed for ${host}: ${rawError}`);
+
+      if (targetDevice) {
+        await this.mikrotikClientFactory?.invalidateClient?.(targetDevice.id);
+      }
 
       let stage: 'NETWORK' | 'PORT' | 'TLS' | 'AUTH' | 'PROTOCOL' = 'NETWORK';
       let code = 'CONNECTION_FAILED';
@@ -775,12 +946,14 @@ export class DevicesService {
         stage = 'NETWORK';
         code = 'HOST_TIMEOUT';
         message = isPrivateIp
-          ? `انتهت مهلة الاتصال بالراوتر (${host}). العنوان محلي (LAN)؛ تأكد من تشغيل وكيل شبكي/VPN أو إمكانية الوصول من الخادم.`
+          ? `انتهت مهلة الاتصال بالراوتر (${host}) من الخادم السحابي. العنوان محلي (LAN) لا يمر عبر الإنترنت بدون VPN؛ افحص من نفس شبكة الواي فاي محلياً.`
           : `انتهت مهلة محاولة الاتصال بالراوتر (${host}). تأكد من إمكانية الوصول للعنوان وجدار الحماية (Firewall).`;
       } else if (lower.includes('ehostunreach') || lower.includes('enetunreach')) {
         stage = 'NETWORK';
         code = 'HOST_UNREACHABLE';
-        message = `المضيف غير قابل للوصول عبر الشبكة (Host Unreachable). تأكد من اتصال الراوتر وعنوان IP.`;
+        message = isPrivateIp
+          ? `العنوان المحلي (${host}) غير قابل للوصول من الخادم السحابي بدون وكيل/VPN.`
+          : `المضيف غير قابل للوصول عبر الشبكة (Host Unreachable). تأكد من اتصال الراوتر وعنوان IP.`;
       } else if (lower.includes('enotfound') || lower.includes('eai_again')) {
         stage = 'NETWORK';
         code = 'DNS_FAILED';
@@ -814,7 +987,7 @@ export class DevicesService {
         stage = 'PORT';
         code = 'REST_API_UNREACHABLE';
         if (isPrivateIp) {
-          message = `تعذر الوصول لواجهة الراوتر (${host}${targetPort ? `:${targetPort}` : ''}). العنوان محلي (LAN)؛ تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة أو جرب منفذ API (8728).`;
+          message = `تعذر الوصول لواجهة الراوتر (${host}${targetPort ? `:${targetPort}` : ''}) من الخادم السحابي. العنوان محلي (LAN)؛ يجب الفحص من الهاتف المتصل بنفس شبكة الواي فاي.`;
         } else if (dto.useSsl) {
           message = `تعذر الوصول لواجهة REST بالراوتر (${host}:443). خدمة SSL قد تكون معطلة في الراوتر، يرجى تعطيل خيار SSL واستخدام المنفذ 80 الافتراضي.`;
         } else {
@@ -822,25 +995,56 @@ export class DevicesService {
         }
       }
 
+      const isCloudLanReachabilityOnly =
+        isPrivateIp &&
+        stage !== 'AUTH' &&
+        stage !== 'TLS' &&
+        (code === 'HOST_TIMEOUT' ||
+          code === 'HOST_UNREACHABLE' ||
+          code === 'REST_API_UNREACHABLE' ||
+          code === 'PORT_CLOSED' ||
+          code === 'CONNECTION_FAILED');
+
+      let localPreserved = false;
       if (targetDevice) {
-        await this.prisma.mikroTikDevice.update({
-          where: { id: targetDevice.id },
-          data: {
-            isOnline: false,
-            status: DeviceStatus.ERROR,
-            lastSyncAt: new Date(),
-            lastError: message,
-          },
-        });
+        const now = new Date();
+        if (isCloudLanReachabilityOnly) {
+          const existingChannel = DevicesService.deviceChannelStates.get(targetDevice.id);
+          localPreserved =
+            targetDevice.isOnline ||
+            targetDevice.status === DeviceStatus.ONLINE ||
+            existingChannel?.localStatus === 'ONLINE';
+
+          DevicesService.updateChannelState(targetDevice.id, {
+            cloudStatus: 'UNREACHABLE_PRIVATE_LAN',
+            cloudCheckedAt: now,
+          });
+        } else {
+          await this.prisma.mikroTikDevice.update({
+            where: { id: targetDevice.id },
+            data: {
+              isOnline: false,
+              status: DeviceStatus.ERROR,
+              lastSyncAt: now,
+              lastError: message,
+            },
+          });
+          DevicesService.updateChannelState(targetDevice.id, {
+            cloudStatus: 'ERROR',
+            cloudCheckedAt: now,
+          });
+        }
       }
 
       return {
         success: false,
         stage,
-        code,
+        code: isCloudLanReachabilityOnly ? 'CLOUD_UNREACHABLE_PRIVATE_LAN' : code,
         message,
         latencyMs,
         error: rawError,
+        isPrivateLan: isPrivateIp,
+        localPreserved,
       };
     }
   }
@@ -848,6 +1052,7 @@ export class DevicesService {
   async testConnection(
     tenantId: string,
     id: string,
+    currentUser?: RequestUser,
   ): Promise<{
     success: boolean;
     stage?: string;
@@ -857,10 +1062,14 @@ export class DevicesService {
     resource?: RouterResource;
     routerInfo?: Record<string, unknown>;
     error?: string;
+    isPrivateLan?: boolean;
+    localPreserved?: boolean;
   }> {
-    const device = await this.prisma.mikroTikDevice.findFirst({
-      where: { id, tenantId, deletedAt: null },
-    });
+    const device = currentUser
+      ? await this.assertUserDeviceAccess(tenantId, id, currentUser)
+      : await this.prisma.mikroTikDevice.findFirst({
+          where: { id, tenantId, deletedAt: null },
+        });
 
     if (!device) {
       throw new NotFoundException({
@@ -887,6 +1096,130 @@ export class DevicesService {
     });
   }
 
+  async reportLocalTelemetry(
+    tenantId: string | undefined | null,
+    id: string,
+    dto: ReportLocalTelemetryDto,
+    currentUser?: RequestUser,
+  ): Promise<DeviceResponse> {
+    const device = await this.assertUserDeviceAccess(tenantId, id, currentUser);
+
+    const now = new Date();
+    let verifiedAt = now;
+    if (dto.verifiedAt) {
+      const parsed = new Date(dto.verifiedAt);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException({
+          code: 'INVALID_TIMESTAMP',
+          message: 'صيغة وقت الفحص المحلي (verifiedAt) غير صالحة.',
+        });
+      }
+      if (parsed.getTime() - now.getTime() > 2 * 60 * 1000) {
+        throw new BadRequestException({
+          code: 'FUTURE_TIMESTAMP_REJECTED',
+          message: 'تم رفض التقرير لأن توقيت الفحص في المستقبل.',
+        });
+      }
+      if (now.getTime() - parsed.getTime() > 24 * 60 * 60 * 1000) {
+        throw new BadRequestException({
+          code: 'EXPIRED_TELEMETRY_REJECTED',
+          message: 'تم رفض التقرير لأن صلاحية توقيت الفحص تجاوزت 24 ساعة.',
+        });
+      }
+      verifiedAt = parsed;
+    }
+
+    if (dto.reportedHost && dto.reportedHost.trim() !== device.host.trim()) {
+      throw new BadRequestException({
+        code: 'HOST_MISMATCH',
+        message: 'عنوان الراوتر في التقرير المحلي لا يطابق العنوان المسجل للجهاز.',
+      });
+    }
+
+    if (
+      dto.memoryFree !== undefined &&
+      dto.memoryTotal !== undefined &&
+      dto.memoryTotal > 0 &&
+      dto.memoryFree > dto.memoryTotal
+    ) {
+      throw new BadRequestException({
+        code: 'INVALID_TELEMETRY_BOUNDS',
+        message: 'الذاكرة الحرة لا يمكن أن تتجاوز إجمالي الذاكرة.',
+      });
+    }
+
+    if (
+      dto.diskFree !== undefined &&
+      dto.diskTotal !== undefined &&
+      dto.diskTotal > 0 &&
+      dto.diskFree > dto.diskTotal
+    ) {
+      throw new BadRequestException({
+        code: 'INVALID_TELEMETRY_BOUNDS',
+        message: 'مساحة القرص الحرة لا يمكن أن تتجاوز المساحة الإجمالية.',
+      });
+    }
+
+    const existingChannel = DevicesService.deviceChannelStates.get(device.id);
+    if (
+      (device.lastSyncAt && verifiedAt.getTime() < device.lastSyncAt.getTime()) ||
+      (existingChannel?.localCheckedAt &&
+        verifiedAt.getTime() < existingChannel.localCheckedAt.getTime())
+    ) {
+      throw new ConflictException({
+        code: 'STALE_TELEMETRY',
+        message: 'تم رفض التقرير المحلي لوجود فحص أحدث مسجل للراوتر.',
+      });
+    }
+
+    const nextStatus = dto.isOnline
+      ? DeviceStatus.ONLINE
+      : dto.status === 'ERROR' || dto.errorCode === 'AUTH_FAILED' || dto.errorCode === 'INVALID_CREDENTIALS'
+        ? DeviceStatus.ERROR
+        : DeviceStatus.OFFLINE;
+
+    const updateData: Prisma.MikroTikDeviceUpdateInput = {
+      isOnline: dto.isOnline,
+      status: nextStatus,
+      lastSyncAt: verifiedAt,
+      lastError: dto.isOnline ? null : (dto.lastError?.trim() || 'تعذر الوصول للراوتر محلياً'),
+    };
+
+    if (dto.isOnline) {
+      if (dto.cpuLoad !== undefined) updateData.cpuLoad = dto.cpuLoad;
+      if (dto.memoryFree !== undefined) updateData.memoryFree = BigInt(Math.round(dto.memoryFree));
+      if (dto.memoryTotal !== undefined) updateData.memoryTotal = BigInt(Math.round(dto.memoryTotal));
+      if (dto.diskFree !== undefined) updateData.diskFree = BigInt(Math.round(dto.diskFree));
+      if (dto.diskTotal !== undefined) updateData.diskTotal = BigInt(Math.round(dto.diskTotal));
+      if (dto.uptime !== undefined && dto.uptime.trim().length > 0) updateData.uptime = dto.uptime.trim();
+      if (dto.modelName !== undefined && dto.modelName.trim().length > 0) updateData.modelName = dto.modelName.trim();
+      if (dto.rosVersion !== undefined) updateData.rosVersion = dto.rosVersion;
+    } else {
+      await this.mikrotikClientFactory?.invalidateClient?.(device.id);
+    }
+
+    const updated = await this.prisma.mikroTikDevice.update({
+      where: { id: device.id },
+      data: updateData,
+    });
+
+    DevicesService.updateChannelState(device.id, {
+      localStatus: dto.isOnline ? 'ONLINE' : nextStatus === DeviceStatus.ERROR ? 'ERROR' : 'OFFLINE',
+      localCheckedAt: verifiedAt,
+      ...(dto.isOnline
+        ? {
+            lastVerifiedSource: 'LOCAL_LAN',
+            lastVerifiedAt: verifiedAt,
+            ...(dto.activeHotspotSessions !== undefined
+              ? { activeHotspotSessions: dto.activeHotspotSessions }
+              : {}),
+          }
+        : {}),
+    });
+
+    return this.transformDevice(updated);
+  }
+
   async getSystemResource(tenantId: string, id: string): Promise<RouterResource> {
     const device = await this.prisma.mikroTikDevice.findFirst({
       where: { id, tenantId, deletedAt: null },
@@ -898,68 +1231,6 @@ export class DevicesService {
         message: `Device with ID ${id} was not found`,
       });
     }
-
-    const client = await this.mikrotikClientFactory.getClient({
-      id: device.id,
-      name: device.name,
-      host: device.host,
-      apiPort: device.apiPort,
-      restPort: device.restPort,
-      useSsl: device.useSsl,
-      username: device.username,
-      passwordEncrypted: device.passwordEncrypted,
-      iv: device.iv,
-      authTag: device.authTag,
-      rosVersion: device.rosVersion,
-    });
-
-    const resource = await client.getSystemResource();
-
-    await this.prisma.mikroTikDevice.update({
-      where: { id },
-      data: {
-        isOnline: true,
-        status: DeviceStatus.ONLINE,
-        cpuLoad: resource.cpuLoad,
-        memoryFree: BigInt(resource.freeMemory),
-        memoryTotal: BigInt(resource.totalMemory),
-        diskFree: BigInt(resource.freeHdd),
-        diskTotal: BigInt(resource.totalHdd),
-        modelName: resource.boardName ?? null,
-        uptime: resource.uptime,
-        lastSyncAt: new Date(),
-      },
-    });
-
-    return resource;
-  }
-
-  async getDiagnostics(
-    tenantId: string,
-    id: string,
-  ): Promise<{
-    cpuLoad: number;
-    freeMemoryMb: number;
-    totalMemoryMb: number;
-    uptime: string;
-    activeHotspotSessions: number;
-    boardName?: string;
-    version?: string;
-  }> {
-    const device = await this.prisma.mikroTikDevice.findFirst({
-      where: { id, tenantId, deletedAt: null },
-    });
-
-    if (!device) {
-      throw new NotFoundException({
-        code: 'DEVICE_NOT_FOUND',
-        message: `Device with ID ${id} was not found`,
-      });
-    }
-
-    const activeSessions = await this.prisma.hotspotActiveSession.count({
-      where: { tenantId, deviceId: id },
-    });
 
     try {
       const client = await this.mikrotikClientFactory.getClient({
@@ -977,33 +1248,198 @@ export class DevicesService {
       });
 
       const resource = await client.getSystemResource();
+      const now = new Date();
+
+      await this.prisma.mikroTikDevice.update({
+        where: { id },
+        data: {
+          isOnline: true,
+          status: DeviceStatus.ONLINE,
+          cpuLoad: resource.cpuLoad,
+          memoryFree: BigInt(resource.freeMemory),
+          memoryTotal: BigInt(resource.totalMemory),
+          diskFree: BigInt(resource.freeHdd),
+          diskTotal: BigInt(resource.totalHdd),
+          modelName: resource.boardName ?? null,
+          uptime: resource.uptime,
+          lastSyncAt: now,
+          lastError: null,
+        },
+      });
+
+      DevicesService.updateChannelState(device.id, {
+        cloudStatus: 'ONLINE',
+        cloudCheckedAt: now,
+        lastVerifiedSource:
+          device.rosVersion === RouterOsVersion.V7 &&
+          (device.restPort === 80 || device.restPort === 443)
+            ? 'CLOUD_REST'
+            : 'CLOUD_API',
+        lastVerifiedAt: now,
+      });
+
+      return resource;
+    } catch (err) {
+      await this.mikrotikClientFactory?.invalidateClient?.(device.id);
+      if (!this.isPrivateHost(device.host)) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await this.prisma.mikroTikDevice.update({
+          where: { id },
+          data: {
+            isOnline: false,
+            status: DeviceStatus.ERROR,
+            lastError: msg,
+          },
+        });
+        DevicesService.updateChannelState(device.id, {
+          cloudStatus: 'ERROR',
+          cloudCheckedAt: new Date(),
+        });
+      } else {
+        DevicesService.updateChannelState(device.id, {
+          cloudStatus: 'UNREACHABLE_PRIVATE_LAN',
+          cloudCheckedAt: new Date(),
+        });
+      }
+      throw err;
+    }
+  }
+
+  async getDiagnostics(
+    tenantId: string,
+    id: string,
+  ): Promise<{
+    isLive: boolean;
+    connectivityState: EffectiveConnectivityState;
+    cpuLoad: number | null;
+    freeMemoryMb: number | null;
+    totalMemoryMb: number | null;
+    uptime: string | null;
+    activeHotspotSessions: number;
+    boardName: string | null;
+    version?: string | null;
+    lastError?: string | null;
+    isPrivateLan?: boolean;
+  }> {
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `Device with ID ${id} was not found`,
+      });
+    }
+
+    const activeSessions = await this.prisma.hotspotActiveSession.count({
+      where: { tenantId, deviceId: id },
+    });
+    const isPrivateLan = this.isPrivateHost(device.host);
+
+    try {
+      const client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+
+      const resource = await client.getSystemResource();
+      const now = new Date();
+      await this.prisma.mikroTikDevice.update({
+        where: { id },
+        data: {
+          isOnline: true,
+          status: DeviceStatus.ONLINE,
+          cpuLoad: resource.cpuLoad,
+          memoryFree: BigInt(resource.freeMemory),
+          memoryTotal: BigInt(resource.totalMemory),
+          diskFree: BigInt(resource.freeHdd),
+          diskTotal: BigInt(resource.totalHdd),
+          modelName: resource.boardName ?? null,
+          uptime: resource.uptime,
+          lastSyncAt: now,
+          lastError: null,
+        },
+      });
+      DevicesService.updateChannelState(device.id, {
+        cloudStatus: 'ONLINE',
+        cloudCheckedAt: now,
+        lastVerifiedAt: now,
+        lastVerifiedSource: 'CLOUD_API',
+      });
+
       return {
+        isLive: true,
+        connectivityState: 'ONLINE',
         cpuLoad: resource.cpuLoad,
         freeMemoryMb: Math.round(resource.freeMemory / (1024 * 1024)),
         totalMemoryMb: Math.round(resource.totalMemory / (1024 * 1024)),
         uptime: resource.uptime,
         activeHotspotSessions: activeSessions,
-        boardName: resource.boardName || 'RouterBOARD',
+        boardName: resource.boardName || device.modelName || null,
         version: resource.version || device.rosVersion,
+        isPrivateLan,
       };
-    } catch {
+    } catch (err) {
+      await this.mikrotikClientFactory?.invalidateClient?.(device.id);
+      const errMsg = err instanceof Error ? err.message : String(err);
+
+      if (isPrivateLan) {
+        DevicesService.updateChannelState(device.id, {
+          cloudStatus: 'UNREACHABLE_PRIVATE_LAN',
+          cloudCheckedAt: new Date(),
+        });
+      } else {
+        await this.prisma.mikroTikDevice.update({
+          where: { id },
+          data: {
+            isOnline: false,
+            status: DeviceStatus.ERROR,
+            lastError: errMsg,
+          },
+        });
+        DevicesService.updateChannelState(device.id, {
+          cloudStatus: 'ERROR',
+          cloudCheckedAt: new Date(),
+        });
+      }
+
+      const channel = DevicesService.deviceChannelStates.get(device.id);
       return {
-        cpuLoad: device.cpuLoad ?? 14,
-        freeMemoryMb: device.memoryFree
-          ? Math.round(Number(device.memoryFree) / (1024 * 1024))
-          : 420,
-        totalMemoryMb: device.memoryTotal
-          ? Math.round(Number(device.memoryTotal) / (1024 * 1024))
-          : 1024,
-        uptime: device.uptime ?? '12d 04:15:20',
-        activeHotspotSessions: activeSessions,
-        boardName: 'RouterBOARD',
+        isLive: false,
+        connectivityState: this.resolveEffectiveConnectivityState(device),
+        cpuLoad: device.cpuLoad ?? null,
+        freeMemoryMb:
+          device.memoryFree !== null && device.memoryFree !== undefined
+            ? Math.round(Number(device.memoryFree) / (1024 * 1024))
+            : null,
+        totalMemoryMb:
+          device.memoryTotal !== null && device.memoryTotal !== undefined
+            ? Math.round(Number(device.memoryTotal) / (1024 * 1024))
+            : null,
+        uptime: device.uptime ?? null,
+        activeHotspotSessions: channel?.activeHotspotSessions ?? activeSessions,
+        boardName: device.modelName ?? null,
         version: device.rosVersion,
+        lastError: isPrivateLan && device.isOnline ? device.lastError : errMsg,
+        isPrivateLan,
       };
     }
   }
 
-  async reboot(tenantId: string, id: string): Promise<{ success: boolean; message: string }> {
+  async reboot(
+    tenantId: string,
+    id: string,
+  ): Promise<{ success: boolean; code?: string; message: string }> {
     const device = await this.prisma.mikroTikDevice.findFirst({
       where: { id, tenantId, deletedAt: null },
     });
@@ -1033,9 +1469,31 @@ export class DevicesService {
       if (typeof client.reboot === 'function') {
         await client.reboot();
       }
-      return { success: true, message: 'Reboot command issued to router' };
-    } catch {
-      return { success: true, message: 'Reboot signal processed' };
+      await this.mikrotikClientFactory?.invalidateClient?.(device.id);
+      await this.prisma.mikroTikDevice.update({
+        where: { id: device.id },
+        data: {
+          isOnline: false,
+          status: DeviceStatus.OFFLINE,
+          lastSyncAt: new Date(),
+          lastError: null,
+        },
+      });
+      DevicesService.updateChannelState(device.id, {
+        localStatus: 'OFFLINE',
+        cloudStatus: 'OFFLINE',
+        cloudCheckedAt: new Date(),
+      });
+      return { success: true, message: 'تم إرسال أمر إعادة تشغيل الراوتر بنجاح' };
+    } catch (err) {
+      await this.mikrotikClientFactory?.invalidateClient?.(device.id);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to issue reboot to router ${device.name}: ${errMsg}`);
+      return {
+        success: false,
+        code: 'REBOOT_FAILED',
+        message: `تعذر إرسال أمر إعادة التشغيل إلى الراوتر (${device.name}): ${errMsg}`,
+      };
     }
   }
 
@@ -1569,9 +2027,19 @@ export class DevicesService {
       });
 
       // Mark device temporarily offline as it reboots
+      await this.mikrotikClientFactory?.invalidateClient?.(device.id);
       await this.prisma.mikroTikDevice.update({
         where: { id: device.id },
-        data: { isOnline: false, lastSyncAt: new Date() },
+        data: {
+          isOnline: false,
+          status: DeviceStatus.OFFLINE,
+          lastSyncAt: new Date(),
+          lastError: null,
+        },
+      });
+      DevicesService.updateChannelState(device.id, {
+        localStatus: 'OFFLINE',
+        cloudStatus: 'OFFLINE',
       });
 
       return {

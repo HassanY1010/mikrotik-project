@@ -61,8 +61,10 @@ export class RouterOsRestClient implements IMikrotikClient {
   }
 
   async connect(): Promise<void> {
+    if (this.connected) return;
     const isOk = await this.ping();
     if (!isOk) {
+      this.connected = false;
       throw new Error(
         `Failed to reach MikroTik REST API at ${this.config.host}:${this.config.port}`,
       );
@@ -98,6 +100,9 @@ export class RouterOsRestClient implements IMikrotikClient {
       clearTimeout(timer);
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403 || response.status >= 500) {
+          this.connected = false;
+        }
         const errorText = await response.text();
         throw new Error(
           `MikroTik REST error (${response.status} ${response.statusText}): ${errorText}`,
@@ -120,6 +125,7 @@ export class RouterOsRestClient implements IMikrotikClient {
       }
     } catch (err) {
       clearTimeout(timer);
+      this.connected = false;
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`MikroTik REST request to ${endpoint} failed: ${msg}`);
     }

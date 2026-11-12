@@ -1921,7 +1921,14 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                   isExpanded: true,
                   style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
                   items: routers.map((r) {
-                    final isOnline = r.status.toUpperCase() == 'ONLINE' || r.isOnline;
+                    final isOnline = r.isEffectiveOnline;
+                    final isUnknown = !isOnline && r.connectivityState.toUpperCase() == 'UNKNOWN';
+                    final statusColor = isOnline
+                        ? const Color(0xFF10B981)
+                        : (isUnknown ? const Color(0xFFF59E0B) : const Color(0xFF94A3B8));
+                    final statusLabel = isOnline
+                        ? 'متصل'
+                        : (isUnknown ? 'غير مفحوص' : 'غير متصل');
                     return DropdownMenuItem<String>(
                       value: r.id,
                       child: Row(
@@ -1929,15 +1936,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
                           Icon(
                             Icons.router,
                             size: 16,
-                            color: isOnline ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                            color: statusColor,
                           ),
                           const SizedBox(width: 8),
                           Expanded(child: Text(r.name, overflow: TextOverflow.ellipsis)),
                           Text(
-                            isOnline ? 'متصل' : 'غير متصل',
+                            statusLabel,
                             style: TextStyle(
                               fontSize: 11,
-                              color: isOnline ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                              color: statusColor,
                             ),
                           ),
                         ],

@@ -47,6 +47,9 @@ class ApiEndpoints {
   static String deviceEmergencyLock(String id) => '/devices/$id/emergency-lock';
   static String deviceAntiTethering(String id) => '/devices/$id/anti-tethering';
   static String deviceTest(String id) => '/devices/$id/test-connection';
+  static String deviceLocalTelemetry(String id) => '/devices/$id/local-telemetry';
+  static String deviceResources(String id) => '/devices/$id/resources';
+  static String deviceDiagnostics(String id) => '/devices/$id/diagnostics';
   static String deviceBackup(String id) => '/devices/$id/backup';
   static String deviceBackups(String id) => '/devices/$id/backups';
   static String deviceBackupDownload(String id, String filename) =>

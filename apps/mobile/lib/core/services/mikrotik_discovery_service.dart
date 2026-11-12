@@ -7,6 +7,7 @@ import 'package:cryptography/cryptography.dart' as crypto_pkg;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/router_provisioning_models.dart';
+import '../models/models.dart';
 
 /// Structured REST operation representation with verified HTTP method, path, and payload
 class MikrotikRestOperation {
@@ -297,6 +298,46 @@ class MikrotikDiscoveryService {
     }
   }
 
+  static int? _parseMikrotikInt(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is int) return raw;
+    if (raw is num) return raw.round();
+    final cleaned = raw.toString().trim().replaceAll(RegExp(r'[^0-9.-]'), '');
+    return int.tryParse(cleaned) ?? double.tryParse(cleaned)?.round();
+  }
+
+  static Map<String, dynamic> _buildRouterInfo({
+    required Map<String, dynamic> rawResource,
+    required String fallbackVersion,
+    required String protocol,
+    int? activeHotspotSessions,
+  }) {
+    final freeMem = _parseMikrotikInt(rawResource['free-memory'] ?? rawResource['memoryFree']);
+    final totalMem = _parseMikrotikInt(rawResource['total-memory'] ?? rawResource['memoryTotal']);
+    final freeHdd = _parseMikrotikInt(rawResource['free-hdd-space'] ?? rawResource['diskFree']);
+    final totalHdd = _parseMikrotikInt(rawResource['total-hdd-space'] ?? rawResource['diskTotal']);
+    final cpuLoad = _parseMikrotikInt(rawResource['cpu-load'] ?? rawResource['cpuLoad']);
+    final uptime = rawResource['uptime']?.toString();
+    final versionStr = rawResource['version']?.toString() ?? fallbackVersion;
+    final modelName =
+        (rawResource['board-name'] ?? rawResource['platform'] ?? 'MikroTik Router').toString();
+
+    return {
+      'model': modelName,
+      'modelName': modelName,
+      'version': versionStr,
+      'rosVersion': versionStr.startsWith('6') ? 'V6' : (versionStr.startsWith('7') ? 'V7' : fallbackVersion),
+      'cpuLoad': cpuLoad,
+      'memoryFree': freeMem,
+      'memoryTotal': totalMem,
+      'diskFree': freeHdd,
+      'diskTotal': totalHdd,
+      'uptime': uptime,
+      if (activeHotspotSessions != null) 'activeHotspotSessions': activeHotspotSessions,
+      'protocol': protocol,
+    };
+  }
+
   /// Test credentials directly from the mobile phone over the local network (LAN)
   Future<Map<String, dynamic>> verifyCredentialsLocally({
     required String host,
@@ -308,31 +349,109 @@ class MikrotikDiscoveryService {
     bool useSsl = false,
   }) async {
     final start = DateTime.now();
-    HttpClient? httpClient;
+    final normalizedRos = rosVersion.toUpperCase();
+    final preferBinaryFirst = normalizedRos.contains('V6') && !normalizedRos.contains('V7');
 
-    // Strategy A: If RouterOS v7 or REST available, test via /rest/system/resource
-    try {
-      httpClient = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 3)
-        ..badCertificateCallback = (cert, host, port) => true;
+    Future<Map<String, dynamic>?> tryRest() async {
+      HttpClient? httpClient;
+      try {
+        httpClient = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 3)
+          ..badCertificateCallback = (cert, h, p) => true;
 
-      final port = useSsl ? 443 : (restPort == 443 ? 80 : restPort);
-      final scheme = useSsl ? 'https' : 'http';
-      final uri = Uri.parse('$scheme://$host:$port/rest/system/resource');
+        final port = useSsl ? (restPort == 80 ? 443 : restPort) : (restPort == 443 ? 80 : restPort);
+        final scheme = useSsl ? 'https' : 'http';
+        final uri = Uri.parse('$scheme://$host:$port/rest/system/resource');
 
-      final request = await httpClient.getUrl(uri).timeout(const Duration(seconds: 3));
-      final authStr = base64Encode(utf8.encode('$username:$password'));
-      request.headers.set('Authorization', 'Basic $authStr');
+        final request = await httpClient.getUrl(uri).timeout(const Duration(seconds: 3));
+        final authStr = base64Encode(utf8.encode('$username:$password'));
+        request.headers.set('Authorization', 'Basic $authStr');
 
-      final response = await request.close().timeout(const Duration(seconds: 3));
-      final latency = DateTime.now().difference(start).inMilliseconds;
+        final response = await request.close().timeout(const Duration(seconds: 3));
+        final latency = DateTime.now().difference(start).inMilliseconds;
 
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
-        Map<String, dynamic>? resMap;
+        if (response.statusCode == 200) {
+          final body = await response.transform(utf8.decoder).join();
+          Map<String, dynamic> resMap = {};
+          try {
+            final decoded = jsonDecode(body);
+            if (decoded is Map<String, dynamic>) resMap = decoded;
+          } catch (_) {}
+
+          int? activeSessions;
+          try {
+            final activeUri = Uri.parse('$scheme://$host:$port/rest/ip/hotspot/active');
+            final activeReq = await httpClient.getUrl(activeUri).timeout(const Duration(seconds: 2));
+            activeReq.headers.set('Authorization', 'Basic $authStr');
+            final activeRes = await activeReq.close().timeout(const Duration(seconds: 2));
+            if (activeRes.statusCode == 200) {
+              final activeBody = await activeRes.transform(utf8.decoder).join();
+              final decodedActive = jsonDecode(activeBody);
+              if (decodedActive is List) activeSessions = decodedActive.length;
+            }
+          } catch (_) {}
+
+          return {
+            'success': true,
+            'stage': 'CONNECTED',
+            'code': 'CONNECTED_SUCCESS',
+            'latencyMs': latency,
+            'verifiedAt': DateTime.now().toUtc().toIso8601String(),
+            'message': 'تم الاتصال والمصادقة محلياً من الهاتف بنجاح (زمن الاستجابة: ${latency}ms)',
+            'routerInfo': _buildRouterInfo(
+              rawResource: resMap,
+              fallbackVersion: rosVersion,
+              protocol: 'REST API (Local)',
+              activeHotspotSessions: activeSessions,
+            ),
+          };
+        } else if (response.statusCode == 401 || response.statusCode == 403) {
+          return {
+            'success': false,
+            'stage': 'AUTH',
+            'code': 'INVALID_CREDENTIALS',
+            'message': 'بيانات تسجيل الدخول غير صحيحة (اسم المستخدم أو كلمة المرور خطأ في الراوتر)',
+          };
+        }
+      } catch (_) {
+        // Fall through to Binary API
+      } finally {
+        httpClient?.close(force: true);
+      }
+      return null;
+    }
+
+    Future<Map<String, dynamic>> tryBinary() async {
+      final binClient = _LocalMikrotikBinaryApiClient(
+        host: host,
+        port: apiPort,
+        useSsl: useSsl,
+      );
+      try {
+        await binClient.connect(timeout: const Duration(seconds: 4));
+        final authOk = await binClient.login(username, password);
+        final latency = DateTime.now().difference(start).inMilliseconds;
+        if (!authOk) {
+          return {
+            'success': false,
+            'stage': 'AUTH',
+            'code': 'INVALID_CREDENTIALS',
+            'message': 'بيانات تسجيل الدخول غير صحيحة عبر منفذ API ($apiPort)',
+          };
+        }
+
+        Map<String, dynamic> resAttrs = {};
         try {
-          final decoded = jsonDecode(body);
-          if (decoded is Map<String, dynamic>) resMap = decoded;
+          final resRows = await binClient.sendCommand(['/system/resource/print']);
+          if (resRows.isNotEmpty) {
+            resAttrs = Map<String, dynamic>.from(resRows.first);
+          }
+        } catch (_) {}
+
+        int? activeSessions;
+        try {
+          final activeRows = await binClient.sendCommand(['/ip/hotspot/active/print']);
+          activeSessions = activeRows.length;
         } catch (_) {}
 
         return {
@@ -340,83 +459,162 @@ class MikrotikDiscoveryService {
           'stage': 'CONNECTED',
           'code': 'CONNECTED_SUCCESS',
           'latencyMs': latency,
-          'message': 'تم الاتصال والمصادقة محلياً من الهاتف بنجاح (زمن الاستجابة: ${latency}ms)',
-          'routerInfo': {
-            'model': resMap?['board-name'] ?? 'MikroTik Router',
-            'version': resMap?['version'] ?? rosVersion,
-            'cpuLoad': resMap?['cpu-load'],
-            'protocol': 'REST API (Local)',
-          },
+          'verifiedAt': DateTime.now().toUtc().toIso8601String(),
+          'message': 'تم الاتصال والمصادقة عبر منفذ API ($apiPort) بنجاح (زمن الاستجابة: ${latency}ms)',
+          'routerInfo': _buildRouterInfo(
+            rawResource: resAttrs,
+            fallbackVersion: rosVersion,
+            protocol: 'API Socket (Authenticated)',
+            activeHotspotSessions: activeSessions,
+          ),
         };
-      } else if (response.statusCode == 401 || response.statusCode == 403) {
+      } on _LocalBinaryAuthException catch (authErr) {
         return {
           'success': false,
           'stage': 'AUTH',
           'code': 'INVALID_CREDENTIALS',
-          'message': 'بيانات تسجيل الدخول غير صحيحة (اسم المستخدم أو كلمة المرور خطأ في الراوتر)',
+          'message': authErr.message,
         };
+      } catch (_) {
+        return {
+          'success': false,
+          'stage': 'NETWORK',
+          'code': 'CONNECTION_FAILED',
+          'message': 'تعذر الاتصال بالراوتر محلياً عبر العنوان ($host): تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة وتفعيل API أو REST.',
+        };
+      } finally {
+        await binClient.close();
       }
-    } catch (_) {
-      // Fall through to Strategy B
-    } finally {
-      httpClient?.close(force: true);
     }
 
-    // Strategy B: Authenticated RouterOS Binary API on port 8728/8729
-    final binClient = _LocalMikrotikBinaryApiClient(
-      host: host,
-      port: apiPort,
-      useSsl: useSsl,
-    );
-    try {
-      await binClient.connect(timeout: const Duration(seconds: 4));
-      final authOk = await binClient.login(username, password);
-      final latency = DateTime.now().difference(start).inMilliseconds;
-      if (!authOk) {
-        return {
-          'success': false,
-          'stage': 'AUTH',
-          'code': 'INVALID_CREDENTIALS',
-          'message': 'بيانات تسجيل الدخول غير صحيحة عبر منفذ API ($apiPort)',
-        };
-      }
+    if (preferBinaryFirst) {
+      return tryBinary();
+    }
 
-      Map<String, String> resAttrs = {};
+    final restResult = await tryRest();
+    if (restResult != null) return restResult;
+    return tryBinary();
+  }
+
+  /// Fetch active Hotspot sessions directly over the client LAN (fallback when cloud cannot reach private LAN IP).
+  Future<List<Map<String, dynamic>>> fetchLocalActiveSessions({
+    required RouterDeviceModel device,
+    required String password,
+  }) async {
+    final normalizedRos = device.rosVersion.toUpperCase();
+    final preferBinaryFirst = normalizedRos.contains('V6') && !normalizedRos.contains('V7');
+
+    Future<List<Map<String, dynamic>>?> viaRest() async {
+      HttpClient? httpClient;
       try {
-        final resRows = await binClient.sendCommand(['/system/resource/print']);
-        if (resRows.isNotEmpty) resAttrs = resRows.first;
-      } catch (_) {}
-
-      return {
-        'success': true,
-        'stage': 'CONNECTED',
-        'code': 'CONNECTED_SUCCESS',
-        'latencyMs': latency,
-        'message': 'تم الاتصال والمصادقة عبر منفذ API ($apiPort) بنجاح (زمن الاستجابة: ${latency}ms)',
-        'routerInfo': {
-          'model': resAttrs['board-name'] ?? resAttrs['platform'] ?? 'MikroTik Router',
-          'version': resAttrs['version'] ?? rosVersion,
-          'cpuLoad': resAttrs['cpu-load'],
-          'protocol': 'API Socket (Authenticated)',
-        },
-      };
-    } on _LocalBinaryAuthException catch (authErr) {
-      return {
-        'success': false,
-        'stage': 'AUTH',
-        'code': 'INVALID_CREDENTIALS',
-        'message': authErr.message,
-      };
-    } catch (_) {
-      return {
-        'success': false,
-        'stage': 'NETWORK',
-        'code': 'CONNECTION_FAILED',
-        'message': 'تعذر الاتصال بالراوتر محلياً عبر العنوان ($host): تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة وتفعيل API أو REST.',
-      };
-    } finally {
-      await binClient.close();
+        httpClient = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 3)
+          ..badCertificateCallback = (cert, h, p) => true;
+        final port = device.useSsl
+            ? (device.restPort == 80 ? 443 : device.restPort)
+            : (device.restPort == 443 ? 80 : device.restPort);
+        final scheme = device.useSsl ? 'https' : 'http';
+        final uri = Uri.parse('$scheme://${device.host}:$port/rest/ip/hotspot/active');
+        final req = await httpClient.getUrl(uri).timeout(const Duration(seconds: 3));
+        req.headers.set('Authorization', 'Basic ${base64Encode(utf8.encode('${device.username}:$password'))}');
+        final res = await req.close().timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) {
+          final body = await res.transform(utf8.decoder).join();
+          final decoded = jsonDecode(body);
+          if (decoded is List) {
+            return decoded.whereType<Map>().map((row) {
+              final m = Map<String, dynamic>.from(row);
+              return <String, dynamic>{
+                'id': (m['.id'] ?? m['id'] ?? '${device.id}_${m['user'] ?? m['address']}').toString(),
+                'user': (m['user'] ?? '').toString(),
+                'address': (m['address'] ?? '').toString(),
+                'macAddress': (m['mac-address'] ?? m['macAddress'] ?? '').toString(),
+                'uptime': (m['uptime'] ?? '0s').toString(),
+                'bytesIn': m['bytes-in'] ?? m['bytesIn'] ?? 0,
+                'bytesOut': m['bytes-out'] ?? m['bytesOut'] ?? 0,
+                'sessionId': m['session-time-left']?.toString(),
+                'server': m['server']?.toString(),
+                'loginBy': m['login-by']?.toString(),
+                'deviceId': device.id,
+                'deviceName': device.name,
+                'routerStatus': 'online',
+                'sessionTimeLeft': m['session-time-left']?.toString(),
+              };
+            }).toList();
+          }
+        }
+      } catch (_) {} finally {
+        httpClient?.close(force: true);
+      }
+      return null;
     }
+
+    Future<List<Map<String, dynamic>>> viaBinary() async {
+      final binClient = _LocalMikrotikBinaryApiClient(
+        host: device.host,
+        port: device.apiPort,
+        useSsl: device.useSsl,
+      );
+      try {
+        await binClient.connect(timeout: const Duration(seconds: 4));
+        final authOk = await binClient.login(device.username, password);
+        if (!authOk) return [];
+        final rows = await binClient.sendCommand(['/ip/hotspot/active/print']);
+        return rows.map((m) {
+          return <String, dynamic>{
+            'id': (m['.id'] ?? m['id'] ?? '${device.id}_${m['user'] ?? m['address']}').toString(),
+            'user': (m['user'] ?? '').toString(),
+            'address': (m['address'] ?? '').toString(),
+            'macAddress': (m['mac-address'] ?? '').toString(),
+            'uptime': (m['uptime'] ?? '0s').toString(),
+            'bytesIn': m['bytes-in'] ?? 0,
+            'bytesOut': m['bytes-out'] ?? 0,
+            'server': m['server'],
+            'loginBy': m['login-by'],
+            'deviceId': device.id,
+            'deviceName': device.name,
+            'routerStatus': 'online',
+            'sessionTimeLeft': m['session-time-left'],
+          };
+        }).toList();
+      } finally {
+        await binClient.close();
+      }
+    }
+
+    if (preferBinaryFirst) {
+      return viaBinary();
+    }
+    return (await viaRest()) ?? await viaBinary();
+  }
+
+  /// Lightweight LAN reachability check without credentials (API socket or REST/HTTP port).
+  Future<Map<String, dynamic>> probeLocalReachability({
+    required String host,
+    int apiPort = 8728,
+    int restPort = 80,
+    bool useSsl = false,
+  }) async {
+    final start = DateTime.now();
+    if (await _verifyRouterOsApiSocket(host, apiPort, timeoutMs: 800)) {
+      return {
+        'reachable': true,
+        'latencyMs': DateTime.now().difference(start).inMilliseconds,
+        'protocol': 'API Socket',
+      };
+    }
+    final targetRestPort = useSsl ? (restPort == 80 ? 443 : restPort) : (restPort == 443 ? 80 : restPort);
+    if (await _probeTcpPort(host, targetRestPort, timeoutMs: 600)) {
+      return {
+        'reachable': true,
+        'latencyMs': DateTime.now().difference(start).inMilliseconds,
+        'protocol': useSsl ? 'HTTPS' : 'HTTP',
+      };
+    }
+    return {
+      'reachable': false,
+      'latencyMs': DateTime.now().difference(start).inMilliseconds,
+    };
   }
 
   /// Discovers physical interfaces, bridges, IP addresses, and resources directly

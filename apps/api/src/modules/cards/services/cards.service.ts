@@ -671,6 +671,7 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
           data: { status: finalBatchStatus },
         });
       } catch (routerErr: any) {
+        await this.mikrotikClientFactory?.invalidateClient?.(device.id);
         syncError = routerErr instanceof Error ? routerErr.message : String(routerErr);
         this.logger.error(`Batch ${batchNumber} router synchronization failed: ${syncError}`);
 
@@ -2049,6 +2050,7 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
           } catch (_) {}
         }
       } catch (err) {
+        await this.mikrotikClientFactory?.invalidateClient?.(card.device.id);
         this.logger.debug(`Could not inspect live router data for card ${card.username}: ${err}`);
         routerOnline = false;
         hasLiveAccounting = false;

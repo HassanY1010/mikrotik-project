@@ -383,24 +383,20 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
     final resolvedApiPort = int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728);
     final resolvedRestPort = int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80);
 
-    final isPrivateIp = host.startsWith('192.168.') ||
-        host.startsWith('10.') ||
-        host.startsWith('172.16.') ||
-        host.startsWith('172.17.') ||
-        host.startsWith('172.18.') ||
-        host.startsWith('172.19.') ||
-        host.startsWith('172.2') ||
-        host.startsWith('172.3');
+    final isPrivateIp = RouterDeviceModel.isPrivateHost(host);
+    final effectiveLocalPass = pass.isNotEmpty
+        ? pass
+        : (_selectedDeviceId != null
+            ? (ref.read(routersProvider.notifier).getSessionPassword(_selectedDeviceId!) ?? '')
+            : '');
 
-    // 1. Local-First Check for Private LAN IPs when password is provided locally:
-    // Note: in ACCOUNT mode, password is stored encrypted on backend (pass is empty),
-    // so we delegate to backend testConnectionDirect which uses stored credentials.
-    if (isPrivateIp && pass.isNotEmpty) {
+    // 1. Local-First Check for Private LAN IPs when password is available locally or in session RAM
+    if (isPrivateIp && effectiveLocalPass.isNotEmpty) {
       try {
         final localRes = await ref.read(mikrotikDiscoveryServiceProvider).verifyCredentialsLocally(
           host: host,
           username: user,
-          password: pass,
+          password: effectiveLocalPass,
           apiPort: resolvedApiPort,
           restPort: resolvedRestPort,
           rosVersion: _rosVersion,
@@ -429,21 +425,51 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           });
 
           await _handleSaveNewDeviceSilently();
+          if (mounted && _selectedDeviceId != null) {
+            final savedId = _selectedDeviceId!;
+            ref.read(routersProvider.notifier).cacheSessionPassword(savedId, effectiveLocalPass);
+            await ref.read(routersProvider.notifier).reportLocalTelemetry(
+              deviceId: savedId,
+              verificationResult: localRes,
+              reportedHost: host,
+              rosVersion: _rosVersion,
+            );
+          }
           return;
         } else if (localRes['code'] == 'INVALID_CREDENTIALS') {
+          if (_selectedDeviceId != null) {
+            await ref.read(routersProvider.notifier).reportLocalTelemetry(
+              deviceId: _selectedDeviceId!,
+              verificationResult: localRes,
+              reportedHost: host,
+              rosVersion: _rosVersion,
+            );
+          }
+          if (!mounted) return;
           setState(() {
             _isTesting = false;
             _testSuccess = false;
-            _testResult = localRes['message']?.toString() ?? 'بيانات تسجيل الدخول غير صحيحة (اسم المستخدم أو كلمة المرور خطأ في الراوتر)';
+            _testResult = localRes['message']?.toString() ??
+                'بيانات تسجيل الدخول غير صحيحة (اسم المستخدم أو كلمة المرور خطأ في الراوتر)';
           });
           return;
         }
 
         // If local attempt failed to connect over Wi-Fi
+        if (_selectedDeviceId != null) {
+          await ref.read(routersProvider.notifier).reportLocalTelemetry(
+            deviceId: _selectedDeviceId!,
+            verificationResult: localRes,
+            reportedHost: host,
+            rosVersion: _rosVersion,
+          );
+        }
+        if (!mounted) return;
         setState(() {
           _isTesting = false;
           _testSuccess = false;
-          _testResult = 'تعذر الوصول للراوتر ($host) عبر REST أو API ($resolvedApiPort). تأكد من اتصال هاتفك بشبكة الراوتر وتفعيل خدمة API أو WWW.';
+          _testResult =
+              'تعذر الوصول للراوتر ($host) عبر REST أو API ($resolvedApiPort). تأكد من اتصال هاتفك بشبكة الراوتر وتفعيل خدمة API أو WWW.';
         });
         return;
       } catch (e) {
@@ -451,7 +477,8 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
         setState(() {
           _isTesting = false;
           _testSuccess = false;
-          _testResult = 'تعذر الاتصال بالراوتر محلياً ($host): تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة.';
+          _testResult =
+              'تعذر الاتصال بالراوتر محلياً ($host): تأكد من اتصال هاتفك بشبكة واي فاي الراوتر مباشرة.';
         });
         return;
       }
@@ -476,7 +503,28 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       String msg = result['message']?.toString() ??
           (isOk ? 'تم الاتصال والمصادقة بنجاح مع الراوتر' : 'فشل الاتصال بالراوتر');
       int? latency = result['latencyMs'] is num ? (result['latencyMs'] as num).toInt() : null;
-      Map<String, dynamic>? info = result['routerInfo'] as Map<String, dynamic>?;
+      Map<String, dynamic>? info = result['routerInfo'] is Map
+          ? Map<String, dynamic>.from(result['routerInfo'] as Map)
+          : null;
+
+      if (!isOk && isPrivateIp && result['code'] == 'CLOUD_UNREACHABLE_PRIVATE_LAN') {
+        final localProbe = await ref.read(mikrotikDiscoveryServiceProvider).probeLocalReachability(
+              host: host,
+              apiPort: resolvedApiPort,
+              restPort: resolvedRestPort,
+              useSsl: _useSsl,
+            );
+        if (!mounted) return;
+        if (localProbe['reachable'] == true) {
+          isOk = true;
+          latency = localProbe['latencyMs'] as int?;
+          msg =
+              'تم الوصول لمنفذ الراوتر محلياً (${latency}ms). للتحقق الكامل وتحديث قراءات CPU/RAM أدخل كلمة مرور الراوتر.';
+        } else {
+          msg =
+              'عنوان الراوتر ($host) محلي خاص لا يمكن اختباره من السحابة؛ أدخل كلمة مرور الراوتر واتصل بشبكة الواي فاي المحلية للفحص المباشر.';
+        }
+      }
 
       setState(() {
         _isTesting = false;
@@ -489,6 +537,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
       if (isOk) {
         // Auto-save new device or synchronize host/port updates for existing device
         await _handleSaveNewDeviceSilently();
+        await ref.read(routersProvider.notifier).refresh();
       }
     } catch (e) {
       if (!mounted) return;
@@ -998,6 +1047,28 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           // If backend sync fails (e.g. offline mobile), keep local execution result
           result = localResult;
         }
+        // Refresh local hardware telemetry (CPU, RAM, Disk, Uptime) immediately after provisioning
+        try {
+          if (localResult.success && _selectedDeviceId != null) {
+            final apiPort = int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728);
+            final postRes = await discoveryService.verifyCredentialsLocally(
+              host: host,
+              username: user,
+              password: pass,
+              apiPort: apiPort,
+              restPort: restPort,
+              rosVersion: _rosVersion,
+              useSsl: _useSsl,
+            );
+            ref.read(routersProvider.notifier).cacheSessionPassword(_selectedDeviceId!, pass);
+            await ref.read(routersProvider.notifier).reportLocalTelemetry(
+              deviceId: _selectedDeviceId!,
+              verificationResult: postRes,
+              reportedHost: host,
+              rosVersion: _rosVersion,
+            );
+          }
+        } catch (_) {}
       } else {
         // Standard Cloud Execution for Publicly accessible routers
         final cloudPayload = {

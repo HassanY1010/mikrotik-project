@@ -7,6 +7,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import { DeviceStatus } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
 import type { IMikrotikClient } from '../../../core/mikrotik/interfaces/mikrotik-client.interface';
@@ -1389,12 +1390,25 @@ export class CommandExecutorService implements OnModuleInit {
       },
     });
 
+    const syncedAt = new Date();
     await this.prisma.mikroTikDevice.update({
       where: { id: deviceId },
       data: {
         isOnline: isVerifiedOnline,
-        lastSyncAt: new Date(),
+        status: isVerifiedOnline ? DeviceStatus.ONLINE : DeviceStatus.ERROR,
+        lastSyncAt: syncedAt,
+        ...(isVerifiedOnline ? { lastError: null } : {}),
       },
+    });
+    DevicesService.updateChannelState(deviceId, {
+      cloudStatus: isVerifiedOnline ? 'ONLINE' : 'ERROR',
+      cloudCheckedAt: syncedAt,
+      ...(isVerifiedOnline
+        ? {
+            lastVerifiedSource: 'PROVISIONING',
+            lastVerifiedAt: syncedAt,
+          }
+        : {}),
     });
   }
 }

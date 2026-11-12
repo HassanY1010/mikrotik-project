@@ -160,12 +160,45 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     );
   }
 
+  ({String label, Color color, Color accent}) _routerStatusVisuals(RouterDeviceModel r) {
+    final state = r.connectivityState.toUpperCase();
+    if (r.isEffectiveOnline) {
+      return (
+        label: 'متصل',
+        color: Colors.green,
+        accent: Colors.greenAccent,
+      );
+    }
+    if (state == 'UNKNOWN') {
+      return (
+        label: 'غير مفحوص',
+        color: Colors.amber,
+        accent: Colors.amber,
+      );
+    }
+    if (state == 'ERROR') {
+      return (
+        label: 'خطأ اتصال',
+        color: Colors.red,
+        accent: Colors.redAccent,
+      );
+    }
+    return (
+      label: 'غير متصل',
+      color: Colors.red,
+      accent: Colors.redAccent,
+    );
+  }
+
   Future<void> _testRouterConnection(RouterDeviceModel router) async {
     if (_isTestingConnection) return;
     setState(() => _isTestingConnection = true);
 
     final res = await ref.read(routersProvider.notifier).testConnection(router.id);
     if (!mounted) return;
+    if (res['success'] == true) {
+      ref.invalidate(activeSessionsProvider);
+    }
     setState(() => _isTestingConnection = false);
 
     final success = res['success'] == true;
@@ -420,19 +453,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                                   width: 6,
                                   height: 6,
                                   decoration: BoxDecoration(
-                                    color: currentRouter.isOnline
-                                        ? Colors.greenAccent
-                                        : Colors.redAccent,
+                                    color: _routerStatusVisuals(currentRouter).accent,
                                     shape: BoxShape.circle,
                                   ),
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  currentRouter.isOnline ? 'متصل' : 'غير متصل',
+                                  _routerStatusVisuals(currentRouter).label,
                                   style: TextStyle(
-                                    color: currentRouter.isOnline
-                                        ? Colors.greenAccent
-                                        : Colors.redAccent,
+                                    color: _routerStatusVisuals(currentRouter).accent,
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -445,8 +474,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     ),
                     const SizedBox(height: 14),
 
-                    // Offline warning if router is offline
-                    if (!currentRouter.isOnline) ...[
+                    // Offline warning if router is not verified online
+                    if (!currentRouter.isEffectiveOnline) ...[
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
@@ -1901,7 +1930,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                           orElse: () => routers.first,
                         )
                       : null;
-                  final isRouterOnline = currentRouter?.isOnline ?? false;
+                  final isRouterOnline = currentRouter?.isEffectiveOnline ?? false;
 
                   return financeAsync.when(
                     data: (finance) => sessionsAsync.when(
@@ -1914,13 +1943,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                       loading: () => _buildKpiMetricsCard(
                         finance: finance,
                         isRouterOnline: isRouterOnline,
-                        connectedUsersCount: null,
+                        connectedUsersCount: currentRouter?.activeHotspotSessions,
                         isLoadingSessions: true,
                       ),
                       error: (_, _) => _buildKpiMetricsCard(
                         finance: finance,
-                        isRouterOnline: false,
-                        connectedUsersCount: null,
+                        isRouterOnline: isRouterOnline,
+                        connectedUsersCount: currentRouter?.activeHotspotSessions,
                         isLoadingSessions: false,
                       ),
                     ),
@@ -1931,7 +1960,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     error: (_, _) => _buildKpiMetricsCard(
                       finance: null,
                       isRouterOnline: isRouterOnline,
-                      connectedUsersCount: null,
+                      connectedUsersCount: currentRouter?.activeHotspotSessions,
                       isLoadingSessions: false,
                     ),
                   );
@@ -2005,7 +2034,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                         )
                       : null;
 
-                  if (currentRouter != null && !currentRouter.isOnline) {
+                  if (currentRouter != null && !currentRouter.isEffectiveOnline) {
                     return Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
@@ -2223,7 +2252,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                   : Colors.red.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: selected.isOnline ? Colors.green : Colors.red,
+                color: _routerStatusVisuals(selected).color,
               ),
             ),
             child: Row(
@@ -2233,15 +2262,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                   width: 8,
                   height: 8,
                   decoration: BoxDecoration(
-                    color: selected.isOnline ? Colors.greenAccent : Colors.redAccent,
+                    color: _routerStatusVisuals(selected).accent,
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  selected.isOnline ? 'متصل' : 'غير متصل',
+                  _routerStatusVisuals(selected).label,
                   style: TextStyle(
-                    color: selected.isOnline ? Colors.greenAccent : Colors.redAccent,
+                    color: _routerStatusVisuals(selected).accent,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
@@ -2287,7 +2316,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   }
 
   Widget _buildRouterHealthCard(RouterDeviceModel router) {
-    final isOnline = router.isOnline;
+    final isOnline = router.isEffectiveOnline;
 
     // CPU Metrics
     final String cpuStr;
@@ -2410,6 +2439,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               ),
             ],
           ),
+          if (isOnline) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  router.lastVerifiedSource == 'LOCAL_LAN' || router.isPrivateLan
+                      ? Icons.lan_outlined
+                      : Icons.cloud_done_outlined,
+                  size: 13,
+                  color: const Color(0xFF10B981),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  router.lastVerifiedSource == 'LOCAL_LAN' || router.isPrivateLan
+                      ? 'تحقق محلي عبر الشبكة (LAN)'
+                      : 'تحقق سحابي عبر الإنترنت',
+                  style: TextStyle(
+                    color: context.textSecondary,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
 
           // 3 Metric Gauges (CPU, RAM, DISK)
@@ -2472,11 +2526,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      router.host.startsWith('192.168.') ||
-                              router.host.startsWith('10.') ||
-                              router.host.startsWith('172.')
-                          ? 'الراوتر بعنوان LAN خاص (${router.host}). يلزم VPN/وكيل شبكي للاتصال من السحابة، أو اضغط فحص الاتصال.'
-                          : 'الراوتر غير متصل حالياً بالخادم. قراءات المعالج والذاكرة غير متاحة لحظياً.',
+                      router.isPrivateLan
+                          ? 'الراوتر بعنوان LAN خاص (${router.host}). اضغط فحص الاتصال من شبكتك المحلية للتحقق وتحديث القراءات.'
+                          : (router.lastError?.isNotEmpty == true
+                              ? 'تعذر الاتصال بالراوتر: ${router.lastError}'
+                              : 'الراوتر غير متصل حالياً بالخادم. قراءات المعالج والذاكرة غير متاحة لحظياً.'),
                       style: TextStyle(
                         color: context.isDarkMode ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
                         fontSize: 11,
@@ -2678,8 +2732,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       connectedStr = 'غير متاح';
     } else if (isLoadingSessions) {
       connectedStr = '...';
+    } else if (connectedUsersCount == null) {
+      connectedStr = 'غير متاح';
     } else {
-      connectedStr = '${connectedUsersCount ?? 0} جهاز';
+      connectedStr = '$connectedUsersCount جهاز';
     }
 
     return Container(

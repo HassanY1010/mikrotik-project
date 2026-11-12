@@ -7,9 +7,10 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { DeviceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
+import { DevicesService } from '../devices/devices.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import {
@@ -818,6 +819,11 @@ export class HotspotService {
     const allUsernames = new Set<string>();
 
     for (const device of devices) {
+      const isPrivateLan =
+        device.host === 'localhost' ||
+        /^(127\.|192\.168\.|10\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|fc|fd)/.test(
+          device.host.trim().toLowerCase(),
+        );
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: device.id,
@@ -834,11 +840,35 @@ export class HotspotService {
         });
 
         const sessions = await client.listActiveSessions();
+        const now = new Date();
         routerStatuses[device.id] = {
           id: device.id,
           name: device.name,
           status: 'online',
         };
+        DevicesService.updateChannelState(device.id, {
+          cloudStatus: 'ONLINE',
+          cloudCheckedAt: now,
+          lastVerifiedSource:
+            device.rosVersion === 'V7' && (device.restPort === 80 || device.restPort === 443)
+              ? 'CLOUD_REST'
+              : 'CLOUD_API',
+          lastVerifiedAt: now,
+          activeHotspotSessions: sessions.length,
+        });
+        if (typeof this.prisma.mikroTikDevice?.update === 'function') {
+          await this.prisma.mikroTikDevice
+            .update({
+              where: { id: device.id },
+              data: {
+                isOnline: true,
+                status: DeviceStatus.ONLINE,
+                lastSyncAt: now,
+                lastError: null,
+              },
+            })
+            .catch(() => {});
+        }
 
         // Query router users to access cumulative closed-session counters (bytes-in/out)
         let routerUsers: HotspotUserItem[] = [];
@@ -864,8 +894,33 @@ export class HotspotService {
           }
         }
       } catch (err: any) {
+        await this.mikrotikClientFactory?.invalidateClient?.(device.id);
         const errMessage = err instanceof Error ? err.message : String(err);
         this.logger.warn(`Could not poll live sessions from device ${device.id} (${device.name}): ${errMessage}`);
+        const now = new Date();
+        if (isPrivateLan) {
+          DevicesService.updateChannelState(device.id, {
+            cloudStatus: 'UNREACHABLE_PRIVATE_LAN',
+            cloudCheckedAt: now,
+          });
+        } else {
+          DevicesService.updateChannelState(device.id, {
+            cloudStatus: 'ERROR',
+            cloudCheckedAt: now,
+          });
+          if (typeof this.prisma.mikroTikDevice?.update === 'function') {
+            await this.prisma.mikroTikDevice
+              .update({
+                where: { id: device.id },
+                data: {
+                  isOnline: false,
+                  status: DeviceStatus.ERROR,
+                  lastError: errMessage,
+                },
+              })
+              .catch(() => {});
+          }
+        }
         routerStatuses[device.id] = {
           id: device.id,
           name: device.name,

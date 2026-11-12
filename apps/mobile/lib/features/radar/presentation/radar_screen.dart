@@ -219,9 +219,12 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
           // Radar Header with router switcher & visualizer
           _buildRadarHeaderVisualizer(routersAsync, selectedRouterId, sessionsAsync, lastUpdated),
 
-          // Unreachable Routers Warning Banner (if any router failed)
+          // Unreachable Routers Warning Banner (distinguish private LAN local-only from true disconnect)
           if (routerStatuses.any((r) => !r.isOnline))
-            _buildUnreachableBanner(routerStatuses.where((r) => !r.isOnline).toList()),
+            _buildUnreachableBanner(
+              routerStatuses.where((r) => !r.isOnline).toList(),
+              routersAsync.asData?.value ?? const <RouterDeviceModel>[],
+            ),
 
           // Search and Filter Bar
           Padding(
@@ -534,24 +537,48 @@ class _RadarScreenState extends ConsumerState<RadarScreen> with SingleTickerProv
     );
   }
 
-  Widget _buildUnreachableBanner(List<RouterConnectionStatus> unreachable) {
+  Widget _buildUnreachableBanner(
+    List<RouterConnectionStatus> unreachable,
+    List<RouterDeviceModel> knownRouters,
+  ) {
+    final allLocallyOnlinePrivateLan = unreachable.every((u) {
+      final m = knownRouters.cast<RouterDeviceModel?>().firstWhere(
+            (r) => r?.id == u.id,
+            orElse: () => null,
+          );
+      return m != null && m.isPrivateLan && m.isEffectiveOnline;
+    });
+
+    final msg = allLocallyOnlinePrivateLan
+        ? 'الراوتر (${unreachable.map((r) => r.name).join('، ')}) متصل محلياً بعنوان LAN خاص؛ لعرض الجلسات اللحظية تأكد من اتصالك بشبكة الراوتر واضغط تحديث.'
+        : 'تعذر جلب بيانات الجلسات من: ${unreachable.map((r) => r.name).join('، ')}';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Colors.amber.shade900.withValues(alpha: 0.25),
+      color: allLocallyOnlinePrivateLan
+          ? const Color(0xFF06B6D4).withValues(alpha: 0.14)
+          : Colors.amber.shade900.withValues(alpha: 0.25),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 20),
+          Icon(
+            allLocallyOnlinePrivateLan ? Icons.lan_outlined : Icons.warning_amber_rounded,
+            color: allLocallyOnlinePrivateLan ? const Color(0xFF22D3EE) : Colors.amber,
+            size: 20,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'تعذر جلب بيانات من: ${unreachable.map((r) => r.name).join(', ')} (انقطاع الراوتر)',
-              style: const TextStyle(color: Colors.amber, fontSize: 12),
+              msg,
+              style: TextStyle(
+                color: allLocallyOnlinePrivateLan ? const Color(0xFF22D3EE) : Colors.amber,
+                fontSize: 12,
+              ),
             ),
           ),
           TextButton(
             onPressed: () => ref.read(activeSessionsProvider.notifier).refresh(),
-            child: const Text('إعادة المحاولة', style: TextStyle(color: Colors.white, fontSize: 11)),
+            child: const Text('تحديث', style: TextStyle(color: Colors.white, fontSize: 11)),
           ),
         ],
       ),

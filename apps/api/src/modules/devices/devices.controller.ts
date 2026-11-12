@@ -19,6 +19,7 @@ import { UpdateDeviceDto } from './dto/update-device.dto';
 import { CreateBackupDto } from './dto/create-backup.dto';
 import { RestoreBackupDto } from './dto/restore-backup.dto';
 import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
+import { ReportLocalTelemetryDto } from './dto/report-local-telemetry.dto';
 import { ProvisionPreviewDto } from './dto/provision-preview.dto';
 import { ProvisionApplyDto } from './dto/provision-apply.dto';
 import { RouterProvisioningService } from './services/router-provisioning.service';
@@ -166,8 +167,44 @@ export class DevicesController {
   async testConnection(
     @TenantId() tenantId: string,
     @Param('id') id: string,
-  ): Promise<{ success: boolean; latencyMs?: number; resource?: RouterResource; error?: string }> {
-    return this.devicesService.testConnection(tenantId, id);
+    @CurrentUser() currentUser?: RequestUser,
+  ): Promise<{
+    success: boolean;
+    stage?: string;
+    code?: string;
+    message?: string;
+    latencyMs?: number;
+    resource?: RouterResource;
+    routerInfo?: Record<string, unknown>;
+    error?: string;
+    isPrivateLan?: boolean;
+    localPreserved?: boolean;
+  }> {
+    return this.devicesService.testConnection(tenantId, id, currentUser);
+  }
+
+  @Post(':id/local-telemetry')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Record validated router status and resource telemetry verified locally over client LAN',
+  })
+  @ApiResponse({ status: 200, description: 'Updated router device state' })
+  @ApiResponse({ status: 403, description: 'Device access denied' })
+  @ApiResponse({ status: 409, description: 'Stale telemetry timestamp rejected' })
+  async reportLocalTelemetry(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: ReportLocalTelemetryDto,
+    @CurrentUser() currentUser?: RequestUser,
+  ): Promise<DeviceResponse> {
+    return this.devicesService.reportLocalTelemetry(tenantId, id, dto, currentUser);
   }
 
   @Get(':id/resources')

@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { RouterOsVersion } from '@prisma/client';
 import { EncryptionService } from '../security/encryption.service';
 import { RouterOsApiClient } from './clients/routeros-api.client';
@@ -20,27 +21,88 @@ export interface DeviceConnectionConfig {
 }
 
 @Injectable()
-export class MikrotikClientFactory {
+export class MikrotikClientFactory implements OnModuleDestroy {
   private readonly logger = new Logger(MikrotikClientFactory.name);
   private readonly clientCache = new Map<string, { client: IMikrotikClient; lastUsed: number }>();
   private readonly IDLE_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes idle connection timeout
+  private readonly cleanupTimer: NodeJS.Timeout;
 
   constructor(private readonly encryptionService: EncryptionService) {
     // Periodic idle cleanup
-    setInterval(() => this.cleanupIdleConnections(), 60 * 1000);
+    this.cleanupTimer = setInterval(() => {
+      void this.cleanupIdleConnections();
+    }, 60 * 1000);
+    this.cleanupTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    clearInterval(this.cleanupTimer);
+    void this.invalidateAll();
+  }
+
+  private buildCacheKey(device: DeviceConnectionConfig): string {
+    const credFingerprint = crypto
+      .createHash('sha256')
+      .update(`${device.passwordEncrypted}:${device.iv}:${device.authTag}`)
+      .digest('hex')
+      .slice(0, 12);
+
+    return [
+      device.id,
+      device.host.trim().toLowerCase(),
+      device.apiPort,
+      device.restPort ?? '',
+      device.useSsl ? 'ssl' : 'plain',
+      device.username.trim(),
+      device.rosVersion,
+      credFingerprint,
+    ].join(':');
+  }
+
+  /**
+   * Disconnects and removes any cached pooled client(s) belonging to a device ID.
+   */
+  async invalidateClient(deviceId: string): Promise<void> {
+    const prefix = `${deviceId}:`;
+    const entries = Array.from(this.clientCache.entries());
+    for (const [key, entry] of entries) {
+      if (key.startsWith(prefix)) {
+        this.clientCache.delete(key);
+        try {
+          await entry.client.disconnect();
+        } catch {
+          // ignore disconnect cleanup error
+        }
+      }
+    }
+  }
+
+  async invalidateAll(): Promise<void> {
+    const entries = Array.from(this.clientCache.entries());
+    this.clientCache.clear();
+    for (const [, entry] of entries) {
+      try {
+        await entry.client.disconnect();
+      } catch {
+        // ignore disconnect cleanup error
+      }
+    }
   }
 
   /**
    * Creates or returns an active pooled client for the specified device.
    */
   async getClient(device: DeviceConnectionConfig): Promise<IMikrotikClient> {
-    const cacheKey = `${device.id}:${device.host}:${device.apiPort}`;
+    const cacheKey = this.buildCacheKey(device);
 
     const cached = this.clientCache.get(cacheKey);
     if (cached && cached.client.isConnected()) {
       cached.lastUsed = Date.now();
       return cached.client;
     }
+
+    // Evict any stale entries for this device before dialing with updated config/credentials.
+    await this.invalidateClient(device.id);
 
     // Decrypt router password
     const password = this.encryptionService.decrypt(

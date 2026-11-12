@@ -115,13 +115,21 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
                           dropdownColor: context.bgCard,
                           icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF06B6D4)),
                           items: routers.map((r) {
+                            final isOnline = r.isEffectiveOnline;
+                            final isUnknown = !isOnline && r.connectivityState.toUpperCase() == 'UNKNOWN';
+                            final statusColor = isOnline
+                                ? const Color(0xFF10B981)
+                                : (isUnknown ? const Color(0xFFF59E0B) : const Color(0xFF64748B));
+                            final statusText = isOnline
+                                ? 'متصل'
+                                : (isUnknown ? 'غير مفحوص' : 'غير متصل');
                             return DropdownMenuItem<String>(
                               value: r.id,
                               child: Row(
                                 children: [
                                   Icon(
                                     Icons.router,
-                                    color: r.isOnline ? const Color(0xFF10B981) : const Color(0xFF64748B),
+                                    color: statusColor,
                                     size: 16,
                                   ),
                                   const SizedBox(width: 8),
@@ -131,9 +139,9 @@ class _PppoeManagementScreenState extends ConsumerState<PppoeManagementScreen>
                                   ),
                                   const Spacer(),
                                   Text(
-                                    r.isOnline ? 'متصل' : 'غير متصل',
+                                    statusText,
                                     style: TextStyle(
-                                      color: r.isOnline ? const Color(0xFF10B981) : const Color(0xFF64748B),
+                                      color: statusColor,
                                       fontSize: 11,
                                     ),
                                   ),

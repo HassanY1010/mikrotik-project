@@ -1023,6 +1023,16 @@ class RouterDeviceModel {
   final String rosVersion;
   final bool isOnline;
   final String status;
+  final String connectivityState;
+  final bool isPrivateLan;
+  final String localStatus;
+  final String cloudStatus;
+  final String? lastVerifiedSource;
+  final String? lastVerifiedAt;
+  final String? localCheckedAt;
+  final String? cloudCheckedAt;
+  final int? activeHotspotSessions;
+  final String? lastError;
   final int? cpuLoad;
   final int? memoryFreeMb;
   final int? memoryTotalMb;
@@ -1044,6 +1054,16 @@ class RouterDeviceModel {
     this.rosVersion = 'V7',
     this.isOnline = false,
     this.status = 'OFFLINE',
+    String? connectivityState,
+    bool? isPrivateLan,
+    String? localStatus,
+    String? cloudStatus,
+    this.lastVerifiedSource,
+    this.lastVerifiedAt,
+    this.localCheckedAt,
+    this.cloudCheckedAt,
+    this.activeHotspotSessions,
+    this.lastError,
     this.cpuLoad,
     this.memoryFreeMb,
     this.memoryTotalMb,
@@ -1053,34 +1073,92 @@ class RouterDeviceModel {
     this.modelName,
     this.isLocked = false,
     this.antiTetheringEnabled = false,
-  });
+  })  : isPrivateLan = isPrivateLan ?? isPrivateHost(host),
+        connectivityState =
+            connectivityState ?? (isOnline ? 'ONLINE' : (status.toUpperCase() == 'ERROR' ? 'ERROR' : 'OFFLINE')),
+        localStatus = localStatus ?? 'UNKNOWN',
+        cloudStatus = cloudStatus ?? 'UNKNOWN';
+
+  bool get isEffectiveOnline =>
+      isOnline || connectivityState.toUpperCase() == 'ONLINE' || status.toUpperCase() == 'ONLINE';
+
+  static bool isPrivateHost(String host) {
+    final normalized = host.trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+    if (normalized == 'localhost' ||
+        normalized == '127.0.0.1' ||
+        normalized.endsWith('.local') ||
+        normalized.endsWith('.lan')) {
+      return true;
+    }
+    final match = RegExp(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$').firstMatch(normalized);
+    if (match == null) return false;
+    final a = int.tryParse(match.group(1) ?? '') ?? -1;
+    final b = int.tryParse(match.group(2) ?? '') ?? -1;
+    if (a == 10 || a == 127) return true;
+    if (a == 192 && b == 168) return true;
+    if (a == 172 && b >= 16 && b <= 31) return true;
+    if (a == 169 && b == 254) return true;
+    return false;
+  }
 
   factory RouterDeviceModel.fromJson(Map<String, dynamic> json) {
-    int? parseMb(dynamic val) {
-      if (val == null) return null;
-      final num = double.tryParse(val.toString()) ?? 0;
-      if (num > 1000000) {
-        return (num / (1024 * 1024)).round();
+    int? parseMb(dynamic byteOrMbVal, {dynamic explicitMbVal}) {
+      if (explicitMbVal != null) {
+        final parsed = double.tryParse(explicitMbVal.toString());
+        if (parsed != null) return parsed.round();
       }
-      return num.round();
+      if (byteOrMbVal == null) return null;
+      final numVal = double.tryParse(byteOrMbVal.toString());
+      if (numVal == null) return null;
+      if (numVal > 1000000) {
+        return (numVal / (1024 * 1024)).round();
+      }
+      return numVal.round();
     }
+
+    int? parseInt(dynamic val) {
+      if (val == null) return null;
+      if (val is int) return val;
+      if (val is num) return val.round();
+      return int.tryParse(val.toString());
+    }
+
+    final host = json['host'] as String? ?? '192.168.88.1';
+    final rawStatus = (json['status'] as String? ?? 'OFFLINE').toUpperCase();
+    final isOnlineVal = json['isOnline'] as bool? ?? (rawStatus == 'ONLINE');
+    final rawConnectivityState = (json['connectivityState'] as String?)?.toUpperCase() ??
+        (isOnlineVal
+            ? 'ONLINE'
+            : (rawStatus == 'ERROR' ? 'ERROR' : (json['lastSyncAt'] == null ? 'UNKNOWN' : rawStatus)));
 
     return RouterDeviceModel(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? 'MikroTik Router',
-      host: json['host'] as String? ?? '192.168.88.1',
+      host: host,
       apiPort: json['apiPort'] as int? ?? json['port'] as int? ?? 8728,
       restPort: json['restPort'] as int? ?? 443,
       useSsl: json['useSsl'] as bool? ?? false,
       username: json['username'] as String? ?? 'admin',
       rosVersion: json['rosVersion'] as String? ?? 'V7',
-      isOnline: json['isOnline'] as bool? ?? (json['status'] == 'ONLINE'),
-      status: json['status'] as String? ?? 'OFFLINE',
-      cpuLoad: json['cpuLoad'] as int?,
-      memoryFreeMb: parseMb(json['memoryFree']),
-      memoryTotalMb: parseMb(json['memoryTotal']),
-      diskFreeMb: parseMb(json['diskFree']),
-      diskTotalMb: parseMb(json['diskTotal']),
+      isOnline: isOnlineVal,
+      status: rawStatus,
+      connectivityState: rawConnectivityState,
+      isPrivateLan: json['isPrivateLan'] as bool? ?? isPrivateHost(host),
+      localStatus: (json['localStatus'] as String?)?.toUpperCase() ??
+          (isOnlineVal && isPrivateHost(host) ? 'ONLINE' : 'UNKNOWN'),
+      cloudStatus: (json['cloudStatus'] as String?)?.toUpperCase() ?? 'UNKNOWN',
+      lastVerifiedSource: json['lastVerifiedSource'] as String?,
+      lastVerifiedAt: json['lastVerifiedAt']?.toString(),
+      localCheckedAt: json['localCheckedAt']?.toString(),
+      cloudCheckedAt: json['cloudCheckedAt']?.toString(),
+      activeHotspotSessions: parseInt(json['activeHotspotSessions']),
+      lastError: json['lastError']?.toString(),
+      cpuLoad: parseInt(json['cpuLoad']),
+      memoryFreeMb: parseMb(json['memoryFree'], explicitMbVal: json['memoryFreeMb']),
+      memoryTotalMb: parseMb(json['memoryTotal'], explicitMbVal: json['memoryTotalMb']),
+      diskFreeMb: parseMb(json['diskFree'], explicitMbVal: json['diskFreeMb']),
+      diskTotalMb: parseMb(json['diskTotal'], explicitMbVal: json['diskTotalMb']),
       uptime: json['uptime'] as String?,
       modelName: json['modelName'] as String?,
       isLocked: json['isLocked'] as bool? ?? false,
@@ -1099,6 +1177,17 @@ class RouterDeviceModel {
     String? rosVersion,
     bool? isOnline,
     String? status,
+    String? connectivityState,
+    bool? isPrivateLan,
+    String? localStatus,
+    String? cloudStatus,
+    String? lastVerifiedSource,
+    String? lastVerifiedAt,
+    String? localCheckedAt,
+    String? cloudCheckedAt,
+    int? activeHotspotSessions,
+    String? lastError,
+    bool clearLastError = false,
     int? cpuLoad,
     int? memoryFreeMb,
     int? memoryTotalMb,
@@ -1120,6 +1209,16 @@ class RouterDeviceModel {
       rosVersion: rosVersion ?? this.rosVersion,
       isOnline: isOnline ?? this.isOnline,
       status: status ?? this.status,
+      connectivityState: connectivityState ?? this.connectivityState,
+      isPrivateLan: isPrivateLan ?? this.isPrivateLan,
+      localStatus: localStatus ?? this.localStatus,
+      cloudStatus: cloudStatus ?? this.cloudStatus,
+      lastVerifiedSource: lastVerifiedSource ?? this.lastVerifiedSource,
+      lastVerifiedAt: lastVerifiedAt ?? this.lastVerifiedAt,
+      localCheckedAt: localCheckedAt ?? this.localCheckedAt,
+      cloudCheckedAt: cloudCheckedAt ?? this.cloudCheckedAt,
+      activeHotspotSessions: activeHotspotSessions ?? this.activeHotspotSessions,
+      lastError: clearLastError ? null : (lastError ?? this.lastError),
       cpuLoad: cpuLoad ?? this.cpuLoad,
       memoryFreeMb: memoryFreeMb ?? this.memoryFreeMb,
       memoryTotalMb: memoryTotalMb ?? this.memoryTotalMb,
@@ -1143,6 +1242,16 @@ class RouterDeviceModel {
     'rosVersion': rosVersion,
     'isOnline': isOnline,
     'status': status,
+    'connectivityState': connectivityState,
+    'isPrivateLan': isPrivateLan,
+    'localStatus': localStatus,
+    'cloudStatus': cloudStatus,
+    'lastVerifiedSource': lastVerifiedSource,
+    'lastVerifiedAt': lastVerifiedAt,
+    'localCheckedAt': localCheckedAt,
+    'cloudCheckedAt': cloudCheckedAt,
+    'activeHotspotSessions': activeHotspotSessions,
+    'lastError': lastError,
     'cpuLoad': cpuLoad,
     'memoryFreeMb': memoryFreeMb,
     'memoryTotalMb': memoryTotalMb,
