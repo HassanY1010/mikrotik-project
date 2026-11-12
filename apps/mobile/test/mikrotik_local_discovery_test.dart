@@ -166,6 +166,27 @@ void main() {
         expect(op.path, '/interface/bridge/port/*3');
         expect(op.body, isNull);
       });
+
+      test('POST on /set with numbers in body for named target like default user profile', () {
+        final op = MikrotikDiscoveryService.parseRouterCommand(
+          '/ip/hotspot/user/profile/set =numbers=default =shared-users=1 =keepalive-timeout=2m',
+        );
+        expect(op.method, 'POST');
+        expect(op.path, '/ip/hotspot/user/profile/set');
+        expect(op.body!['numbers'], 'default');
+        expect(op.body!['shared-users'], '1');
+        expect(op.body!['keepalive-timeout'], '2m');
+      });
+
+      test('Preserves multi-word values with spaces in API =key=value arguments', () {
+        final op = MikrotikDiscoveryService.parseRouterCommand(
+          '/interface/bridge/add =name=bridge-hotspot =comment=SudaFi Hotspot Bridge',
+        );
+        expect(op.method, 'PUT');
+        expect(op.path, '/interface/bridge');
+        expect(op.body!['name'], 'bridge-hotspot');
+        expect(op.body!['comment'], 'SudaFi Hotspot Bridge');
+      });
     });
 
     group('5b. Raw Record .id Normalization Tests', () {

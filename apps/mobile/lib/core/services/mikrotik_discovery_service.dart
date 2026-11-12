@@ -994,25 +994,46 @@ class MikrotikDiscoveryService {
 
     final pathSegments = <String>[];
     final Map<String, dynamic> payload = {};
+    final cliArgRegex = RegExp(r'^[a-zA-Z][a-zA-Z0-9._-]*=');
+    bool usesApiArgPrefix = false;
+    String? lastPayloadKey;
     String? targetId;
 
-    for (final token in tokens) {
-      final cleanToken = token.startsWith('=') ? token.substring(1) : token;
-      final eqIdx = cleanToken.indexOf('=');
+    void assignParam(String k, String v) {
+      if (k == 'numbers' || k == '.id' || k == 'id') {
+        targetId = v;
+        lastPayloadKey = null;
+      } else {
+        payload[k] = v;
+        lastPayloadKey = k;
+      }
+    }
 
-      if (eqIdx > 0) {
-        final k = cleanToken.substring(0, eqIdx);
-        final v = cleanToken.substring(eqIdx + 1);
-        if (k == 'numbers' || k == '.id' || k == 'id') {
-          targetId = v;
-        } else {
-          payload[k] = v;
+    for (final token in tokens) {
+      if (token.startsWith('=')) {
+        usesApiArgPrefix = true;
+        final cleanToken = token.substring(1);
+        final eqIdx = cleanToken.indexOf('=');
+        if (eqIdx > 0) {
+          assignParam(cleanToken.substring(0, eqIdx), cleanToken.substring(eqIdx + 1));
+          continue;
         }
-      } else if (cleanToken.startsWith('*')) {
-        targetId = cleanToken;
+      } else if (!usesApiArgPrefix && cliArgRegex.hasMatch(token)) {
+        final eqIdx = token.indexOf('=');
+        assignParam(token.substring(0, eqIdx), token.substring(eqIdx + 1));
+        continue;
+      }
+
+      final activeKey = lastPayloadKey;
+      if (token.startsWith('*')) {
+        targetId = token;
+        lastPayloadKey = null;
+      } else if (activeKey != null) {
+        // Reassemble multi-word parameter values (e.g. =comment=SudaFi Hotspot Bridge)
+        payload[activeKey] = '${payload[activeKey]} $token';
       } else if (payload.isEmpty && targetId == null) {
         // Path segment (before arguments)
-        final segs = cleanToken.split('/').where((s) => s.isNotEmpty);
+        final segs = token.split('/').where((s) => s.isNotEmpty);
         pathSegments.addAll(segs);
       }
     }
@@ -1039,19 +1060,28 @@ class MikrotikDiscoveryService {
       final collection = fullPath.endsWith('/remove')
           ? fullPath.substring(0, fullPath.length - 7)
           : fullPath.substring(0, fullPath.length - 7);
-      if (targetId == null || targetId.isEmpty) {
+      final resolvedTarget = targetId?.trim();
+      if (resolvedTarget == null || resolvedTarget.isEmpty) {
         throw ArgumentError('RouterOS REST error: Cannot execute DELETE on collection "$collection" without specific resource ID (.id)');
       }
-      return MikrotikRestOperation(method: 'DELETE', path: '$collection/$targetId', body: null);
+      return MikrotikRestOperation(method: 'DELETE', path: '$collection/$resolvedTarget', body: null);
     }
 
-    // 4. Set / Modify operations on list records: MUST have target ID for PATCH
+    // 4. Set / Modify operations on list records: use PATCH for *.id, POST /set with numbers for named targets
     if (fullPath.endsWith('/set')) {
       final collection = fullPath.substring(0, fullPath.length - 4);
-      if (targetId == null || targetId.isEmpty) {
+      final resolvedTarget = targetId?.trim();
+      if (resolvedTarget == null || resolvedTarget.isEmpty) {
         throw ArgumentError('RouterOS REST error: Cannot execute PATCH on collection "$collection" without specific record ID (.id)');
       }
-      return MikrotikRestOperation(method: 'PATCH', path: '$collection/$targetId', body: payload);
+      if (!RegExp(r'^\*[0-9A-Fa-f]+$').hasMatch(resolvedTarget)) {
+        return MikrotikRestOperation(
+          method: 'POST',
+          path: '$collection/set',
+          body: {...payload, 'numbers': resolvedTarget},
+        );
+      }
+      return MikrotikRestOperation(method: 'PATCH', path: '$collection/$resolvedTarget', body: payload);
     }
 
     // 5. Add operations: Use PUT on collection
@@ -1234,9 +1264,19 @@ class MikrotikDiscoveryService {
       try {
         final op = parseRouterCommand(item.command);
         var cmdRes = await sendRest(op.method, op.path, body: op.body);
-        // RouterOS 7 Compatibility Fallback: if PATCH is rejected with 405 Method Not Allowed, fallback to POST /set
-        if (op.method == 'PATCH' && cmdRes['statusCode'] == 405) {
-          cmdRes = await sendRest('POST', '${op.path}/set', body: op.body);
+        // RouterOS 7 Compatibility Fallback: if PATCH is rejected, fallback to POST <collection>/set with numbers
+        if (op.method == 'PATCH' &&
+            (cmdRes['statusCode'] == 405 || cmdRes['statusCode'] == 400 || cmdRes['statusCode'] == 501)) {
+          final lastSlash = op.path.lastIndexOf('/');
+          if (lastSlash > 0 && lastSlash < op.path.length - 1) {
+            final collection = op.path.substring(0, lastSlash);
+            final targetId = Uri.decodeComponent(op.path.substring(lastSlash + 1));
+            cmdRes = await sendRest(
+              'POST',
+              '$collection/set',
+              body: {...?op.body, 'numbers': targetId},
+            );
+          }
         } else if (op.method == 'DELETE' &&
             (cmdRes['statusCode'] == 405 || cmdRes['statusCode'] == 400 || cmdRes['statusCode'] == 501)) {
           // RouterOS 7 Compatibility Fallback: some ROS builds reject DELETE on /*id, fallback to POST /remove
@@ -1257,7 +1297,10 @@ class MikrotikDiscoveryService {
             status: 'SUCCESS',
             timestamp: DateTime.now().toIso8601String(),
           ));
-        } else if (rawStr.contains('already exists') || rawStr.contains('already have') || rawStr.contains('failure: already')) {
+        } else if (rawStr.contains('already exists') ||
+            rawStr.contains('already have') ||
+            rawStr.contains('already has') ||
+            rawStr.contains('failure: already')) {
           executedStages.add(ExecutedStageLogModel(
             stage: item.stage,
             command: item.command,

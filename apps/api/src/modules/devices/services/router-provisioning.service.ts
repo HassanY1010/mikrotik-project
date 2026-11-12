@@ -3273,7 +3273,7 @@ export class RouterProvisioningService {
     const loginBy = dto.hotspot?.loginBy || 'http-chap,http-pap,mac-cookie';
     commands.push({
       stage: 'HOTSPOT_PROFILE',
-      command: `/ip/hotspot/profile/add =name=${hsProfileName} =hotspot-address=${cleanIp} =dns-name=${dnsName} =html-directory=${dto.hotspot?.htmlDirectory || 'hotspot'} =login-by=${loginBy} =use-radius=no =comment=SudaFi Server Profile`,
+      command: `/ip/hotspot/profile/add =name=${hsProfileName} =hotspot-address=${cleanIp} =dns-name=${dnsName} =html-directory=${dto.hotspot?.htmlDirectory || 'hotspot'} =login-by=${loginBy} =use-radius=no`,
       description: `إنشاء ملف تعريف خادم الهوتسبوت بالدومين (${dnsName})`,
     });
 
@@ -3294,7 +3294,7 @@ export class RouterProvisioningService {
     if (!existingProfile) {
       commands.push({
         stage: 'HOTSPOT_PROFILE',
-        command: `/ip/hotspot/user/profile/add =name=${hsProfileName} =rate-limit=${desiredRateLimit} =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d =comment=SudaFi Named User Profile`,
+        command: `/ip/hotspot/user/profile/add =name=${hsProfileName} =rate-limit=${desiredRateLimit} =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d`,
         description: `إنشاء بروفايل مستخدمي الكروت الفعلي (${hsProfileName}) وتطبيق قيود السرعة ومشاركة الأجهزة`,
       });
     } else {
@@ -3309,7 +3309,7 @@ export class RouterProvisioningService {
       if (!rateLimitMatches || !sharedUsersMatches) {
         commands.push({
           stage: 'HOTSPOT_PROFILE',
-          command: `/ip/hotspot/user/profile/set =numbers=${hsProfileName}${existingProfile.id ? ` =.id=${existingProfile.id}` : ''} =rate-limit=${desiredRateLimit} =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d =comment=SudaFi Named User Profile`,
+          command: `/ip/hotspot/user/profile/set =numbers=${hsProfileName}${existingProfile.id ? ` =.id=${existingProfile.id}` : ''} =rate-limit=${desiredRateLimit} =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d`,
           description: `تحديث بروفايل مستخدمي الكروت الموجود (${hsProfileName}) لتطبيق السرعة المطلوبة (${desiredRateLimit}) ومشاركة الأجهزة`,
         });
       }
@@ -3322,7 +3322,7 @@ export class RouterProvisioningService {
     if (!hsServerExists) {
       commands.push({
         stage: 'HOTSPOT_SERVER',
-        command: `/ip/hotspot/add =name=${hsServerName} =interface=${bridgeName} =address-pool=${poolName} =profile=${hsProfileName} =disabled=no =comment=SudaFi Hotspot Server`,
+        command: `/ip/hotspot/add =name=${hsServerName} =interface=${bridgeName} =address-pool=${poolName} =profile=${hsProfileName} =disabled=no`,
         description: `إنشاء خادم الهوتسبوت الرئيسي وتفعيله على (${bridgeName})`,
       });
     }

@@ -2052,6 +2052,48 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
         expect(preview.canProceed).toBe(true);
       });
 
+      it('should omit unsupported =comment= parameter from /ip/hotspot/profile, /ip/hotspot/user/profile, and /ip/hotspot commands', async () => {
+        mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({
+          ...sampleDevice,
+          host: '192.168.88.1',
+          rosVersion: 'V7',
+        });
+
+        const preview = await service.preview('tenant-001', 'dev-001', {
+          template: 'CLEAN_SETUP',
+          wan: { interface: 'ether1', mode: 'DHCP', enableNat: true },
+          lan: {
+            bridgeName: 'bridge-hotspot',
+            memberInterfaces: ['ether2'],
+            gatewayIp: '10.5.50.1/24',
+          },
+          hotspot: { serverName: 'hs-sudafi', profileName: 'hsp-sudafi' },
+          snapshot: {
+            resource: { version: '7.23.8' },
+            interfaces: [
+              { name: 'ether1', type: 'ether', running: true },
+              { name: 'ether2', type: 'ether', running: true },
+            ],
+            bridges: [],
+            bridgePorts: [],
+            ipAddresses: [{ '.id': '*1', address: '192.168.88.1/24', interface: 'ether1' }],
+          },
+          discoveredAt: new Date().toISOString(),
+        });
+
+        const hotspotProfileCmds = preview.generatedCommands.filter(
+          (c) =>
+            c.command.startsWith('/ip/hotspot/profile/') ||
+            c.command.startsWith('/ip/hotspot/user/profile/') ||
+            c.command.startsWith('/ip/hotspot/add'),
+        );
+
+        expect(hotspotProfileCmds.length).toBeGreaterThanOrEqual(4);
+        for (const cmd of hotspotProfileCmds) {
+          expect(cmd.command).not.toContain('=comment=');
+        }
+      });
+
       // 6. Dynamic IP conflict cannot be cleaned up and is NOT downgraded (blocks canProceed: false)
       it('Negative 6: should not remove dynamic IP via PRE_CLEANUP and must keep conflict hard-blocking (canProceed=false)', async () => {
         mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({

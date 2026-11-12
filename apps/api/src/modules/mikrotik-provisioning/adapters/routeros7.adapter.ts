@@ -165,7 +165,6 @@ export class RouterOs7Adapter extends BaseRouterOsAdapter {
         '=transparent-proxy=no',
         '=add-mac-cookie=yes',
         '=mac-cookie-timeout=1d',
-        '=comment=SudaFi ROS7 User Profile',
       ];
       if (config.hotspot?.enableLocalUsageScript) {
         words.push(
