@@ -5,6 +5,7 @@ import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/validity_helper.dart';
+import '../../../core/widgets/router_password_prompt_dialog.dart';
 
 class CreateHotspotProfileScreen extends ConsumerStatefulWidget {
   final HotspotProfileModel? editProfile;
@@ -169,6 +170,29 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
         updateDataLimit: true,
       );
     } else {
+      final routers = ref.read(routersProvider).asData?.value ?? [];
+      final selectedRouter = routers.cast<RouterDeviceModel?>().firstWhere(
+            (r) => r?.id == _selectedDeviceId,
+            orElse: () => null,
+          );
+      final isLocalOnly = selectedRouter != null &&
+          selectedRouter.isPrivateLan &&
+          selectedRouter.cloudStatus.toUpperCase() != 'ONLINE';
+
+      if (isLocalOnly) {
+        final sessionPass = ref.read(routersProvider.notifier).getSessionPassword(selectedRouter.id);
+        if (sessionPass == null && mounted) {
+          final entered = await showRouterPasswordPromptDialog(
+            context: context,
+            currentRouter: selectedRouter,
+            operationLabel: 'مزامنة البروفايل مع الراوتر',
+          );
+          if (entered != null) {
+            ref.read(routersProvider.notifier).cacheSessionPassword(selectedRouter.id, entered);
+          }
+        }
+      }
+
       result = await notifier.createProfile(
         name: _nameController.text.trim(),
         deviceId: _selectedDeviceId!,
@@ -188,13 +212,13 @@ class _CreateHotspotProfileScreenState extends ConsumerState<CreateHotspotProfil
     if (!mounted) return;
 
     if (result['success'] == true) {
+      final successMsg = result['message']?.toString() ??
+          (widget.editProfile != null
+              ? 'تم تحديث باقة الهوتسبوت بنجاح!'
+              : 'تم إنشاء باقة الهوتسبوت ومزامنتها مع راوتر ميكروتك بنجاح!');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            widget.editProfile != null
-                ? 'تم تحديث باقة الهوتسبوت بنجاح!'
-                : 'تم إنشاء باقة الهوتسبوت ومزامنتها مع راوتر ميكروتك بنجاح!',
-          ),
+          content: Text(successMsg),
           backgroundColor: const Color(0xFF10B981),
         ),
       );

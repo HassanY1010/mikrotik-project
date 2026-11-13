@@ -23,6 +23,7 @@ import {
   CardDetailResponse,
 } from '../services/cards.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
+import { MarkBatchLocalSyncedDto } from '../dto/mark-batch-local-synced.dto';
 import { UpdateCardStatusDto } from '../dto/update-card-status.dto';
 import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
 import { BulkActivateCardsDto } from '../dto/bulk-activate-cards.dto';
@@ -201,6 +202,28 @@ export class CardsController {
     @CurrentUser('tenantId') tenantId?: string,
   ) {
     return this.cardsService.syncBatchToRouter(tenantId ?? '', id);
+  }
+
+  @Post('batches/:id/mark-local-synced')
+  @RequirePermissions('cards:generate')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Record local LAN router provisioning results for a generated card batch' })
+  @ApiResponse({ status: 200, description: 'Batch local sync state updated' })
+  async markBatchLocalSynced(
+    @Param('id') id: string,
+    @CurrentUser('tenantId') userTenantId?: string,
+    @TenantId() headerTenantId?: string,
+    @Body() dto?: MarkBatchLocalSyncedDto,
+  ) {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.markBatchLocalSynced(effectiveTenantId, id, dto ?? {});
   }
 
   @Patch(':id/status')

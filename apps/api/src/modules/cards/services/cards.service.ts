@@ -13,6 +13,7 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
 import { CardCodeGeneratorService } from './card-code-generator.service';
+import { DevicesService } from '../../devices/devices.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
 import { UpdateCardStatusDto } from '../dto/update-card-status.dto';
 import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
@@ -586,14 +587,15 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
       { timeout: 15000 },
     );
 
-    // 5. Synchronize with RouterOS if requested and device is online
+    // 5. Synchronize with RouterOS if requested, device is online, and not local-only Private LAN
     let syncedCount = 0;
     let syncError: string | null = null;
     const syncedUsernames: string[] = [];
     const failedUsernames: string[] = [];
     let routerSyncStatus: 'SYNCED' | 'PARTIAL' | 'FAILED' | 'PENDING_OFFLINE' = 'PENDING_OFFLINE';
+    const isLocalPrivateLan = Boolean(DevicesService?.isLocalOnlyPrivateLan?.(device.id));
 
-    if (dto.syncToRouter !== false && device.isOnline) {
+    if (dto.syncToRouter !== false && device.isOnline && !isLocalPrivateLan) {
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: device.id,
@@ -1038,6 +1040,18 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    if (DevicesService?.isLocalOnlyPrivateLan?.(batch.device.id)) {
+      return {
+        success: false,
+        message: 'الراوتر متصل محلياً بعنوان LAN خاص؛ يرجى مزامنة الكروت مباشرة من الهاتف عبر الشبكة المحلية.',
+        totalUnsynced: batch.cards.length,
+        syncedCount: 0,
+        failedCount: batch.cards.length,
+        remainingUnsynced: batch.cards.length,
+        batchStatus: batch.status,
+      };
+    }
+
     if (!batch.device.isOnline) {
       return {
         success: false,
@@ -1170,6 +1184,80 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
       batchStatus,
       routerSyncStatus: finalRouterSyncStatus,
       syncedToRouter: remainingUnsynced === 0,
+    };
+  }
+
+  async markBatchLocalSynced(
+    tenantId: string,
+    batchId: string,
+    payload: {
+      syncedUsernames?: string[];
+      failedUsernames?: string[];
+      syncError?: string;
+    },
+  ) {
+    const batch = await this.prisma.cardBatch.findFirst({
+      where: { id: batchId, tenantId },
+    });
+
+    if (!batch) {
+      throw new NotFoundException({
+        code: 'BATCH_NOT_FOUND',
+        message: `Card batch with ID ${batchId} was not found`,
+      });
+    }
+
+    const synced = Array.from(new Set(payload.syncedUsernames ?? [])).filter(Boolean);
+    const failed = Array.from(new Set(payload.failedUsernames ?? [])).filter(Boolean);
+
+    if (synced.length > 0) {
+      await this.prisma.card.updateMany({
+        where: { batchId: batch.id, tenantId, username: { in: synced } },
+        data: { syncStatus: SyncStatus.SYNCED, syncError: null },
+      });
+    }
+
+    if (failed.length > 0) {
+      await this.prisma.card.updateMany({
+        where: { batchId: batch.id, tenantId, username: { in: failed } },
+        data: {
+          syncStatus: SyncStatus.FAILED,
+          syncError: payload.syncError ?? 'Failed to provision locally on MikroTik',
+        },
+      });
+    }
+
+    const syncedCount = await this.prisma.card.count({
+      where: { batchId: batch.id, syncStatus: SyncStatus.SYNCED },
+    });
+    const remainingUnsynced = Math.max(0, batch.totalCards - syncedCount);
+
+    const newStatus: CardBatchStatus =
+      syncedCount === 0 && failed.length >= batch.totalCards
+        ? CardBatchStatus.FAILED
+        : CardBatchStatus.COMPLETED;
+
+    await this.prisma.cardBatch.update({
+      where: { id: batch.id },
+      data: { status: newStatus },
+    });
+
+    const routerSyncStatus: 'SYNCED' | 'PARTIAL' | 'FAILED' =
+      syncedCount >= batch.totalCards
+        ? 'SYNCED'
+        : syncedCount > 0
+          ? 'PARTIAL'
+          : 'FAILED';
+
+    return {
+      success: syncedCount > 0,
+      batchId: batch.id,
+      totalCards: batch.totalCards,
+      syncedCount,
+      remainingUnsynced,
+      batchStatus: newStatus,
+      routerSyncStatus,
+      syncedToRouter: syncedCount >= batch.totalCards,
     };
   }
 

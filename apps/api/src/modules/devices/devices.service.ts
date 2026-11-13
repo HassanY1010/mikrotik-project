@@ -118,6 +118,12 @@ export class DevicesService {
     DevicesService.deviceChannelStates.delete(deviceId);
   }
 
+  public static isLocalOnlyPrivateLan(deviceId: string): boolean {
+    const channel = DevicesService.deviceChannelStates.get(deviceId);
+    if (!channel) return false;
+    return channel.localStatus === 'ONLINE' && channel.cloudStatus !== 'ONLINE';
+  }
+
   private resolveEffectiveConnectivityState(device: MikroTikDevice): EffectiveConnectivityState {
     if (device.isOnline || device.status === DeviceStatus.ONLINE) {
       return 'ONLINE';
@@ -1514,6 +1520,32 @@ export class DevicesService {
       });
     }
 
+    if (DevicesService.isLocalOnlyPrivateLan(device.id)) {
+      await this.prisma.mikroTikDevice.update({
+        where: { id },
+        data: { isLocked: locked },
+      });
+
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: userId ?? null,
+          action: locked ? 'ROUTER_EMERGENCY_LOCK_ENABLED' : 'ROUTER_EMERGENCY_LOCK_DISABLED',
+          entity: 'mikrotik_device',
+          entityId: id,
+          newValues: { isLocked: locked, deviceName: device.name, source: 'LOCAL_LAN' },
+        },
+      });
+
+      return {
+        success: true,
+        isLocked: locked,
+        message: locked
+          ? 'تم تفعيل قفل الطوارئ في النظام (الراوتر محلي، يُطبق عبر الشبكة المحلية)'
+          : 'تم إلغاء قفل الطوارئ في النظام',
+      };
+    }
+
     try {
       const client = await this.mikrotikClientFactory.getClient({
         id: device.id,
@@ -1582,6 +1614,32 @@ export class DevicesService {
         code: 'DEVICE_NOT_FOUND',
         message: `Device with ID ${id} was not found`,
       });
+    }
+
+    if (DevicesService.isLocalOnlyPrivateLan(device.id)) {
+      await this.prisma.mikroTikDevice.update({
+        where: { id },
+        data: { antiTetheringEnabled: enabled },
+      });
+
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: userId ?? null,
+          action: enabled ? 'ANTI_TETHERING_ENABLED' : 'ANTI_TETHERING_DISABLED',
+          entity: 'mikrotik_device',
+          entityId: id,
+          newValues: { antiTetheringEnabled: enabled, deviceName: device.name, source: 'LOCAL_LAN' },
+        },
+      });
+
+      return {
+        success: true,
+        antiTetheringEnabled: enabled,
+        message: enabled
+          ? 'تم تفعيل حظر البث (TTL) في النظام (الراوتر محلي، يُطبق عبر الشبكة المحلية)'
+          : 'تم إلغاء حظر البث (TTL) في النظام',
+      };
     }
 
     try {
@@ -1685,6 +1743,15 @@ export class DevicesService {
       });
     }
 
+    if (DevicesService.isLocalOnlyPrivateLan(device.id)) {
+      throw new BadRequestException({
+        code: 'PRIVATE_LAN_ROUTER',
+        message:
+          'الراوتر متصل محلياً بعنوان LAN خاص؛ يجب إنشاء النسخة الاحتياطية مباشرة من الهاتف عبر الشبكة المحلية.',
+        requiresLocalExecution: true,
+      });
+    }
+
     DevicesService.activeDeviceOperations.add(id);
 
     try {
@@ -1771,6 +1838,10 @@ export class DevicesService {
       });
     }
 
+    if (DevicesService.isLocalOnlyPrivateLan(device.id)) {
+      return [];
+    }
+
     try {
       const client = await this.mikrotikClientFactory.getClient({
         id: device.id,
@@ -1799,6 +1870,56 @@ export class DevicesService {
         error: errMsg,
       });
     }
+  }
+
+  async recordLocalBackup(
+    tenantId: string,
+    id: string,
+    payload: { name?: string; filename?: string; size?: number; encrypted?: boolean },
+    userId?: string,
+  ): Promise<{ success: boolean; backup: RouterBackupItem; message: string }> {
+    const device = await this.prisma.mikroTikDevice.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+
+    if (!device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: `لم يتم العثور على جهاز الراوتر المحدد (ID: ${id})`,
+      });
+    }
+
+    const rawName = (payload.filename || payload.name || 'backup').trim();
+    const backupName = rawName.endsWith('.backup') ? rawName : `${rawName}.backup`;
+    const backupItem: RouterBackupItem = {
+      name: backupName,
+      size: payload.size ?? 0,
+      type: 'backup',
+      creationTime: new Date().toISOString(),
+    };
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        userId: userId ?? null,
+        action: 'ROUTER_BACKUP_CREATED',
+        entity: 'mikrotik_device',
+        entityId: id,
+        newValues: {
+          backupName: backupItem.name,
+          backupFile: backupItem.name,
+          size: backupItem.size,
+          encrypted: payload.encrypted ?? false,
+          source: 'LOCAL_LAN',
+        },
+      },
+    });
+
+    return {
+      success: true,
+      backup: backupItem,
+      message: 'تم تسجيل النسخة الاحتياطية المحلية في النظام بنجاح',
+    };
   }
 
   async downloadBackup(
@@ -1832,6 +1953,13 @@ export class DevicesService {
       throw new NotFoundException({
         code: 'DEVICE_NOT_FOUND',
         message: `لم يتم العثور على جهاز الراوتر المحدد (ID: ${id})`,
+      });
+    }
+
+    if (DevicesService.isLocalOnlyPrivateLan(device.id)) {
+      throw new BadRequestException({
+        code: 'PRIVATE_LAN_ROUTER',
+        message: 'هذا الراوتر متصل على شبكة محلية خاصة؛ يرجى تنزيل ملف النسخ الاحتياطي عبر التطبيق المتصل بالشبكة المحلية.',
       });
     }
 
@@ -1976,6 +2104,15 @@ export class DevicesService {
       throw new NotFoundException({
         code: 'DEVICE_NOT_FOUND',
         message: `لم يتم العثور على جهاز الراوتر المحدد (ID: ${id})`,
+      });
+    }
+
+    if (DevicesService.isLocalOnlyPrivateLan(device.id)) {
+      throw new BadRequestException({
+        code: 'PRIVATE_LAN_ROUTER',
+        message:
+          'الراوتر متصل محلياً بعنوان LAN خاص؛ يجب استعادة النسخة الاحتياطية مباشرة من الهاتف عبر الشبكة المحلية.',
+        requiresLocalExecution: true,
       });
     }
 

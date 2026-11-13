@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -12,6 +11,7 @@ import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../core/constants/api_endpoints.dart';
+import '../../../core/services/mikrotik_discovery_service.dart';
 import '../../../core/services/card_pdf_generator_service.dart';
 import '../../../core/services/card_template_import_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -21,6 +21,7 @@ import 'pdf_history_screen.dart';
 import '../../../core/widgets/whatsapp_button.dart';
 import '../../../core/widgets/card_pattern_overlay.dart';
 import '../../../core/widgets/interactive_3d_card_simulator.dart';
+import '../../../core/widgets/router_password_prompt_dialog.dart';
 import '../../../core/utils/whatsapp_helper.dart';
 import '../../../core/utils/validity_helper.dart';
 import '../../hotspot_profiles/presentation/create_hotspot_profile_screen.dart';
@@ -1045,8 +1046,15 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         }
       }
 
+      final allRouters = ref.read(routersProvider).asData?.value ?? [];
+      final selectedRouter = allRouters.where((r) => r.id == selectedRouterId).firstOrNull;
+      final isLocalOnly = selectedRouter != null && selectedRouter.isPrivateLan && selectedRouter.cloudStatus != 'ONLINE';
+
       if (selectedRouterId != null) {
         payload['deviceId'] = selectedRouterId;
+      }
+      if (isLocalOnly) {
+        payload['syncToRouter'] = false;
       }
 
       final res = await apiClient.post(ApiEndpoints.cardBatches, data: payload);
@@ -1109,53 +1117,84 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         // Invalidate quota provider so remaining quota dynamically updates
         ref.invalidate(tenantQuotaProvider);
 
+        // If Private LAN router and local session password is known, push users to local router over LAN
+        int effectiveSyncedCount = syncedCount;
+        int effectiveFailedCount = failedCount;
+        bool effectiveSyncedToRouter = syncedToRouter;
+        String effectiveRouterSyncStatus = routerSyncStatus;
+
+        if (isLocalOnly && generatedCards.isNotEmpty) {
+          String? sessionPassword = ref.read(routersProvider.notifier).getSessionPassword(selectedRouter.id);
+          if (sessionPassword == null && mounted) {
+            final entered = await showRouterPasswordPromptDialog(
+              context: context,
+              currentRouter: selectedRouter,
+              operationLabel: 'مزامنة الكروت مع الراوتر',
+            );
+            if (entered != null) {
+              ref.read(routersProvider.notifier).cacheSessionPassword(selectedRouter.id, entered);
+              sessionPassword = entered;
+            }
+          }
+          if (sessionPassword != null) {
+            try {
+              final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+              final cardsPayload = generatedCards.map((c) => {
+                'username': c.username,
+                'password': c.clearPassword ?? c.username,
+                'profile': selectedProfile.name,
+                'comment': batchId,
+              }).toList();
+
+              final localSync = await discovery.createHotspotUsersBatchLocally(
+                host: selectedRouter.host,
+                username: selectedRouter.username.isNotEmpty ? selectedRouter.username : 'admin',
+                password: sessionPassword,
+                cards: cardsPayload,
+                apiPort: selectedRouter.apiPort,
+                useSsl: selectedRouter.useSsl,
+              );
+
+              effectiveSyncedCount = localSync.syncedCount;
+              effectiveFailedCount = localSync.failedCount;
+              effectiveSyncedToRouter = localSync.syncedCount >= generatedCards.length;
+              effectiveRouterSyncStatus = effectiveSyncedToRouter ? 'SYNCED' : (localSync.syncedCount > 0 ? 'PARTIAL' : 'FAILED');
+
+              // Record local sync on backend
+              try {
+                await apiClient.post(
+                  ApiEndpoints.cardBatchMarkLocalSynced(batchId),
+                  data: {
+                    'syncedUsernames': localSync.syncedUsernames,
+                    'failedUsernames': localSync.failedUsernames,
+                  },
+                );
+              } catch (_) {}
+            } catch (_) {}
+          }
+        }
+
         _showBatchSuccessAndManagementDialog(
           batchId: batchId,
           profile: selectedProfile,
           quantity: generatedCards.isNotEmpty ? generatedCards.length : _selectedQuantity,
           cards: generatedCards,
-          syncedToRouter: syncedToRouter,
-          routerSyncStatus: routerSyncStatus,
-          syncedCount: syncedCount,
-          failedCount: failedCount,
+          syncedToRouter: effectiveSyncedToRouter,
+          routerSyncStatus: effectiveRouterSyncStatus,
+          syncedCount: effectiveSyncedCount,
+          failedCount: effectiveFailedCount,
           routerError: routerError,
         );
       }
     } catch (e) {
       setState(() => _isGenerating = false);
       if (mounted) {
-        String errorMessage = 'تعذر الاتصال بالخادم وتوليد الدفعة';
-        if (e is DioException) {
-          final resData = e.response?.data;
-          if (resData is Map) {
-            final errObj = resData['error'];
-            if (errObj is Map) {
-              final details = errObj['details'];
-              final msg = errObj['message']?.toString();
-              if (details is List && details.isNotEmpty) {
-                final listStr = details.map((d) => '• $d').join('\n');
-                errorMessage = (msg != null && msg.isNotEmpty && msg != 'Validation failed')
-                    ? '$msg\n$listStr'
-                    : 'فشل التحقق من البيانات:\n$listStr';
-              } else if (msg != null && msg.isNotEmpty) {
-                errorMessage = msg;
-              } else {
-                errorMessage = errObj.toString();
-              }
-            } else if (resData['message'] is List) {
-              final listStr = (resData['message'] as List).map((d) => '• $d').join('\n');
-              errorMessage = 'فشل التحقق من البيانات:\n$listStr';
-            } else if (resData['message'] != null) {
-              errorMessage = resData['message'].toString();
-            } else if (resData['error'] != null) {
-              errorMessage = resData['error'].toString();
-            }
-          } else if (e.message != null && e.message!.isNotEmpty) {
-            errorMessage = e.message!;
-          }
-        } else {
-          errorMessage = e.toString();
-        }
+        final details = parseApiError(
+          e,
+          fallback: 'تعذر الاتصال بالخادم وتوليد الدفعة',
+          networkMessage: 'تعذر الاتصال بالخادم لتوليد الدفعة — يرجى التأكد من توفر اتصال بالإنترنت',
+        );
+        final errorMessage = details.message;
 
         showDialog(
           context: context,

@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/providers.dart';
+import '../../../core/services/mikrotik_discovery_service.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/router_password_prompt_dialog.dart';
 import '../services/hotspot_portal_validator.dart';
 
 enum PortalViewMode {
@@ -270,11 +272,14 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
         }
       }
 
+      final isLocalOnly = selectedRouter.isPrivateLan && selectedRouter.cloudStatus != 'ONLINE';
+
       // 2. Prepare payload
       final Map<String, dynamic> payload = {
         'directoryName': 'hotspot',
         'applyToProfile': 'hsprof1',
         'overwriteConfirmed': forceOverwrite,
+        if (isLocalOnly) 'compileOnly': true,
       };
 
       if (isReadyMade) {
@@ -304,10 +309,47 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
 
       final raw = res.data;
       final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
-      final msg = data is Map ? (data['message'] ?? 'تم نشر الصفحة والتحقق من وجودها بنجاح.') : 'تم النشر بنجاح.';
-      final stagingDir = data is Map ? data['stagingDirectory']?.toString() : null;
-      final origDir = data is Map ? data['originalHtmlDirectory']?.toString() : null;
-      final origProf = data is Map ? data['originalProfileName']?.toString() : null;
+      var msg = data is Map ? (data['message'] ?? 'تم نشر الصفحة والتحقق من وجودها بنجاح.') : 'تم النشر بنجاح.';
+      var stagingDir = data is Map ? data['stagingDirectory']?.toString() : null;
+      var origDir = data is Map ? data['originalHtmlDirectory']?.toString() : null;
+      var origProf = data is Map ? data['originalProfileName']?.toString() : null;
+
+      if (data is Map &&
+          (data['status'] == 'LOCAL_DEPLOY_REQUIRED' || data['requiresLocalExecution'] == true)) {
+        final files = (data['files'] as List?) ?? [];
+        String? sessionPassword = ref.read(routersProvider.notifier).getSessionPassword(targetId);
+
+        if (sessionPassword == null && mounted) {
+          final entered = await showRouterPasswordPromptDialog(
+            context: context,
+            currentRouter: selectedRouter,
+            operationLabel: 'رفع صفحة الهوتسبوت',
+          );
+          if (entered != null) {
+            ref.read(routersProvider.notifier).cacheSessionPassword(targetId, entered);
+            sessionPassword = entered;
+          } else {
+            throw Exception('تم إلغاء عملية الرفع؛ يلزم إدخال كلمة مرور الراوتر للمتابعة.');
+          }
+        }
+
+        final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+        final localRes = await discovery.publishPortalLocally(
+          host: selectedRouter.host,
+          username: selectedRouter.username.isNotEmpty ? selectedRouter.username : 'admin',
+          password: sessionPassword!,
+          files: files,
+          directoryName: 'hotspot',
+          applyToProfile: 'hsprof1',
+          apiPort: selectedRouter.apiPort,
+          useSsl: selectedRouter.useSsl,
+        );
+
+        msg = localRes['message']?.toString() ??
+            'تم رفع ملفات الصفحة بنجاح إلى الراوتر محلياً وتفعيل البروفايل.';
+        stagingDir = localRes['stagingDirectory']?.toString();
+        origProf = localRes['profileUpdated']?.toString();
+      }
 
       // Persist active hotspot login method for cross-feature compatibility
       final storage = _getLocalStorage();
@@ -331,9 +373,14 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
       }
     } catch (e) {
       if (mounted) {
+        final details = parseApiError(
+          e,
+          fallback: 'فشل رفع صفحة الهوتسبوت',
+          networkMessage: 'تعذر الاتصال بالخادم لنشر صفحة الهوتسبوت — يرجى التأكد من توفر اتصال بالإنترنت',
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('فشل رفع صفحة الهوتسبوت: $e'),
+            content: Text(details.message),
             backgroundColor: const Color(0xFFEF4444),
           ),
         );

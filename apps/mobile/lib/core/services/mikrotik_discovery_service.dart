@@ -1648,6 +1648,325 @@ class MikrotikDiscoveryService {
         ip.startsWith('172.30.') ||
         ip.startsWith('172.31.');
   }
+
+  /// Provision a hotspot user profile directly on a local LAN router (Binary API / REST)
+  Future<bool> createHotspotProfileLocally({
+    required String host,
+    required String username,
+    required String password,
+    required String profileName,
+    int apiPort = 8728,
+    int restPort = 80,
+    bool useSsl = false,
+    String? rosVersion,
+    String? rateLimit,
+    String? sessionTimeout,
+    int sharedUsers = 1,
+  }) async {
+    final client = _LocalMikrotikBinaryApiClient(
+      host: host,
+      port: apiPort,
+      useSsl: useSsl,
+    );
+    try {
+      await client.connect();
+      await client.login(username, password);
+
+      final existing = await client.sendCommand([
+        '/ip/hotspot/user/profile/print',
+        '?name=$profileName',
+      ]);
+
+      if (existing.isNotEmpty && existing.first['.id'] != null) {
+        final id = existing.first['.id']!;
+        await client.sendCommand([
+          '/ip/hotspot/user/profile/set',
+          '=.id=$id',
+          if (rateLimit != null && rateLimit.isNotEmpty) '=rate-limit=$rateLimit',
+          if (sessionTimeout != null && sessionTimeout.isNotEmpty) '=session-timeout=$sessionTimeout',
+          '=shared-users=$sharedUsers',
+        ]);
+      } else {
+        await client.sendCommand([
+          '/ip/hotspot/user/profile/add',
+          '=name=$profileName',
+          if (rateLimit != null && rateLimit.isNotEmpty) '=rate-limit=$rateLimit',
+          if (sessionTimeout != null && sessionTimeout.isNotEmpty) '=session-timeout=$sessionTimeout',
+          '=shared-users=$sharedUsers',
+        ]);
+      }
+      return true;
+    } finally {
+      await client.close();
+    }
+  }
+
+  /// Push a batch of hotspot cards/users directly to a local LAN router
+  Future<({int syncedCount, int failedCount, List<String> syncedUsernames, List<String> failedUsernames})>
+      createHotspotUsersBatchLocally({
+    required String host,
+    required String username,
+    required String password,
+    required List<Map<String, String>> cards,
+    int apiPort = 8728,
+    bool useSsl = false,
+  }) async {
+    final client = _LocalMikrotikBinaryApiClient(
+      host: host,
+      port: apiPort,
+      useSsl: useSsl,
+    );
+    final syncedUsernames = <String>[];
+    final failedUsernames = <String>[];
+
+    try {
+      await client.connect();
+      await client.login(username, password);
+
+      for (final card in cards) {
+        final u = card['username'] ?? '';
+        final p = card['password'] ?? '';
+        final prof = card['profile'] ?? 'default';
+        final comment = card['comment'] ?? '';
+
+        try {
+          await client.sendCommand([
+            '/ip/hotspot/user/add',
+            '=name=$u',
+            '=password=$p',
+            '=profile=$prof',
+            if (comment.isNotEmpty) '=comment=$comment',
+          ]);
+          syncedUsernames.add(u);
+        } catch (itemErr) {
+          final errStr = itemErr.toString();
+          if (errStr.contains('already have') || errStr.contains('already exists')) {
+            syncedUsernames.add(u);
+          } else {
+            failedUsernames.add(u);
+          }
+        }
+      }
+    } finally {
+      await client.close();
+    }
+
+    return (
+      syncedCount: syncedUsernames.length,
+      failedCount: failedUsernames.length,
+      syncedUsernames: syncedUsernames,
+      failedUsernames: failedUsernames,
+    );
+  }
+
+  /// List .backup files saved directly on a local LAN router
+  Future<List<Map<String, dynamic>>> listLocalBackups({
+    required String host,
+    required String username,
+    required String password,
+    int apiPort = 8728,
+    bool useSsl = false,
+  }) async {
+    final client = _LocalMikrotikBinaryApiClient(
+      host: host,
+      port: apiPort,
+      useSsl: useSsl,
+    );
+    try {
+      await client.connect();
+      await client.login(username, password);
+
+      final files = await client.sendCommand(['/file/print']);
+      final results = <Map<String, dynamic>>[];
+      for (final f in files) {
+        final name = f['name'] ?? '';
+        if (name.toLowerCase().endsWith('.backup')) {
+          final sizeInt = int.tryParse(f['size'] ?? '0') ?? 0;
+          results.add({
+            'name': name,
+            'size': sizeInt,
+            'creationTime': f['creation-time'] ?? '',
+          });
+        }
+      }
+      return results;
+    } finally {
+      await client.close();
+    }
+  }
+
+  /// Generate a system backup directly on a local LAN router
+  Future<Map<String, dynamic>> createLocalBackup({
+    required String host,
+    required String username,
+    required String password,
+    String? backupName,
+    String? backupPassword,
+    int apiPort = 8728,
+    bool useSsl = false,
+  }) async {
+    final client = _LocalMikrotikBinaryApiClient(
+      host: host,
+      port: apiPort,
+      useSsl: useSsl,
+    );
+    try {
+      await client.connect();
+      await client.login(username, password);
+
+      final now = DateTime.now();
+      final defaultName =
+          'backup-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+      final safeName = (backupName != null && backupName.trim().isNotEmpty)
+          ? backupName.trim().replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '')
+          : defaultName;
+
+      final words = <String>[
+        '/system/backup/save',
+        '=name=$safeName',
+        if (backupPassword != null && backupPassword.trim().isNotEmpty)
+          '=password=${backupPassword.trim()}',
+      ];
+
+      await client.sendCommand(words);
+
+      final expectedFilename = safeName.toLowerCase().endsWith('.backup')
+          ? safeName
+          : '$safeName.backup';
+
+      int size = 0;
+      String creationTime = '';
+      try {
+        final files = await client.sendCommand(['/file/print']);
+        for (final f in files) {
+          final n = f['name'] ?? '';
+          if (n == expectedFilename || n.endsWith('/$expectedFilename')) {
+            size = int.tryParse(f['size'] ?? '0') ?? 0;
+            creationTime = f['creation-time'] ?? '';
+            break;
+          }
+        }
+      } catch (_) {}
+
+      return {
+        'success': true,
+        'filename': expectedFilename,
+        'size': size,
+        'creationTime': creationTime,
+        'message': 'تم إنشاء النسخة الاحتياطية ($expectedFilename) محلياً على الراوتر بنجاح',
+      };
+    } finally {
+      await client.close();
+    }
+  }
+
+  /// Upload portal files to router storage and set html-directory on hotspot profile directly over LAN
+  Future<Map<String, dynamic>> publishPortalLocally({
+    required String host,
+    required String username,
+    required String password,
+    required List<dynamic> files,
+    String directoryName = 'hotspot',
+    String? applyToProfile,
+    int apiPort = 8728,
+    bool useSsl = false,
+  }) async {
+    final client = _LocalMikrotikBinaryApiClient(
+      host: host,
+      port: apiPort,
+      useSsl: useSsl,
+    );
+    try {
+      await client.connect();
+      await client.login(username, password);
+
+      final fileList = await client.sendCommand(['/file/print']);
+      final hasFlash = fileList.any((f) => (f['name'] ?? '').startsWith('flash/'));
+      final targetDir = hasFlash && !directoryName.startsWith('flash/')
+          ? 'flash/$directoryName'
+          : directoryName;
+      final stagingDir = '$targetDir-staging';
+
+      final filesWritten = <String>[];
+      for (final rawFile in files) {
+        if (rawFile is! Map) continue;
+        final file = Map<String, dynamic>.from(rawFile);
+        final fName = file['name']?.toString() ?? '';
+        if (fName.isEmpty) continue;
+        final filePath = '$stagingDir/$fName';
+
+        final contentStr = file['content']?.toString() ?? '';
+        final encoding = file['encoding']?.toString();
+
+        Object contentsWord;
+        if (encoding == 'base64') {
+          final binBytes = base64Decode(contentStr);
+          final prefix = utf8.encode('=contents=');
+          final combined = Uint8List(prefix.length + binBytes.length);
+          combined.setRange(0, prefix.length, prefix);
+          combined.setRange(prefix.length, combined.length, binBytes);
+          contentsWord = combined;
+        } else {
+          contentsWord = '=contents=$contentStr';
+        }
+
+        final existing = await client.sendCommand([
+          '/file/print',
+          '?name=$filePath',
+        ]);
+
+        if (existing.isNotEmpty && existing.first['.id'] != null) {
+          final id = existing.first['.id']!;
+          await client.sendRawCommand([
+            '/file/set',
+            '=.id=$id',
+            contentsWord,
+          ]);
+        } else {
+          await client.sendRawCommand([
+            '/file/add',
+            '=name=$filePath',
+            contentsWord,
+          ]);
+        }
+        filesWritten.add(fName);
+      }
+
+      final profs = await client.sendCommand(['/ip/hotspot/profile/print']);
+      String? targetProfId;
+      String? updatedProfName;
+      if (applyToProfile != null && applyToProfile.isNotEmpty) {
+        final match = profs.where((p) => p['name'] == applyToProfile).firstOrNull;
+        if (match != null) {
+          targetProfId = match['.id'];
+          updatedProfName = match['name'];
+        }
+      }
+      if (targetProfId == null && profs.isNotEmpty) {
+        targetProfId = profs.first['.id'];
+        updatedProfName = profs.first['name'];
+      }
+
+      if (targetProfId != null) {
+        await client.sendCommand([
+          '/ip/hotspot/profile/set',
+          '=.id=$targetProfId',
+          '=html-directory=$stagingDir',
+        ]);
+      }
+
+      return {
+        'success': true,
+        'stagingDirectory': stagingDir,
+        'filesWritten': filesWritten,
+        'profileUpdated': updatedProfName,
+        'message':
+            'تم رفع ${filesWritten.length} ملف محلياً إلى ($stagingDir) وتفعيل بروفايل (${updatedProfName ?? 'الافتراضي'}).',
+      };
+    } finally {
+      await client.close();
+    }
+  }
 }
 
 class _LocalBinaryAuthException implements Exception {
@@ -1758,8 +2077,8 @@ class _LocalMikrotikBinaryApiClient {
     );
   }
 
-  Uint8List _encodeWord(String word) {
-    final data = utf8.encode(word);
+  Uint8List _encodeRawWord(Object word) {
+    final Uint8List data = (word is Uint8List) ? word : utf8.encode(word.toString());
     final len = data.length;
     final out = BytesBuilder(copy: false);
     if (len < 0x80) {
@@ -1783,6 +2102,13 @@ class _LocalMikrotikBinaryApiClient {
   Future<List<List<String>>> _writeAndReadSentences(
     List<String> words, {
     Duration timeout = const Duration(seconds: 6),
+  }) async {
+    return _writeAndReadRawSentences(words, timeout: timeout);
+  }
+
+  Future<List<List<String>>> _writeAndReadRawSentences(
+    List<Object> words, {
+    Duration timeout = const Duration(seconds: 12),
   }) async {
     final sock = _socket;
     if (sock == null) throw StateError('Socket not connected');
@@ -1812,7 +2138,7 @@ class _LocalMikrotikBinaryApiClient {
     try {
       final frame = BytesBuilder(copy: false);
       for (final w in words) {
-        frame.add(_encodeWord(w));
+        frame.add(_encodeRawWord(w));
       }
       frame.addByte(0); // end of sentence
       sock.add(frame.takeBytes());
@@ -1892,6 +2218,24 @@ class _LocalMikrotikBinaryApiClient {
 
   Future<List<Map<String, String>>> sendCommand(List<String> words) async {
     final replies = await _writeAndReadSentences(words);
+    final rows = <Map<String, String>>[];
+    for (final s in replies) {
+      if (s.isEmpty) continue;
+      if (s.first == '!re') {
+        rows.add(_parseAttrs(s));
+      } else if (s.first == '!trap') {
+        final attrs = _parseAttrs(s);
+        throw Exception(attrs['message'] ?? 'RouterOS API error');
+      }
+    }
+    return rows;
+  }
+
+  Future<List<Map<String, String>>> sendRawCommand(
+    List<Object> words, {
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    final replies = await _writeAndReadRawSentences(words, timeout: timeout);
     final rows = <Map<String, String>>[];
     for (final s in replies) {
       if (s.isEmpty) continue;

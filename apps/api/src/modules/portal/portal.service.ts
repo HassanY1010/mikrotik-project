@@ -41,6 +41,19 @@ export class PortalService {
     @Optional() private readonly mikrotikClientFactory?: MikrotikClientFactory,
   ) {}
 
+  private isPrivateHost(host?: string): boolean {
+    if (!host) return false;
+    const clean = host.trim().toLowerCase();
+    if (clean === 'localhost' || clean === '127.0.0.1' || clean === '::1') return true;
+    if (clean.startsWith('10.') || clean.startsWith('192.168.')) return true;
+    if (clean.startsWith('172.')) {
+      const parts = clean.split('.');
+      const second = parseInt(parts[1], 10);
+      if (!isNaN(second) && second >= 16 && second <= 31) return true;
+    }
+    return false;
+  }
+
   /**
    * Built-in designer presets ready for immediate use.
    */
@@ -327,6 +340,19 @@ export class PortalService {
       throw new NotFoundException(`جهاز الراوتر المحدد (${deviceId}) غير موجود`);
     }
 
+    // Fast-path: If device is local-only Private LAN, avoid blocking network calls from cloud
+    if (DevicesService?.isLocalOnlyPrivateLan?.(deviceId)) {
+      return {
+        deviceId,
+        deviceName: device.name,
+        activeDirectory: 'hotspot',
+        hasFlashStorage: false,
+        profiles: [{ name: 'hsprof1', htmlDirectory: 'hotspot' }],
+        existingFilesCount: 0,
+        existingFiles: [],
+      };
+    }
+
     // Default safe fallback if direct connection is not possible
     let activeDirectory = 'hotspot';
     let hasFlashStorage = false;
@@ -403,6 +429,8 @@ export class PortalService {
     filesCount: number;
     filesWritten?: string[];
     filesVerified?: string[];
+    files?: HotspotPortalFile[];
+    requiresLocalExecution?: boolean;
     profileUpdated?: string;
     originalProfileName?: string;
     originalHtmlDirectory?: string;
@@ -554,6 +582,27 @@ export class PortalService {
     }
 
     const operationId = uuidv4();
+
+    const isLocalPrivateLan = Boolean(DevicesService?.isLocalOnlyPrivateLan?.(deviceId));
+    if (dto.compileOnly === true || isLocalPrivateLan) {
+      if (template) {
+        template.syncStatus = 'SYNCED';
+        template.lastPublishedAt = new Date().toISOString();
+        template.publishedDeviceId = deviceId;
+        store.set(template.id, template);
+      }
+      return {
+        operationId,
+        queuedCommandId: 'local',
+        status: 'LOCAL_DEPLOY_REQUIRED',
+        directoryName: baseDir,
+        filesCount: filesToWrite.length,
+        files: filesToWrite,
+        requiresLocalExecution: true,
+        message:
+          'تم تجهيز ملفات الصفحة بنجاح. الراوتر متصل محلياً؛ سيتم رفع الملفات مباشرة من الهاتف عبر الشبكة المحلية.',
+      };
+    }
 
     // 3. Direct Client Deployment (if direct connection available)
     if (this.mikrotikClientFactory && (device as any).passwordEncrypted) {
@@ -755,33 +804,65 @@ export class PortalService {
     }
 
     // 4. Fallback to Agent Queue if direct connection is offline or unavailable
-    const queued = await this.agentService.queueCommand(tenantId, deviceId, {
-      operationId,
-      type: AgentCommandType.HOTSPOT_PORTAL_PUBLISH,
-      payload: {
-        templateId: template?.id,
+    try {
+      const queued = await this.agentService.queueCommand(tenantId, deviceId, {
+        operationId,
+        type: AgentCommandType.HOTSPOT_PORTAL_PUBLISH,
+        payload: {
+          templateId: template?.id,
+          directoryName: baseDir,
+          files: filesToWrite,
+          applyToProfile: dto.applyToProfile,
+          overwriteConfirmed: dto.overwriteConfirmed,
+        },
+      });
+
+      if (template) {
+        template.syncStatus = 'PENDING';
+        template.lastPublishedAt = new Date().toISOString();
+        template.publishedDeviceId = deviceId;
+        store.set(template.id, template);
+      }
+
+      return {
+        operationId,
+        queuedCommandId: queued.id,
+        status: 'PENDING',
         directoryName: baseDir,
-        files: filesToWrite,
-        applyToProfile: dto.applyToProfile,
-        overwriteConfirmed: dto.overwriteConfirmed,
-      },
-    });
-
-    if (template) {
-      template.syncStatus = 'PENDING';
-      template.lastPublishedAt = new Date().toISOString();
-      template.publishedDeviceId = deviceId;
-      store.set(template.id, template);
+        filesCount: filesToWrite.length,
+        message: `تم جدولة نشر صفحة الدخول إلى الراوتر (${device.name}) بنجاح. حالة الأمر: قيد الانتظار (PENDING)`,
+      };
+    } catch (queueErr: any) {
+      const isPrivateLanHost = this.isPrivateHost((device as any).host ?? '');
+      const queueErrMsg = queueErr instanceof Error ? queueErr.message : String(queueErr);
+      if (isPrivateLanHost) {
+        if (template) {
+          template.syncStatus = 'SYNCED';
+          template.lastPublishedAt = new Date().toISOString();
+          template.publishedDeviceId = deviceId;
+          store.set(template.id, template);
+        }
+        return {
+          operationId,
+          queuedCommandId: 'local',
+          status: 'LOCAL_DEPLOY_REQUIRED',
+          directoryName: baseDir,
+          filesCount: filesToWrite.length,
+          files: filesToWrite,
+          requiresLocalExecution: true,
+          message:
+            'تم تجهيز ملفات الصفحة بنجاح. الراوتر يعمل بعنوان LAN خاص ولا يوجد Agent مرتبط؛ يلزم الرفع المباشر من الهاتف عبر الشبكة المحلية.',
+        };
+      }
+      if (queueErrMsg.includes('No active agent is paired')) {
+        throw new BadRequestException({
+          code: 'NO_ACTIVE_AGENT_PAIRED',
+          message:
+            'تعذر الوصول المباشر للراوتر من السحابة ولا يوجد Agent مرتبط به حالياً. يرجى الاتصال بنفس شبكة الواي فاي المحلية أو تفعيل الربط بالراوتر.',
+        });
+      }
+      throw queueErr;
     }
-
-    return {
-      operationId,
-      queuedCommandId: queued.id,
-      status: 'PENDING',
-      directoryName: baseDir,
-      filesCount: filesToWrite.length,
-      message: `تم جدولة نشر صفحة الدخول إلى الراوتر (${device.name}) بنجاح. حالة الأمر: قيد الانتظار (PENDING)`,
-    };
   }
 
   /**

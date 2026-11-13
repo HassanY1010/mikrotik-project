@@ -52,6 +52,7 @@ class ApiEndpoints {
   static String deviceDiagnostics(String id) => '/devices/$id/diagnostics';
   static String deviceBackup(String id) => '/devices/$id/backup';
   static String deviceBackups(String id) => '/devices/$id/backups';
+  static String deviceBackupRecordLocal(String id) => '/devices/$id/backups/record-local';
   static String deviceBackupDownload(String id, String filename) =>
       '/devices/$id/backups/$filename/download';
   static String deviceBackupRestore(String id) => '/devices/$id/backups/restore';
@@ -71,6 +72,7 @@ class ApiEndpoints {
   static const String cardsBulkActivate = '/cards/bulk-activate';
   static String cardStatus(String id) => '/cards/$id/status';
   static const String cardBatches = '/cards/batches';
+  static String cardBatchMarkLocalSynced(String id) => '/cards/batches/$id/mark-local-synced';
   static const String cardTemplates = '/card-templates';
   static String cardTemplateItem(String id) => '/card-templates/$id';
 

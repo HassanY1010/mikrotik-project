@@ -85,4 +85,12 @@ export class PublishPortalDto {
   @IsString()
   @IsOptional()
   footerText?: string;
+
+  @ApiPropertyOptional({
+    description: 'Only compile portal files and return them without attempting direct cloud router upload (used for local phone LAN deployment)',
+    default: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  compileOnly?: boolean;
 }

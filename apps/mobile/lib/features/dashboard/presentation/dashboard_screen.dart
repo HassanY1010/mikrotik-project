@@ -4,6 +4,7 @@ import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/utils/whatsapp_helper.dart';
 import '../../../core/widgets/whatsapp_button.dart';
+import '../../../core/widgets/router_password_prompt_dialog.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../radar/presentation/radar_screen.dart';
 import '../../portal/presentation/hotspot_portal_designer_screen.dart';
@@ -612,6 +613,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                       onTap: isFetchingList
                           ? null
                           : () async {
+                              if (currentRouter.isPrivateLan &&
+                                  ref
+                                          .read(routersProvider.notifier)
+                                          .getSessionPassword(currentRouter.id) ==
+                                      null) {
+                                setDialogState(() => isFetchingList = false);
+                                final p = await _showRouterPasswordPromptDialog(
+                                  currentRouter: currentRouter,
+                                );
+                                if (p != null && p.isNotEmpty) {
+                                  ref
+                                      .read(routersProvider.notifier)
+                                      .cacheSessionPassword(currentRouter.id, p);
+                                }
+                              }
+
                               setDialogState(() {
                                 isFetchingList = true;
                                 localError = null;
@@ -627,7 +644,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                               } catch (e) {
                                 setDialogState(() {
                                   isFetchingList = false;
-                                  localError = 'تعذر جلب النسخ السابقة: $e';
+                                  localError = parseApiError(e, fallback: 'تعذر جلب النسخ السابقة').message;
                                 });
                               }
                             },
@@ -818,6 +835,53 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
 
                                 if (!dialogContext.mounted) return;
 
+                                if (res['needsPassword'] == true) {
+                                  setDialogState(() => isLoading = false);
+                                  final enteredPass = await _showRouterPasswordPromptDialog(
+                                    currentRouter: currentRouter,
+                                  );
+                                  if (enteredPass != null && enteredPass.isNotEmpty) {
+                                    ref
+                                        .read(routersProvider.notifier)
+                                        .cacheSessionPassword(currentRouter.id, enteredPass);
+                                    setDialogState(() {
+                                      isLoading = true;
+                                      localError = null;
+                                    });
+                                    final retryRes = await ref
+                                        .read(routersProvider.notifier)
+                                        .createBackup(
+                                          currentRouter.id,
+                                          backupName: nameVal.isNotEmpty ? nameVal : null,
+                                          password: passVal.isNotEmpty ? passVal : null,
+                                        );
+                                    if (!dialogContext.mounted) return;
+                                    if (retryRes['success'] == true) {
+                                      Navigator.pop(dialogContext);
+                                      _showBackupSuccessDialog(
+                                        currentRouter: currentRouter,
+                                        backupInfo: retryRes['backup'],
+                                        message: retryRes['message']?.toString() ??
+                                            'تم إنشاء النسخة الاحتياطية بنجاح',
+                                      );
+                                      return;
+                                    } else {
+                                      setDialogState(() {
+                                        isLoading = false;
+                                        localError = retryRes['message']?.toString() ??
+                                            'فشل إنشاء النسخة الاحتياطية';
+                                      });
+                                      return;
+                                    }
+                                  } else {
+                                    setDialogState(() {
+                                      isLoading = false;
+                                      localError = res['message']?.toString();
+                                    });
+                                    return;
+                                  }
+                                }
+
                                 if (res['success'] == true) {
                                   Navigator.pop(dialogContext);
                                   _showBackupSuccessDialog(
@@ -862,6 +926,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           },
         );
       },
+    );
+  }
+
+  Future<String?> _showRouterPasswordPromptDialog({
+    required RouterDeviceModel currentRouter,
+  }) async {
+    return showRouterPasswordPromptDialog(
+      context: context,
+      currentRouter: currentRouter,
+      operationLabel: 'إدارة النسخ الاحتياطي',
     );
   }
 

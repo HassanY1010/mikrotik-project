@@ -16,7 +16,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { DevicesService, DeviceResponse } from './devices.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
-import { CreateBackupDto } from './dto/create-backup.dto';
+import { CreateBackupDto, RecordLocalBackupDto } from './dto/create-backup.dto';
 import { RestoreBackupDto } from './dto/restore-backup.dto';
 import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
 import { ReportLocalTelemetryDto } from './dto/report-local-telemetry.dto';
@@ -335,6 +335,26 @@ export class DevicesController {
   @ApiResponse({ status: 200, description: 'List of backup files' })
   async listBackups(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.devicesService.listBackups(tenantId, id);
+  }
+
+  @Post(':id/backups/record-local')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Record a backup created directly by mobile client over local LAN' })
+  @ApiResponse({ status: 200, description: 'Local backup recorded' })
+  async recordLocalBackup(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: RecordLocalBackupDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.devicesService.recordLocalBackup(tenantId, id, body, userId);
   }
 
   @Get(':id/backups/:filename/download')

@@ -287,9 +287,12 @@ export class HotspotService {
     const effectiveValidity = dto.validity || dto.sessionTimeout;
     const normalizedValidity = effectiveValidity ? normalizeValidityDuration(effectiveValidity) : null;
 
-    // Provision on MikroTik router (only if router is online to prevent freezing HTTP request)
+    // Provision on MikroTik router (only if router is cloud-reachable and syncToRouter is not explicitly false)
     let routerProvisioned = false;
-    if (device.isOnline) {
+    const isLocalPrivateLan = Boolean(DevicesService?.isLocalOnlyPrivateLan?.(device.id));
+    const shouldSyncToRouter = dto.syncToRouter !== false && device.isOnline && !isLocalPrivateLan;
+
+    if (shouldSyncToRouter) {
       const connectionType = device.rosVersion === 'V7' && device.restPort ? 'REST' : 'API';
       try {
         const client = await this.mikrotikClientFactory.getClient({
@@ -420,6 +423,13 @@ export class HotspotService {
       displayName: profile.displayName || dto.displayName || profile.name,
       dataLimitBytes: profile.dataLimitBytes ? Number(profile.dataLimitBytes) : null,
       dataLimitGb: profile.dataLimitBytes ? Number(profile.dataLimitBytes) / (1024 * 1024 * 1024) : null,
+      syncedToRouter: routerProvisioned,
+      routerSyncStatus:
+        dto.syncToRouter === false || isLocalPrivateLan
+          ? 'SKIPPED_PRIVATE_LAN'
+          : routerProvisioned
+            ? 'SYNCED'
+            : 'PENDING_OFFLINE',
     };
   }
 
@@ -465,8 +475,8 @@ export class HotspotService {
       });
     }
 
-    // Remove from MikroTik (only if router is online)
-    if (device.isOnline) {
+    // Remove from MikroTik (only if router is online and cloud-reachable)
+    if (device.isOnline && !DevicesService?.isLocalOnlyPrivateLan?.(device.id)) {
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: device.id,
@@ -526,7 +536,11 @@ export class HotspotService {
     const effectiveValidity = dto.validity || dto.sessionTimeout;
     const normalizedValidity = effectiveValidity !== undefined ? normalizeValidityDuration(effectiveValidity) : undefined;
 
-    if (profile.device && profile.device.isOnline) {
+    if (
+      profile.device &&
+      profile.device.isOnline &&
+      !DevicesService?.isLocalOnlyPrivateLan?.(profile.device.id)
+    ) {
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: profile.device.id,
@@ -610,7 +624,11 @@ export class HotspotService {
         data: { dataLimitBytes: newDataLimitBytes },
       });
 
-      if (profile.device && profile.device.isOnline) {
+      if (
+      profile.device &&
+      profile.device.isOnline &&
+      !DevicesService?.isLocalOnlyPrivateLan?.(profile.device.id)
+    ) {
         try {
           const client = await this.mikrotikClientFactory.getClient({
             id: profile.device.id,

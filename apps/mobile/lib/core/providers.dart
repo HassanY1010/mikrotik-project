@@ -99,10 +99,16 @@ ApiErrorDetails parseApiError(
       return ApiErrorDetails(message: fallback, statusCode: statusCode);
     }
 
+    if (e.type == DioExceptionType.receiveTimeout) {
+      return ApiErrorDetails(
+        message: 'انتهت مهلة استلام البيانات من الخادم (Receive Timeout). يرجى التحقق من اتصال الشبكة بالراوتر.',
+        isNetworkError: true,
+      );
+    }
+
     if (e.response == null &&
         (e.type == DioExceptionType.connectionTimeout ||
             e.type == DioExceptionType.sendTimeout ||
-            e.type == DioExceptionType.receiveTimeout ||
             e.type == DioExceptionType.connectionError ||
             e.type == DioExceptionType.unknown)) {
       return ApiErrorDetails(
@@ -450,6 +456,10 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     double? dataLimitMb,
   }) async {
     final apiClient = ref.read(apiClientProvider);
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    final router = routers.where((r) => r.id == deviceId).firstOrNull;
+    final isLocalOnly = router != null && router.isPrivateLan && router.cloudStatus != 'ONLINE';
+
     try {
       final res = await apiClient.post(
         ApiEndpoints.hotspotProfiles,
@@ -465,19 +475,54 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
           if (dataLimitMb != null) 'dataLimitMb': dataLimitMb,
           if (dataLimitMb == null && dataLimitGb != null) 'dataLimitGb': dataLimitGb,
           if (dataLimitMb == null && dataLimitGb == null) 'dataLimitGb': null,
+          if (isLocalOnly) 'syncToRouter': false,
         },
       );
       await fetchProfiles();
+
+      // If Private LAN router, push profile directly over Wi-Fi LAN if local session password is known
+      bool localSynced = false;
+      if (isLocalOnly) {
+        final sessionPassword = ref.read(routersProvider.notifier).getSessionPassword(deviceId);
+        if (sessionPassword != null) {
+          try {
+            final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+            localSynced = await discovery.createHotspotProfileLocally(
+              host: router.host,
+              username: router.username.isNotEmpty ? router.username : 'admin',
+              password: sessionPassword,
+              profileName: name.trim(),
+              rateLimit: rateLimit?.trim(),
+              sessionTimeout: sessionTimeout?.trim() ?? validity?.trim(),
+              sharedUsers: sharedUsers ?? 1,
+              apiPort: router.apiPort,
+              restPort: router.restPort,
+              useSsl: router.useSsl,
+              rosVersion: router.rosVersion,
+            );
+          } catch (_) {}
+        }
+      }
+
       final raw = res.data;
       if (raw is Map<String, dynamic>) {
-        return {'success': true, ...raw};
+        return {
+          'success': true,
+          ...raw,
+          if (isLocalOnly && localSynced) 'message': 'تم إنشاء البروفايل ومزامنته محلياً على الراوتر بنجاح',
+        };
       }
-      return {'success': true, 'message': 'تم إنشاء البروفايل ومزامنته مع الراوتر بنجاح'};
+      return {
+        'success': true,
+        'message': isLocalOnly && localSynced
+            ? 'تم إنشاء البروفايل ومزامنته محلياً على الراوتر بنجاح'
+            : 'تم إنشاء البروفايل وحفظه بنجاح',
+      };
     } catch (e) {
       final details = parseApiError(
         e,
         fallback: 'فشل إنشاء البروفايل على الراوتر',
-        networkMessage: 'تعذر الاتصال بالخادم لإنشاء البروفايل (${e.toString()})',
+        networkMessage: 'تعذر الاتصال بالخادم لإنشاء البروفايل',
       );
       return {'success': false, 'message': details.message};
     }
@@ -658,10 +703,12 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
   static final Map<String, String> _sessionRouterPasswords = <String, String>{};
 
   void cacheSessionPassword(String deviceId, String password) {
-    if (deviceId.isNotEmpty && password.isNotEmpty) {
+    if (deviceId.isNotEmpty) {
       _sessionRouterPasswords[deviceId] = password;
     }
   }
+
+  bool hasSessionPassword(String deviceId) => _sessionRouterPasswords.containsKey(deviceId);
 
   String? getSessionPassword(String deviceId) => _sessionRouterPasswords[deviceId];
 
@@ -1046,6 +1093,62 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
     String? password,
   }) async {
     final apiClient = ref.read(apiClientProvider);
+    final router = state.asData?.value.where((r) => r.id == deviceId).firstOrNull;
+    final isLocalOnly = router != null && router.isPrivateLan && router.cloudStatus != 'ONLINE';
+
+    if (isLocalOnly) {
+      final sessionPassword = getSessionPassword(deviceId);
+      if (sessionPassword == null || sessionPassword.isEmpty) {
+        return {
+          'success': false,
+          'needsPassword': true,
+          'message': 'الراوتر متصل محلياً؛ يلزم إدخال كلمة مرور الراوتر لإتمام النسخ عبر الشبكة المحلية.',
+        };
+      }
+
+      final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+      try {
+        final localRes = await discovery.createLocalBackup(
+          host: router.host,
+          username: router.username.isNotEmpty ? router.username : 'admin',
+          password: sessionPassword,
+          backupName: backupName,
+          backupPassword: password,
+          apiPort: router.apiPort,
+          useSsl: router.useSsl,
+        );
+
+        if (localRes['success'] == true) {
+          try {
+            await apiClient.post(
+              ApiEndpoints.deviceBackupRecordLocal(deviceId),
+              data: {
+                'filename': localRes['filename'],
+                'size': localRes['size'],
+                'creationTime': localRes['creationTime'],
+              },
+            );
+          } catch (_) {}
+
+          return {
+            'success': true,
+            'message': localRes['message'] ?? 'تم إنشاء النسخة الاحتياطية بنجاح على الراوتر',
+            'backup': {
+              'filename': localRes['filename'],
+              'size': localRes['size'],
+              'creationTime': localRes['creationTime'],
+            },
+          };
+        }
+      } catch (err) {
+        final errText = err.toString().replaceFirst('Exception: ', '');
+        return {
+          'success': false,
+          'message': 'تعذر إنشاء النسخة محلياً على الراوتر: $errText',
+        };
+      }
+    }
+
     try {
       final payload = <String, dynamic>{};
       if (backupName != null && backupName.trim().isNotEmpty) {
@@ -1077,29 +1180,31 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         'backup': backupInfo,
       };
     } catch (e) {
-      String msg = 'فشل إنشاء النسخة الاحتياطية للراوتر';
-      if (e is DioException) {
-        final d = e.response?.data;
-        if (d is Map) {
-          if (d['message'] != null) {
-            msg = d['message'].toString();
-          } else if (d['error'] != null) {
-            final errObj = d['error'];
-            msg = (errObj is Map && errObj['message'] != null)
-                ? errObj['message'].toString()
-                : errObj.toString();
-          }
-        } else if (e.message != null && e.message!.isNotEmpty) {
-          msg = e.message!;
-        }
-      } else {
-        msg = e.toString();
-      }
-      return {'success': false, 'message': msg};
+      final details = parseApiError(e, fallback: 'فشل إنشاء النسخة الاحتياطية للراوتر');
+      return {'success': false, 'message': details.message};
     }
   }
 
   Future<List<Map<String, dynamic>>> listBackups(String deviceId) async {
+    final router = state.asData?.value.where((r) => r.id == deviceId).firstOrNull;
+    final isLocalOnly = router != null && router.isPrivateLan && router.cloudStatus != 'ONLINE';
+
+    if (isLocalOnly) {
+      final sessionPassword = getSessionPassword(deviceId);
+      if (sessionPassword != null && sessionPassword.isNotEmpty) {
+        try {
+          final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+          return await discovery.listLocalBackups(
+            host: router.host,
+            username: router.username.isNotEmpty ? router.username : 'admin',
+            password: sessionPassword,
+            apiPort: router.apiPort,
+            useSsl: router.useSsl,
+          );
+        } catch (_) {}
+      }
+    }
+
     final apiClient = ref.read(apiClientProvider);
     try {
       final res = await apiClient.get(ApiEndpoints.deviceBackups(deviceId));

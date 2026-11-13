@@ -204,6 +204,29 @@ class _MockRouterOsBinaryServer {
       return;
     }
 
+    if (cmd == '/file/print') {
+      socket.add(_encodeSentence([
+        '!re',
+        '=.id=*f1',
+        '=name=alftih.backup',
+        '=size=2048',
+        '=creation-time=jan/01/2026 12:00:00',
+      ]));
+      socket.add(_encodeSentence(['!done']));
+      return;
+    }
+
+    if (cmd == '/ip/hotspot/profile/print') {
+      socket.add(_encodeSentence([
+        '!re',
+        '=.id=*p1',
+        '=name=hsprof1',
+        '=html-directory=hotspot',
+      ]));
+      socket.add(_encodeSentence(['!done']));
+      return;
+    }
+
     socket.add(_encodeSentence(['!done']));
   }
 }
@@ -736,6 +759,111 @@ void main() {
       expect(find.text('24%'), findsOneWidget);
       expect(find.text('العمل: 2d04:10:00'), findsOneWidget);
       expect(find.text('غير متصل'), findsNothing);
+    });
+  });
+
+  group('Private LAN Operations Hardening (100% Root Cause Verification on Mobile)', () {
+    late _MockRouterOsBinaryServer rosServer;
+
+    setUp(() async {
+      rosServer = _MockRouterOsBinaryServer(legacyMd5: false);
+      await rosServer.start();
+    });
+
+    tearDown(() async {
+      await rosServer.stop();
+      RoutersNotifier.clearSessionPasswords();
+    });
+
+    test('Issue 1 & 4 UX: parseApiError formats receiveTimeout as clean Arabic without raw exception dumps', () {
+      final dioTimeout = DioException(
+        requestOptions: RequestOptions(path: '/hotspot/profiles'),
+        type: DioExceptionType.receiveTimeout,
+        message: 'The request took longer than 0:00:20.000000 to receive data. It was aborted.',
+      );
+
+      final details = parseApiError(dioTimeout, fallback: 'فشل العملية');
+      expect(details.message, contains('انتهت مهلة استلام البيانات'));
+      expect(details.message, isNot(contains('0:00:20')));
+      expect(details.message, isNot(contains('RequestOptions')));
+    });
+
+    test('Issue 4: MikrotikDiscoveryService provisions hotspot profile locally over Wi-Fi LAN', () async {
+      final discovery = MikrotikDiscoveryService();
+      final ok = await discovery.createHotspotProfileLocally(
+        host: '127.0.0.1',
+        username: 'admin',
+        password: 'secret',
+        profileName: 'hsp-sudafi-10h',
+        sessionTimeout: '10h',
+        sharedUsers: 1,
+        apiPort: rosServer.port,
+      );
+
+      expect(ok, isTrue);
+    });
+
+    test('Issue 1: MikrotikDiscoveryService batches cards locally over Wi-Fi LAN without hanging', () async {
+      final discovery = MikrotikDiscoveryService();
+      final res = await discovery.createHotspotUsersBatchLocally(
+        host: '127.0.0.1',
+        username: 'admin',
+        password: 'secret',
+        cards: [
+          {'username': 'card101', 'password': 'p1', 'profile': 'hsp-sudafi-10h', 'comment': 'B1'},
+          {'username': 'card102', 'password': 'p2', 'profile': 'hsp-sudafi-10h', 'comment': 'B1'},
+        ],
+        apiPort: rosServer.port,
+      );
+
+      expect(res.syncedCount, 2);
+      expect(res.failedCount, 0);
+      expect(res.syncedUsernames, contains('card101'));
+      expect(res.syncedUsernames, contains('card102'));
+    });
+
+    test('Issue 3: MikrotikDiscoveryService creates and lists local backups over Wi-Fi LAN', () async {
+      final discovery = MikrotikDiscoveryService();
+      final backupRes = await discovery.createLocalBackup(
+        host: '127.0.0.1',
+        username: 'admin',
+        password: 'secret',
+        backupName: 'alftih',
+        apiPort: rosServer.port,
+      );
+
+      expect(backupRes['success'], isTrue);
+      expect(backupRes['filename'], 'alftih.backup');
+
+      final list = await discovery.listLocalBackups(
+        host: '127.0.0.1',
+        username: 'admin',
+        password: 'secret',
+        apiPort: rosServer.port,
+      );
+
+      expect(list, isNotEmpty);
+      expect(list.any((b) => b['name'].toString().contains('alftih.backup')), isTrue);
+    });
+
+    test('Issue 2: MikrotikDiscoveryService deploys portal files locally over Wi-Fi LAN', () async {
+      final discovery = MikrotikDiscoveryService();
+      final publishRes = await discovery.publishPortalLocally(
+        host: '127.0.0.1',
+        username: 'admin',
+        password: 'secret',
+        files: [
+          {'name': 'login.html', 'content': '<html><body>Portal</body></html>', 'encoding': 'utf-8'},
+          {'name': 'status.html', 'content': '<html><body>Status</body></html>', 'encoding': 'utf-8'},
+        ],
+        directoryName: 'hotspot',
+        applyToProfile: 'hsprof1',
+        apiPort: rosServer.port,
+      );
+
+      expect(publishRes['success'], isTrue);
+      expect(publishRes['filesWritten'].length, 2);
+      expect(publishRes['profileUpdated'], isNotNull);
     });
   });
 }

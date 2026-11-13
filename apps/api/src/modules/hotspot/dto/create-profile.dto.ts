@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -109,4 +110,12 @@ export class CreateProfileDto {
   })
   @IsOptional()
   dataLimitBytes?: number | string | null;
+
+  @ApiPropertyOptional({
+    description: 'Whether to immediately provision profile to the router from cloud (set false when synced locally from mobile LAN)',
+    default: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  syncToRouter?: boolean;
 }
