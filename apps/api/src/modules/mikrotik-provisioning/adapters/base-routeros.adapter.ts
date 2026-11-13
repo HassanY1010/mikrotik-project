@@ -10,6 +10,7 @@ import type {
 } from '../interfaces/auto-provisioning.interface';
 import { isValidIpv4Cidr, isValidRouterOsId } from '../../../core/security/snapshot-integrity.util';
 import { maskExecutionWords } from '../utils/secret-redactor.util';
+import { CANONICAL_DEFAULTS } from '../constants/canonical-scripts';
 
 /**
  * Shared base adapter containing version-agnostic network provisioning logic
@@ -212,7 +213,7 @@ export abstract class BaseRouterOsAdapter implements IRouterOsAdapter {
     const { config, discovery } = input;
     let order = input.startOrder;
     const cmds: PlannedCommandSpec[] = [];
-    const bridgeName = (config.lan.bridgeName || 'bridge-hotspot').trim();
+    const bridgeName = (config.lan.bridgeName || CANONICAL_DEFAULTS.BRIDGE_NAME).trim();
     const isClean = (config.template || 'CLEAN_SETUP') === 'CLEAN_SETUP';
     const memberPorts = (config.lan.memberInterfaces || []).map((p) => p.trim()).filter(Boolean);
 
@@ -343,12 +344,13 @@ export abstract class BaseRouterOsAdapter implements IRouterOsAdapter {
 
   buildIpAddressingCommands(input: AdapterStageCommandInput): PlannedCommandSpec[] {
     const { config, discovery } = input;
-    const bridgeName = (config.lan.bridgeName || 'bridge-hotspot').trim();
+    const bridgeName = (config.lan.bridgeName || CANONICAL_DEFAULTS.BRIDGE_NAME).trim();
     const isClean = (config.template || 'CLEAN_SETUP') === 'CLEAN_SETUP';
+    const gatewayIp = (config.lan.gatewayIp || CANONICAL_DEFAULTS.GATEWAY_IP).trim();
     const exists =
       !isClean &&
       discovery.ipAddresses.some(
-        (ip) => ip.interface === bridgeName && ip.address === config.lan.gatewayIp.trim(),
+        (ip) => ip.interface === bridgeName && ip.address === gatewayIp,
       );
 
     if (exists) return [];
@@ -357,10 +359,10 @@ export abstract class BaseRouterOsAdapter implements IRouterOsAdapter {
       this.makeCmd(
         input.startOrder,
         'IP_ADDRESSING',
-        `تعيين عنوان البوابة (${config.lan.gatewayIp.trim()}) على الجسر (${bridgeName})`,
+        `تعيين عنوان البوابة (${gatewayIp}) على الجسر (${bridgeName})`,
         [
           '/ip/address/add',
-          `=address=${config.lan.gatewayIp.trim()}`,
+          `=address=${gatewayIp}`,
           `=interface=${bridgeName}`,
           '=comment=SudaFi Hotspot Gateway',
         ],
@@ -373,19 +375,46 @@ export abstract class BaseRouterOsAdapter implements IRouterOsAdapter {
     const { config, discovery } = input;
     let order = input.startOrder;
     const cmds: PlannedCommandSpec[] = [];
-    const bridgeName = (config.lan.bridgeName || 'bridge-hotspot').trim();
-    const gatewayCidr = config.lan.gatewayIp.trim();
+    const bridgeName = (config.lan.bridgeName || CANONICAL_DEFAULTS.BRIDGE_NAME).trim();
+    const gatewayCidr = (config.lan.gatewayIp || CANONICAL_DEFAULTS.GATEWAY_IP).trim();
     const cleanGatewayIp = gatewayCidr.split('/')[0];
     const networkCidr = this.extractNetworkCidr(gatewayCidr);
-    const poolName = 'pool-sudafi-hs';
-    const poolRange = config.lan.poolRange?.trim() || this.generateDefaultPoolRange(gatewayCidr);
-    const leaseTime = config.lan.dhcpLeaseTime?.trim() || '1h';
+    const poolName = (config.lan.poolName || CANONICAL_DEFAULTS.POOL_NAME).trim();
+    const poolRange =
+      config.lan.poolRange?.trim() ||
+      (gatewayCidr === CANONICAL_DEFAULTS.GATEWAY_IP
+        ? CANONICAL_DEFAULTS.POOL_RANGE
+        : this.generateDefaultPoolRange(gatewayCidr));
+    const leaseTime = config.lan.dhcpLeaseTime?.trim() || CANONICAL_DEFAULTS.DHCP_LEASE_TIME;
+    const dhcpServerName = (config.lan.dhcpServerName || CANONICAL_DEFAULTS.DHCP_SERVER_NAME).trim();
     const dnsList =
       config.lan.dnsServers && config.lan.dnsServers.length > 0
         ? config.lan.dnsServers.join(',')
         : `${cleanGatewayIp},8.8.8.8`;
 
     const isClean = (config.template || 'CLEAN_SETUP') === 'CLEAN_SETUP';
+
+    if (isClean) {
+      // Scoped cleanup: remove previous conflicting DHCP servers on target bridge/ports
+      for (const ds of discovery.dhcpServers) {
+        if (
+          (ds.interface === bridgeName || (config.lan.memberInterfaces || []).includes(ds.interface)) &&
+          ds.name !== dhcpServerName &&
+          ds.id &&
+          isValidRouterOsId(ds.id)
+        ) {
+          cmds.push(
+            this.makeCmd(
+              order++,
+              'DHCP',
+              `إزالة خادم DHCP السابق (${ds.name}) لمنع تعارض توزيع العناوين`,
+              ['/ip/dhcp-server/remove', `=.id=${ds.id}`],
+              { safeToRetry: false },
+            ),
+          );
+        }
+      }
+    }
 
     if (isClean || !discovery.pools.some((p) => p.name === poolName)) {
       cmds.push(
@@ -399,7 +428,6 @@ export abstract class BaseRouterOsAdapter implements IRouterOsAdapter {
       );
     }
 
-    const dhcpServerName = 'dhcp-sudafi';
     if (isClean || !discovery.dhcpServers.some((s) => s.name === dhcpServerName)) {
       cmds.push(
         this.makeCmd(
@@ -651,15 +679,46 @@ export abstract class BaseRouterOsAdapter implements IRouterOsAdapter {
     const { config, discovery } = input;
     let order = input.startOrder;
     const cmds: PlannedCommandSpec[] = [];
-    const bridgeName = (config.lan.bridgeName || 'bridge-hotspot').trim();
-    const cleanGatewayIp = config.lan.gatewayIp.trim().split('/')[0];
-    const serverProfileName = config.hotspot?.serverProfileName?.trim() || 'hsp-server-sudafi';
-    const hsServerName = config.hotspot?.serverName?.trim() || 'hs-sudafi';
+    const bridgeName = (config.lan.bridgeName || CANONICAL_DEFAULTS.BRIDGE_NAME).trim();
+    const cleanGatewayIp = (config.lan.gatewayIp || CANONICAL_DEFAULTS.GATEWAY_IP).trim().split('/')[0];
+    const serverProfileName = config.hotspot?.serverProfileName?.trim() || CANONICAL_DEFAULTS.HOTSPOT_PROFILE_NAME;
+    const hsServerName = config.hotspot?.serverName?.trim() || CANONICAL_DEFAULTS.HOTSPOT_SERVER_NAME;
+    const poolName = (config.lan.poolName || CANONICAL_DEFAULTS.POOL_NAME).trim();
     const dnsName = config.hotspot?.dnsName?.trim() || 'login.sudafi.net';
     const htmlDir = config.hotspot?.htmlDirectory?.trim() || 'hotspot';
-    const loginBy = config.hotspot?.loginBy?.trim() || 'http-chap,http-pap,cookie,mac-cookie';
-    const cookieLifetime = config.hotspot?.cookieLifetime?.trim() || '3d';
+    const loginBy = config.hotspot?.loginBy?.trim() || 'mac,cookie,http-chap,http-pap,mac-cookie';
+    const cookieLifetime = config.hotspot?.cookieLifetime?.trim() || CANONICAL_DEFAULTS.COOKIE_TIMEOUT;
     const isClean = (config.template || 'CLEAN_SETUP') === 'CLEAN_SETUP';
+
+    if (isClean) {
+      // Scoped cleanup of prior conflicting hotspot servers to prevent duplicate running instances
+      for (const hs of discovery.hotspotServers) {
+        if (hs.name !== hsServerName && hs.id && isValidRouterOsId(hs.id)) {
+          cmds.push(
+            this.makeCmd(
+              order++,
+              'HOTSPOT',
+              `إزالة خادم الهوتسبوت السابق (${hs.name}) لتفادي تكرار وتشابك البرمجة`,
+              ['/ip/hotspot/remove', `=.id=${hs.id}`],
+              { safeToRetry: false },
+            ),
+          );
+        }
+      }
+      for (const prof of discovery.hotspotServerProfiles) {
+        if (prof.name !== 'default' && prof.name !== serverProfileName && prof.id && isValidRouterOsId(prof.id)) {
+          cmds.push(
+            this.makeCmd(
+              order++,
+              'HOTSPOT',
+              `إزالة بروفايل خادم الهوتسبوت القديم (${prof.name})`,
+              ['/ip/hotspot/profile/remove', `=.id=${prof.id}`],
+              { safeToRetry: false },
+            ),
+          );
+        }
+      }
+    }
 
     const srvProfileExists =
       !isClean && discovery.hotspotServerProfiles.some((p) => p.name === serverProfileName);
@@ -699,7 +758,7 @@ export abstract class BaseRouterOsAdapter implements IRouterOsAdapter {
             '/ip/hotspot/add',
             `=name=${hsServerName}`,
             `=interface=${bridgeName}`,
-            '=address-pool=pool-sudafi-hs',
+            `=address-pool=${poolName}`,
             `=profile=${serverProfileName}`,
             '=disabled=no',
           ],
@@ -748,7 +807,7 @@ export abstract class BaseRouterOsAdapter implements IRouterOsAdapter {
 
     let order = input.startOrder;
     const cmds: PlannedCommandSpec[] = [];
-    const customName = config.queues?.customQueueName?.trim() || 'sfq-sudafi';
+    const customName = config.queues?.customQueueName?.trim() || CANONICAL_DEFAULTS.SFQ_QUEUE_NAME;
 
     if (!discovery.queueTypes.some((q) => q.name === customName)) {
       cmds.push(

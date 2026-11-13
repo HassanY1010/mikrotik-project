@@ -90,6 +90,53 @@ class MikrotikDiscoveryService {
     _isSearching = false;
   }
 
+  bool isPrivateLanIp(String host) {
+    final ip = host.trim();
+    return ip.startsWith('192.168.') ||
+        ip.startsWith('10.') ||
+        ip.startsWith('172.16.') ||
+        ip.startsWith('172.17.') ||
+        ip.startsWith('172.18.') ||
+        ip.startsWith('172.19.') ||
+        ip.startsWith('172.20.') ||
+        ip.startsWith('172.21.') ||
+        ip.startsWith('172.22.') ||
+        ip.startsWith('172.23.') ||
+        ip.startsWith('172.24.') ||
+        ip.startsWith('172.25.') ||
+        ip.startsWith('172.26.') ||
+        ip.startsWith('172.27.') ||
+        ip.startsWith('172.28.') ||
+        ip.startsWith('172.29.') ||
+        ip.startsWith('172.30.') ||
+        ip.startsWith('172.31.') ||
+        ip == 'localhost' ||
+        ip == '127.0.0.1';
+  }
+
+  Future<({bool isReachable, bool isAuthValid, String? detectedOsVersion})> checkDirectLanConnection({
+    required String host,
+    required int port,
+    required String user,
+    required String password,
+    bool useSsl = false,
+  }) async {
+    try {
+      final res = await verifyCredentialsLocally(
+        host: host,
+        username: user,
+        password: password,
+        apiPort: port,
+        useSsl: useSsl,
+      );
+      final ok = res['success'] == true;
+      final rosVer = res['rosVersion']?.toString() ?? 'ROS';
+      return (isReachable: true, isAuthValid: ok, detectedOsVersion: rosVer);
+    } catch (_) {
+      return (isReachable: false, isAuthValid: false, detectedOsVersion: null);
+    }
+  }
+
   /// Discover MikroTik devices on the local network with real-time streaming progress
   Stream<DiscoveredRouterModel> discoverStream({
     Duration timeout = const Duration(seconds: 10),
@@ -1932,37 +1979,92 @@ class MikrotikDiscoveryService {
         filesWritten.add(fName);
       }
 
+      // 1. Query active hotspot servers and profile definitions
+      final servers = await client.sendCommand(['/ip/hotspot/print']);
       final profs = await client.sendCommand(['/ip/hotspot/profile/print']);
-      String? targetProfId;
-      String? updatedProfName;
-      if (applyToProfile != null && applyToProfile.isNotEmpty) {
-        final match = profs.where((p) => p['name'] == applyToProfile).firstOrNull;
+
+      final Set<String> targetProfileNames = {};
+      if (applyToProfile != null && applyToProfile.trim().isNotEmpty) {
+        final match = profs.where((p) => p['name'] == applyToProfile.trim()).firstOrNull;
         if (match != null) {
-          targetProfId = match['.id'];
-          updatedProfName = match['name'];
+          targetProfileNames.add(match['name']!);
         }
       }
-      if (targetProfId == null && profs.isNotEmpty) {
-        targetProfId = profs.first['.id'];
-        updatedProfName = profs.first['name'];
+
+      // If no explicit match, discover profiles bound to running hotspot servers
+      if (targetProfileNames.isEmpty) {
+        for (final srv in servers) {
+          final pName = srv['profile'];
+          if (pName != null && pName.isNotEmpty) {
+            targetProfileNames.add(pName);
+          }
+        }
       }
 
-      if (targetProfId != null) {
-        await client.sendCommand([
-          '/ip/hotspot/profile/set',
-          '=.id=$targetProfId',
-          '=html-directory=$stagingDir',
-        ]);
+      // Always include 'Mikrotik' canonical reference profile if present on router
+      if (profs.any((p) => p['name'] == 'Mikrotik')) {
+        targetProfileNames.add('Mikrotik');
       }
+
+      // Always include 'default' profile
+      if (profs.any((p) => p['name'] == 'default')) {
+        targetProfileNames.add('default');
+      }
+
+      final List<String> updatedProfiles = [];
+      for (final pName in targetProfileNames) {
+        final match = profs.where((p) => p['name'] == pName).firstOrNull;
+        if (match != null && match['.id'] != null) {
+          try {
+            await client.sendCommand([
+              '/ip/hotspot/profile/set',
+              '=.id=${match['.id']}',
+              '=html-directory=$stagingDir',
+            ]);
+            updatedProfiles.add(pName);
+          } catch (_) {
+            // Keep going for remaining profiles
+          }
+        }
+      }
+
+      final primaryProfile = updatedProfiles.firstWhere(
+        (name) => name != 'default',
+        orElse: () => updatedProfiles.firstOrNull ?? 'الافتراضي',
+      );
 
       return {
         'success': true,
         'stagingDirectory': stagingDir,
         'filesWritten': filesWritten,
-        'profileUpdated': updatedProfName,
+        'profileUpdated': primaryProfile,
+        'allProfilesUpdated': updatedProfiles,
         'message':
-            'تم رفع ${filesWritten.length} ملف محلياً إلى ($stagingDir) وتفعيل بروفايل (${updatedProfName ?? 'الافتراضي'}).',
+            'تم نشر ${filesWritten.length} ملف بنجاح في ($stagingDir) وتفعيل البروفايل النشط ($primaryProfile).',
       };
+    } finally {
+      await client.close();
+    }
+  }
+
+  /// Fetches live Hotspot users currently stored in MikroTik router memory (/ip/hotspot/user/print)
+  Future<List<Map<String, String>>> fetchRouterHotspotUsersLocally({
+    required String host,
+    required String username,
+    required String password,
+    int port = 8728,
+    bool useSsl = false,
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final client = _LocalMikrotikBinaryApiClient(host: host, port: port, useSsl: useSsl);
+    try {
+      await client.connect(timeout: timeout);
+      final authOk = await client.login(username, password);
+      if (!authOk) {
+        throw _LocalBinaryAuthException('فشل الاتصال: اسم المستخدم أو كلمة المرور للراوتر غير صحيحة.');
+      }
+      final users = await client.sendCommand(['/ip/hotspot/user/print']);
+      return users;
     } finally {
       await client.close();
     }

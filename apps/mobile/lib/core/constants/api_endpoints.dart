@@ -60,6 +60,7 @@ class ApiEndpoints {
   static String deviceProvisionPreview(String id) => '/devices/$id/provision/preview';
   static String deviceProvisionApply(String id) => '/devices/$id/provision/apply';
   static String deviceConnectedDevices(String id) => '/devices/$id/connected-devices';
+  static String deviceRouterUsers(String id) => '/devices/$id/router-users';
 
   // Hotspot
   static String hotspotKick(String sessionId) => '/hotspot/sessions/$sessionId/kick';

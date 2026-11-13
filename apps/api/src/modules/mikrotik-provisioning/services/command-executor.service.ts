@@ -742,12 +742,32 @@ export class CommandExecutorService implements OnModuleInit {
   }
 
   private assertCommandSafeToExecute(cmd: PlannedCommandSpec): void {
-    const joined = cmd.executionWords.join(' ');
-    if (/remove\s+\[find/i.test(joined) || /\[find/i.test(joined)) {
-      throw new BadRequestException({
-        code: 'UNSAFE_WILDCARD_COMMAND_BLOCKED',
-        message: 'تم حظر أمر غير آمن يستخدم [find] بدلاً من تحديد الملكية بالمعرف (.id).',
-      });
+    const mainCmd = cmd.executionWords[0] || '';
+    if (mainCmd.endsWith('/remove')) {
+      for (const w of cmd.executionWords.slice(1)) {
+        if (/\[find/i.test(w) || /^find\s*=/i.test(w)) {
+          throw new BadRequestException({
+            code: 'UNSAFE_WILDCARD_COMMAND_BLOCKED',
+            message: 'تم حظر أمر غير آمن يستخدم [find] بدلاً من تحديد الملكية بالمعرف (.id).',
+          });
+        }
+      }
+    }
+    for (const w of cmd.executionWords) {
+      if (
+        !w.startsWith('=on-login=') &&
+        !w.startsWith('=on-logout=') &&
+        !w.startsWith('=on-event=') &&
+        !w.startsWith('=source=') &&
+        !w.startsWith('=script=')
+      ) {
+        if (/remove\s+\[find/i.test(w) || /\[find/i.test(w)) {
+          throw new BadRequestException({
+            code: 'UNSAFE_WILDCARD_COMMAND_BLOCKED',
+            message: 'تم حظر أمر غير آمن يستخدم [find] بدلاً من تحديد الملكية بالمعرف (.id).',
+          });
+        }
+      }
     }
   }
 

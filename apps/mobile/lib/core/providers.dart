@@ -1509,6 +1509,76 @@ final activeSessionsProvider = AsyncNotifierProvider<ActiveSessionsNotifier, Lis
   ActiveSessionsNotifier.new,
 );
 
+/// Live Hotspot cards stored in MikroTik router memory (/ip/hotspot/user/print)
+class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
+  @override
+  Future<List<Map<String, dynamic>>> build() async {
+    final selectedId = ref.watch(selectedRouterIdProvider);
+    return _fetch(selectedId);
+  }
+
+  Future<List<Map<String, dynamic>>> _fetch(String? deviceId) async {
+    final routers = ref.read(routersProvider).asData?.value ?? const <RouterDeviceModel>[];
+    final targetRouter = deviceId != null
+        ? routers.cast<RouterDeviceModel?>().firstWhere((r) => r?.id == deviceId, orElse: () => null)
+        : (routers.isNotEmpty ? routers.first : null);
+
+    if (targetRouter == null) return [];
+
+    final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
+    final routersNotifier = ref.read(routersProvider.notifier);
+    final pwd = routersNotifier.getSessionPassword(targetRouter.id) ?? '';
+
+    // If private LAN router, query directly via binary API
+    if (targetRouter.isPrivateLan) {
+      if (pwd.isNotEmpty) {
+        try {
+          final users = await discoveryService.fetchRouterHotspotUsersLocally(
+            host: targetRouter.host,
+            username: targetRouter.username,
+            password: pwd,
+            port: targetRouter.apiPort,
+            useSsl: targetRouter.useSsl,
+          );
+          return users;
+        } catch (_) {
+          return [];
+        }
+      }
+      return [];
+    }
+
+    // Cloud query
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final res = await apiClient.get(ApiEndpoints.deviceRouterUsers(targetRouter.id));
+      final raw = res.data;
+      final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
+      if (list is List) {
+        return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> refresh() async {
+    final selectedId = ref.read(selectedRouterIdProvider);
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetch(selectedId));
+  }
+}
+
+final routerHotspotCardsProvider = AsyncNotifierProvider<RouterHotspotCardsNotifier, List<Map<String, dynamic>>>(
+  RouterHotspotCardsNotifier.new,
+);
+
+final routerCardsCountProvider = Provider<int>((ref) {
+  final users = ref.watch(routerHotspotCardsProvider).asData?.value ?? [];
+  return users.length;
+});
+
 // Reports Period Filter
 class ReportsPeriodFilterNotifier extends Notifier<String> {
   @override

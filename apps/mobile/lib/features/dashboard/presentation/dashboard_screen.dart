@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
+import '../../../core/services/mikrotik_discovery_service.dart';
 import '../../../core/utils/whatsapp_helper.dart';
 import '../../../core/widgets/whatsapp_button.dart';
 import '../../../core/widgets/router_password_prompt_dialog.dart';
@@ -93,6 +94,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       await ref.read(currentUserProvider.notifier).fetchMe();
       ref.invalidate(financialReportProvider);
       ref.invalidate(activeSessionsProvider);
+      ref.invalidate(routerHotspotCardsProvider);
+      ref.read(cardsInventoryProvider.notifier).refresh();
     } catch (_) {}
   }
 
@@ -113,8 +116,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       ref.invalidate(routersProvider);
       ref.invalidate(activeSessionsProvider);
       ref.invalidate(financialReportProvider);
+      ref.invalidate(routerHotspotCardsProvider);
       ref.read(pendingMutationsProvider.notifier).refresh();
       ref.read(offlineCardsProvider.notifier).refresh();
+      ref.read(cardsInventoryProvider.notifier).refresh();
 
       if (!mounted) return;
 
@@ -254,27 +259,87 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   }
 
   void _navigateToRouterProvisioning() {
-    if (widget.onOpenRouterProvisioning != null) {
-      widget.onOpenRouterProvisioning!();
-      return;
-    }
-    final selectedId = ref.read(selectedRouterIdProvider);
-    final routers = ref.read(routersProvider).asData?.value ?? [];
-    RouterDeviceModel? selectedRouter;
-    if (selectedId != null && routers.isNotEmpty) {
-      for (final r in routers) {
-        if (r.id == selectedId) {
-          selectedRouter = r;
-          break;
-        }
-      }
-    }
-    selectedRouter ??= routers.isNotEmpty ? routers.first : null;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RouterSetupScreen(router: selectedRouter),
-      ),
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        final isDark = Theme.of(sheetCtx).brightness == Brightness.dark;
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'برمجة وتهيئة راوتر MikroTik',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'اختر نمط البرمجة المناسب لجهازك:',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.auto_fix_high_rounded, color: AppTheme.primary),
+                ),
+                title: const Text('البرمجة التلقائية الذكية (موصى بها)', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('فحص التوافق وتهيئة الهوتسبوت والكروت تلقائياً'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _navigateToAutoProvisioning();
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.tune_rounded, color: Colors.blue),
+                ),
+                title: const Text('المعالج المتقدم (6 خطوات)', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('تخصيص المنافذ والبريد والجسر يدوياً خطوة بخطوة'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  final selectedId = ref.read(selectedRouterIdProvider);
+                  final routers = ref.read(routersProvider).asData?.value ?? [];
+                  RouterDeviceModel? selectedRouter;
+                  if (selectedId != null && routers.isNotEmpty) {
+                    for (final r in routers) {
+                      if (r.id == selectedId) {
+                        selectedRouter = r;
+                        break;
+                      }
+                    }
+                  }
+                  selectedRouter ??= routers.isNotEmpty ? routers.first : null;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => RouterSetupScreen(router: selectedRouter),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -295,6 +360,317 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       context,
       MaterialPageRoute(
         builder: (_) => AutoProvisioningScreen(initialRouter: selectedRouter),
+      ),
+    );
+  }
+
+  void _showQuickAddRouterModal() {
+    final nameCtrl = TextEditingController();
+    final hostCtrl = TextEditingController(text: '192.168.88.1');
+    final userCtrl = TextEditingController(text: 'admin');
+    final passCtrl = TextEditingController();
+    final portCtrl = TextEditingController(text: '8728');
+    bool useSsl = false;
+    bool isTesting = false;
+    bool isSaving = false;
+    String? testStatusMessage;
+    bool? testStatusSuccess;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (modalContext, setModalState) {
+          final isDark = Theme.of(modalContext).brightness == Brightness.dark;
+          final sheetBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(modalContext).viewInsets.bottom,
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                color: sheetBg,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: const EdgeInsets.all(20),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.router_rounded, color: AppTheme.primary, size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'إضافة راوتر MikroTik',
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                'إدخال بيانات الاتصال الأساسية للراوتر للبدء في تشغيله',
+                                style: TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'اسم الراوتر (مثال: HAMDI NET)',
+                        prefixIcon: Icon(Icons.badge_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: hostCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'عنوان IP أو المضيف (IP / Host)',
+                        prefixIcon: Icon(Icons.lan_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: TextField(
+                            controller: userCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'اسم المستخدم',
+                              prefixIcon: Icon(Icons.person_outline),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 1,
+                          child: TextField(
+                            controller: portCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'المنفذ (Port)',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: passCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'كلمة مرور الراوتر',
+                        prefixIcon: Icon(Icons.lock_outline),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('استخدام اتصال مشفر (SSL)', style: TextStyle(fontSize: 14)),
+                      value: useSsl,
+                      onChanged: (val) {
+                        setModalState(() {
+                          useSsl = val;
+                          if (val && portCtrl.text == '8728') {
+                            portCtrl.text = '8729';
+                          } else if (!val && portCtrl.text == '8729') {
+                            portCtrl.text = '8728';
+                          }
+                        });
+                      },
+                    ),
+                    if (testStatusMessage != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: testStatusSuccess == true
+                              ? Colors.green.withValues(alpha: 0.15)
+                              : Colors.red.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: testStatusSuccess == true ? Colors.green : Colors.red,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              testStatusSuccess == true ? Icons.check_circle : Icons.error,
+                              color: testStatusSuccess == true ? Colors.green : Colors.red,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                testStatusMessage!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: testStatusSuccess == true ? Colors.green : Colors.red,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: isTesting || isSaving
+                                ? null
+                                : () async {
+                                    setModalState(() {
+                                      isTesting = true;
+                                      testStatusMessage = null;
+                                    });
+                                    final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+                                    final host = hostCtrl.text.trim();
+                                    final port = int.tryParse(portCtrl.text.trim()) ?? (useSsl ? 8729 : 8728);
+                                    final user = userCtrl.text.trim();
+                                    final pass = passCtrl.text;
+
+                                    if (discovery.isPrivateLanIp(host)) {
+                                      try {
+                                        final check = await discovery.checkDirectLanConnection(
+                                          host: host,
+                                          port: port,
+                                          user: user,
+                                          password: pass,
+                                          useSsl: useSsl,
+                                        );
+                                        setModalState(() {
+                                          isTesting = false;
+                                          testStatusSuccess = check.isReachable && check.isAuthValid;
+                                          testStatusMessage = check.isAuthValid
+                                              ? 'تم الاتصال بالراوتر بنجاح محلياً (${check.detectedOsVersion ?? 'ROS'}).'
+                                              : (check.isReachable
+                                                  ? 'تم الوصول للراوتر ولكن كلمة المرور غير صحيحة.'
+                                                  : 'تعذر الوصول لمنفذ الراوتر عبر الشبكة المحلية.');
+                                        });
+                                      } catch (err) {
+                                        setModalState(() {
+                                          isTesting = false;
+                                          testStatusSuccess = false;
+                                          testStatusMessage = 'فشل فحص الاتصال: $err';
+                                        });
+                                      }
+                                    } else {
+                                      final res = await ref.read(routersProvider.notifier).testConnectionDirect({
+                                        'host': host,
+                                        'apiPort': port,
+                                        'username': user,
+                                        'password': pass,
+                                        'useSsl': useSsl,
+                                      });
+                                      setModalState(() {
+                                        isTesting = false;
+                                        testStatusSuccess = res['success'] == true;
+                                        testStatusMessage = res['message']?.toString() ?? 'تم الفحص';
+                                      });
+                                    }
+                                  },
+                            icon: isTesting
+                                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.wifi_find_rounded, size: 18),
+                            label: const Text('فحص الاتصال'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: isSaving
+                                ? null
+                                : () async {
+                                    final name = nameCtrl.text.trim();
+                                    final host = hostCtrl.text.trim();
+                                    if (name.isEmpty || host.isEmpty) {
+                                      setModalState(() {
+                                        testStatusSuccess = false;
+                                        testStatusMessage = 'يرجى إدخال اسم الراوتر وعنوان IP.';
+                                      });
+                                      return;
+                                    }
+                                    setModalState(() => isSaving = true);
+                                    final port = int.tryParse(portCtrl.text.trim()) ?? (useSsl ? 8729 : 8728);
+                                    final payload = {
+                                      'name': name,
+                                      'host': host,
+                                      'apiPort': port,
+                                      'username': userCtrl.text.trim(),
+                                      'password': passCtrl.text,
+                                      'useSsl': useSsl,
+                                    };
+                                    final saveRes = await ref.read(routersProvider.notifier).saveRouter(payload);
+                                    setModalState(() => isSaving = false);
+                                    if (saveRes['success'] == true) {
+                                      final newId = saveRes['data']?['id']?.toString() ?? saveRes['id']?.toString();
+                                      if (newId != null) {
+                                        ref.read(routersProvider.notifier).cacheSessionPassword(newId, passCtrl.text);
+                                        ref.read(selectedRouterIdProvider.notifier).select(newId);
+                                      }
+                                      await ref.read(routersProvider.notifier).refresh();
+                                      if (modalContext.mounted) {
+                                        Navigator.pop(modalContext);
+                                      }
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('تمت إضافة الراوتر ($name) بنجاح!'),
+                                            backgroundColor: const Color(0xFF16A34A),
+                                          ),
+                                        );
+                                      }
+                                    } else {
+                                      setModalState(() {
+                                        testStatusSuccess = false;
+                                        testStatusMessage = saveRes['message']?.toString() ?? 'فشل حفظ الراوتر';
+                                      });
+                                    }
+                                  },
+                            icon: isSaving
+                                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Icon(Icons.check_circle_outline, size: 18),
+                            label: const Text('حفظ وإضافة'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -2357,7 +2733,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           Tooltip(
             message: 'إضافة راوتر جديد إلى باقتك',
             child: InkWell(
-              onTap: widget.onOpenRouterSetup,
+              onTap: _showQuickAddRouterModal,
               borderRadius: BorderRadius.circular(8),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
@@ -2802,67 +3178,158 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
 
     // 2. Format connected users
     String connectedStr;
-    if (!isRouterOnline) {
-      connectedStr = 'غير متاح';
-    } else if (isLoadingSessions) {
+    if (isLoadingSessions) {
       connectedStr = '...';
-    } else if (connectedUsersCount == null) {
-      connectedStr = 'غير متاح';
-    } else {
+    } else if (connectedUsersCount != null) {
       connectedStr = '$connectedUsersCount جهاز';
+    } else {
+      connectedStr = '0 جهاز';
     }
 
+    // 3. Format Hotspot cards (Live MikroTik router cards or local/database card inventory)
+    final routerCardsAsync = ref.watch(routerHotspotCardsProvider);
+    final routerCards = routerCardsAsync.asData?.value;
+    final inventoryState = ref.watch(cardsInventoryProvider);
+    final offlineCards = ref.watch(offlineCardsProvider);
+
+    int realHotspotCardsCount;
+    if (routerCards != null && routerCards.isNotEmpty) {
+      realHotspotCardsCount = routerCards.length;
+    } else if (inventoryState.totalInventory > 0) {
+      realHotspotCardsCount = inventoryState.availableCount > 0
+          ? inventoryState.availableCount
+          : inventoryState.totalInventory;
+    } else if (offlineCards.isNotEmpty) {
+      realHotspotCardsCount = offlineCards.where((c) => c.status == 'AVAILABLE' || c.status == 'ACTIVE').length;
+    } else {
+      realHotspotCardsCount = 0;
+    }
+
+    final String hotspotCardsStr = '$realHotspotCardsCount كرت';
+    final String soldCardsStr = '$totalSalesCount كرت';
+    final String revenueStr = '$currency ${totalRevenue.toStringAsFixed(0)}';
+
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF1D4ED8), AppTheme.primary],
+          colors: [
+            Color(0xFF1E3A8A), // Deep Navy Blue
+            Color(0xFF0284C7), // Vibrant Ocean / Hotspot Blue
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF1D4ED8).withValues(alpha: 0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
+            color: const Color(0xFF1D4ED8).withValues(alpha: 0.28),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _buildKpiItem(
-            'مبيعات اليوم',
-            '${totalRevenue.toStringAsFixed(0)} $currency',
-            Icons.account_balance_wallet,
+          // Top Row: كروت هوتسبوت (Right) & المتصلون الآن (Left)
+          Row(
+            children: [
+              _buildKpiQuadrant(
+                title: 'كروت هوتسبوت',
+                val: hotspotCardsStr,
+                topIcon: Icons.wifi_tethering,
+                accentIcon: Icons.credit_card_rounded,
+              ),
+              Container(width: 1, height: 62, color: Colors.white.withValues(alpha: 0.15)),
+              _buildKpiQuadrant(
+                title: 'المتصلون الآن',
+                val: connectedStr,
+                topIcon: Icons.wifi_tethering,
+                accentIcon: Icons.signal_cellular_alt_rounded,
+              ),
+            ],
           ),
-          Container(width: 1, height: 40, color: Colors.white.withValues(alpha: 0.2)),
-          _buildKpiItem(
-            'كروت مباعة',
-            '$totalSalesCount كرت',
-            Icons.credit_card,
-          ),
-          Container(width: 1, height: 40, color: Colors.white.withValues(alpha: 0.2)),
-          _buildKpiItem(
-            'المتصلون الآن',
-            connectedStr,
-            Icons.wifi_tethering,
+          // Horizontal divider
+          Container(height: 1, color: Colors.white.withValues(alpha: 0.15)),
+          // Bottom Row: مبيعات اليوم (Right) & كروت مباعة (Left)
+          Row(
+            children: [
+              _buildKpiQuadrant(
+                title: 'مبيعات اليوم',
+                val: revenueStr,
+                topIcon: Icons.account_balance_wallet_outlined,
+                accentIcon: Icons.account_balance_wallet_rounded,
+              ),
+              Container(width: 1, height: 62, color: Colors.white.withValues(alpha: 0.15)),
+              _buildKpiQuadrant(
+                title: 'كروت مباعة',
+                val: soldCardsStr,
+                topIcon: Icons.credit_card_outlined,
+                accentIcon: Icons.style_outlined,
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildKpiItem(String title, String val, IconData icon) {
-    return Column(
-      children: [
-        Icon(icon, color: const Color(0xFF93C5FD), size: 20),
-        const SizedBox(height: 4),
-        Text(val, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-        const SizedBox(height: 2),
-        Text(title, style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 10)),
-      ],
+  Widget _buildKpiQuadrant({
+    required String title,
+    required String val,
+    required IconData topIcon,
+    required IconData accentIcon,
+  }) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            // Center info (Right in RTL)
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(topIcon, color: const Color(0xFF93C5FD), size: 18),
+                  const SizedBox(height: 4),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      val,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.75),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Decorative accent icon (Left in RTL)
+            Opacity(
+              opacity: 0.45,
+              child: Icon(
+                accentIcon,
+                color: const Color(0xFF93C5FD),
+                size: 32,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2921,12 +3388,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         Icons.settings_suggest_rounded,
         AppTheme.primary,
         _navigateToRouterProvisioning,
-      ),
-      _ActionItem(
-        'برمجة MikroTik تلقائياً',
-        Icons.auto_fix_high_rounded,
-        const Color(0xFF136D6F),
-        _navigateToAutoProvisioning,
       ),
       _ActionItem(
         'أجهزة البث',

@@ -32,6 +32,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     {'key': 'SOLD', 'label': 'مباع'},
     {'key': 'ACTIVE', 'label': 'نشط ومستخدم'},
     {'key': 'DISABLED', 'label': 'ملغي ومعطل'},
+    {'key': 'ROUTER', 'label': 'كروت الراوتر'},
   ];
 
   bool _isLoadingAllMatchingIds = false;
@@ -861,6 +862,9 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                     countSuffix = ' (${state.activeCount})';
                   } else if (key == 'DISABLED' && state.disabledCount > 0) {
                     countSuffix = ' (${state.disabledCount})';
+                  } else if (key == 'ROUTER') {
+                    final routerCount = ref.watch(routerCardsCountProvider);
+                    if (routerCount > 0) countSuffix = ' ($routerCount)';
                   }
 
                   return Padding(
@@ -1139,6 +1143,130 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
               label: const Text('مسح البحث'),
             ),
           ],
+        ),
+      );
+    }
+
+    // 4.5. Live MikroTik Router Cards view
+    if (_selectedStatus == 'ROUTER') {
+      final routerCardsAsync = ref.watch(routerHotspotCardsProvider);
+      return routerCardsAsync.when(
+        data: (rCards) {
+          if (rCards.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.memory_rounded, size: 52, color: Color(0xFF64748B)),
+                  const SizedBox(height: 12),
+                  Text(
+                    'لا توجد كروت مسجلة في ذاكرة الراوتر حالياً',
+                    style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'تأكد من اتصال الراوتر وتشغيل الهوتسبوت',
+                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton.icon(
+                    onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(),
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('تحديث كروت الراوتر'),
+                  ),
+                ],
+              ),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            itemCount: rCards.length,
+            itemBuilder: (ctx, idx) {
+              final rCard = rCards[idx];
+              final name = rCard['name']?.toString() ?? 'بدون اسم';
+              final prof = rCard['profile']?.toString() ?? 'default';
+              final comm = rCard['comment']?.toString() ?? '';
+              final email = rCard['email']?.toString() ?? '';
+              final disabled = rCard['disabled'] == true || rCard['disabled'] == 'true';
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: disabled
+                        ? Colors.red.withValues(alpha: 0.15)
+                        : Colors.green.withValues(alpha: 0.15),
+                    child: Icon(
+                      Icons.memory_rounded,
+                      color: disabled ? Colors.red : Colors.green,
+                      size: 20,
+                    ),
+                  ),
+                  title: Row(
+                    children: [
+                      Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          prof,
+                          style: const TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                  subtitle: comm.isNotEmpty
+                      ? Text(
+                          comm,
+                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      : (email.isNotEmpty
+                          ? Text(email, style: const TextStyle(fontSize: 11, color: Colors.grey))
+                          : null),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: disabled
+                          ? Colors.red.withValues(alpha: 0.1)
+                          : Colors.green.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      disabled ? 'معطل' : 'نشط بالراوتر',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: disabled ? Colors.red : Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, _) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              const SizedBox(height: 10),
+              Text('تعذر جلب كروت الراوتر: $err', textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(),
+                child: const Text('إعادة المحاولة'),
+              ),
+            ],
+          ),
         ),
       );
     }

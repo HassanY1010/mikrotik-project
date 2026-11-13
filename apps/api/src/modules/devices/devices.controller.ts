@@ -435,6 +435,30 @@ export class DevicesController {
     return this.devicesService.getConnectedDevices(tenantId, id, currentUser);
   }
 
+  @Get(':id/router-users')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
+  @ApiOperation({
+    summary: 'List all Hotspot users currently stored in MikroTik router memory',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of Hotspot users in router memory (/ip/hotspot/user/print)',
+  })
+  async getRouterUsers(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() currentUser?: RequestUser,
+  ): Promise<any[]> {
+    return this.devicesService.getRouterHotspotUsers(tenantId, id, currentUser);
+  }
+
   // ===========================================================================
   // Router Provisioning & Setup Wizard Endpoints
   // ===========================================================================

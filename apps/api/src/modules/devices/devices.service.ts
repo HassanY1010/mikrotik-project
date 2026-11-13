@@ -2600,6 +2600,64 @@ export class DevicesService {
       return a.name.localeCompare(b.name, 'ar');
     });
   }
+
+  /**
+   * Fetch Hotspot users stored in MikroTik router memory (/ip/hotspot/user/print)
+   */
+  async getRouterHotspotUsers(
+    tenantId: string | undefined | null,
+    id: string,
+    currentUser?: RequestUser,
+  ): Promise<any[]> {
+    const device = await this.assertUserDeviceAccess(tenantId, id, currentUser);
+
+    if (this.isPrivateHost(device.host || '')) {
+      // For private LAN routers, phone directly communicates over local network
+      return [];
+    }
+
+    let client;
+    try {
+      client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+    } catch (err) {
+      throw new BadGatewayException({
+        code: 'ROUTER_CONNECTION_FAILED',
+        message: `تعذر الاتصال بالراوتر (${device.name}): يرجى التأكد من تشغيل الراوتر واتصاله بالشبكة`,
+      });
+    }
+
+    try {
+      const users = await client.listHotspotUsers();
+      return users.map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        profile: u.profile,
+        limitUptime: u.limitUptime,
+        limitBytesTotal: u.limitBytesTotal,
+        comment: u.comment,
+        email: u.email,
+        disabled: u.disabled === true || u.disabled === 'true',
+      }));
+    } catch (err) {
+      this.logger.warn(`Failed to fetch hotspot users for router ${device.name}: ${err}`);
+      throw new BadGatewayException({
+        code: 'ROUTER_QUERY_FAILED',
+        message: `تعذر جلب كروت الهوتسبوت من الراوتر (${device.name})`,
+      });
+    }
+  }
 }
 
 

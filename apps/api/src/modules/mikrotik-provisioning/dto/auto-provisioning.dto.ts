@@ -110,6 +110,20 @@ export class LanProvisionConfigDto {
   @Matches(/^[0-9.,-]+$/)
   poolRange?: string;
 
+  @ApiPropertyOptional({ default: 'HOTSPOT' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(64)
+  @Matches(SAFE_IDENTIFIER_REGEX)
+  poolName?: string;
+
+  @ApiPropertyOptional({ default: 'dhcp1' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(64)
+  @Matches(SAFE_IDENTIFIER_REGEX)
+  dhcpServerName?: string;
+
   @ApiPropertyOptional({ default: '1h' })
   @IsString()
   @IsOptional()

@@ -2,6 +2,13 @@ import { BaseRouterOsAdapter } from './base-routeros.adapter';
 import type { AdapterStageCommandInput } from './routeros-adapter.interface';
 import type { PlannedCommandSpec, RouterOsMajorFamily } from '../interfaces/auto-provisioning.interface';
 import { isValidIpv4Cidr, isValidRouterOsId } from '../../../core/security/snapshot-integrity.util';
+import {
+  CANONICAL_DEFAULTS,
+  CANONICAL_CARD_ON_LOGIN,
+  CANONICAL_CARD_ON_LOGOUT,
+  CANONICAL_EXPIRED_TIME_SCRIPT,
+  CANONICAL_BACKUP_SCRIPT,
+} from '../constants/canonical-scripts';
 
 /**
  * RouterOS 6.x Adapter:
@@ -96,7 +103,7 @@ export class RouterOs6Adapter extends BaseRouterOsAdapter {
     let order = input.startOrder;
     const cmds: PlannedCommandSpec[] = [];
     const isClean = (config.template || 'CLEAN_SETUP') === 'CLEAN_SETUP';
-    const hsProfileName = config.hotspot?.userProfileName?.trim() || 'hsp-sudafi';
+    const hsProfileName = config.hotspot?.userProfileName?.trim() || CANONICAL_DEFAULTS.USER_PROFILE_NAME;
     const rateLimit = config.hotspot?.defaultRateLimit?.trim() || '2M/5M';
     const sharedUsers =
       config.securityPolicies?.enforceSingleDevice === false
@@ -104,9 +111,30 @@ export class RouterOs6Adapter extends BaseRouterOsAdapter {
         : '1';
     const keepalive = config.hotspot?.keepaliveTimeout?.trim() || '2m';
 
+    if (isClean) {
+      // Scoped cleanup: remove old non-default user profiles
+      for (const p of discovery.hotspotUserProfiles) {
+        if (p.name !== 'default' && p.name !== hsProfileName && p.id && isValidRouterOsId(p.id)) {
+          cmds.push(
+            this.makeCmd(
+              order++,
+              'USER_PROFILES',
+              `إزالة بروفايل المشتركين السابق (${p.name}) لتفادي تضارب الكروت`,
+              ['/ip/hotspot/user/profile/remove', `=.id=${p.id}`],
+              { safeToRetry: false },
+            ),
+          );
+        }
+      }
+    }
+
     const existingProf = !isClean
       ? discovery.hotspotUserProfiles.find((p) => p.name === hsProfileName)
       : undefined;
+
+    const useCanonicalCardEngine =
+      config.hotspot?.enableLocalUsageScript === true ||
+      config.hotspot?.userProfileName === CANONICAL_DEFAULTS.USER_PROFILE_NAME;
 
     if (!existingProf) {
       const words = [
@@ -118,19 +146,19 @@ export class RouterOs6Adapter extends BaseRouterOsAdapter {
         '=status-autorefresh=1m',
         '=transparent-proxy=no',
         '=add-mac-cookie=yes',
-        '=mac-cookie-timeout=1d',
+        '=mac-cookie-timeout=3d',
       ];
-      if (config.hotspot?.enableLocalUsageScript) {
+      if (useCanonicalCardEngine) {
         words.push(
-          '=on-login=:local u $user; :log info ("SudaFi login " . $u);',
-          '=on-logout=:local u $user; :log info ("SudaFi logout " . $u . " cause=" . $cause);',
+          `=on-login=${CANONICAL_CARD_ON_LOGIN}`,
+          `=on-logout=${CANONICAL_CARD_ON_LOGOUT}`,
         );
       }
       cmds.push(
         this.makeCmd(
           order++,
           'USER_PROFILES',
-          `إنشاء بروفايل مشتركين متوافق مع ROS6 (${hsProfileName}) بسرعة (${rateLimit})`,
+          `إنشاء بروفايل مشتركين متوافق مع ROS6 (${hsProfileName}) بسرعة (${rateLimit}) بمحرك الصلاحية المعتمد`,
           words,
           { createdResourceType: 'hotspot-user-profile' },
         ),
@@ -142,20 +170,29 @@ export class RouterOs6Adapter extends BaseRouterOsAdapter {
       if (existingProf.keepaliveTimeout !== undefined) {
         profRbWords.push(`=keepalive-timeout=${existingProf.keepaliveTimeout}`);
       }
+      const updateWords = [
+        '/ip/hotspot/user/profile/set',
+        `=.id=${existingProf.id}`,
+        `=rate-limit=${rateLimit}`,
+        `=shared-users=${sharedUsers}`,
+        `=keepalive-timeout=${keepalive}`,
+        '=status-autorefresh=1m',
+        '=transparent-proxy=no',
+        '=add-mac-cookie=yes',
+        '=mac-cookie-timeout=3d',
+      ];
+      if (useCanonicalCardEngine) {
+        updateWords.push(
+          `=on-login=${CANONICAL_CARD_ON_LOGIN}`,
+          `=on-logout=${CANONICAL_CARD_ON_LOGOUT}`,
+        );
+      }
       cmds.push(
         this.makeCmd(
           order++,
           'USER_PROFILES',
-          `تحديث خصائص البروفايل القائم (${hsProfileName}) على RouterOS 6`,
-          [
-            '/ip/hotspot/user/profile/set',
-            `=.id=${existingProf.id}`,
-            `=rate-limit=${rateLimit}`,
-            `=shared-users=${sharedUsers}`,
-            `=keepalive-timeout=${keepalive}`,
-            '=status-autorefresh=1m',
-            '=transparent-proxy=no',
-          ],
+          `تحديث خصائص البروفايل القائم (${hsProfileName}) على RouterOS 6 بمحرك الصلاحية`,
+          updateWords,
           { rollbackWords: profRbWords },
         ),
       );
@@ -168,6 +205,10 @@ export class RouterOs6Adapter extends BaseRouterOsAdapter {
     const { config, capabilities, discovery } = input;
     let order = input.startOrder;
     const cmds: PlannedCommandSpec[] = [];
+
+    const useCanonicalCardEngine =
+      config.hotspot?.enableLocalUsageScript === true ||
+      config.hotspot?.userProfileName === CANONICAL_DEFAULTS.USER_PROFILE_NAME;
 
     if (config.system?.identity?.trim()) {
       cmds.push(
@@ -185,14 +226,14 @@ export class RouterOs6Adapter extends BaseRouterOsAdapter {
         this.makeCmd(
           order++,
           'SCHEDULER_MONITORING',
-          `ضبط المنطقة الزمنية (${config.system.timezone.trim()})`,
+          `ضبط المنطقة الزمنية (${config.system.timezone.trim()}) لحساب الصلاحية بدقة`,
           ['/system/clock/set', `=time-zone-name=${config.system.timezone.trim()}`],
         ),
       );
     }
 
     if (config.system?.ntpEnabled && capabilities.ntpStack !== 'NONE') {
-      const ntpServers = config.system.ntpServers || [];
+      const ntpServers = config.system.ntpServers?.length ? config.system.ntpServers : CANONICAL_DEFAULTS.NTP_SERVERS;
       const ipv4Servers = ntpServers.filter((s) => isValidIpv4Cidr(s) && !s.includes('/'));
       const dnsServers = ntpServers.filter((s) => !ipv4Servers.includes(s));
       const ntpWords = ['/system/ntp/client/set', '=enabled=yes'];
@@ -218,6 +259,56 @@ export class RouterOs6Adapter extends BaseRouterOsAdapter {
           'SCHEDULER_MONITORING',
           'إخفاء رسالة الملاحظات عند تسجيل الدخول',
           ['/system/note/set', '=show-at-login=no'],
+        ),
+      );
+    }
+
+    // Canonical Card Expiry Engine (every 5 minutes)
+    const expSchedName = CANONICAL_DEFAULTS.SCHEDULER_EXPIRED_TIME_NAME;
+    if (
+      useCanonicalCardEngine &&
+      capabilities.supportsScheduler &&
+      !discovery.schedulers.some((s) => s.name === expSchedName)
+    ) {
+      cmds.push(
+        this.makeCmd(
+          order++,
+          'SCHEDULER_MONITORING',
+          `تثبيت مجدول انتهاء صلاحية الكروت الدوري (${expSchedName}) كل 5 دقائق`,
+          [
+            '/system/scheduler/add',
+            `=name=${expSchedName}`,
+            `=interval=${CANONICAL_DEFAULTS.SCHEDULER_EXPIRED_TIME_INTERVAL}`,
+            `=on-event=${CANONICAL_EXPIRED_TIME_SCRIPT}`,
+            '=policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive',
+            '=comment=SudaFi Card Expiry Engine',
+          ],
+          { createdResourceType: 'scheduler' },
+        ),
+      );
+    }
+
+    // Canonical Auto Backup Schedule (every 6 hours)
+    const backupSchedName = CANONICAL_DEFAULTS.SCHEDULER_BACKUP_NAME;
+    if (
+      useCanonicalCardEngine &&
+      capabilities.supportsScheduler &&
+      !discovery.schedulers.some((s) => s.name === backupSchedName)
+    ) {
+      cmds.push(
+        this.makeCmd(
+          order++,
+          'SCHEDULER_MONITORING',
+          `تثبيت مجدول النسخ الاحتياطي الدوري التلقائي (${backupSchedName}) كل 6 ساعات`,
+          [
+            '/system/scheduler/add',
+            `=name=${backupSchedName}`,
+            `=interval=${CANONICAL_DEFAULTS.SCHEDULER_BACKUP_INTERVAL}`,
+            `=on-event=${CANONICAL_BACKUP_SCRIPT}`,
+            '=policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive',
+            '=comment=SudaFi Auto Backup Schedule',
+          ],
+          { createdResourceType: 'scheduler' },
         ),
       );
     }

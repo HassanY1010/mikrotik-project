@@ -647,6 +647,16 @@ export class PortalService {
         try {
           const profRes = await client.executeCommand(['/ip/hotspot/profile/print']);
           const profRecs = profRes.filter((r: any) => r.type === '!re');
+
+          let activeServerProfileName: string | undefined;
+          try {
+            const hsRes = await client.executeCommand(['/ip/hotspot/print']);
+            const hsRecs = hsRes.filter((r: any) => r.type === '!re');
+            activeServerProfileName = hsRecs.find((h: any) => h.attributes['profile'])?.attributes['profile'];
+          } catch {
+            // Hotspot server print fallback
+          }
+
           if (dto.applyToProfile) {
             const match = profRecs.find((r: any) => r.attributes['name'] === dto.applyToProfile!.trim());
             if (match) {
@@ -654,11 +664,22 @@ export class PortalService {
               originalHtmlDirectory = match.attributes['html-directory'] ?? 'hotspot';
               targetProfileId = match.attributes['.id'];
             }
-          } else if (profRecs.length > 0) {
-            const firstProf = profRecs[0];
-            originalProfileName = firstProf.attributes['name'];
-            originalHtmlDirectory = firstProf.attributes['html-directory'] ?? 'hotspot';
-            targetProfileId = firstProf.attributes['.id'];
+          }
+          
+          if (!targetProfileId && activeServerProfileName) {
+            const activeMatch = profRecs.find((r: any) => r.attributes['name'] === activeServerProfileName);
+            if (activeMatch) {
+              originalProfileName = activeMatch.attributes['name'];
+              originalHtmlDirectory = activeMatch.attributes['html-directory'] ?? 'hotspot';
+              targetProfileId = activeMatch.attributes['.id'];
+            }
+          }
+
+          if (!targetProfileId && profRecs.length > 0) {
+            const canonicalMatch = profRecs.find((r: any) => r.attributes['name'] === 'Mikrotik') || profRecs[0];
+            originalProfileName = canonicalMatch.attributes['name'];
+            originalHtmlDirectory = canonicalMatch.attributes['html-directory'] ?? 'hotspot';
+            targetProfileId = canonicalMatch.attributes['.id'];
           }
         } catch (profErr) {
           this.logger.warn(`Could not read original hotspot profiles: ${profErr}`);
