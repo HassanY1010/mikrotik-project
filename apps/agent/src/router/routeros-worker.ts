@@ -929,9 +929,6 @@ export class RouterOsWorker implements IRouterWorker {
       message: `Successfully uploaded ${written.length} captive portal file(s) to ${stagingDir}/ (${verified.length} verified)`,
     };
   }
-      message: `Successfully uploaded ${written.length} captive portal file(s) to ${dir}/ (${verified.length} verified)`,
-    };
-  }
 
   async disconnect(): Promise<void> {
     if (this.socket) {

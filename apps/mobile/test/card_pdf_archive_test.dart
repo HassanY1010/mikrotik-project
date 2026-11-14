@@ -95,7 +95,14 @@ class MockCardPdfArchiveService extends CardPdfArchiveService {
   }
 
   @override
-  Future<Uint8List> downloadArchivePdf(String id, {String? signedUrl}) async {
+  Future<Uint8List> downloadArchivePdf(
+    String id, {
+    String? signedUrl,
+    String? batchId,
+    int? cardCount,
+    String? networkName,
+    String? profileName,
+  }) async {
     return Uint8List.fromList(utf8.encode('%PDF-1.4 mock content'));
   }
 

@@ -57,12 +57,14 @@ export class MikrotikProvisioningController {
     @Param('deviceId') deviceId: string,
     @Query('refresh') refresh?: string,
     @CurrentUser() currentUser?: RequestUser,
+    @Body() body?: { snapshot?: any },
   ) {
     return this.provisioningService.discoverDevice(
       tenantId,
       deviceId,
       currentUser,
       refresh === 'true',
+      body?.snapshot,
     );
   }
 

@@ -41,6 +41,7 @@ class _FakeAutoProvisioningService extends AutoProvisioningService {
   Future<AutoProvisionDiscoveryReport> discoverRouter(
     String deviceId, {
     bool forceRefresh = false,
+    Map<String, dynamic>? snapshot,
   }) async =>
       report;
 

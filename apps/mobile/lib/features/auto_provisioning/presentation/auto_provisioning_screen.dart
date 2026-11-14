@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
+import '../../../core/models/router_provisioning_models.dart';
 import '../../../core/providers.dart';
+import '../../../core/services/mikrotik_discovery_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../models/auto_provisioning_models.dart';
 import '../services/auto_provisioning_service.dart';
@@ -30,6 +32,10 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
   List<AutoProvisionOperationModel> _historyOperations = [];
   List<AutoProvisionBackupItem> _deviceBackups = [];
   Timer? _pollTimer;
+
+  bool _isScanningLan = false;
+  final List<DiscoveredRouterModel> _lanDiscoveredRouters = [];
+  StreamSubscription<DiscoveredRouterModel>? _lanDiscoverySub;
 
   // Dynamic Settings Form State (populated from discovery, never hardcoded router guesses)
   String _template = 'CLEAN_SETUP';
@@ -83,6 +89,7 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _lanDiscoverySub?.cancel();
     _pppoeUserCtrl.dispose();
     _pppoePassCtrl.dispose();
     _staticIpCtrl.dispose();
@@ -110,9 +117,109 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
     }
   }
 
+  void _startLanDiscovery() {
+    _lanDiscoverySub?.cancel();
+    setState(() {
+      _isScanningLan = true;
+      _lanDiscoveredRouters.clear();
+      _errorMessage = null;
+    });
+
+    final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    final priorityIps = routers.map((r) => r.host).toList();
+
+    _lanDiscoverySub = discoveryService.discoverStream(priorityIps: priorityIps).listen(
+      (router) {
+        if (!mounted) return;
+        setState(() {
+          if (!_lanDiscoveredRouters.any((r) => r.ip == router.ip)) {
+            _lanDiscoveredRouters.add(router);
+          }
+        });
+      },
+      onError: (err) {
+        if (mounted) setState(() => _isScanningLan = false);
+      },
+      onDone: () {
+        if (mounted) setState(() => _isScanningLan = false);
+      },
+    );
+
+    Future.delayed(const Duration(seconds: 6), () {
+      if (mounted && _isScanningLan) {
+        setState(() => _isScanningLan = false);
+      }
+    });
+  }
+
+  Future<String?> _showPasswordPromptDialog(BuildContext context, String host) async {
+    final ctrl = TextEditingController();
+    bool obscure = true;
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.lock_outline, color: ProvisioningThemeColors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'كلمة مرور الراوتر ($host)',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'الراوتر متصل بشبكة محلية (LAN). مطلوب كلمة المرور للاتصال المباشر بالراوتر وقراءة إعداداته الحقيقية بأمان.',
+                style: TextStyle(fontSize: 12, height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: ctrl,
+                obscureText: obscure,
+                decoration: InputDecoration(
+                  labelText: 'كلمة مرور الراوتر (admin)',
+                  hintText: 'أدخل كلمة المرور',
+                  prefixIcon: const Icon(Icons.password),
+                  suffixIcon: IconButton(
+                    icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
+                    onPressed: () => setDlgState(() => obscure = !obscure),
+                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text),
+              style: ElevatedButton.styleFrom(backgroundColor: ProvisioningThemeColors.primary),
+              child: const Text('متابعة'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _runDiscovery({bool forceRefresh = false}) async {
     final deviceId = _selectedDeviceId;
     if (deviceId == null || deviceId.isEmpty) return;
+
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    final currentRouter = routers.firstWhere((r) => r.id == deviceId, orElse: () => routers.first);
 
     setState(() {
       _loading = true;
@@ -120,7 +227,60 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
     });
 
     try {
-      final report = await _service.discoverRouter(deviceId, forceRefresh: forceRefresh);
+      Map<String, dynamic>? clientSnapshot;
+
+      final host = currentRouter.host.trim();
+      final isPrivateIp = host.startsWith('192.168.') ||
+          host.startsWith('10.') ||
+          host.startsWith('172.16.') ||
+          host.startsWith('172.17.') ||
+          host.startsWith('172.18.') ||
+          host.startsWith('172.19.') ||
+          host.startsWith('172.2') ||
+          host.startsWith('172.30.') ||
+          host.startsWith('172.31.');
+
+      if (isPrivateIp) {
+        final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
+        String pass = ref.read(routersProvider.notifier).getSessionPassword(deviceId) ?? '';
+        if (pass.isEmpty) {
+          final entered = await _showPasswordPromptDialog(context, host);
+          if (entered != null && entered.trim().isNotEmpty) {
+            pass = entered.trim();
+            ref.read(routersProvider.notifier).cacheSessionPassword(deviceId, pass);
+          }
+        }
+
+        if (pass.isNotEmpty) {
+          try {
+            final snapshot = await discoveryService.discoverLocally(
+              host: host,
+              username: currentRouter.username,
+              password: pass,
+              apiPort: currentRouter.apiPort,
+              restPort: currentRouter.restPort,
+              rosVersion: currentRouter.rosVersion,
+              useSsl: currentRouter.useSsl,
+            );
+            clientSnapshot = snapshot.toJson();
+          } catch (localErr) {
+            final errStr = localErr.toString();
+            if (errStr.contains('SocketException') || errStr.contains('Connection refused') || errStr.contains('timed out')) {
+              throw Exception('تعذر الوصول إلى الراوتر ($host) عبر الشبكة المحلية. يرجى التأكد من اتصال هاتفك بنفس شبكة الواي فاي للراوتر.');
+            } else if (errStr.contains('بيانات تسجيل الدخول') || errStr.contains('401') || errStr.contains('Auth')) {
+              throw Exception('بيانات تسجيل الدخول غير صحيحة. يرجى التأكد من اسم المستخدم وكلمة المرور للراوتر.');
+            } else {
+              throw Exception('فشل الاكتشاف المحلي عبر منفذ API (8728): $errStr');
+            }
+          }
+        }
+      }
+
+      final report = await _service.discoverRouter(
+        deviceId,
+        forceRefresh: forceRefresh,
+        snapshot: clientSnapshot,
+      );
       if (!mounted) return;
       _applyDiscoveryDefaults(report);
       setState(() {
@@ -298,6 +458,76 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
     });
 
     try {
+      final routers = ref.read(routersProvider).asData?.value ?? [];
+      final currentRouter = routers.firstWhere((r) => r.id == deviceId, orElse: () => routers.first);
+      final host = currentRouter.host.trim();
+      final isPrivateIp = host.startsWith('192.168.') ||
+          host.startsWith('10.') ||
+          host.startsWith('172.16.') ||
+          host.startsWith('172.17.') ||
+          host.startsWith('172.18.') ||
+          host.startsWith('172.19.') ||
+          host.startsWith('172.2') ||
+          host.startsWith('172.30.') ||
+          host.startsWith('172.31.');
+
+      if (isPrivateIp && _preview != null && _preview!.stages.isNotEmpty) {
+        // Execute directly on the router from phone over LAN via Binary API (port 8728)
+        final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
+        String pass = ref.read(routersProvider.notifier).getSessionPassword(deviceId) ?? '';
+        if (pass.isEmpty) {
+          final entered = await _showPasswordPromptDialog(context, host);
+          if (entered != null && entered.trim().isNotEmpty) {
+            pass = entered.trim();
+            ref.read(routersProvider.notifier).cacheSessionPassword(deviceId, pass);
+          }
+        }
+
+        if (pass.isEmpty) {
+          throw Exception('كلمة مرور الراوتر مطلوبة للتطبيق المباشر عبر الشبكة.');
+        }
+
+        final commands = <GeneratedCommandModel>[];
+        for (final st in _preview!.stages) {
+          for (final cmd in st.commandPreviews) {
+            commands.add(GeneratedCommandModel(stage: st.stage, command: cmd));
+          }
+        }
+
+        final localResult = await discoveryService.executePlanLocally(
+          host: host,
+          apiPort: currentRouter.apiPort,
+          restPort: currentRouter.restPort,
+          username: currentRouter.username,
+          password: pass,
+          commands: commands,
+          rosVersion: currentRouter.rosVersion,
+          useSsl: currentRouter.useSsl,
+        );
+
+        if (!localResult.success) {
+          throw Exception(localResult.failureReason ?? 'فشل تطبيق البرمجة على الراوتر.');
+        }
+
+        // Sync execution result with backend
+        try {
+          final syncPayload = _buildConfigPayload(includeApplyFlags: true);
+          syncPayload['executionMode'] = 'LOCAL';
+          syncPayload['clientExecutionResult'] = localResult.toJson();
+          final op = await _service.applyProvisioning(deviceId, syncPayload);
+          if (mounted) {
+            setState(() {
+              _activeOperation = op;
+              _step = 4;
+            });
+          }
+        } catch (_) {
+          if (mounted) setState(() => _step = 4);
+        }
+        await _loadBackupsAndHistory();
+        return;
+      }
+
       final op = await _service.applyProvisioning(
         deviceId,
         _buildConfigPayload(includeApplyFlags: true),
@@ -623,12 +853,59 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
               style: TextStyle(height: 1.5, fontSize: 13),
             ),
             const SizedBox(height: 14),
-            ElevatedButton.icon(
-              onPressed: _loading ? null : () => _runDiscovery(forceRefresh: true),
-              icon: const Icon(Icons.search_rounded),
-              label: const Text('بدء الاكتشاف المباشر'),
-              style: ElevatedButton.styleFrom(backgroundColor: ProvisioningThemeColors.primary),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _loading ? null : () => _runDiscovery(forceRefresh: true),
+                    icon: const Icon(Icons.search_rounded),
+                    label: const Text('بدء الاكتشاف المباشر'),
+                    style: ElevatedButton.styleFrom(backgroundColor: ProvisioningThemeColors.primary),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _isScanningLan ? null : _startLanDiscovery,
+                  icon: _isScanningLan
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.wifi_find_rounded),
+                  label: Text(_isScanningLan ? 'جارِ البحث...' : 'بحث LAN'),
+                ),
+              ],
             ),
+            if (_lanDiscoveredRouters.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'الراوترات المكتشفة عبر شبكة LAN (MNDP):',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              ..._lanDiscoveredRouters.map((router) {
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: const Icon(Icons.router, color: ProvisioningThemeColors.primary),
+                    title: Text('${router.identity} (${router.ip})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    subtitle: Text('${router.model ?? "MikroTik"} • ROS ${router.rosVersion}'),
+                    trailing: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      ),
+                      onPressed: () {
+                        final routers = ref.read(routersProvider).asData?.value ?? [];
+                        final match = routers.where((r) => r.host == router.ip).firstOrNull;
+                        if (match != null) {
+                          setState(() => _selectedDeviceId = match.id);
+                        }
+                        _runDiscovery(forceRefresh: true);
+                      },
+                      child: const Text('اختيار', style: TextStyle(color: Colors.white, fontSize: 12)),
+                    ),
+                  ),
+                );
+              }),
+            ],
           ],
         ),
       );

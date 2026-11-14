@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../core/models/models.dart';
 import '../../../core/models/router_provisioning_models.dart';
 import '../../../core/providers.dart';
@@ -928,6 +929,67 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
   // Step 6 Handlers: Apply Provisioning Execution
   // ===========================================================================
 
+  Future<String?> _showPasswordPromptDialog(BuildContext context, String host) async {
+    final ctrl = TextEditingController();
+    bool obscure = true;
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.lock_outline, color: AppTheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'كلمة مرور الراوتر ($host)',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'الراوتر متصل بشبكة محلية (LAN). مطلوب إدخال كلمة المرور للاتصال المباشر بالراوتر عبر منفذ API (8728) وتنفيذ أوامر البرمجة وحفظ النسخة الاحتياطية بأمان.',
+                style: TextStyle(fontSize: 12, height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: ctrl,
+                obscureText: obscure,
+                decoration: InputDecoration(
+                  labelText: 'كلمة مرور الراوتر (admin)',
+                  hintText: 'أدخل كلمة المرور',
+                  prefixIcon: const Icon(Icons.password),
+                  suffixIcon: IconButton(
+                    icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
+                    onPressed: () => setDlgState(() => obscure = !obscure),
+                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text),
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
+              child: const Text('متابعة التنفيذ'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _handleApplyProvisioning() async {
     if (_selectedDeviceId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -978,7 +1040,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
       final host = _hostController.text.trim();
       final user = _userController.text.trim();
-      final pass = _passController.text.trim();
+      String pass = _passController.text.trim();
       final isPrivateIp = host.startsWith('192.168.') ||
           host.startsWith('10.') ||
           host.startsWith('172.16.') ||
@@ -988,6 +1050,33 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           host.startsWith('172.2') ||
           host.startsWith('172.30.') ||
           host.startsWith('172.31.');
+
+      // Try session password cache if textfield is empty
+      if (pass.isEmpty && _selectedDeviceId != null) {
+        pass = ref.read(routersProvider.notifier).getSessionPassword(_selectedDeviceId!) ?? '';
+      }
+
+      // If still empty on private IP, prompt user explicitly
+      if (pass.isEmpty && isPrivateIp) {
+        final entered = await _showPasswordPromptDialog(context, host);
+        if (entered == null || entered.trim().isEmpty) {
+          setState(() => _isApplying = false);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('تم إلغاء العملية: كلمة مرور الراوتر مطلوبة للتطبيق المباشر عبر الشبكة.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+        pass = entered.trim();
+        _passController.text = pass;
+        if (_selectedDeviceId != null) {
+          ref.read(routersProvider.notifier).cacheSessionPassword(_selectedDeviceId!, pass);
+        }
+      }
 
       ProvisionApplyResult result;
 
@@ -1020,12 +1109,14 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
       if (isPrivateIp && pass.isNotEmpty && _preview != null && _preview!.generatedCommands.isNotEmpty) {
         // Local Execution Architecture:
-        // Execute commands step-by-step from phone directly to router over LAN/Wi-Fi
+        // Execute commands step-by-step from phone directly to router over LAN/Wi-Fi using Binary API
         final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
         final restPort = int.tryParse(_restPortController.text.trim()) ?? (_useSsl ? 443 : 80);
+        final apiPort = int.tryParse(_apiPortController.text.trim()) ?? (_useSsl ? 8729 : 8728);
 
         final localResult = await discoveryService.executePlanLocally(
           host: host,
+          apiPort: apiPort,
           restPort: restPort,
           username: user,
           password: pass,
@@ -3735,6 +3826,55 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
+                final host = _hostController.text.trim();
+                final user = _userController.text.trim();
+                final pass = _passController.text.trim();
+                final apiPort = int.tryParse(_apiPortController.text.trim()) ?? 8728;
+                final restPort = int.tryParse(_restPortController.text.trim()) ?? 80;
+                final file = await discoveryService.downloadBackupToPhone(
+                  host: host,
+                  username: user,
+                  password: pass,
+                  backupFileName: res.backupFilename!,
+                  apiPort: apiPort,
+                  restPort: restPort,
+                  useSsl: _useSsl,
+                );
+                if (file != null && mounted) {
+                  try {
+                    await Share.shareXFiles(
+                      [XFile(file.path)],
+                      text: 'نسخة احتياطية لراوتر MikroTik: ${res.backupFilename}',
+                    );
+                  } catch (_) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('تم حفظ النسخة الاحتياطية في الهاتف: ${file.path}')),
+                      );
+                    }
+                  }
+                } else if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('تعذر تحميل ملف النسخة الاحتياطية من الراوتر')),
+                  );
+                }
+              },
+              icon: const Icon(Icons.download_rounded, size: 16),
+              label: const Text('حفظ النسخة الاحتياطية على الهاتف'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueGrey.shade800,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
             ),
           ),
           const SizedBox(height: 14),

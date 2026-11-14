@@ -67,7 +67,8 @@ class _FakeDiscoveryService extends MikrotikDiscoveryService {
   @override
   Future<ProvisionApplyResult> executePlanLocally({
     required String host,
-    required int restPort,
+    int apiPort = 8728,
+    int restPort = 80,
     required String username,
     required String password,
     required List<GeneratedCommandModel> commands,
@@ -127,6 +128,7 @@ class _FakeDiscoveryService extends MikrotikDiscoveryService {
   @override
   Stream<DiscoveredRouterModel> discoverStream({
     Duration timeout = const Duration(seconds: 10),
+    List<String>? priorityIps,
     void Function(double progress, String status)? onProgress,
   }) async* {
     onProgress?.call(1.0, 'تم الفحص');

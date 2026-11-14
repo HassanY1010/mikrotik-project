@@ -99,15 +99,26 @@ class _HotspotProfilesScreenState extends ConsumerState<HotspotProfilesScreen> {
     );
 
     if (confirmed == true) {
-      final res = await ref.read(profilesProvider.notifier).deleteProfile(p.id);
+      final res = await ref.read(profilesProvider.notifier).deleteProfile(
+        p.id,
+        profileName: p.name,
+        deviceId: p.deviceId,
+      );
       if (!mounted) return;
       if (res['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم حذف الباقة بنجاح من النظام والراوتر'), backgroundColor: Color(0xFF10B981)),
+          SnackBar(
+            content: Text(res['message']?.toString() ?? 'تم حذف الباقة بنجاح من النظام والراوتر'),
+            backgroundColor: const Color(0xFF10B981),
+          ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(res['message']?.toString() ?? 'فشل حذف الباقة'), backgroundColor: const Color(0xFFEF4444)),
+          SnackBar(
+            content: Text(res['message']?.toString() ?? 'فشل حذف الباقة'),
+            backgroundColor: const Color(0xFFEF4444),
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
     }

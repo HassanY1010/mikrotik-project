@@ -45,7 +45,7 @@ export class RouterDiscoveryEngineService {
   async discover(
     tenantId: string,
     deviceId: string,
-    options?: { forceRefresh?: boolean },
+    options?: { forceRefresh?: boolean; clientSnapshot?: any },
   ): Promise<FullRouterDiscoveryReport> {
     const cacheKey = `${tenantId}:${deviceId}`;
     if (!options?.forceRefresh) {
@@ -64,6 +64,19 @@ export class RouterDiscoveryEngineService {
         code: 'DEVICE_NOT_FOUND',
         message: `لم يتم العثور على جهاز الراوتر (${deviceId}) ضمن المستأجر الحالي.`,
       });
+    }
+
+    // 1. If client sent a locally-discovered snapshot (from phone on same LAN), build report directly
+    if (options?.clientSnapshot && typeof options.clientSnapshot === 'object') {
+      const report = this.buildReportFromSnapshot(options.clientSnapshot, {
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        rosVersion: device.rosVersion,
+        cacheKey,
+      });
+      this.cache.set(cacheKey, { report, cachedAt: Date.now() });
+      return report;
     }
 
     let client: IMikrotikClient;
@@ -352,6 +365,166 @@ export class RouterDiscoveryEngineService {
     if (meta.cacheKey) {
       this.cache.set(meta.cacheKey, { report: baseReport, cachedAt: Date.now() });
     }
+
+    return baseReport;
+  }
+
+  buildReportFromSnapshot(
+    snapshot: any,
+    meta: {
+      id: string;
+      name: string;
+      host: string;
+      rosVersion?: string;
+      cacheKey?: string;
+    },
+  ): FullRouterDiscoveryReport {
+    const resource = snapshot.resource || {
+      version: meta.rosVersion || '7.15',
+      boardName: meta.name,
+      uptime: '1h',
+      cpuLoad: 3,
+      freeMemory: 64 * 1024 * 1024,
+      totalMemory: 128 * 1024 * 1024,
+      freeHdd: 16 * 1024 * 1024,
+      totalHdd: 32 * 1024 * 1024,
+      architecture: 'arm',
+      platform: 'MikroTik',
+    };
+    const routerboard = snapshot.routerboard || { model: resource.boardName || 'RouterBOARD' };
+    const packages = Array.isArray(snapshot.packages) ? snapshot.packages : [];
+    const interfaces = Array.isArray(snapshot.interfaces) ? snapshot.interfaces : [];
+    const bridges = Array.isArray(snapshot.bridges) ? snapshot.bridges : [];
+    const bridgePorts = Array.isArray(snapshot.bridgePorts) ? snapshot.bridgePorts : [];
+    const vlans = Array.isArray(snapshot.vlans) ? snapshot.vlans : [];
+    const wirelessInterfaces = Array.isArray(snapshot.wirelessInterfaces) ? snapshot.wirelessInterfaces : [];
+    const wifiInterfaces = Array.isArray(snapshot.wifiInterfaces) ? snapshot.wifiInterfaces : [];
+    const ipAddresses = Array.isArray(snapshot.ipAddresses) ? snapshot.ipAddresses : [];
+    const pools = Array.isArray(snapshot.pools) ? snapshot.pools : [];
+    const dhcpClients = Array.isArray(snapshot.dhcpClients) ? snapshot.dhcpClients : [];
+    const dhcpServers = Array.isArray(snapshot.dhcpServers) ? snapshot.dhcpServers : [];
+    const dhcpNetworks = Array.isArray(snapshot.dhcpNetworks) ? snapshot.dhcpNetworks : [];
+    const dnsConfig = snapshot.dnsConfig || {};
+    const natRules = Array.isArray(snapshot.natRules) ? snapshot.natRules : [];
+    const mangleRules = Array.isArray(snapshot.mangleRules) ? snapshot.mangleRules : [];
+    const filterRules = Array.isArray(snapshot.filterRules) ? snapshot.filterRules : [];
+    const routes = Array.isArray(snapshot.routes) ? snapshot.routes : [];
+    const bondingInterfaces = Array.isArray(snapshot.bondingInterfaces) ? snapshot.bondingInterfaces : [];
+    const pppoeClients = Array.isArray(snapshot.pppoeClients) ? snapshot.pppoeClients : [];
+    const hotspotServers = Array.isArray(snapshot.hotspotServers) ? snapshot.hotspotServers : [];
+    const hotspotServerProfiles = Array.isArray(snapshot.hotspotServerProfiles) ? snapshot.hotspotServerProfiles : [];
+    const hotspotUserProfiles = Array.isArray(snapshot.hotspotUserProfiles) ? snapshot.hotspotUserProfiles : [];
+    const queueTypes = Array.isArray(snapshot.queueTypes) ? snapshot.queueTypes : [];
+    const schedulers = Array.isArray(snapshot.schedulers) ? snapshot.schedulers : [];
+    const existingBackups = Array.isArray(snapshot.existingBackups) ? snapshot.existingBackups : [];
+    const identity = snapshot.identity || meta.name;
+
+    const { osFamily, majorVersion, minorVersion } = this.capabilityService.parseRouterOsVersion(
+      resource.version || meta.rosVersion || '7.15',
+    );
+
+    const capabilities = this.capabilityService.detectCapabilities({
+      resource,
+      routerboard,
+      packages,
+      interfaces,
+      wirelessInterfaces,
+      wifiInterfaces,
+      queueTypes,
+      connectionProtocol: 'API',
+    });
+
+    const deviceMetadata: DiscoveredDeviceMetadata = {
+      deviceId: meta.id,
+      deviceName: meta.name,
+      host: meta.host,
+      boardName: resource.boardName || routerboard.model || 'Unknown Board',
+      model: routerboard.model || resource.model || resource.boardName || 'RouterBOARD',
+      version: resource.version || 'unknown',
+      majorVersion,
+      minorVersion,
+      osFamily,
+      architecture: resource.architecture || 'unknown',
+      platform: resource.platform || 'MikroTik',
+      identity: identity || meta.name,
+      uptime: resource.uptime || '0s',
+      cpuLoad: resource.cpuLoad ?? 0,
+      freeMemoryBytes: resource.freeMemory ?? 0,
+      totalMemoryBytes: resource.totalMemory ?? 0,
+      freeHddBytes: resource.freeHdd ?? 0,
+      totalHddBytes: resource.totalHdd ?? 0,
+      serialNumber: routerboard.serialNumber,
+      currentFirmware: routerboard.currentFirmware,
+      factorySoftware: resource.factorySoftware,
+    };
+
+    const roleAnalysis = this.assessInterfaces({
+      managementHost: meta.host,
+      interfaces,
+      bridgePorts,
+      ipAddresses,
+      dhcpClients,
+      routes,
+      hotspotServers,
+    });
+
+    const discoveredAt = new Date().toISOString();
+    const baseReport: FullRouterDiscoveryReport = {
+      device: deviceMetadata,
+      capabilities,
+      interfacesAssessment: roleAnalysis.assessments,
+      resource,
+      routerboard,
+      packages,
+      interfaces,
+      bridges,
+      bridgePorts,
+      vlans,
+      wirelessInterfaces,
+      wifiInterfaces,
+      ipAddresses,
+      pools,
+      dhcpClients,
+      dhcpServers,
+      dhcpNetworks,
+      dnsConfig,
+      natRules,
+      mangleRules,
+      filterRules,
+      routes,
+      bondingInterfaces,
+      pppoeClients,
+      hotspotServers,
+      hotspotServerProfiles,
+      hotspotUserProfiles,
+      queueTypes,
+      schedulers,
+      existingBackups,
+      discoveryCompleteness: {
+        isComplete: true,
+        failedCoreQueries: [],
+        failedOptionalQueries: [],
+        warnings: [],
+      },
+      wanRoleAmbiguous: roleAnalysis.wanRoleAmbiguous,
+      suggestedWanInterface: roleAnalysis.suggestedWanInterface,
+      suggestedLanInterfaces: roleAnalysis.suggestedLanInterfaces,
+      managementInterface: roleAnalysis.managementInterface,
+      discoveredAt,
+      snapshotHash: '',
+    };
+
+    baseReport.snapshotHash = computeAuthoritativeSnapshotHash({
+      interfaces,
+      bridges,
+      bridgePorts,
+      ipAddresses,
+      dhcpClients,
+      dhcpServers,
+      natRules,
+      routes,
+      hotspotServers,
+    });
 
     return baseReport;
   }

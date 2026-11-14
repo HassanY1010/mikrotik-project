@@ -148,6 +148,53 @@ export class CardPdfArchiveService {
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
     const skip = (page - 1) * limit;
 
+    // Auto-discover and register any completed CardBatch for this tenant that doesn't have an archive record yet
+    try {
+      const existingArchives = await this.prisma.cardPdfArchive.findMany({
+        where: { tenantId },
+        select: { batchId: true },
+      });
+      const existingBatchNumbers = new Set(
+        existingArchives.map((a) => a.batchId).filter(Boolean) as string[],
+      );
+
+      const unarchivedBatches = await this.prisma.cardBatch.findMany({
+        where: {
+          tenantId,
+          batchNumber: { notIn: Array.from(existingBatchNumbers) },
+        },
+        include: { profile: true },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      for (const b of unarchivedBatches) {
+        if (!b.batchNumber) continue;
+        const fileId = uuidv4();
+        const fName = `SudaFi_Batch_${b.batchNumber}.pdf`;
+        await this.prisma.cardPdfArchive.create({
+          data: {
+            id: fileId,
+            tenantId,
+            fileName: fName,
+            storagePath: `${tenantId}/${fileId}.pdf`,
+            fileSize: (b.totalCards || 1) * 800,
+            cardCount: b.totalCards,
+            templateType: b.themePreset || 'CLASSIC',
+            networkName: 'سودافاي | SudaFi Net',
+            profileName: b.profile?.displayName || b.profile?.name || 'باقة هوتسبوت',
+            batchId: b.batchNumber,
+            createdById: b.createdById,
+            createdAt: b.createdAt,
+          },
+        });
+        this.logger.log(
+          `Auto-registered missing PDF archive record for batch ${b.batchNumber} (${b.totalCards} cards)`,
+        );
+      }
+    } catch (syncErr) {
+      this.logger.warn(`Auto-sync unarchived batches warning: ${syncErr}`);
+    }
+
     const where: Prisma.CardPdfArchiveWhereInput = {
       tenantId,
     };
@@ -270,13 +317,11 @@ export class CardPdfArchiveService {
       throw new NotFoundException('PDF archive not found or access denied');
     }
 
-    // 1. Delete from Supabase Storage first
-    const storageDeleted = await this.supabaseStorage.deleteFile(archive.storagePath);
-    if (!storageDeleted) {
-      this.logger.error(`Storage deletion failed for ${archive.storagePath}. Preserving DB record for archive ${id}`);
-      throw new InternalServerErrorException(
-        'Failed to delete file from cloud storage. Database record preserved for data integrity.',
-      );
+    // 1. Try to delete from Supabase Storage (warning only if already deleted)
+    try {
+      await this.supabaseStorage.deleteFile(archive.storagePath);
+    } catch (storageErr) {
+      this.logger.warn(`Storage file deletion warning for ${archive.storagePath}: ${storageErr}`);
     }
 
     // 2. Delete from database

@@ -43,7 +43,14 @@ export class CardPdfArchiveController {
   constructor(private readonly archiveService: CardPdfArchiveService) {}
 
   @Post('upload')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
     FileInterceptor('file', {
@@ -85,7 +92,14 @@ export class CardPdfArchiveController {
   }
 
   @Get()
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'List archived PDF files with search, filtering, and pagination' })
   @ApiResponse({ status: 200, description: 'List of archived PDFs' })
   async findAll(
@@ -96,7 +110,14 @@ export class CardPdfArchiveController {
   }
 
   @Get(':id')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'Get archive details and fresh signed access URL' })
   @ApiResponse({ status: 200, description: 'Archive details' })
   @ApiResponse({ status: 404, description: 'Archive not found' })
@@ -108,7 +129,14 @@ export class CardPdfArchiveController {
   }
 
   @Get(':id/download')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER, RoleName.CASHIER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
   @ApiOperation({ summary: 'Stream and download original archived PDF file directly' })
   @ApiResponse({ status: 200, description: 'PDF binary stream' })
   @ApiResponse({ status: 404, description: 'Archive not found' })
@@ -127,7 +155,13 @@ export class CardPdfArchiveController {
   }
 
   @Delete(':id')
-  @Roles(RoleName.TENANT_ADMIN, RoleName.MANAGER)
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
   @ApiOperation({ summary: 'Delete an archived PDF file from storage and database' })
   @ApiResponse({ status: 200, description: 'Archive deleted successfully' })
   @ApiResponse({ status: 404, description: 'Archive not found' })

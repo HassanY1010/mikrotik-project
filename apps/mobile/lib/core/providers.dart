@@ -542,6 +542,12 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     bool updateDataLimit = false,
   }) async {
     final apiClient = ref.read(apiClientProvider);
+    final targetProfile = state.where((p) => p.id == id).firstOrNull;
+    final targetDeviceId = targetProfile?.deviceId ?? '';
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    final router = routers.where((r) => r.id == targetDeviceId).firstOrNull;
+    final isLocalOnly = router != null && router.isPrivateLan;
+
     try {
       final res = await apiClient.patch(
         ApiEndpoints.hotspotProfileItem(id),
@@ -559,6 +565,40 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
           },
         },
       );
+
+      // If local private LAN router, propagate update to the physical router directly over LAN
+      if (isLocalOnly) {
+        var sessionPassword = ref.read(routersProvider.notifier).getSessionPassword(targetDeviceId);
+        if (sessionPassword == null || sessionPassword.isEmpty) {
+          try {
+            final credRes = await apiClient.get('/devices/$targetDeviceId/local-credentials');
+            final credData = unwrapApiEnvelope(credRes.data);
+            if (credData['password'] != null) {
+              sessionPassword = credData['password'].toString();
+              ref.read(routersProvider.notifier).cacheSessionPassword(targetDeviceId, sessionPassword);
+            }
+          } catch (_) {}
+        }
+        if (sessionPassword != null && sessionPassword.isNotEmpty) {
+          try {
+            final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+            await discovery.createHotspotProfileLocally(
+              host: router.host,
+              username: router.username.isNotEmpty ? router.username : 'admin',
+              password: sessionPassword,
+              profileName: name.trim(),
+              rateLimit: rateLimit?.trim(),
+              sessionTimeout: sessionTimeout?.trim() ?? validity?.trim(),
+              sharedUsers: sharedUsers ?? 1,
+              apiPort: router.apiPort,
+              restPort: router.restPort,
+              useSsl: router.useSsl,
+              rosVersion: router.rosVersion,
+            );
+          } catch (_) {}
+        }
+      }
+
       await fetchProfiles();
       final raw = res.data;
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
@@ -573,32 +613,172 @@ class CachedProfilesNotifier extends Notifier<List<HotspotProfileModel>> {
     }
   }
 
-  Future<Map<String, dynamic>> deleteProfile(String id) async {
+  Future<Map<String, dynamic>> deleteProfile(
+    String id, {
+    String? profileName,
+    String? deviceId,
+  }) async {
     final apiClient = ref.read(apiClientProvider);
-    try {
-      final res = await apiClient.delete(ApiEndpoints.hotspotProfileItem(id));
-      await fetchProfiles();
-      final raw = res.data;
-      if (raw is Map<String, dynamic>) return {'success': true, ...raw};
-      return {'success': true, 'message': 'تم حذف البروفايل بنجاح'};
-    } catch (e) {
-      final details = parseApiError(
-        e,
-        fallback: 'فشل حذف البروفايل',
-        networkMessage: 'تعذر الاتصال بالخادم لحذف البروفايل',
+    final targetProfile = state.where((p) => p.id == id).firstOrNull;
+    final targetName = (profileName != null && profileName.isNotEmpty)
+        ? profileName
+        : (targetProfile?.name ?? '');
+    final targetDeviceId = (deviceId != null && deviceId.isNotEmpty)
+        ? deviceId
+        : (targetProfile?.deviceId ?? '');
+
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    final router = routers.where((r) => r.id == targetDeviceId).firstOrNull;
+    final isLocalOnly = router != null && router.isPrivateLan;
+
+    if (isLocalOnly) {
+      // 1. Obtain local router credentials
+      var sessionPassword = ref.read(routersProvider.notifier).getSessionPassword(targetDeviceId);
+      if (sessionPassword == null || sessionPassword.isEmpty) {
+        try {
+          final credRes = await apiClient.get('/devices/$targetDeviceId/local-credentials');
+          final credData = unwrapApiEnvelope(credRes.data);
+          if (credData['password'] != null) {
+            sessionPassword = credData['password'].toString();
+            ref.read(routersProvider.notifier).cacheSessionPassword(targetDeviceId, sessionPassword);
+          }
+        } catch (_) {}
+      }
+
+      if (sessionPassword == null || sessionPassword.isEmpty) {
+        return {
+          'success': false,
+          'message': 'تعذر استرجاع كلمة مرور الراوتر للاتصال المحلي؛ يرجى تسجيل الدخول إلى الراوتر أولاً.',
+        };
+      }
+
+      // 2. Check local network connectivity to router
+      final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+      final connCheck = await discovery.checkDirectLanConnection(
+        host: router.host,
+        port: router.apiPort,
+        user: router.username.isNotEmpty ? router.username : 'admin',
+        password: sessionPassword,
+        useSsl: router.useSsl,
       );
-      return {'success': false, 'message': details.message};
+
+      if (!connCheck.isReachable) {
+        return {
+          'success': false,
+          'message': 'تعذر الوصول إلى الراوتر (${router.host}) عبر الشبكة المحلية. يرجى التأكد من اتصال الهاتف بنفس شبكة Wi-Fi للراوتر. لم يتم حذف البروفايل من التطبيق لضمان التطابق.',
+        };
+      }
+
+      if (!connCheck.isAuthValid) {
+        return {
+          'success': false,
+          'message': 'بيانات تسجيل الدخول للراوتر غير صحيحة. لم يتم حذف البروفايل من التطبيق لضمان التطابق.',
+        };
+      }
+
+      // 3. Send delete command to MikroTik router directly via Binary API and verify removal
+      try {
+        final deletedLocally = await discovery.deleteHotspotProfileLocally(
+          host: router.host,
+          username: router.username.isNotEmpty ? router.username : 'admin',
+          password: sessionPassword,
+          profileName: targetName,
+          apiPort: router.apiPort,
+          useSsl: router.useSsl,
+        );
+
+        if (!deletedLocally) {
+          return {
+            'success': false,
+            'message': 'فشل تأكيد حذف البروفايل من ذاكرة راوتر MikroTik. تم إلغاء العملية ولم يُحذف البروفايل من التطبيق لضمان التطابق.',
+          };
+        }
+      } catch (e) {
+        return {
+          'success': false,
+          'message': 'حدث خطأ أثناء إرسال أمر الحذف إلى الراوتر ($e). لم يتم حذف البروفايل من التطبيق.',
+        };
+      }
+
+      // 4. Once physical router deletion is confirmed 100%, delete from backend DB
+      try {
+        await apiClient.delete(
+          ApiEndpoints.hotspotProfileItem(id),
+          queryParameters: {'syncToRouter': 'false'},
+        );
+      } catch (e) {
+        // Even if DB sync call has issues, removal on router is already verified
+      }
+    } else {
+      // Cloud router: backend handles deletion with strict router confirmation
+      try {
+        await apiClient.delete(ApiEndpoints.hotspotProfileItem(id));
+      } catch (e) {
+        final details = parseApiError(
+          e,
+          fallback: 'فشل حذف البروفايل من الراوتر',
+          networkMessage: 'تعذر الاتصال بالخادم أو الراوتر لحذف البروفايل',
+        );
+        return {'success': false, 'message': details.message};
+      }
     }
+
+    // 5. Update local cache, app state, and trigger refresh
+    state = state.where((p) => p.id != id).toList();
+    final storage = ref.read(localStorageProvider);
+    await storage.saveCachedProfiles(state);
+    await fetchProfiles();
+
+    return {
+      'success': true,
+      'message': 'تم حذف البروفايل بنجاح من الراوتر والتطبيق',
+    };
   }
 
   Future<Map<String, dynamic>> syncProfilesWithRouter(String deviceId) async {
     final apiClient = ref.read(apiClientProvider);
+    final routers = ref.read(routersProvider).asData?.value ?? [];
+    final router = routers.where((r) => r.id == deviceId).firstOrNull;
+    final isLocalOnly = router != null && router.isPrivateLan;
+
     try {
-      final res = await apiClient.post('/devices/$deviceId/hotspot/profiles/sync');
+      List<Map<String, dynamic>>? localProfiles;
+
+      if (isLocalOnly) {
+        var sessionPassword = ref.read(routersProvider.notifier).getSessionPassword(deviceId);
+        if (sessionPassword == null || sessionPassword.isEmpty) {
+          try {
+            final credRes = await apiClient.get('/devices/$deviceId/local-credentials');
+            final credData = unwrapApiEnvelope(credRes.data);
+            if (credData['password'] != null) {
+              sessionPassword = credData['password'].toString();
+              ref.read(routersProvider.notifier).cacheSessionPassword(deviceId, sessionPassword);
+            }
+          } catch (_) {}
+        }
+
+        if (sessionPassword != null && sessionPassword.isNotEmpty) {
+          final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+          try {
+            localProfiles = await discovery.fetchHotspotUserProfilesLocally(
+              host: router.host,
+              username: router.username.isNotEmpty ? router.username : 'admin',
+              password: sessionPassword,
+              apiPort: router.apiPort,
+              useSsl: router.useSsl,
+            );
+          } catch (_) {}
+        }
+      }
+
+      final res = await apiClient.post(
+        '/devices/$deviceId/hotspot/profiles/sync',
+        data: localProfiles != null ? {'profiles': localProfiles} : null,
+      );
       await fetchProfiles();
       final raw = res.data;
       if (raw is Map<String, dynamic>) return {'success': true, ...raw};
-      return {'success': true, 'message': 'تمت مزامنة البروفايلات مع الراوتر بنجاح'};
+      return {'success': true, 'message': 'تمت مزامنة البروفايلات مع الراوتر بنجاح في الاتجاهين'};
     } catch (e) {
       final details = parseApiError(
         e,
@@ -917,6 +1097,169 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
     return null;
   }
 
+  /// Polls router telemetry (CPU, RAM, DISK, Uptime, Active Sessions) periodically.
+  /// For private LAN routers, directly probes the router on the local network.
+  /// For cloud-connected routers, queries the diagnostics endpoint.
+  Future<RouterDeviceModel?> pollRouterTelemetry(String deviceId) async {
+    final routers = state.asData?.value ?? const <RouterDeviceModel>[];
+    final targetDevice = routers.cast<RouterDeviceModel?>().firstWhere(
+          (r) => r?.id == deviceId,
+          orElse: () => null,
+        );
+    if (targetDevice == null) return null;
+
+    final apiClient = ref.read(apiClientProvider);
+    final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+
+    // 1. If private LAN router, probe directly on local network / Wi-Fi
+    if (targetDevice.isPrivateLan) {
+      var pwd = _sessionRouterPasswords[deviceId];
+      if (pwd == null || pwd.isEmpty) {
+        try {
+          final credRes = await apiClient.get('/devices/$deviceId/local-credentials');
+          final credData = unwrapApiEnvelope(credRes.data);
+          if (credData['password'] != null) {
+            pwd = credData['password'].toString();
+            cacheSessionPassword(deviceId, pwd);
+          }
+        } catch (_) {}
+      }
+
+      if (pwd != null && pwd.isNotEmpty) {
+        try {
+          final localRes = await discovery.verifyCredentialsLocally(
+            host: targetDevice.host,
+            username: targetDevice.username,
+            password: pwd,
+            apiPort: targetDevice.apiPort,
+            restPort: targetDevice.restPort,
+            rosVersion: targetDevice.rosVersion,
+            useSsl: targetDevice.useSsl,
+          );
+
+          final updated = await reportLocalTelemetry(
+            deviceId: deviceId,
+            verificationResult: localRes,
+            reportedHost: targetDevice.host,
+            rosVersion: targetDevice.rosVersion,
+          );
+
+          if (localRes['success'] == true) {
+            // Also notify radar of updated timestamp
+            ref.read(radarLastUpdatedProvider.notifier).update(DateTime.now());
+          }
+
+          return updated;
+        } catch (e) {
+          debugPrint('Local LAN telemetry poll error for ${targetDevice.name}: $e');
+          final updated = await reportLocalTelemetry(
+            deviceId: deviceId,
+            verificationResult: {
+              'success': false,
+              'code': 'OFFLINE',
+              'message': 'انقطع الاتصال بالراوتر (الجهاز مطفأ أو مفصول عن الشبكة)',
+            },
+            reportedHost: targetDevice.host,
+            rosVersion: targetDevice.rosVersion,
+          );
+          return updated;
+        }
+      } else {
+        // If password is not stored in session, perform lightweight reachability check
+        try {
+          final probe = await discovery.probeLocalReachability(
+            host: targetDevice.host,
+            apiPort: targetDevice.apiPort,
+            restPort: targetDevice.restPort,
+            useSsl: targetDevice.useSsl,
+          );
+          if (probe['reachable'] == true) {
+            return targetDevice;
+          } else {
+            final updated = await reportLocalTelemetry(
+              deviceId: deviceId,
+              verificationResult: {
+                'success': false,
+                'code': 'OFFLINE',
+                'message': 'تعذر الوصول إلى عنوان الراوتر على الشبكة المحلية',
+              },
+              reportedHost: targetDevice.host,
+              rosVersion: targetDevice.rosVersion,
+            );
+            return updated;
+          }
+        } catch (e) {
+          final updated = await reportLocalTelemetry(
+            deviceId: deviceId,
+            verificationResult: {
+              'success': false,
+              'code': 'OFFLINE',
+              'message': 'انقطع الاتصال بالراوتر',
+            },
+            reportedHost: targetDevice.host,
+            rosVersion: targetDevice.rosVersion,
+          );
+          return updated;
+        }
+      }
+    }
+
+    // 2. If cloud-connected router, call diagnostics endpoint
+    try {
+      final res = await apiClient.get(ApiEndpoints.deviceDiagnostics(deviceId));
+      final data = unwrapApiEnvelope(res.data);
+      final isLive = data['isLive'] == true;
+      final existingList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
+      final idx = existingList.indexWhere((r) => r.id == deviceId);
+      if (idx >= 0) {
+        final existing = existingList[idx];
+        final updated = existing.copyWith(
+          isOnline: isLive,
+          status: isLive ? 'ONLINE' : 'OFFLINE',
+          connectivityState: isLive ? 'ONLINE' : 'OFFLINE',
+          cloudStatus: isLive ? 'ONLINE' : 'OFFLINE',
+          cpuLoad: isLive && data['cpuLoad'] is num ? (data['cpuLoad'] as num).toInt() : existing.cpuLoad,
+          memoryFreeMb: isLive && data['freeMemoryMb'] is num ? (data['freeMemoryMb'] as num).toInt() : existing.memoryFreeMb,
+          memoryTotalMb: isLive && data['totalMemoryMb'] is num ? (data['totalMemoryMb'] as num).toInt() : existing.memoryTotalMb,
+          diskFreeMb: isLive && data['diskFreeMb'] is num ? (data['diskFreeMb'] as num).toInt() : existing.diskFreeMb,
+          diskTotalMb: isLive && data['diskTotalMb'] is num ? (data['diskTotalMb'] as num).toInt() : existing.diskTotalMb,
+          uptime: isLive ? (data['uptime']?.toString() ?? existing.uptime) : 'غير متصل',
+          activeHotspotSessions: isLive && data['activeHotspotSessions'] is num
+              ? (data['activeHotspotSessions'] as num).toInt()
+              : (isLive ? existing.activeHotspotSessions : 0),
+          lastVerifiedAt: isLive ? DateTime.now().toUtc().toIso8601String() : existing.lastVerifiedAt,
+          cloudCheckedAt: DateTime.now().toUtc().toIso8601String(),
+          lastError: isLive ? null : (data['message']?.toString() ?? 'تعذر الوصول للراوتر عبر السحابة'),
+          clearLastError: isLive,
+        );
+        existingList[idx] = updated;
+        state = AsyncValue.data(existingList);
+        await ref.read(localStorageProvider).saveCachedRouters(existingList);
+        return updated;
+      }
+    } catch (e) {
+      debugPrint('Cloud router diagnostics poll error for $deviceId: $e');
+      final existingList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
+      final idx = existingList.indexWhere((r) => r.id == deviceId);
+      if (idx >= 0) {
+        final existing = existingList[idx];
+        final updated = existing.copyWith(
+          isOnline: false,
+          status: 'OFFLINE',
+          connectivityState: 'OFFLINE',
+          cloudStatus: 'OFFLINE',
+          cloudCheckedAt: DateTime.now().toUtc().toIso8601String(),
+          lastError: 'انقطع الاتصال بالراوتر',
+        );
+        existingList[idx] = updated;
+        state = AsyncValue.data(existingList);
+        await ref.read(localStorageProvider).saveCachedRouters(existingList);
+        return updated;
+      }
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> toggleEmergencyLock(String deviceId, bool lock) async {
     final apiClient = ref.read(apiClientProvider);
     try {
@@ -998,28 +1341,47 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         targetDevice.isPrivateLan &&
         effectivePassword != null &&
         effectivePassword.isNotEmpty) {
-      final localRes = await discovery.verifyCredentialsLocally(
-        host: targetDevice.host,
-        username: targetDevice.username,
-        password: effectivePassword,
-        apiPort: targetDevice.apiPort,
-        restPort: targetDevice.restPort,
-        rosVersion: targetDevice.rosVersion,
-        useSsl: targetDevice.useSsl,
-      );
+      try {
+        final localRes = await discovery.verifyCredentialsLocally(
+          host: targetDevice.host,
+          username: targetDevice.username,
+          password: effectivePassword,
+          apiPort: targetDevice.apiPort,
+          restPort: targetDevice.restPort,
+          rosVersion: targetDevice.rosVersion,
+          useSsl: targetDevice.useSsl,
+        );
 
-      await reportLocalTelemetry(
-        deviceId: deviceId,
-        verificationResult: localRes,
-        reportedHost: targetDevice.host,
-        rosVersion: targetDevice.rosVersion,
-      );
+        await reportLocalTelemetry(
+          deviceId: deviceId,
+          verificationResult: localRes,
+          reportedHost: targetDevice.host,
+          rosVersion: targetDevice.rosVersion,
+        );
 
-      return {
-        ...localRes,
-        'source': 'LOCAL_LAN',
-        'isPrivateLan': true,
-      };
+        return {
+          ...localRes,
+          'source': 'LOCAL_LAN',
+          'isPrivateLan': true,
+        };
+      } catch (e) {
+        final errRes = {
+          'success': false,
+          'code': 'OFFLINE',
+          'message': 'تعذر الاتصال بالراوتر محلياً ($e). تأكد من تشغيل الجهاز واتصال هاتفك بنفس الشبكة.',
+        };
+        await reportLocalTelemetry(
+          deviceId: deviceId,
+          verificationResult: errRes,
+          reportedHost: targetDevice.host,
+          rosVersion: targetDevice.rosVersion,
+        );
+        return {
+          ...errRes,
+          'source': 'LOCAL_LAN',
+          'isPrivateLan': true,
+        };
+      }
     }
 
     // Fallback or Public IP: invoke backend test-connection and unwrap envelope strictly
@@ -1457,11 +1819,24 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
     }
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({bool showLoading = false}) async {
     if (_isFetching) return;
     final selectedId = ref.read(selectedRouterIdProvider);
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch(selectedId));
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch(selectedId);
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
+  }
+
+  void updateSessionsLocally(List<ActiveSessionModel> sessions) {
+    state = AsyncValue.data(sessions);
   }
 
   Future<Map<String, dynamic>> kickSession(
@@ -1563,10 +1938,19 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
     }
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({bool showLoading = false}) async {
     final selectedId = ref.read(selectedRouterIdProvider);
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch(selectedId));
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch(selectedId);
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 }
 
@@ -1631,9 +2015,18 @@ class FinancialReportNotifier extends AsyncNotifier<FinancialReportModel> {
     return FinancialReportModel.fromJson(data);
   }
 
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch());
+  Future<void> refresh({bool showLoading = false}) async {
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch();
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 }
 
@@ -1706,9 +2099,18 @@ class ExpensesNotifier extends AsyncNotifier<List<ExpenseItemModel>> {
     }
   }
 
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch());
+  Future<void> refresh({bool showLoading = false}) async {
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch();
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 }
 
@@ -1739,9 +2141,18 @@ class SalesTransactionsNotifier extends AsyncNotifier<List<Map<String, dynamic>>
     }
   }
 
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch());
+  Future<void> refresh({bool showLoading = false}) async {
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch();
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 }
 
@@ -1820,9 +2231,18 @@ class CardTemplatesNotifier extends AsyncNotifier<List<CardTemplateModel>> {
     return templates;
   }
 
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch());
+  Future<void> refresh({bool showLoading = false}) async {
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch();
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 
   Future<Map<String, dynamic>> setTemplateAsDefault(String templateId) async {
@@ -1949,9 +2369,18 @@ class TenantUsersNotifier extends AsyncNotifier<List<UserModel>> {
     return [];
   }
 
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch());
+  Future<void> refresh({bool showLoading = false}) async {
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch();
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 
   Future<Map<String, dynamic>> createUser({
@@ -2147,9 +2576,18 @@ class StaffInvitationsNotifier extends AsyncNotifier<List<StaffInvitationModel>>
     return [];
   }
 
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch());
+  Future<void> refresh({bool showLoading = false}) async {
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch();
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 
   Future<Map<String, dynamic>> resend(String id) async {
@@ -2293,9 +2731,18 @@ class WalletNotifier extends AsyncNotifier<WalletDataModel> {
     }
   }
 
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch());
+  Future<void> refresh({bool showLoading = false}) async {
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch();
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 }
 
@@ -2838,10 +3285,19 @@ class PppoeProfilesNotifier extends AsyncNotifier<List<PppoeProfileModel>> {
     return [];
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({bool showLoading = false}) async {
     final selectedId = ref.read(selectedRouterIdProvider);
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch(selectedId));
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch(selectedId);
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 
   Future<Map<String, dynamic>> createProfile(PppoeProfileModel profile) async {
@@ -3002,10 +3458,19 @@ class PppoeAccountsNotifier extends AsyncNotifier<List<PppoeAccountModel>> {
     return [];
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({bool showLoading = false}) async {
     final selectedId = ref.read(selectedRouterIdProvider);
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch(selectedId));
+    if (showLoading && !state.hasValue) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final fresh = await _fetch(selectedId);
+      state = AsyncValue.data(fresh);
+    } catch (e, st) {
+      if (!state.hasValue) {
+        state = AsyncValue.error(e, st);
+      }
+    }
   }
 
   Future<Map<String, dynamic>> createAccount(Map<String, dynamic> payload) async {

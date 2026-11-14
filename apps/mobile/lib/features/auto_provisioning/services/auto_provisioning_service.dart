@@ -53,11 +53,13 @@ class AutoProvisioningService {
   Future<AutoProvisionDiscoveryReport> discoverRouter(
     String deviceId, {
     bool forceRefresh = false,
+    Map<String, dynamic>? snapshot,
   }) async {
     try {
       final res = await apiClient.dio.post(
         ApiEndpoints.autoProvisionDiscover(deviceId),
         queryParameters: forceRefresh ? {'refresh': 'true'} : null,
+        data: snapshot != null ? {'snapshot': snapshot} : null,
       );
       return AutoProvisionDiscoveryReport.fromJson(_asMap(res.data));
     } catch (e) {

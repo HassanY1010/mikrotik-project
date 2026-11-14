@@ -81,9 +81,13 @@ export class MikrotikProvisioningService {
     deviceId: string,
     currentUser?: RequestUser,
     forceRefresh = false,
+    clientSnapshot?: any,
   ) {
     await this.assertDeviceAccess(tenantId, deviceId, currentUser);
-    const report = await this.discoveryService.discover(tenantId, deviceId, { forceRefresh });
+    const report = await this.discoveryService.discover(tenantId, deviceId, {
+      forceRefresh,
+      clientSnapshot,
+    });
 
     try {
       await this.auditLogsService.log({

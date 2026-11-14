@@ -103,6 +103,10 @@ class _PdfHistoryScreenState extends ConsumerState<PdfHistoryScreen> {
       final Uint8List pdfBytes = await service.downloadArchivePdf(
         archive.id,
         signedUrl: archive.signedUrl,
+        batchId: archive.batchId,
+        networkName: archive.networkName,
+        profileName: archive.profileName,
+        cardCount: archive.cardCount,
       );
 
       if (mounted) {
@@ -135,6 +139,10 @@ class _PdfHistoryScreenState extends ConsumerState<PdfHistoryScreen> {
       final Uint8List pdfBytes = await service.downloadArchivePdf(
         archive.id,
         signedUrl: archive.signedUrl,
+        batchId: archive.batchId,
+        networkName: archive.networkName,
+        profileName: archive.profileName,
+        cardCount: archive.cardCount,
       );
 
       await Printing.sharePdf(

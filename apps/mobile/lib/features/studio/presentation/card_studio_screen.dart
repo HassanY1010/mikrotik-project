@@ -1174,10 +1174,19 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
           }
         }
 
+        // Automatically archive the batch PDF immediately so it's guaranteed to be saved in "الملفات السابقة"
+        final effectiveQty = generatedCards.isNotEmpty ? generatedCards.length : _selectedQuantity;
+        _autoArchiveBatchPdf(
+          batchId: batchId,
+          profile: selectedProfile,
+          quantity: effectiveQty,
+          cards: generatedCards,
+        );
+
         _showBatchSuccessAndManagementDialog(
           batchId: batchId,
           profile: selectedProfile,
-          quantity: generatedCards.isNotEmpty ? generatedCards.length : _selectedQuantity,
+          quantity: effectiveQty,
           cards: generatedCards,
           syncedToRouter: effectiveSyncedToRouter,
           routerSyncStatus: effectiveRouterSyncStatus,
@@ -1254,6 +1263,101 @@ class _CardStudioScreenState extends ConsumerState<CardStudioScreen> with Single
         );
       }
     }
+  }
+
+  void _autoArchiveBatchPdf({
+    required String batchId,
+    required HotspotProfileModel profile,
+    required int quantity,
+    required List<OfflineCardModel> cards,
+  }) {
+    Future.microtask(() async {
+      try {
+        final List<OfflineCardModel> effectiveCards;
+        if (cards.isNotEmpty) {
+          effectiveCards = cards;
+        } else {
+          final prefix = _prefixController.text.trim();
+          effectiveCards = List.generate(
+            quantity,
+            (idx) => OfflineCardModel(
+              id: 'batch-$idx',
+              serialNumber: 'SN-${DateTime.now().year}-${(idx + 1).toString().padLeft(4, "0")}',
+              username: '${prefix.isNotEmpty ? prefix : ""}${849200 + idx}',
+              clearPassword: _credentialMode == 0
+                  ? '${prefix.isNotEmpty ? prefix : ""}${849200 + idx}'
+                  : (_credentialMode == 2 ? null : '${5540 + (idx % 8999)}'),
+              profileId: profile.id,
+              profileName: profile.displayName ?? profile.name,
+              deviceId: profile.deviceId,
+              price: profile.price,
+              currency: 'SDG',
+            ),
+          );
+        }
+
+        final pdfBytes = await CardPdfGeneratorService.generateCardsPdf(
+          cards: effectiveCards,
+          networkName: _networkNameController.text.trim().isNotEmpty
+              ? _networkNameController.text.trim()
+              : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+          supportPhone: _effectivePhoneText,
+          layout: _selectedPrintLayout,
+          batchNumber: batchId,
+          themePreset: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+              ? _selectedCustomTemplate!.themePreset
+              : _selectedThemePreset,
+          customPrimaryColor: _customPrimaryColor != null
+              ? '#${_customPrimaryColor!.toARGB32().toRadixString(16).substring(2)}'
+              : _selectedCustomTemplate?.primaryColor,
+          customAccentColor: _customAccentColor != null
+              ? '#${_customAccentColor!.toARGB32().toRadixString(16).substring(2)}'
+              : _selectedCustomTemplate?.accentColor,
+          customBackgroundImageBase64: _pickedImageBase64 ?? _selectedCustomTemplate?.backgroundImageBase64,
+          customBackgroundImageBytes: _pickedImageBytes ?? _selectedCustomTemplate?.getSyncBackgroundBytes(),
+          showQr: _showQr,
+          showPrice: _showPrice,
+          showSerial: _showSerial,
+          showOuterBorder: _showOuterBorder,
+          showNetworkName: _showNetworkName,
+          showProfileName: _showProfileName,
+          showCredentials: _showCredentials,
+          showPin: _showPin,
+          showUsername: _showUsername,
+          showPassword: _showPassword,
+          showUserOnly: _showUserOnly,
+          showInstructions: _showInstructions,
+          cardWidthMm: _cardWidthMm,
+          cardHeightMm: _cardHeightMm,
+          instructions: _instructionsController.text.trim().isNotEmpty
+              ? _instructionsController.text.trim()
+              : (_selectedCustomTemplate?.instructions ?? ''),
+          template: _getEffectiveTemplate(),
+          isLandscape: _isPrintLandscape,
+          customCols: _isCustomPrintGrid ? _customGridCols : null,
+          customRows: _isCustomPrintGrid ? _customGridRows : null,
+          customMargin: _isCustomPrintGrid ? _customGridMargin : null,
+          customColors: _getEffectiveCustomColors(),
+          elementsLayout: _elementsLayout,
+        );
+
+        await ref.read(cardPdfArchiveServiceProvider).uploadPdfArchive(
+          pdfBytes: pdfBytes,
+          fileName: 'SudaFi_Batch_$batchId.pdf',
+          cardCount: quantity,
+          templateType: _selectedCustomTemplate?.themePreset.isNotEmpty == true
+              ? _selectedCustomTemplate!.themePreset
+              : _selectedThemePreset,
+          networkName: _networkNameController.text.trim().isNotEmpty
+              ? _networkNameController.text.trim()
+              : (_selectedCustomTemplate?.networkName ?? 'سودافاي | SudaFi Net'),
+          profileName: profile.name,
+          batchId: batchId,
+        );
+      } catch (err) {
+        debugPrint('Auto-archive batch PDF background error: $err');
+      }
+    });
   }
 
   void _showBatchSuccessAndManagementDialog({

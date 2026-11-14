@@ -80,8 +80,9 @@ export class HotspotController {
     @TenantId() tenantId: string,
     @Param('deviceId') deviceId: string,
     @CurrentUser() currentUser: RequestUser,
+    @Body('profiles') clientProfiles?: any[],
   ) {
-    return this.hotspotService.syncProfiles(tenantId, deviceId, currentUser);
+    return this.hotspotService.syncProfiles(tenantId, deviceId, currentUser, clientProfiles);
   }
 
   @Delete('profiles/:profileId')
@@ -93,8 +94,10 @@ export class HotspotController {
     @Param('deviceId') deviceId: string,
     @Param('profileId') profileId: string,
     @CurrentUser() currentUser: RequestUser,
+    @Query('syncToRouter') syncToRouterQuery?: string,
   ) {
-    return this.hotspotService.deleteProfile(tenantId, deviceId, profileId, currentUser);
+    const syncToRouter = syncToRouterQuery !== 'false';
+    return this.hotspotService.deleteProfile(tenantId, deviceId, profileId, currentUser, syncToRouter);
   }
 
   @Get('sessions')
@@ -215,8 +218,10 @@ export class TenantHotspotController {
   async deleteProfile(
     @TenantId() tenantId: string,
     @Param('profileId') profileId: string,
+    @Query('syncToRouter') syncToRouterQuery?: string,
   ) {
-    return this.hotspotService.deleteTenantProfile(tenantId, profileId);
+    const syncToRouter = syncToRouterQuery !== 'false';
+    return this.hotspotService.deleteTenantProfile(tenantId, profileId, syncToRouter);
   }
 
   @Get('sessions')

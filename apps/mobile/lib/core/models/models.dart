@@ -1079,8 +1079,15 @@ class RouterDeviceModel {
         localStatus = localStatus ?? 'UNKNOWN',
         cloudStatus = cloudStatus ?? 'UNKNOWN';
 
-  bool get isEffectiveOnline =>
-      isOnline || connectivityState.toUpperCase() == 'ONLINE' || status.toUpperCase() == 'ONLINE';
+  bool get isEffectiveOnline {
+    if (!isOnline) return false;
+    final conn = connectivityState.toUpperCase();
+    final local = localStatus.toUpperCase();
+    final st = status.toUpperCase();
+    if (conn == 'OFFLINE' || local == 'OFFLINE' || st == 'OFFLINE') return false;
+    if (conn == 'CHECKING' || conn == 'UNKNOWN') return false;
+    return isOnline && (conn == 'ONLINE' || local == 'ONLINE' || st == 'ONLINE');
+  }
 
   static bool isPrivateHost(String host) {
     final normalized = host.trim().toLowerCase();

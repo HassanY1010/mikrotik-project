@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
@@ -62,14 +63,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   bool _isSyncing = false;
   DateTime? _lastResumeRefreshAt;
 
+  // Real-time live polling engine
+  Timer? _livePollingTimer;
+  bool _isPollingMetrics = false;
+  DateTime? _lastMetricsPollSuccessAt;
+  int _pollCycleCounter = 0;
+  FinancialReportModel? _lastKnownFinance;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _startLiveDashboardPolling();
   }
 
   @override
   void dispose() {
+    _livePollingTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -77,13 +87,90 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _startLiveDashboardPolling();
       final now = DateTime.now();
       // Throttle resume refreshes: must be at least 15 seconds apart
       if (_lastResumeRefreshAt == null || now.difference(_lastResumeRefreshAt!) > const Duration(seconds: 15)) {
         _lastResumeRefreshAt = now;
         _onAppResumed();
       }
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _livePollingTimer?.cancel();
     }
+  }
+
+  void _startLiveDashboardPolling() {
+    _livePollingTimer?.cancel();
+    // Immediate initial poll on start
+    Future.microtask(() => _executeDashboardPollingTick());
+    // Live polling every 5 seconds for router resources & active users
+    _livePollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _executeDashboardPollingTick();
+    });
+  }
+
+  Future<void> _executeDashboardPollingTick() async {
+    if (_isPollingMetrics || !mounted) return;
+    _isPollingMetrics = true;
+    _pollCycleCounter++;
+
+    try {
+      final selectedId = ref.read(selectedRouterIdProvider);
+      final routers = ref.read(routersProvider).asData?.value ?? [];
+      final currentRouter = (selectedId != null && routers.isNotEmpty)
+          ? routers.firstWhere((r) => r.id == selectedId, orElse: () => routers.first)
+          : (routers.isNotEmpty ? routers.first : null);
+
+      if (currentRouter != null) {
+        // Poll live router resources (CPU, RAM, DISK, Uptime)
+        final updatedRouter = await ref
+            .read(routersProvider.notifier)
+            .pollRouterTelemetry(currentRouter.id);
+
+        if (updatedRouter != null && mounted) {
+          setState(() {
+            _lastMetricsPollSuccessAt = DateTime.now();
+          });
+        }
+      }
+
+      // Refresh Active Hotspot Users, Card inventory & Financial report every other cycle (every ~10s)
+      if (_pollCycleCounter % 2 == 0 || _lastMetricsPollSuccessAt == null) {
+        await ref.read(activeSessionsProvider.notifier).refresh();
+        await ref.read(financialReportProvider.notifier).refresh();
+        ref.read(cardsInventoryProvider.notifier).refresh();
+        ref.read(offlineCardsProvider.notifier).refresh();
+        ref.read(routerHotspotCardsProvider.notifier).refresh();
+      }
+    } catch (err) {
+      debugPrint('Dashboard live polling tick warning: $err');
+    } finally {
+      _isPollingMetrics = false;
+    }
+  }
+
+  String _formatPollTime(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 5) return 'الآن';
+    if (diff.inSeconds < 60) return 'منذ ${diff.inSeconds}ث';
+    if (diff.inMinutes < 60) return 'منذ ${diff.inMinutes}د';
+    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatIsoTimestamp(String? iso) {
+    if (iso == null || iso.isEmpty) return 'غير متوفر';
+    final parsed = DateTime.tryParse(iso)?.toLocal();
+    if (parsed == null) return 'غير متوفر';
+    final diff = DateTime.now().difference(parsed);
+    if (diff.inSeconds < 10) return 'الآن';
+    if (diff.inSeconds < 60) return 'منذ ${diff.inSeconds}ث';
+    if (diff.inMinutes < 60) return 'منذ ${diff.inMinutes}د';
+    if (diff.inHours < 24) {
+      final hour = parsed.hour.toString().padLeft(2, '0');
+      final minute = parsed.minute.toString().padLeft(2, '0');
+      return 'اليوم $hour:$minute';
+    }
+    return '${parsed.year}/${parsed.month}/${parsed.day}';
   }
 
   Future<void> _onAppResumed() async {
@@ -166,33 +253,45 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     );
   }
 
-  ({String label, Color color, Color accent}) _routerStatusVisuals(RouterDeviceModel r) {
-    final state = r.connectivityState.toUpperCase();
+  ({String label, Color color, Color accent, bool isChecking}) _routerStatusVisuals(RouterDeviceModel r) {
+    if (_isTestingConnection) {
+      return (
+        label: 'جاري التحقق...',
+        color: const Color(0xFFF59E0B),
+        accent: const Color(0xFFFBBF24),
+        isChecking: true,
+      );
+    }
+    final conn = r.connectivityState.toUpperCase();
+    if (conn == 'CHECKING') {
+      return (
+        label: 'جاري التحقق...',
+        color: const Color(0xFFF59E0B),
+        accent: const Color(0xFFFBBF24),
+        isChecking: true,
+      );
+    }
     if (r.isEffectiveOnline) {
       return (
         label: 'متصل',
-        color: Colors.green,
-        accent: Colors.greenAccent,
+        color: const Color(0xFF10B981),
+        accent: const Color(0xFF34D399),
+        isChecking: false,
       );
     }
-    if (state == 'UNKNOWN') {
-      return (
-        label: 'غير مفحوص',
-        color: Colors.amber,
-        accent: Colors.amber,
-      );
-    }
-    if (state == 'ERROR') {
+    if (conn == 'ERROR' || r.status.toUpperCase() == 'ERROR') {
       return (
         label: 'خطأ اتصال',
-        color: Colors.red,
-        accent: Colors.redAccent,
+        color: const Color(0xFFEF4444),
+        accent: const Color(0xFFF87171),
+        isChecking: false,
       );
     }
     return (
       label: 'غير متصل',
-      color: Colors.red,
-      accent: Colors.redAccent,
+      color: const Color(0xFFEF4444),
+      accent: const Color(0xFFF87171),
+      isChecking: false,
     );
   }
 
@@ -367,10 +466,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   void _showQuickAddRouterModal() {
     final nameCtrl = TextEditingController();
     final hostCtrl = TextEditingController(text: '192.168.88.1');
-    final userCtrl = TextEditingController(text: 'admin');
     final passCtrl = TextEditingController();
-    final portCtrl = TextEditingController(text: '8728');
-    bool useSsl = false;
+    bool obscurePassword = true;
+    bool isScanningLan = false;
+    String? scanStatusMessage;
+    final List<DiscoveredRouterModel> discoveredRouters = [];
+
     bool isTesting = false;
     bool isSaving = false;
     String? testStatusMessage;
@@ -431,7 +532,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                               ),
                               Text(
-                                'إدخال بيانات الاتصال الأساسية للراوتر للبدء في تشغيله',
+                                'إدخال بيانات الراوتر الأساسية لربطه بالحساب مباشرة',
                                 style: TextStyle(fontSize: 12, color: Colors.grey),
                               ),
                             ],
@@ -439,75 +540,168 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                         ),
                       ],
                     ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      controller: nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'اسم الراوتر (مثال: HAMDI NET)',
-                        prefixIcon: Icon(Icons.badge_outlined),
+                    const SizedBox(height: 18),
+                    // زر بحث عن الراوترات (LAN Discovery)
+                    OutlinedButton.icon(
+                      onPressed: isScanningLan
+                          ? null
+                          : () async {
+                              setModalState(() {
+                                isScanningLan = true;
+                                scanStatusMessage = 'جارِ فحص الشبكة والاستماع لبروتوكول MNDP...';
+                                discoveredRouters.clear();
+                              });
+                              try {
+                                final discovery = ref.read(mikrotikDiscoveryServiceProvider);
+                                await for (final r in discovery.discoverStream(
+                                  timeout: const Duration(seconds: 8),
+                                  onProgress: (p, s) {
+                                    setModalState(() {
+                                      scanStatusMessage = s;
+                                    });
+                                  },
+                                )) {
+                                  setModalState(() {
+                                    if (!discoveredRouters.any((d) => d.ip == r.ip)) {
+                                      discoveredRouters.add(r);
+                                    }
+                                  });
+                                }
+                              } catch (e) {
+                                debugPrint('Discovery error: $e');
+                              } finally {
+                                setModalState(() {
+                                  isScanningLan = false;
+                                  if (discoveredRouters.isEmpty) {
+                                    scanStatusMessage = 'لم يتم العثور على أجهزة MikroTik عبر الشبكة المحلية (يمكنك كتابة عنوان IP يدوياً).';
+                                  } else {
+                                    scanStatusMessage = 'تم اكتشاف ${discoveredRouters.length} راوتر. اضغط لاختيار الراوتر وتعبئة عنوان IP تلقائياً:';
+                                  }
+                                });
+                              }
+                            },
+                      icon: isScanningLan
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.wifi_find_rounded, size: 20),
+                      label: Text(
+                        isScanningLan ? 'جارِ فحص الراوترات...' : 'بحث عن الراوترات',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.primary,
+                        side: const BorderSide(color: AppTheme.primary, width: 1.5),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    if (scanStatusMessage != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        scanStatusMessage!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isScanningLan ? AppTheme.primary : (discoveredRouters.isEmpty ? Colors.orange : Colors.green.shade700),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                    if (discoveredRouters.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 140),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                        ),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: discoveredRouters.length,
+                          separatorBuilder: (context, index) => const Divider(height: 1),
+                          itemBuilder: (c, idx) {
+                            final dev = discoveredRouters[idx];
+                            final isSel = hostCtrl.text.trim() == dev.ip.trim();
+                            return ListTile(
+                              dense: true,
+                              leading: Icon(
+                                Icons.router_rounded,
+                                color: isSel ? Colors.green : AppTheme.primary,
+                                size: 20,
+                              ),
+                              title: Text(
+                                dev.identity.isNotEmpty ? dev.identity : (dev.model ?? 'MikroTik'),
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                              subtitle: Text(
+                                '${dev.ip}  •  ${dev.rosVersion}${dev.model != null ? ' • ${dev.model}' : ''}',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              trailing: isSel
+                                  ? const Icon(Icons.check_circle, color: Colors.green, size: 18)
+                                  : const Text(
+                                      'اختيار',
+                                      style: TextStyle(
+                                        color: AppTheme.primary,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                              onTap: () {
+                                setModalState(() {
+                                  hostCtrl.text = dev.ip;
+                                  if (nameCtrl.text.isEmpty) {
+                                    nameCtrl.text = dev.identity.isNotEmpty ? dev.identity : (dev.model ?? 'MikroTik');
+                                  }
+                                  testStatusMessage = 'تم اختيار الراوتر وتعبئة عنوان IP تلقائياً: ${dev.ip}';
+                                  testStatusSuccess = true;
+                                });
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    // حقل 1: عنوان IP
                     TextField(
                       controller: hostCtrl,
+                      keyboardType: TextInputType.text,
                       decoration: const InputDecoration(
-                        labelText: 'عنوان IP أو المضيف (IP / Host)',
+                        labelText: 'عنوان IP',
+                        hintText: '192.168.88.1',
                         prefixIcon: Icon(Icons.lan_outlined),
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: TextField(
-                            controller: userCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'اسم المستخدم',
-                              prefixIcon: Icon(Icons.person_outline),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          flex: 1,
-                          child: TextField(
-                            controller: portCtrl,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'المنفذ (Port)',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
+                    // حقل 2: اسم الراوتر
                     TextField(
-                      controller: passCtrl,
-                      obscureText: true,
+                      controller: nameCtrl,
                       decoration: const InputDecoration(
-                        labelText: 'كلمة مرور الراوتر',
-                        prefixIcon: Icon(Icons.lock_outline),
+                        labelText: 'اسم الراوتر',
+                        hintText: 'مثال: HAMDI NET',
+                        prefixIcon: Icon(Icons.badge_outlined),
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('استخدام اتصال مشفر (SSL)', style: TextStyle(fontSize: 14)),
-                      value: useSsl,
-                      onChanged: (val) {
-                        setModalState(() {
-                          useSsl = val;
-                          if (val && portCtrl.text == '8728') {
-                            portCtrl.text = '8729';
-                          } else if (!val && portCtrl.text == '8729') {
-                            portCtrl.text = '8728';
-                          }
-                        });
-                      },
+                    const SizedBox(height: 12),
+                    // حقل 3: كلمة المرور
+                    TextField(
+                      controller: passCtrl,
+                      obscureText: obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: 'كلمة المرور',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                          onPressed: () => setModalState(() => obscurePassword = !obscurePassword),
+                        ),
+                      ),
                     ),
                     if (testStatusMessage != null) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
@@ -554,18 +748,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                                     });
                                     final discovery = ref.read(mikrotikDiscoveryServiceProvider);
                                     final host = hostCtrl.text.trim();
-                                    final port = int.tryParse(portCtrl.text.trim()) ?? (useSsl ? 8729 : 8728);
-                                    final user = userCtrl.text.trim();
                                     final pass = passCtrl.text;
 
                                     if (discovery.isPrivateLanIp(host)) {
                                       try {
                                         final check = await discovery.checkDirectLanConnection(
                                           host: host,
-                                          port: port,
-                                          user: user,
+                                          port: 8728,
+                                          user: 'admin',
                                           password: pass,
-                                          useSsl: useSsl,
+                                          useSsl: false,
                                         );
                                         setModalState(() {
                                           isTesting = false;
@@ -586,10 +778,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                                     } else {
                                       final res = await ref.read(routersProvider.notifier).testConnectionDirect({
                                         'host': host,
-                                        'apiPort': port,
-                                        'username': user,
+                                        'apiPort': 8728,
+                                        'username': 'admin',
                                         'password': pass,
-                                        'useSsl': useSsl,
+                                        'useSsl': false,
                                       });
                                       setModalState(() {
                                         isTesting = false;
@@ -610,24 +802,28 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                             onPressed: isSaving
                                 ? null
                                 : () async {
-                                    final name = nameCtrl.text.trim();
                                     final host = hostCtrl.text.trim();
-                                    if (name.isEmpty || host.isEmpty) {
+                                    var name = nameCtrl.text.trim();
+                                    if (host.isEmpty) {
                                       setModalState(() {
                                         testStatusSuccess = false;
-                                        testStatusMessage = 'يرجى إدخال اسم الراوتر وعنوان IP.';
+                                        testStatusMessage = 'يرجى إدخال عنوان IP للراوتر.';
                                       });
                                       return;
                                     }
+                                    if (name.isEmpty) {
+                                      name = 'MikroTik ($host)';
+                                    }
                                     setModalState(() => isSaving = true);
-                                    final port = int.tryParse(portCtrl.text.trim()) ?? (useSsl ? 8729 : 8728);
                                     final payload = {
                                       'name': name,
                                       'host': host,
-                                      'apiPort': port,
-                                      'username': userCtrl.text.trim(),
+                                      'apiPort': 8728,
+                                      'restPort': 443,
+                                      'rosVersion': 'V7',
+                                      'username': 'admin',
                                       'password': passCtrl.text,
-                                      'useSsl': useSsl,
+                                      'useSsl': false,
                                     };
                                     final saveRes = await ref.read(routersProvider.notifier).saveRouter(payload);
                                     setModalState(() => isSaving = false);
@@ -659,7 +855,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                             icon: isSaving
                                 ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                                 : const Icon(Icons.check_circle_outline, size: 18),
-                            label: const Text('حفظ وإضافة'),
+                            label: const Text('حفظ وربط الراوتر'),
                           ),
                         ),
                       ],
@@ -812,39 +1008,53 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                               ],
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: currentRouter.isOnline
-                                  ? Colors.green.withValues(alpha: 0.2)
-                                  : Colors.red.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: currentRouter.isOnline ? Colors.green : Colors.red,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: _routerStatusVisuals(currentRouter).accent,
-                                    shape: BoxShape.circle,
+                          Builder(
+                            builder: (context) {
+                              final visuals = _routerStatusVisuals(currentRouter);
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: visuals.color.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: visuals.color,
                                   ),
                                 ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _routerStatusVisuals(currentRouter).label,
-                                  style: TextStyle(
-                                    color: _routerStatusVisuals(currentRouter).accent,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (visuals.isChecking) ...[
+                                      SizedBox(
+                                        width: 6,
+                                        height: 6,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 1.5,
+                                          valueColor: AlwaysStoppedAnimation<Color>(visuals.accent),
+                                        ),
+                                      ),
+                                    ] else ...[
+                                      Container(
+                                        width: 6,
+                                        height: 6,
+                                        decoration: BoxDecoration(
+                                          color: visuals.accent,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      visuals.label,
+                                      style: TextStyle(
+                                        color: visuals.accent,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -2371,7 +2581,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
 
               const SizedBox(height: 16),
 
-              // KPI Financial Banner Card
+              // KPI Financial Banner Card (Robust Stale-While-Revalidate)
               routersAsync.when(
                 data: (routers) {
                   final currentRouter = routers.isNotEmpty
@@ -2381,50 +2591,39 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                         )
                       : null;
                   final isRouterOnline = currentRouter?.isEffectiveOnline ?? false;
+                  final finance = financeAsync.asData?.value;
+                  final sessions = sessionsAsync.asData?.value;
+                  final connectedCount = isRouterOnline
+                      ? (sessions?.length ?? currentRouter?.activeHotspotSessions)
+                      : null;
 
-                  return financeAsync.when(
-                    data: (finance) => sessionsAsync.when(
-                      data: (sessions) => _buildKpiMetricsCard(
-                        finance: finance,
-                        isRouterOnline: isRouterOnline,
-                        connectedUsersCount: sessions.length,
-                        isLoadingSessions: false,
-                      ),
-                      loading: () => _buildKpiMetricsCard(
-                        finance: finance,
-                        isRouterOnline: isRouterOnline,
-                        connectedUsersCount: currentRouter?.activeHotspotSessions,
-                        isLoadingSessions: true,
-                      ),
-                      error: (_, _) => _buildKpiMetricsCard(
-                        finance: finance,
-                        isRouterOnline: isRouterOnline,
-                        connectedUsersCount: currentRouter?.activeHotspotSessions,
-                        isLoadingSessions: false,
-                      ),
-                    ),
-                    loading: () => const SizedBox(
-                      height: 80,
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                    error: (_, _) => _buildKpiMetricsCard(
-                      finance: null,
-                      isRouterOnline: isRouterOnline,
-                      connectedUsersCount: currentRouter?.activeHotspotSessions,
-                      isLoadingSessions: false,
-                    ),
+                  return _buildKpiMetricsCard(
+                    finance: finance,
+                    isRouterOnline: isRouterOnline,
+                    connectedUsersCount: connectedCount,
+                    isLoadingSessions: sessionsAsync.isLoading && connectedCount == null,
                   );
                 },
-                loading: () => const SizedBox(
-                  height: 80,
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-                error: (_, _) => _buildKpiMetricsCard(
-                  finance: null,
-                  isRouterOnline: false,
-                  connectedUsersCount: null,
-                  isLoadingSessions: false,
-                ),
+                loading: () {
+                  final cachedRouters = ref.read(localStorageProvider).getCachedRouters();
+                  final currentRouter = cachedRouters.isNotEmpty ? cachedRouters.first : null;
+                  return _buildKpiMetricsCard(
+                    finance: financeAsync.asData?.value,
+                    isRouterOnline: currentRouter?.isEffectiveOnline ?? false,
+                    connectedUsersCount: currentRouter?.activeHotspotSessions,
+                    isLoadingSessions: false,
+                  );
+                },
+                error: (_, _) {
+                  final cachedRouters = ref.read(localStorageProvider).getCachedRouters();
+                  final currentRouter = cachedRouters.isNotEmpty ? cachedRouters.first : null;
+                  return _buildKpiMetricsCard(
+                    finance: financeAsync.asData?.value,
+                    isRouterOnline: currentRouter?.isEffectiveOnline ?? false,
+                    connectedUsersCount: currentRouter?.activeHotspotSessions,
+                    isLoadingSessions: false,
+                  );
+                },
               ),
 
               const SizedBox(height: 20),
@@ -2606,19 +2805,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                   style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  'اضغط على إعداد الراوتر لتهيئة بيانات الربط عبر API أو REST',
+                  'اضغط على إضافة راوتر لربط جهاز MikroTik بحسابك مباشرة',
                   style: TextStyle(color: context.textSecondary, fontSize: 12),
                 ),
               ],
             ),
           ),
-          ElevatedButton(
-            onPressed: widget.onOpenRouterSetup,
+          ElevatedButton.icon(
+            onPressed: _showQuickAddRouterModal,
+            icon: const Icon(Icons.add_rounded, size: 18, color: Colors.white),
+            label: const Text('إضافة راوتر', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primary,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('تهيئة', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -2693,40 +2894,54 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             ),
           ),
           const SizedBox(width: 6),
-          // Online / Offline Status Badge
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: selected.isOnline
-                  ? Colors.green.withValues(alpha: 0.2)
-                  : Colors.red.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: _routerStatusVisuals(selected).color,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: _routerStatusVisuals(selected).accent,
-                    shape: BoxShape.circle,
+          // Online / Checking / Offline Status Badge
+          Builder(
+            builder: (context) {
+              final visuals = _routerStatusVisuals(selected);
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: visuals.color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: visuals.color,
                   ),
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  _routerStatusVisuals(selected).label,
-                  style: TextStyle(
-                    color: _routerStatusVisuals(selected).accent,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (visuals.isChecking) ...[
+                      SizedBox(
+                        width: 8,
+                        height: 8,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(visuals.accent),
+                        ),
+                      ),
+                    ] else ...[
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: visuals.accent,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(width: 6),
+                    Text(
+                      visuals.label,
+                      style: TextStyle(
+                        color: visuals.accent,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
           const SizedBox(width: 6),
           // Quick Add Router button
@@ -2889,31 +3104,63 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               ),
             ],
           ),
-          if (isOnline) ...[
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(
-                  router.lastVerifiedSource == 'LOCAL_LAN' || router.isPrivateLan
-                      ? Icons.lan_outlined
-                      : Icons.cloud_done_outlined,
-                  size: 13,
-                  color: const Color(0xFF10B981),
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  router.lastVerifiedSource == 'LOCAL_LAN' || router.isPrivateLan
-                      ? 'تحقق محلي عبر الشبكة (LAN)'
-                      : 'تحقق سحابي عبر الإنترنت',
-                  style: TextStyle(
-                    color: context.textSecondary,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w500,
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isOnline
+                        ? (router.lastVerifiedSource == 'LOCAL_LAN' || router.isPrivateLan
+                            ? Icons.lan_outlined
+                            : Icons.cloud_done_outlined)
+                        : Icons.wifi_off_outlined,
+                    size: 13,
+                    color: isOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444),
                   ),
-                ),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 5),
+                  Text(
+                    isOnline
+                        ? (router.lastVerifiedSource == 'LOCAL_LAN' || router.isPrivateLan
+                            ? 'تحقق محلي عبر الشبكة (LAN)'
+                            : 'تحقق سحابي عبر الإنترنت')
+                        : 'آخر اتصال ناجح: ${_formatIsoTimestamp(router.lastVerifiedAt)}',
+                    style: TextStyle(
+                      color: isOnline ? context.textSecondary : const Color(0xFFEF4444),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: isOnline ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    isOnline
+                        ? (_lastMetricsPollSuccessAt != null
+                            ? 'مباشر (${_formatPollTime(_lastMetricsPollSuccessAt!)})'
+                            : 'مباشر')
+                        : 'آخر فحص: ${_formatIsoTimestamp(router.localCheckedAt ?? router.cloudCheckedAt)}',
+                    style: TextStyle(
+                      color: isOnline ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
 
           // 3 Metric Gauges (CPU, RAM, DISK)
@@ -2977,7 +3224,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                   Expanded(
                     child: Text(
                       router.isPrivateLan
-                          ? 'الراوتر بعنوان LAN خاص (${router.host}). اضغط فحص الاتصال من شبكتك المحلية للتحقق وتحديث القراءات.'
+                          ? (router.lastError?.isNotEmpty == true
+                              ? 'انقطع الاتصال بالراوتر (${router.host}): ${router.lastError}. تأكد من تشغيل الجهاز واتصال هاتفك بنفس شبكة الواي فاي.'
+                              : 'الراوتر بعنوان LAN خاص (${router.host}) غير متصل حالياً. تأكد من تشغيل الجهاز واتصال هاتفك بنفس الشبكة ثم اضغط زر "فحص".')
                           : (router.lastError?.isNotEmpty == true
                               ? 'تعذر الاتصال بالراوتر: ${router.lastError}'
                               : 'الراوتر غير متصل حالياً بالخادم. قراءات المعالج والذاكرة غير متاحة لحظياً.'),
@@ -3159,6 +3408,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     required int? connectedUsersCount,
     required bool isLoadingSessions,
   }) {
+    if (finance != null) {
+      _lastKnownFinance = finance;
+    }
+    final effectiveFinance = finance ?? _lastKnownFinance;
+
     // 1. Reconcile server transactions with any local offline receipts for today
     final storage = ref.read(localStorageProvider);
     final now = DateTime.now();
@@ -3170,18 +3424,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     final localTodayRev = todayLocalSales.fold<double>(0.0, (acc, r) => acc + r.amount);
     final localTodayCount = todayLocalSales.length;
 
-    final baseRev = finance?.todayRevenue ?? 0.0;
+    final baseRev = effectiveFinance?.todayRevenue ?? 0.0;
     final totalRevenue = baseRev + localTodayRev;
-    final baseCount = finance?.todaySalesCount ?? 0;
+    final baseCount = effectiveFinance?.todaySalesCount ?? 0;
     final totalSalesCount = baseCount + localTodayCount;
-    final currency = finance?.currency ?? 'SDG';
+    final currency = effectiveFinance?.currency ?? 'SDG';
 
     // 2. Format connected users
     String connectedStr;
-    if (isLoadingSessions) {
-      connectedStr = '...';
+    if (!isRouterOnline) {
+      connectedStr = 'غير متصل';
     } else if (connectedUsersCount != null) {
       connectedStr = '$connectedUsersCount جهاز';
+    } else if (isLoadingSessions) {
+      connectedStr = '...';
     } else {
       connectedStr = '0 جهاز';
     }
@@ -3384,7 +3640,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         _navigateToRadar,
       ),
       _ActionItem(
-        'برمجة المايكروتيك',
+        'برمجة المايكروتك',
         Icons.settings_suggest_rounded,
         AppTheme.primary,
         _navigateToRouterProvisioning,

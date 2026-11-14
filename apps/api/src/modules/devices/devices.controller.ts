@@ -459,6 +459,29 @@ export class DevicesController {
     return this.devicesService.getRouterHotspotUsers(tenantId, id, currentUser);
   }
 
+  @Get(':id/local-credentials')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+  )
+  @ApiOperation({
+    summary: 'Get decrypted credentials for local LAN device direct operations',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Decrypted credentials for local LAN connection',
+  })
+  async getLocalCredentials(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() currentUser?: RequestUser,
+  ) {
+    return this.devicesService.getLocalCredentials(tenantId, id, currentUser);
+  }
+
   // ===========================================================================
   // Router Provisioning & Setup Wizard Endpoints
   // ===========================================================================

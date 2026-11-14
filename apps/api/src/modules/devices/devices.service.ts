@@ -1320,6 +1320,8 @@ export class DevicesService {
     cpuLoad: number | null;
     freeMemoryMb: number | null;
     totalMemoryMb: number | null;
+    diskFreeMb?: number | null;
+    diskTotalMb?: number | null;
     uptime: string | null;
     activeHotspotSessions: number;
     boardName: string | null;
@@ -1389,6 +1391,8 @@ export class DevicesService {
         cpuLoad: resource.cpuLoad,
         freeMemoryMb: Math.round(resource.freeMemory / (1024 * 1024)),
         totalMemoryMb: Math.round(resource.totalMemory / (1024 * 1024)),
+        diskFreeMb: resource.freeHdd ? Math.round(resource.freeHdd / (1024 * 1024)) : null,
+        diskTotalMb: resource.totalHdd ? Math.round(resource.totalHdd / (1024 * 1024)) : null,
         uptime: resource.uptime,
         activeHotspotSessions: activeSessions,
         boardName: resource.boardName || device.modelName || null,
@@ -1431,6 +1435,14 @@ export class DevicesService {
         totalMemoryMb:
           device.memoryTotal !== null && device.memoryTotal !== undefined
             ? Math.round(Number(device.memoryTotal) / (1024 * 1024))
+            : null,
+        diskFreeMb:
+          device.diskFree !== null && device.diskFree !== undefined
+            ? Math.round(Number(device.diskFree) / (1024 * 1024))
+            : null,
+        diskTotalMb:
+          device.diskTotal !== null && device.diskTotal !== undefined
+            ? Math.round(Number(device.diskTotal) / (1024 * 1024))
             : null,
         uptime: device.uptime ?? null,
         activeHotspotSessions: channel?.activeHotspotSessions ?? activeSessions,
@@ -2657,6 +2669,35 @@ export class DevicesService {
         message: `تعذر جلب كروت الهوتسبوت من الراوتر (${device.name})`,
       });
     }
+  }
+
+  /**
+   * Get decrypted credentials for local LAN device direct operations
+   */
+  async getLocalCredentials(
+    tenantId: string | undefined | null,
+    id: string,
+    currentUser?: RequestUser,
+  ) {
+    const device = await this.assertUserDeviceAccess(tenantId, id, currentUser);
+    let password = '';
+    if (device.passwordEncrypted && device.iv && device.authTag) {
+      password = this.encryptionService.decrypt(
+        device.passwordEncrypted,
+        device.iv,
+        device.authTag,
+      );
+    }
+
+    return {
+      host: device.host,
+      username: device.username,
+      password,
+      apiPort: device.apiPort,
+      restPort: device.restPort,
+      useSsl: device.useSsl,
+      rosVersion: device.rosVersion,
+    };
   }
 }
 

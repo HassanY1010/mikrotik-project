@@ -202,28 +202,73 @@ export class HotspotService {
     });
   }
 
-  async syncProfiles(tenantId: string, deviceId: string, currentUser?: RequestUser) {
+  async syncProfiles(
+    tenantId: string,
+    deviceId: string,
+    currentUser?: RequestUser,
+    clientProfiles?: any[],
+  ) {
     const device = await this.getValidDevice(tenantId, deviceId, currentUser);
 
-    const client = await this.mikrotikClientFactory.getClient({
-      id: device.id,
-      name: device.name,
-      host: device.host,
-      apiPort: device.apiPort,
-      restPort: device.restPort,
-      useSsl: device.useSsl,
-      username: device.username,
-      passwordEncrypted: device.passwordEncrypted,
-      iv: device.iv,
-      authTag: device.authTag,
-      rosVersion: device.rosVersion,
-    });
+    let routerProfiles: Array<{
+      name: string;
+      rateLimit?: string | null;
+      sessionTimeout?: string | null;
+      idleTimeout?: string | null;
+      keepaliveTimeout?: string | null;
+      sharedUsers?: number;
+      addressPool?: string | null;
+    }> = [];
 
-    const routerProfiles = await client.listHotspotProfiles();
-    this.logger.log(`Fetched ${routerProfiles.length} profiles from router ${device.host}`);
+    if (Array.isArray(clientProfiles) && clientProfiles.length > 0) {
+      // Profiles fetched directly by mobile client over local LAN
+      routerProfiles = clientProfiles
+        .map((p) => ({
+          name: (p.name || p['name'] || '').toString().trim(),
+          rateLimit: p['rate-limit'] || p.rateLimit || null,
+          sessionTimeout: p['session-timeout'] || p.sessionTimeout || null,
+          idleTimeout: p['idle-timeout'] || p.idleTimeout || null,
+          keepaliveTimeout: p['keepalive-timeout'] || p.keepaliveTimeout || null,
+          sharedUsers: Number(p['shared-users'] ?? p.sharedUsers ?? 1) || 1,
+          addressPool: p['address-pool'] || p.addressPool || null,
+        }))
+        .filter((p) => p.name.length > 0);
+    } else {
+      const client = await this.mikrotikClientFactory.getClient({
+        id: device.id,
+        name: device.name,
+        host: device.host,
+        apiPort: device.apiPort,
+        restPort: device.restPort,
+        useSsl: device.useSsl,
+        username: device.username,
+        passwordEncrypted: device.passwordEncrypted,
+        iv: device.iv,
+        authTag: device.authTag,
+        rosVersion: device.rosVersion,
+      });
+
+      const fetched = await client.listHotspotProfiles();
+      routerProfiles = fetched.map((rp) => ({
+        name: rp.name,
+        rateLimit: rp.rateLimit ?? null,
+        sessionTimeout: rp.sessionTimeout ?? null,
+        idleTimeout: rp.idleTimeout ?? null,
+        keepaliveTimeout: rp.keepaliveTimeout ?? null,
+        sharedUsers: rp.sharedUsers ?? 1,
+        addressPool: rp.addressPool ?? null,
+      }));
+    }
+
+    this.logger.log(`Syncing ${routerProfiles.length} profiles for router ${device.host}`);
 
     const synced = [];
+    const activeNames: string[] = [];
+
     for (const rp of routerProfiles) {
+      if (!rp.name) continue;
+      activeNames.push(rp.name);
+
       const profile = await this.prisma.hotspotProfile.upsert({
         where: {
           tenantId_deviceId_name: {
@@ -258,6 +303,17 @@ export class HotspotService {
         dataLimitGb: profile.dataLimitBytes
           ? Number((Number(profile.dataLimitBytes) / (1024 * 1024 * 1024)).toFixed(2))
           : null,
+      });
+    }
+
+    // Two-Way Sync Pruning: Remove any profiles in the database for this device that were deleted from the router
+    if (activeNames.length > 0) {
+      await this.prisma.hotspotProfile.deleteMany({
+        where: {
+          tenantId,
+          deviceId,
+          name: { notIn: activeNames },
+        },
       });
     }
 
@@ -461,6 +517,7 @@ export class HotspotService {
     deviceId: string,
     profileId: string,
     currentUser?: RequestUser,
+    syncToRouter: boolean = true,
   ) {
     const device = await this.getValidDevice(tenantId, deviceId, currentUser);
 
@@ -475,8 +532,22 @@ export class HotspotService {
       });
     }
 
-    // Remove from MikroTik (only if router is online and cloud-reachable)
-    if (device.isOnline && !DevicesService?.isLocalOnlyPrivateLan?.(device.id)) {
+    // If syncToRouter is enabled, enforce that the profile is actually deleted on MikroTik first!
+    if (syncToRouter) {
+      if (DevicesService?.isLocalOnlyPrivateLan?.(device.id)) {
+        throw new BadGatewayException({
+          code: 'ROUTER_LOCAL_LAN_REQUIRED',
+          message: 'الراوتر متصل عبر شبكة محلية خاصة (Private LAN). يجب إتمام عملية الحذف من تطبيق الهاتف عبر الشبكة المحلية لضمان حذفه من الراوتر أولاً.',
+        });
+      }
+
+      if (!device.isOnline) {
+        throw new BadGatewayException({
+          code: 'ROUTER_OFFLINE',
+          message: 'تعذر حذف البروفايل: الراوتر غير متصل حالياً. يجب أن يكون الراوتر متصلاً لحذف البروفايل منه أولاً، ولن يتم حذفه من التطبيق لضمان التطابق.',
+        });
+      }
+
       try {
         const client = await this.mikrotikClientFactory.getClient({
           id: device.id,
@@ -493,21 +564,28 @@ export class HotspotService {
         });
 
         await client.deleteHotspotProfile(profile.name);
-      } catch (err) {
+      } catch (err: any) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`Could not delete profile on physical router: ${msg}`);
-        // If deleted on router already or router unreachable, still allow removing from DB
+        this.logger.error(`Failed to delete profile "${profile.name}" on router: ${msg}`);
+        throw new BadGatewayException({
+          code: 'ROUTER_DELETE_FAILED',
+          message: `فشل حذف البروفايل من راوتر MikroTik (${msg}). تم إلغاء العملية ولم يُحذف البروفايل من قاعدة البيانات لضمان تطابق البيانات.`,
+        });
       }
     }
 
+    // Only delete from DB once router deletion succeeded or was already confirmed
     await this.prisma.hotspotProfile.delete({
       where: { id: profileId },
     });
 
-    return { success: true, message: `Profile "${profile.name}" removed successfully` };
+    return {
+      success: true,
+      message: `تم حذف البروفايل "${profile.name}" بنجاح من الراوتر وقاعدة البيانات`,
+    };
   }
 
-  async deleteTenantProfile(tenantId: string, profileId: string) {
+  async deleteTenantProfile(tenantId: string, profileId: string, syncToRouter: boolean = true) {
     const profile = await this.prisma.hotspotProfile.findFirst({
       where: { id: profileId, tenantId },
     });
@@ -517,7 +595,7 @@ export class HotspotService {
         message: 'الباقة غير موجودة',
       });
     }
-    return this.deleteProfile(tenantId, profile.deviceId, profileId);
+    return this.deleteProfile(tenantId, profile.deviceId, profileId, undefined, syncToRouter);
   }
 
   async updateTenantProfile(tenantId: string, profileId: string, dto: UpdateProfileDto) {
