@@ -691,7 +691,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
       final host = _hostController.text.trim();
       final user = _userController.text.trim();
-      final pass = _passController.text.trim();
+      var pass = _passController.text.trim();
       final isPrivateIp = host.startsWith('192.168.') ||
           host.startsWith('10.') ||
           host.startsWith('172.16.') ||
@@ -700,6 +700,39 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
           host.startsWith('172.19.') ||
           host.startsWith('172.2') ||
           host.startsWith('172.3');
+
+      // Check session memory and local-credentials if password field is currently blank
+      if (pass.isEmpty && _selectedDeviceId != null) {
+        final sessionPass = ref.read(routersProvider.notifier).getSessionPassword(_selectedDeviceId!);
+        if (sessionPass != null && sessionPass.isNotEmpty) {
+          pass = sessionPass;
+          _passController.text = pass;
+        } else {
+          try {
+            final credRes = await ref.read(apiClientProvider).get('/devices/$_selectedDeviceId/local-credentials');
+            final credData = unwrapApiEnvelope(credRes.data);
+            if (credData['password'] != null) {
+              pass = credData['password'].toString();
+              _passController.text = pass;
+              ref.read(routersProvider.notifier).cacheSessionPassword(_selectedDeviceId!, pass);
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Prompt for password if still empty on private LAN router
+      if (isPrivateIp && pass.isEmpty) {
+        final entered = await _showPasswordPromptDialog(context, host);
+        if (entered != null && entered.trim().isNotEmpty) {
+          pass = entered.trim();
+          _passController.text = pass;
+          if (_selectedDeviceId != null) {
+            ref.read(routersProvider.notifier).cacheSessionPassword(_selectedDeviceId!, pass);
+          }
+        } else {
+          throw Exception('الراوتر بعنوان شبكة محلية خاصة ($host)، يلزم توفر كلمة المرور لاستكشاف منافذه وشبكته محلياً عبر هاتفك.');
+        }
+      }
 
       // 1. If Private IP AND password is provided locally, discover from phone (supports REST & Binary API 8728)
       if (isPrivateIp && pass.isNotEmpty) {

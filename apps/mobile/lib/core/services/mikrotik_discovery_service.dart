@@ -717,10 +717,10 @@ class MikrotikDiscoveryService {
         Future<dynamic> fetchEndpoint(String endpoint) async {
           try {
             final uri = Uri.parse('$scheme://$host:$port/rest$endpoint');
-            final req = await client!.getUrl(uri).timeout(const Duration(seconds: 5));
+            final req = await client!.getUrl(uri).timeout(const Duration(seconds: 3));
             req.headers.set('Authorization', authHeader);
             req.headers.set('Accept', 'application/json');
-            final res = await req.close().timeout(const Duration(seconds: 5));
+            final res = await req.close().timeout(const Duration(seconds: 3));
             if (res.statusCode == 200) {
               final body = await res.transform(utf8.decoder).join();
               if (body.trim().isNotEmpty) {
@@ -736,9 +736,16 @@ class MikrotikDiscoveryService {
           return null;
         }
 
+        // Fast probe: check if REST is responsive on this scheme/port before fanout
+        final initialTest = await fetchEndpoint('/system/resource');
+        if (initialTest == null || initialTest is! Map) {
+          // REST is disabled, unsupported, or blocked on this port; break early to Binary API
+          continue;
+        }
+
         // Query comprehensive router state in parallel
         final results = await Future.wait([
-          fetchEndpoint('/system/resource'),
+          Future.value(initialTest),
           fetchEndpoint('/interface'),
           fetchEndpoint('/interface/bridge'),
           fetchEndpoint('/interface/bridge/port'),
@@ -1477,10 +1484,10 @@ class MikrotikDiscoveryService {
         req.headers.set('Authorization', 'Basic ${base64Encode(utf8.encode('$username:$password'))}');
         final res = await req.close().timeout(const Duration(seconds: 6));
         if (res.statusCode == 200) {
-          final bytes = await res.fold<List<int>>([], (acc, chunk) => acc..addAll(chunk));
-          if (bytes.isNotEmpty && !utf8.decode(bytes, allowMalformed: true).contains('<!DOCTYPE html>')) {
-            await localFile.writeAsBytes(bytes);
-            client.close(force: true);
+          final sink = localFile.openWrite();
+          await res.pipe(sink);
+          client.close(force: true);
+          if (await localFile.exists() && await localFile.length() > 0) {
             return localFile;
           }
         }
@@ -2239,7 +2246,10 @@ class MikrotikDiscoveryService {
       await client.connect();
       await client.login(username, password);
 
-      final files = await client.sendCommand(['/file/print']);
+      final files = await client.sendCommand([
+        '/file/print',
+        '=.proplist=name,size,creation-time',
+      ]);
       final results = <Map<String, dynamic>>[];
       for (final f in files) {
         final name = f['name'] ?? '';
@@ -2300,7 +2310,10 @@ class MikrotikDiscoveryService {
       int size = 0;
       String creationTime = '';
       try {
-        final files = await client.sendCommand(['/file/print']);
+        final files = await client.sendCommand([
+        '/file/print',
+        '=.proplist=name,size,creation-time',
+      ]);
         for (final f in files) {
           final n = f['name'] ?? '';
           if (n == expectedFilename || n.endsWith('/$expectedFilename')) {
@@ -2463,14 +2476,15 @@ class MikrotikDiscoveryService {
     }
   }
 
-  /// Fetches live Hotspot users currently stored in MikroTik router memory (/ip/hotspot/user/print)
-  Future<List<Map<String, String>>> fetchRouterHotspotUsersLocally({
+  /// Fetches total count of live Hotspot users in MikroTik router memory (/ip/hotspot/user/print =count-only=)
+  /// Extremely fast (<5ms) and uses ~30 bytes of wire data, preventing main-thread ANR.
+  Future<int> fetchRouterHotspotUsersCountLocally({
     required String host,
     required String username,
     required String password,
     int port = 8728,
     bool useSsl = false,
-    Duration timeout = const Duration(seconds: 8),
+    Duration timeout = const Duration(seconds: 4),
   }) async {
     final client = _LocalMikrotikBinaryApiClient(host: host, port: port, useSsl: useSsl);
     try {
@@ -2479,7 +2493,51 @@ class MikrotikDiscoveryService {
       if (!authOk) {
         throw _LocalBinaryAuthException('فشل الاتصال: اسم المستخدم أو كلمة المرور للراوتر غير صحيحة.');
       }
-      final users = await client.sendCommand(['/ip/hotspot/user/print']);
+      final replies = await client._writeAndReadSentences(
+        ['/ip/hotspot/user/print', '=count-only='],
+        timeout: timeout,
+      );
+      for (final s in replies) {
+        if (s.isNotEmpty && s.first == '!done') {
+          final attrs = client._parseAttrs(s);
+          final ret = int.tryParse(attrs['ret']?.toString() ?? '');
+          if (ret != null) return ret;
+        }
+      }
+      return 0;
+    } finally {
+      await client.close();
+    }
+  }
+
+  /// Fetches live Hotspot users currently stored in MikroTik router memory (/ip/hotspot/user/print)
+  Future<List<Map<String, String>>> fetchRouterHotspotUsersLocally({
+    required String host,
+    required String username,
+    required String password,
+    int port = 8728,
+    bool useSsl = false,
+    Duration timeout = const Duration(seconds: 8),
+    int? maxLimit,
+    String? searchQuery,
+  }) async {
+    final client = _LocalMikrotikBinaryApiClient(host: host, port: port, useSsl: useSsl);
+    try {
+      await client.connect(timeout: timeout);
+      final authOk = await client.login(username, password);
+      if (!authOk) {
+        throw _LocalBinaryAuthException('فشل الاتصال: اسم المستخدم أو كلمة المرور للراوتر غير صحيحة.');
+      }
+      final words = <String>[
+        '/ip/hotspot/user/print',
+        '=.proplist=.id,name,profile,comment,email,disabled,uptime,bytes-in,bytes-out,limit-uptime',
+        if (searchQuery != null && searchQuery.trim().isNotEmpty)
+          '?name=${searchQuery.trim()}',
+      ];
+      final users = await client.sendCommand(words, maxReplies: maxLimit);
+      if (maxLimit != null && users.length > maxLimit) {
+        return users.sublist(0, maxLimit);
+      }
       return users;
     } finally {
       await client.close();
@@ -2543,21 +2601,21 @@ class _LocalMikrotikBinaryApiClient {
   }
 
   void _drainFrames() {
-    while (true) {
-      final bytes = _buffer.toBytes();
-      if (bytes.isEmpty) return;
+    final bytes = _buffer.toBytes();
+    if (bytes.isEmpty) return;
 
-      final decoded = _tryDecodeLength(bytes);
-      if (decoded == null) return; // wait for more bytes
+    var offset = 0;
+    while (offset < bytes.length) {
+      final decoded = _tryDecodeLengthAt(bytes, offset);
+      if (decoded == null) break; // wait for more bytes
 
       final headerLen = decoded.headerBytes;
       final wordLen = decoded.length;
-      if (bytes.length < headerLen + wordLen) return; // partial word
+      if (bytes.length < offset + headerLen + wordLen) break; // partial word
 
-      final wordBytes = bytes.sublist(headerLen, headerLen + wordLen);
-      final remaining = bytes.sublist(headerLen + wordLen);
-      _buffer.clear();
-      if (remaining.isNotEmpty) _buffer.add(remaining);
+      final wordStart = offset + headerLen;
+      final wordEnd = wordStart + wordLen;
+      offset = wordEnd;
 
       if (wordLen == 0) {
         final sentence = List<String>.from(_currentSentence);
@@ -2566,33 +2624,43 @@ class _LocalMikrotikBinaryApiClient {
           _sentenceController.add(sentence);
         }
       } else {
-        _currentSentence.add(utf8.decode(wordBytes, allowMalformed: true));
+        _currentSentence.add(utf8.decode(bytes.sublist(wordStart, wordEnd), allowMalformed: true));
       }
+    }
+
+    _buffer.clear();
+    if (offset < bytes.length) {
+      _buffer.add(bytes.sublist(offset));
     }
   }
 
-  ({int length, int headerBytes})? _tryDecodeLength(Uint8List b) {
-    final c = b[0];
+  ({int length, int headerBytes})? _tryDecodeLengthAt(Uint8List b, int offset) {
+    if (offset >= b.length) return null;
+    final c = b[offset];
     if ((c & 0x80) == 0) {
       return (length: c, headerBytes: 1);
     }
     if ((c & 0xC0) == 0x80) {
-      if (b.length < 2) return null;
-      return (length: ((c & ~0x80) << 8) + b[1], headerBytes: 2);
+      if (b.length < offset + 2) return null;
+      return (length: ((c & ~0x80) << 8) + b[offset + 1], headerBytes: 2);
     }
     if ((c & 0xE0) == 0xC0) {
-      if (b.length < 3) return null;
-      return (length: ((c & ~0xC0) << 16) + (b[1] << 8) + b[2], headerBytes: 3);
+      if (b.length < offset + 3) return null;
+      return (length: ((c & ~0xC0) << 16) + (b[offset + 1] << 8) + b[offset + 2], headerBytes: 3);
     }
     if ((c & 0xF0) == 0xE0) {
-      if (b.length < 4) return null;
-      return (length: ((c & ~0xE0) << 24) + (b[1] << 16) + (b[2] << 8) + b[3], headerBytes: 4);
+      if (b.length < offset + 4) return null;
+      return (length: ((c & ~0xE0) << 24) + (b[offset + 1] << 16) + (b[offset + 2] << 8) + b[offset + 3], headerBytes: 4);
     }
-    if (b.length < 5) return null;
+    if (b.length < offset + 5) return null;
     return (
-      length: (b[1] << 24) + (b[2] << 16) + (b[3] << 8) + b[4],
+      length: (b[offset + 1] << 24) + (b[offset + 2] << 16) + (b[offset + 3] << 8) + b[offset + 4],
       headerBytes: 5,
     );
+  }
+
+  ({int length, int headerBytes})? _tryDecodeLength(Uint8List b) {
+    return _tryDecodeLengthAt(b, 0);
   }
 
   Uint8List _encodeRawWord(Object word) {
@@ -2620,26 +2688,34 @@ class _LocalMikrotikBinaryApiClient {
   Future<List<List<String>>> _writeAndReadSentences(
     List<String> words, {
     Duration timeout = const Duration(seconds: 6),
+    int? maxReplies,
   }) async {
-    return _writeAndReadRawSentences(words, timeout: timeout);
+    return _writeAndReadRawSentences(words, timeout: timeout, maxReplies: maxReplies);
   }
 
   Future<List<List<String>>> _writeAndReadRawSentences(
     List<Object> words, {
     Duration timeout = const Duration(seconds: 12),
+    int? maxReplies,
   }) async {
     final sock = _socket;
     if (sock == null) throw StateError('Socket not connected');
 
     final replies = <List<String>>[];
     final doneCompleter = Completer<void>();
+    int reCount = 0;
 
     late StreamSubscription<List<String>> listener;
     listener = _sentenceController.stream.listen(
       (sentence) {
         replies.add(sentence);
         final tag = sentence.isNotEmpty ? sentence.first : '';
-        if (tag == '!done' || tag == '!fatal') {
+        if (tag == '!re') {
+          reCount++;
+          if (maxReplies != null && reCount >= maxReplies) {
+            if (!doneCompleter.isCompleted) doneCompleter.complete();
+          }
+        } else if (tag == '!done' || tag == '!fatal') {
           if (!doneCompleter.isCompleted) doneCompleter.complete();
         }
       },
@@ -2734,8 +2810,11 @@ class _LocalMikrotikBinaryApiClient {
     return gotDone;
   }
 
-  Future<List<Map<String, String>>> sendCommand(List<String> words) async {
-    final replies = await _writeAndReadSentences(words);
+  Future<List<Map<String, String>>> sendCommand(
+    List<String> words, {
+    int? maxReplies,
+  }) async {
+    final replies = await _writeAndReadSentences(words, maxReplies: maxReplies);
     final rows = <Map<String, String>>[];
     for (final s in replies) {
       if (s.isEmpty) continue;
@@ -2752,8 +2831,9 @@ class _LocalMikrotikBinaryApiClient {
   Future<List<Map<String, String>>> sendRawCommand(
     List<Object> words, {
     Duration timeout = const Duration(seconds: 15),
+    int? maxReplies,
   }) async {
-    final replies = await _writeAndReadRawSentences(words, timeout: timeout);
+    final replies = await _writeAndReadRawSentences(words, timeout: timeout, maxReplies: maxReplies);
     final rows = <Map<String, String>>[];
     for (final s in replies) {
       if (s.isEmpty) continue;

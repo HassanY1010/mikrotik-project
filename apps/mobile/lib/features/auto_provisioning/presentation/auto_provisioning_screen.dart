@@ -244,6 +244,16 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
         final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
         String pass = ref.read(routersProvider.notifier).getSessionPassword(deviceId) ?? '';
         if (pass.isEmpty) {
+          try {
+            final credRes = await ref.read(apiClientProvider).get('/devices/$deviceId/local-credentials');
+            final credData = unwrapApiEnvelope(credRes.data);
+            if (credData['password'] != null) {
+              pass = credData['password'].toString();
+              ref.read(routersProvider.notifier).cacheSessionPassword(deviceId, pass);
+            }
+          } catch (_) {}
+        }
+        if (pass.isEmpty) {
           final entered = await _showPasswordPromptDialog(context, host);
           if (entered != null && entered.trim().isNotEmpty) {
             pass = entered.trim();
@@ -251,27 +261,29 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
           }
         }
 
-        if (pass.isNotEmpty) {
-          try {
-            final snapshot = await discoveryService.discoverLocally(
-              host: host,
-              username: currentRouter.username,
-              password: pass,
-              apiPort: currentRouter.apiPort,
-              restPort: currentRouter.restPort,
-              rosVersion: currentRouter.rosVersion,
-              useSsl: currentRouter.useSsl,
-            );
-            clientSnapshot = snapshot.toJson();
-          } catch (localErr) {
-            final errStr = localErr.toString();
-            if (errStr.contains('SocketException') || errStr.contains('Connection refused') || errStr.contains('timed out')) {
-              throw Exception('تعذر الوصول إلى الراوتر ($host) عبر الشبكة المحلية. يرجى التأكد من اتصال هاتفك بنفس شبكة الواي فاي للراوتر.');
-            } else if (errStr.contains('بيانات تسجيل الدخول') || errStr.contains('401') || errStr.contains('Auth')) {
-              throw Exception('بيانات تسجيل الدخول غير صحيحة. يرجى التأكد من اسم المستخدم وكلمة المرور للراوتر.');
-            } else {
-              throw Exception('فشل الاكتشاف المحلي عبر منفذ API (8728): $errStr');
-            }
+        if (pass.isEmpty) {
+          throw Exception('الراوتر بعنوان شبكة محلية خاصة ($host)، يلزم توفر كلمة المرور لاستكشافه وبرمجته محلياً عبر هاتفك.');
+        }
+
+        try {
+          final snapshot = await discoveryService.discoverLocally(
+            host: host,
+            username: currentRouter.username,
+            password: pass,
+            apiPort: currentRouter.apiPort,
+            restPort: currentRouter.restPort,
+            rosVersion: currentRouter.rosVersion,
+            useSsl: currentRouter.useSsl,
+          );
+          clientSnapshot = snapshot.toJson();
+        } catch (localErr) {
+          final errStr = localErr.toString();
+          if (errStr.contains('SocketException') || errStr.contains('Connection refused') || errStr.contains('timed out')) {
+            throw Exception('تعذر الوصول إلى الراوتر ($host) عبر الشبكة المحلية. يرجى التأكد من اتصال هاتفك بنفس شبكة الواي فاي للراوتر.');
+          } else if (errStr.contains('بيانات تسجيل الدخول') || errStr.contains('401') || errStr.contains('Auth')) {
+            throw Exception('بيانات تسجيل الدخول غير صحيحة. يرجى التأكد من اسم المستخدم وكلمة المرور للراوتر.');
+          } else {
+            throw Exception('فشل الاكتشاف المحلي عبر الشبكة ($host): $errStr');
           }
         }
       }

@@ -25,6 +25,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
   final Set<String> _selectedCardIds = {};
   bool _isDeleting = false;
   bool _isActivating = false;
+  int _visibleRouterCardsCount = 50;
 
   final List<Map<String, String>> _statusFilters = [
     {'key': 'ALL', 'label': 'الكل'},
@@ -218,6 +219,12 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 350), () {
       if (mounted) {
+        if (_selectedStatus == 'ROUTER') {
+          setState(() {
+            _visibleRouterCardsCount = 50;
+          });
+          return;
+        }
         ref.read(cardsInventoryProvider.notifier).loadInventory(
               search: value.trim(),
               status: _selectedStatus,
@@ -231,6 +238,12 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
   void _clearSearch() {
     _searchController.clear();
     _debounceTimer?.cancel();
+    if (_selectedStatus == 'ROUTER') {
+      setState(() {
+        _visibleRouterCardsCount = 50;
+      });
+      return;
+    }
     ref.read(cardsInventoryProvider.notifier).loadInventory(
           search: '',
           status: _selectedStatus,
@@ -243,7 +256,11 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     if (_selectedStatus == statusKey) return;
     setState(() {
       _selectedStatus = statusKey;
+      _visibleRouterCardsCount = 50;
     });
+    if (statusKey == 'ROUTER') {
+      ref.read(routerHotspotCardsProvider.notifier).refresh(fullDetails: true);
+    }
     ref.read(cardsInventoryProvider.notifier).loadInventory(
           search: _searchController.text.trim(),
           status: statusKey,
@@ -1152,7 +1169,38 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
       final routerCardsAsync = ref.watch(routerHotspotCardsProvider);
       return routerCardsAsync.when(
         data: (rCards) {
-          if (rCards.isEmpty) {
+          final query = _searchController.text.trim().toLowerCase();
+          final filtered = query.isEmpty
+              ? rCards
+              : rCards.where((c) {
+                  final name = (c['name'] ?? '').toString().toLowerCase();
+                  final prof = (c['profile'] ?? '').toString().toLowerCase();
+                  final comm = (c['comment'] ?? '').toString().toLowerCase();
+                  return name.contains(query) || prof.contains(query) || comm.contains(query);
+                }).toList();
+
+          if (filtered.isEmpty) {
+            if (query.isNotEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.search_off_rounded, size: 52, color: Color(0xFF64748B)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'لم يتم العثور على كروت في الراوتر تطابق "$query"',
+                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                    ),
+                    const SizedBox(height: 14),
+                    OutlinedButton.icon(
+                      onPressed: _clearSearch,
+                      icon: const Icon(Icons.clear, size: 16),
+                      label: const Text('مسح البحث'),
+                    ),
+                  ],
+                ),
+              );
+            }
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1170,7 +1218,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                   ),
                   const SizedBox(height: 14),
                   ElevatedButton.icon(
-                    onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(),
+                    onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(fullDetails: true),
                     icon: const Icon(Icons.refresh, size: 16),
                     label: const Text('تحديث كروت الراوتر'),
                   ),
@@ -1178,78 +1226,148 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
               ),
             );
           }
-          return ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            itemCount: rCards.length,
-            itemBuilder: (ctx, idx) {
-              final rCard = rCards[idx];
-              final name = rCard['name']?.toString() ?? 'بدون اسم';
-              final prof = rCard['profile']?.toString() ?? 'default';
-              final comm = rCard['comment']?.toString() ?? '';
-              final email = rCard['email']?.toString() ?? '';
-              final disabled = rCard['disabled'] == true || rCard['disabled'] == 'true';
 
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: disabled
-                        ? Colors.red.withValues(alpha: 0.15)
-                        : Colors.green.withValues(alpha: 0.15),
-                    child: Icon(
-                      Icons.memory_rounded,
-                      color: disabled ? Colors.red : Colors.green,
-                      size: 20,
-                    ),
-                  ),
-                  title: Row(
-                    children: [
-                      Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          prof,
-                          style: const TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: comm.isNotEmpty
-                      ? Text(
-                          comm,
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        )
-                      : (email.isNotEmpty
-                          ? Text(email, style: const TextStyle(fontSize: 11, color: Colors.grey))
-                          : null),
-                  trailing: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: disabled
-                          ? Colors.red.withValues(alpha: 0.1)
-                          : Colors.green.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      disabled ? 'معطل' : 'نشط بالراوتر',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: disabled ? Colors.red : Colors.green,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+          final displayCount = filtered.length > _visibleRouterCardsCount
+              ? _visibleRouterCardsCount
+              : filtered.length;
+          final hasMore = filtered.length > _visibleRouterCardsCount;
+
+          return Column(
+            children: [
+              // Info summary bar
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
                 ),
-              );
-            },
+                child: Row(
+                  children: [
+                    const Icon(Icons.memory_rounded, size: 18, color: AppTheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'كروت الراوتر: ${filtered.length} كرت${query.isNotEmpty ? ' (تصفية)' : ''} | المعروض: $displayCount',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primary),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.refresh, size: 18, color: AppTheme.primary),
+                      tooltip: 'تحديث من الراوتر',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(fullDetails: true),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  itemCount: displayCount + (hasMore ? 1 : 0),
+                  itemBuilder: (ctx, idx) {
+                    if (idx == displayCount) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _visibleRouterCardsCount += 50;
+                                });
+                              },
+                              icon: const Icon(Icons.expand_more, size: 18),
+                              label: Text('عرض المزيد (+50) - المتبقي: ${filtered.length - displayCount}'),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton(
+                              onPressed: () {
+                                setState(() {
+                                  _visibleRouterCardsCount = filtered.length;
+                                });
+                              },
+                              child: const Text('عرض الكل'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    final rCard = filtered[idx];
+                    final name = rCard['name']?.toString() ?? 'بدون اسم';
+                    final prof = rCard['profile']?.toString() ?? 'default';
+                    final comm = rCard['comment']?.toString() ?? '';
+                    final email = rCard['email']?.toString() ?? '';
+                    final disabled = rCard['disabled'] == true || rCard['disabled'] == 'true';
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: disabled
+                              ? Colors.red.withValues(alpha: 0.15)
+                              : Colors.green.withValues(alpha: 0.15),
+                          child: Icon(
+                            Icons.memory_rounded,
+                            color: disabled ? Colors.red : Colors.green,
+                            size: 20,
+                          ),
+                        ),
+                        title: Row(
+                          children: [
+                            Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primary.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                prof,
+                                style: const TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                        subtitle: comm.isNotEmpty
+                            ? Text(
+                                comm,
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              )
+                            : (email.isNotEmpty
+                                ? Text(email, style: const TextStyle(fontSize: 11, color: Colors.grey))
+                                : null),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: disabled
+                                ? Colors.red.withValues(alpha: 0.1)
+                                : Colors.green.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            disabled ? 'معطل' : 'نشط بالراوتر',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: disabled ? Colors.red : Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -1262,7 +1380,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
               Text('تعذر جلب كروت الراوتر: $err', textAlign: TextAlign.center),
               const SizedBox(height: 12),
               ElevatedButton(
-                onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(),
+                onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(fullDetails: true),
                 child: const Text('إعادة المحاولة'),
               ),
             ],

@@ -134,13 +134,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         }
       }
 
-      // Refresh Active Hotspot Users, Card inventory & Financial report every other cycle (every ~10s)
+      // Refresh Active Hotspot Users, Card inventory & Financial report concurrently every other cycle (every ~10s)
       if (_pollCycleCounter % 2 == 0 || _lastMetricsPollSuccessAt == null) {
-        await ref.read(activeSessionsProvider.notifier).refresh();
-        await ref.read(financialReportProvider.notifier).refresh();
-        ref.read(cardsInventoryProvider.notifier).refresh();
-        ref.read(offlineCardsProvider.notifier).refresh();
-        ref.read(routerHotspotCardsProvider.notifier).refresh();
+        await Future.wait([
+          ref.read(activeSessionsProvider.notifier).refresh(),
+          ref.read(financialReportProvider.notifier).refresh(),
+          ref.read(cardsInventoryProvider.notifier).refresh(),
+          ref.read(offlineCardsProvider.notifier).refresh(),
+          ref.read(routerHotspotCardsProvider.notifier).refresh(),
+        ]);
       }
     } catch (err) {
       debugPrint('Dashboard live polling tick warning: $err');

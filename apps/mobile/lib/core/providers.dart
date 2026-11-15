@@ -813,6 +813,37 @@ final selectedRouterIdProvider = NotifierProvider<SelectedRouterNotifier, String
   SelectedRouterNotifier.new,
 );
 
+/// Per-router synchronization lock and timestamp fence preventing duplicate sockets and stale data
+class RouterSyncCoordinator {
+  static final Map<String, bool> _activeLocks = {};
+  static final Map<String, int> _lastCompletedTimestamps = {};
+
+  static bool isLocked(String deviceId) => _activeLocks[deviceId] == true;
+
+  static Future<T?> runLocked<T>(String deviceId, Future<T?> Function() action) async {
+    if (_activeLocks[deviceId] == true) {
+      debugPrint('[RouterSyncCoordinator] Skipped overlapping sync for device $deviceId');
+      return null;
+    }
+    _activeLocks[deviceId] = true;
+    try {
+      return await action();
+    } finally {
+      _activeLocks[deviceId] = false;
+    }
+  }
+
+  static void recordCompleted(String deviceId, int timestampMs) {
+    _lastCompletedTimestamps[deviceId] = timestampMs;
+  }
+
+  static bool isStale(String deviceId, int startedAtMs) {
+    final last = _lastCompletedTimestamps[deviceId];
+    if (last == null) return false;
+    return startedAtMs < last;
+  }
+}
+
 // Routers List AsyncNotifier
 class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
   bool _isUsingCachedData = false;
@@ -1028,39 +1059,17 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         'lastError': verificationResult['message'].toString(),
     };
 
-    try {
-      final apiClient = ref.read(apiClientProvider);
-      final res = await apiClient.post(
-        ApiEndpoints.deviceLocalTelemetry(deviceId),
-        data: payload,
-      );
-      final unwrapped = unwrapApiEnvelope(res.data);
-      if (unwrapped['id'] != null) {
-        final updatedModel = RouterDeviceModel.fromJson(unwrapped);
-        final currentList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
-        final idx = currentList.indexWhere((r) => r.id == updatedModel.id);
-        if (idx >= 0) {
-          currentList[idx] = updatedModel;
-        } else {
-          currentList.insert(0, updatedModel);
-        }
-        state = AsyncValue.data(currentList);
-        await ref.read(localStorageProvider).saveCachedRouters(currentList);
-        return updatedModel;
-      }
-    } catch (_) {
-      // Best-effort local optimistic update if backend telemetry upload is offline
-    }
-
+    // 1. Optimistic immediate local state update so Flutter UI never blocks on cloud round-trip
     final existingList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
     final idx = existingList.indexWhere((r) => r.id == deviceId);
+    RouterDeviceModel? localUpdatedModel;
     if (idx >= 0) {
       final existing = existingList[idx];
       final memFree = toInt(routerInfo['memoryFree']);
       final memTotal = toInt(routerInfo['memoryTotal']);
       final diskFree = toInt(routerInfo['diskFree']);
       final diskTotal = toInt(routerInfo['diskTotal']);
-      final updatedModel = existing.copyWith(
+      localUpdatedModel = existing.copyWith(
         isOnline: isSuccess,
         status: isSuccess
             ? 'ONLINE'
@@ -1074,190 +1083,232 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         lastVerifiedSource: isSuccess ? 'LOCAL_LAN' : existing.lastVerifiedSource,
         lastVerifiedAt: isSuccess ? payload['verifiedAt']?.toString() : existing.lastVerifiedAt,
         localCheckedAt: payload['verifiedAt']?.toString(),
-        cpuLoad: isSuccess ? (toInt(routerInfo['cpuLoad']) ?? existing.cpuLoad) : existing.cpuLoad,
-        memoryFreeMb: isSuccess && memFree != null ? (memFree / (1024 * 1024)).round() : existing.memoryFreeMb,
-        memoryTotalMb: isSuccess && memTotal != null ? (memTotal / (1024 * 1024)).round() : existing.memoryTotalMb,
-        diskFreeMb: isSuccess && diskFree != null ? (diskFree / (1024 * 1024)).round() : existing.diskFreeMb,
-        diskTotalMb: isSuccess && diskTotal != null ? (diskTotal / (1024 * 1024)).round() : existing.diskTotalMb,
-        uptime: isSuccess ? (routerInfo['uptime']?.toString() ?? existing.uptime) : existing.uptime,
+        cpuLoad: isSuccess ? (toInt(routerInfo['cpuLoad']) ?? existing.cpuLoad) : null,
+        memoryFreeMb: isSuccess && memFree != null ? (memFree / (1024 * 1024)).round() : (isSuccess ? existing.memoryFreeMb : null),
+        memoryTotalMb: isSuccess && memTotal != null ? (memTotal / (1024 * 1024)).round() : (isSuccess ? existing.memoryTotalMb : null),
+        diskFreeMb: isSuccess && diskFree != null ? (diskFree / (1024 * 1024)).round() : (isSuccess ? existing.diskFreeMb : null),
+        diskTotalMb: isSuccess && diskTotal != null ? (diskTotal / (1024 * 1024)).round() : (isSuccess ? existing.diskTotalMb : null),
+        uptime: isSuccess ? (routerInfo['uptime']?.toString() ?? existing.uptime) : 'غير متصل',
         modelName: isSuccess
             ? ((routerInfo['modelName'] ?? routerInfo['model'])?.toString() ?? existing.modelName)
             : existing.modelName,
         activeHotspotSessions: isSuccess
             ? (toInt(routerInfo['activeHotspotSessions']) ?? existing.activeHotspotSessions)
-            : existing.activeHotspotSessions,
+            : 0,
         lastError: isSuccess ? null : verificationResult['message']?.toString(),
         clearLastError: isSuccess,
+        clearMetrics: !isSuccess,
       );
-      existingList[idx] = updatedModel;
+      existingList[idx] = localUpdatedModel;
       state = AsyncValue.data(existingList);
-      await ref.read(localStorageProvider).saveCachedRouters(existingList);
-      return updatedModel;
+      ref.read(localStorageProvider).saveCachedRouters(existingList);
     }
-    return null;
+
+    // 2. Non-blocking asynchronous cloud sync (fire & sync without stalling UI)
+    Future.microtask(() async {
+      try {
+        final apiClient = ref.read(apiClientProvider);
+        await apiClient.post(
+          ApiEndpoints.deviceLocalTelemetry(deviceId),
+          data: payload,
+          options: Options(
+            sendTimeout: const Duration(seconds: 4),
+            receiveTimeout: const Duration(seconds: 4),
+          ),
+        );
+      } catch (_) {
+        // Ignored: local telemetry is already authoritatively persisted on phone
+      }
+    });
+
+    return localUpdatedModel;
   }
 
   /// Polls router telemetry (CPU, RAM, DISK, Uptime, Active Sessions) periodically.
   /// For private LAN routers, directly probes the router on the local network.
   /// For cloud-connected routers, queries the diagnostics endpoint.
   Future<RouterDeviceModel?> pollRouterTelemetry(String deviceId) async {
-    final routers = state.asData?.value ?? const <RouterDeviceModel>[];
-    final targetDevice = routers.cast<RouterDeviceModel?>().firstWhere(
-          (r) => r?.id == deviceId,
-          orElse: () => null,
-        );
-    if (targetDevice == null) return null;
-
-    final apiClient = ref.read(apiClientProvider);
-    final discovery = ref.read(mikrotikDiscoveryServiceProvider);
-
-    // 1. If private LAN router, probe directly on local network / Wi-Fi
-    if (targetDevice.isPrivateLan) {
-      var pwd = _sessionRouterPasswords[deviceId];
-      if (pwd == null || pwd.isEmpty) {
-        try {
-          final credRes = await apiClient.get('/devices/$deviceId/local-credentials');
-          final credData = unwrapApiEnvelope(credRes.data);
-          if (credData['password'] != null) {
-            pwd = credData['password'].toString();
-            cacheSessionPassword(deviceId, pwd);
-          }
-        } catch (_) {}
-      }
-
-      if (pwd != null && pwd.isNotEmpty) {
-        try {
-          final localRes = await discovery.verifyCredentialsLocally(
-            host: targetDevice.host,
-            username: targetDevice.username,
-            password: pwd,
-            apiPort: targetDevice.apiPort,
-            restPort: targetDevice.restPort,
-            rosVersion: targetDevice.rosVersion,
-            useSsl: targetDevice.useSsl,
+    return RouterSyncCoordinator.runLocked(deviceId, () async {
+      final startedAtMs = DateTime.now().millisecondsSinceEpoch;
+      final routers = state.asData?.value ?? const <RouterDeviceModel>[];
+      final targetDevice = routers.cast<RouterDeviceModel?>().firstWhere(
+            (r) => r?.id == deviceId,
+            orElse: () => null,
           );
+      if (targetDevice == null) return null;
 
-          final updated = await reportLocalTelemetry(
-            deviceId: deviceId,
-            verificationResult: localRes,
-            reportedHost: targetDevice.host,
-            rosVersion: targetDevice.rosVersion,
-          );
+      final apiClient = ref.read(apiClientProvider);
+      final discovery = ref.read(mikrotikDiscoveryServiceProvider);
 
-          if (localRes['success'] == true) {
-            // Also notify radar of updated timestamp
-            ref.read(radarLastUpdatedProvider.notifier).update(DateTime.now());
-          }
-
-          return updated;
-        } catch (e) {
-          debugPrint('Local LAN telemetry poll error for ${targetDevice.name}: $e');
-          final updated = await reportLocalTelemetry(
-            deviceId: deviceId,
-            verificationResult: {
-              'success': false,
-              'code': 'OFFLINE',
-              'message': 'انقطع الاتصال بالراوتر (الجهاز مطفأ أو مفصول عن الشبكة)',
-            },
-            reportedHost: targetDevice.host,
-            rosVersion: targetDevice.rosVersion,
-          );
-          return updated;
+      // 1. If private LAN router, probe directly on local network / Wi-Fi
+      if (targetDevice.isPrivateLan) {
+        var pwd = _sessionRouterPasswords[deviceId];
+        if (pwd == null || pwd.isEmpty) {
+          try {
+            final credRes = await apiClient.get('/devices/$deviceId/local-credentials');
+            final credData = unwrapApiEnvelope(credRes.data);
+            if (credData['password'] != null) {
+              pwd = credData['password'].toString();
+              cacheSessionPassword(deviceId, pwd);
+            }
+          } catch (_) {}
         }
-      } else {
-        // If password is not stored in session, perform lightweight reachability check
-        try {
-          final probe = await discovery.probeLocalReachability(
-            host: targetDevice.host,
-            apiPort: targetDevice.apiPort,
-            restPort: targetDevice.restPort,
-            useSsl: targetDevice.useSsl,
-          );
-          if (probe['reachable'] == true) {
-            return targetDevice;
-          } else {
+
+        if (pwd != null && pwd.isNotEmpty) {
+          try {
+            final localRes = await discovery.verifyCredentialsLocally(
+              host: targetDevice.host,
+              username: targetDevice.username,
+              password: pwd,
+              apiPort: targetDevice.apiPort,
+              restPort: targetDevice.restPort,
+              rosVersion: targetDevice.rosVersion,
+              useSsl: targetDevice.useSsl,
+            );
+
+            if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
+
+            final updated = await reportLocalTelemetry(
+              deviceId: deviceId,
+              verificationResult: localRes,
+              reportedHost: targetDevice.host,
+              rosVersion: targetDevice.rosVersion,
+            );
+
+            if (localRes['success'] == true) {
+              ref.read(radarLastUpdatedProvider.notifier).update(DateTime.now());
+            }
+
+            RouterSyncCoordinator.recordCompleted(deviceId, startedAtMs);
+            return updated;
+          } catch (e) {
+            debugPrint('Local LAN telemetry poll error for ${targetDevice.name}: $e');
+            if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
             final updated = await reportLocalTelemetry(
               deviceId: deviceId,
               verificationResult: {
                 'success': false,
                 'code': 'OFFLINE',
-                'message': 'تعذر الوصول إلى عنوان الراوتر على الشبكة المحلية',
+                'message': 'انقطع الاتصال بالراوتر (الجهاز مطفأ أو مفصول عن الشبكة)',
               },
               reportedHost: targetDevice.host,
               rosVersion: targetDevice.rosVersion,
             );
+            RouterSyncCoordinator.recordCompleted(deviceId, startedAtMs);
             return updated;
           }
-        } catch (e) {
-          final updated = await reportLocalTelemetry(
-            deviceId: deviceId,
-            verificationResult: {
-              'success': false,
-              'code': 'OFFLINE',
-              'message': 'انقطع الاتصال بالراوتر',
-            },
-            reportedHost: targetDevice.host,
-            rosVersion: targetDevice.rosVersion,
+        } else {
+          // If password is not stored in session, perform lightweight reachability check
+          try {
+            final probe = await discovery.probeLocalReachability(
+              host: targetDevice.host,
+              apiPort: targetDevice.apiPort,
+              restPort: targetDevice.restPort,
+              useSsl: targetDevice.useSsl,
+            );
+            if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
+            if (probe['reachable'] == true) {
+              RouterSyncCoordinator.recordCompleted(deviceId, startedAtMs);
+              return targetDevice;
+            } else {
+              final updated = await reportLocalTelemetry(
+                deviceId: deviceId,
+                verificationResult: {
+                  'success': false,
+                  'code': 'OFFLINE',
+                  'message': 'تعذر الوصول إلى عنوان الراوتر على الشبكة المحلية',
+                },
+                reportedHost: targetDevice.host,
+                rosVersion: targetDevice.rosVersion,
+              );
+              RouterSyncCoordinator.recordCompleted(deviceId, startedAtMs);
+              return updated;
+            }
+          } catch (e) {
+            if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
+            final updated = await reportLocalTelemetry(
+              deviceId: deviceId,
+              verificationResult: {
+                'success': false,
+                'code': 'OFFLINE',
+                'message': 'انقطع الاتصال بالراوتر',
+              },
+              reportedHost: targetDevice.host,
+              rosVersion: targetDevice.rosVersion,
+            );
+            RouterSyncCoordinator.recordCompleted(deviceId, startedAtMs);
+            return updated;
+          }
+        }
+      }
+
+      // 2. If cloud-connected router, call diagnostics endpoint
+      try {
+        final res = await apiClient.get(
+          ApiEndpoints.deviceDiagnostics(deviceId),
+          options: Options(
+            sendTimeout: const Duration(seconds: 4),
+            receiveTimeout: const Duration(seconds: 4),
+          ),
+        );
+        final data = unwrapApiEnvelope(res.data);
+        final isLive = data['isLive'] == true;
+        if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
+        final existingList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
+        final idx = existingList.indexWhere((r) => r.id == deviceId);
+        if (idx >= 0) {
+          final existing = existingList[idx];
+          final updated = existing.copyWith(
+            isOnline: isLive,
+            status: isLive ? 'ONLINE' : 'OFFLINE',
+            connectivityState: isLive ? 'ONLINE' : 'OFFLINE',
+            cloudStatus: isLive ? 'ONLINE' : 'OFFLINE',
+            cpuLoad: isLive && data['cpuLoad'] is num ? (data['cpuLoad'] as num).toInt() : null,
+            memoryFreeMb: isLive && data['freeMemoryMb'] is num ? (data['freeMemoryMb'] as num).toInt() : (isLive ? existing.memoryFreeMb : null),
+            memoryTotalMb: isLive && data['totalMemoryMb'] is num ? (data['totalMemoryMb'] as num).toInt() : (isLive ? existing.memoryTotalMb : null),
+            diskFreeMb: isLive && data['diskFreeMb'] is num ? (data['diskFreeMb'] as num).toInt() : (isLive ? existing.diskFreeMb : null),
+            diskTotalMb: isLive && data['diskTotalMb'] is num ? (data['diskTotalMb'] as num).toInt() : (isLive ? existing.diskTotalMb : null),
+            uptime: isLive ? (data['uptime']?.toString() ?? existing.uptime) : 'غير متصل',
+            activeHotspotSessions: isLive && data['activeHotspotSessions'] is num
+                ? (data['activeHotspotSessions'] as num).toInt()
+                : 0,
+            lastVerifiedAt: isLive ? DateTime.now().toUtc().toIso8601String() : existing.lastVerifiedAt,
+            cloudCheckedAt: DateTime.now().toUtc().toIso8601String(),
+            lastError: isLive ? null : (data['message']?.toString() ?? 'تعذر الوصول للراوتر عبر السحابة'),
+            clearLastError: isLive,
+            clearMetrics: !isLive,
           );
+          existingList[idx] = updated;
+          state = AsyncValue.data(existingList);
+          await ref.read(localStorageProvider).saveCachedRouters(existingList);
+          RouterSyncCoordinator.recordCompleted(deviceId, startedAtMs);
+          return updated;
+        }
+      } catch (e) {
+        debugPrint('Cloud router diagnostics poll error for $deviceId: $e');
+        if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
+        final existingList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
+        final idx = existingList.indexWhere((r) => r.id == deviceId);
+        if (idx >= 0) {
+          final existing = existingList[idx];
+          final updated = existing.copyWith(
+            isOnline: false,
+            status: 'OFFLINE',
+            connectivityState: 'OFFLINE',
+            cloudStatus: 'OFFLINE',
+            cloudCheckedAt: DateTime.now().toUtc().toIso8601String(),
+            lastError: 'انقطع الاتصال بالراوتر',
+            clearMetrics: true,
+          );
+          existingList[idx] = updated;
+          state = AsyncValue.data(existingList);
+          await ref.read(localStorageProvider).saveCachedRouters(existingList);
+          RouterSyncCoordinator.recordCompleted(deviceId, startedAtMs);
           return updated;
         }
       }
-    }
-
-    // 2. If cloud-connected router, call diagnostics endpoint
-    try {
-      final res = await apiClient.get(ApiEndpoints.deviceDiagnostics(deviceId));
-      final data = unwrapApiEnvelope(res.data);
-      final isLive = data['isLive'] == true;
-      final existingList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
-      final idx = existingList.indexWhere((r) => r.id == deviceId);
-      if (idx >= 0) {
-        final existing = existingList[idx];
-        final updated = existing.copyWith(
-          isOnline: isLive,
-          status: isLive ? 'ONLINE' : 'OFFLINE',
-          connectivityState: isLive ? 'ONLINE' : 'OFFLINE',
-          cloudStatus: isLive ? 'ONLINE' : 'OFFLINE',
-          cpuLoad: isLive && data['cpuLoad'] is num ? (data['cpuLoad'] as num).toInt() : existing.cpuLoad,
-          memoryFreeMb: isLive && data['freeMemoryMb'] is num ? (data['freeMemoryMb'] as num).toInt() : existing.memoryFreeMb,
-          memoryTotalMb: isLive && data['totalMemoryMb'] is num ? (data['totalMemoryMb'] as num).toInt() : existing.memoryTotalMb,
-          diskFreeMb: isLive && data['diskFreeMb'] is num ? (data['diskFreeMb'] as num).toInt() : existing.diskFreeMb,
-          diskTotalMb: isLive && data['diskTotalMb'] is num ? (data['diskTotalMb'] as num).toInt() : existing.diskTotalMb,
-          uptime: isLive ? (data['uptime']?.toString() ?? existing.uptime) : 'غير متصل',
-          activeHotspotSessions: isLive && data['activeHotspotSessions'] is num
-              ? (data['activeHotspotSessions'] as num).toInt()
-              : (isLive ? existing.activeHotspotSessions : 0),
-          lastVerifiedAt: isLive ? DateTime.now().toUtc().toIso8601String() : existing.lastVerifiedAt,
-          cloudCheckedAt: DateTime.now().toUtc().toIso8601String(),
-          lastError: isLive ? null : (data['message']?.toString() ?? 'تعذر الوصول للراوتر عبر السحابة'),
-          clearLastError: isLive,
-        );
-        existingList[idx] = updated;
-        state = AsyncValue.data(existingList);
-        await ref.read(localStorageProvider).saveCachedRouters(existingList);
-        return updated;
-      }
-    } catch (e) {
-      debugPrint('Cloud router diagnostics poll error for $deviceId: $e');
-      final existingList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
-      final idx = existingList.indexWhere((r) => r.id == deviceId);
-      if (idx >= 0) {
-        final existing = existingList[idx];
-        final updated = existing.copyWith(
-          isOnline: false,
-          status: 'OFFLINE',
-          connectivityState: 'OFFLINE',
-          cloudStatus: 'OFFLINE',
-          cloudCheckedAt: DateTime.now().toUtc().toIso8601String(),
-          lastError: 'انقطع الاتصال بالراوتر',
-        );
-        existingList[idx] = updated;
-        state = AsyncValue.data(existingList);
-        await ref.read(localStorageProvider).saveCachedRouters(existingList);
-        return updated;
-      }
-    }
-    return null;
+      return null;
+    });
   }
 
   Future<Map<String, dynamic>> toggleEmergencyLock(String deviceId, bool lock) async {
@@ -1724,11 +1775,46 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
     _isFetching = true;
 
     try {
+      final routers = ref.read(routersProvider).asData?.value ?? const <RouterDeviceModel>[];
+      final targetRouter = deviceId != null
+          ? routers.cast<RouterDeviceModel?>().firstWhere((r) => r?.id == deviceId, orElse: () => null)
+          : (routers.isNotEmpty ? routers.first : null);
+
+      // Fast direct local LAN fetch for private LAN router (prevents 20s cloud timeout hangs)
+      if (targetRouter != null && targetRouter.isPrivateLan) {
+        final pwd = ref.read(routersProvider.notifier).getSessionPassword(targetRouter.id);
+        if (pwd != null && pwd.isNotEmpty) {
+          try {
+            final localRaw = await ref
+                .read(mikrotikDiscoveryServiceProvider)
+                .fetchLocalActiveSessions(device: targetRouter, password: pwd);
+            ref.read(radarLastUpdatedProvider.notifier).update(DateTime.now());
+            ref.read(radarRouterStatusesProvider.notifier).update([
+              RouterConnectionStatus(
+                id: targetRouter.id,
+                name: targetRouter.name,
+                status: 'online',
+              ),
+            ]);
+            return localRaw.map((s) => ActiveSessionModel.fromJson(s)).toList();
+          } catch (_) {
+            return [];
+          }
+        }
+        return [];
+      }
+
       final apiClient = ref.read(apiClientProvider);
       final url = deviceId != null
           ? '${ApiEndpoints.hotspotSessions}?deviceId=$deviceId'
           : ApiEndpoints.hotspotSessions;
-      final res = await apiClient.get(url);
+      final res = await apiClient.get(
+        url,
+        options: Options(
+          sendTimeout: const Duration(seconds: 4),
+          receiveTimeout: const Duration(seconds: 4),
+        ),
+      );
       final raw = res.data;
 
       // Extract metadata if available
@@ -1759,61 +1845,12 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
         return list.map((s) => ActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
       }
 
-      // Local LAN fallback when private LAN router cannot be polled by cloud API
-      final routers = ref.read(routersProvider).asData?.value ?? const <RouterDeviceModel>[];
-      final targetRouter = deviceId != null
-          ? routers.cast<RouterDeviceModel?>().firstWhere((r) => r?.id == deviceId, orElse: () => null)
-          : (routers.isNotEmpty ? routers.first : null);
-      if (targetRouter != null && targetRouter.isPrivateLan && (routerReportedUnreachable || (list is List && list.isEmpty))) {
-        final pwd = ref.read(routersProvider.notifier).getSessionPassword(targetRouter.id);
-        if (pwd != null && pwd.isNotEmpty) {
-          try {
-            final localRaw = await ref
-                .read(mikrotikDiscoveryServiceProvider)
-                .fetchLocalActiveSessions(device: targetRouter, password: pwd);
-            ref.read(radarLastUpdatedProvider.notifier).update(DateTime.now());
-            ref.read(radarRouterStatusesProvider.notifier).update([
-              RouterConnectionStatus(
-                id: targetRouter.id,
-                name: targetRouter.name,
-                status: 'online',
-              ),
-            ]);
-            return localRaw.map((s) => ActiveSessionModel.fromJson(s)).toList();
-          } catch (_) {
-            // Keep cloud list if local fallback is also unreachable
-          }
-        }
-      }
-
       if (list is List) {
         return list.map((s) => ActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
       }
       return [];
     } catch (e) {
-      // Attempt LAN fallback on private router when cloud request itself fails
-      final routers = ref.read(routersProvider).asData?.value ?? const <RouterDeviceModel>[];
-      final targetRouter = deviceId != null
-          ? routers.cast<RouterDeviceModel?>().firstWhere((r) => r?.id == deviceId, orElse: () => null)
-          : (routers.isNotEmpty ? routers.first : null);
-      if (targetRouter != null && targetRouter.isPrivateLan) {
-        final pwd = ref.read(routersProvider.notifier).getSessionPassword(targetRouter.id);
-        if (pwd != null && pwd.isNotEmpty) {
-          final localRaw = await ref
-              .read(mikrotikDiscoveryServiceProvider)
-              .fetchLocalActiveSessions(device: targetRouter, password: pwd);
-          ref.read(radarLastUpdatedProvider.notifier).update(DateTime.now());
-          ref.read(radarRouterStatusesProvider.notifier).update([
-            RouterConnectionStatus(
-              id: targetRouter.id,
-              name: targetRouter.name,
-              status: 'online',
-            ),
-          ]);
-          return localRaw.map((s) => ActiveSessionModel.fromJson(s)).toList();
-        }
-      }
-      rethrow;
+      return [];
     } finally {
       _isFetching = false;
     }
@@ -1904,18 +1941,33 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
     final routersNotifier = ref.read(routersProvider.notifier);
     final pwd = routersNotifier.getSessionPassword(targetRouter.id) ?? '';
 
-    // If private LAN router, query directly via binary API
+    // If private LAN router, query count or users safely without blocking UI
     if (targetRouter.isPrivateLan) {
       if (pwd.isNotEmpty) {
         try {
-          final users = await discoveryService.fetchRouterHotspotUsersLocally(
-            host: targetRouter.host,
-            username: targetRouter.username,
-            password: pwd,
-            port: targetRouter.apiPort,
-            useSsl: targetRouter.useSsl,
-          );
-          return users;
+          if (!_loadFullDetails) {
+            // Fast count query (<5ms)
+            final count = await discoveryService.fetchRouterHotspotUsersCountLocally(
+              host: targetRouter.host,
+              username: targetRouter.username,
+              password: pwd,
+              port: targetRouter.apiPort,
+              useSsl: targetRouter.useSsl,
+            );
+            return List.filled(count, const <String, dynamic>{});
+          } else {
+            // Full user list when explicitly requested in store
+            final users = await discoveryService.fetchRouterHotspotUsersLocally(
+              host: targetRouter.host,
+              username: targetRouter.username,
+              password: pwd,
+              port: targetRouter.apiPort,
+              useSsl: targetRouter.useSsl,
+              maxLimit: _maxLimit,
+              searchQuery: _searchQuery,
+            );
+            return users;
+          }
         } catch (_) {
           return [];
         }
@@ -1926,7 +1978,13 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
     // Cloud query
     try {
       final apiClient = ref.read(apiClientProvider);
-      final res = await apiClient.get(ApiEndpoints.deviceRouterUsers(targetRouter.id));
+      final res = await apiClient.get(
+        ApiEndpoints.deviceRouterUsers(targetRouter.id),
+        options: Options(
+          sendTimeout: const Duration(seconds: 4),
+          receiveTimeout: const Duration(seconds: 4),
+        ),
+      );
       final raw = res.data;
       final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
       if (list is List) {
@@ -1938,7 +1996,19 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
     }
   }
 
-  Future<void> refresh({bool showLoading = false}) async {
+  bool _loadFullDetails = false;
+  String? _searchQuery;
+  int _maxLimit = 500;
+
+  Future<void> refresh({
+    bool showLoading = false,
+    bool fullDetails = false,
+    String? searchQuery,
+    int? maxLimit,
+  }) async {
+    _loadFullDetails = fullDetails;
+    if (searchQuery != null) _searchQuery = searchQuery;
+    if (maxLimit != null) _maxLimit = maxLimit;
     final selectedId = ref.read(selectedRouterIdProvider);
     if (showLoading && !state.hasValue) {
       state = const AsyncValue.loading();

@@ -96,9 +96,12 @@ export class RouterDiscoveryEngineService {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const isPrivate = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(device.host.trim());
       throw new BadGatewayException({
-        code: 'ROUTER_CONNECTION_FAILED',
-        message: `تعذر الاتصال بالراوتر (${device.host}): ${msg}`,
+        code: isPrivate ? 'CLOUD_UNREACHABLE_PRIVATE_LAN' : 'ROUTER_CONNECTION_FAILED',
+        message: isPrivate
+          ? `الراوتر بعنوان شبكة محلية خاصة (${device.host}) لا يمكن للسيرفر السحابي الوصول إليه مباشرة. يرجى إتمام الاستكشاف محلياً عبر التطبيق من نفس شبكة الواي فاي.`
+          : `تعذر الاتصال بالراوتر (${device.host}): ${msg}`,
       });
     }
 
