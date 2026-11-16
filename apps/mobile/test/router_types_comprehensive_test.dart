@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/core/models/models.dart';
 import 'package:mobile/core/models/router_provisioning_models.dart';
@@ -9,7 +8,6 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('اختبار احترافي شامل: مقارنة وتوافق الراوتر الجديد والراوتر المبرمج مسبقاً', () {
-    final service = MikrotikDiscoveryService();
 
     // =========================================================================
     // القسم الأول: فحص وتوافق الراوتر الجديد (Factory Default / Brand New Router)

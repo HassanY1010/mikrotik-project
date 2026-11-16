@@ -1036,8 +1036,10 @@ class RouterDeviceModel {
   final int? cpuLoad;
   final int? memoryFreeMb;
   final int? memoryTotalMb;
+  final int? memoryUsagePercent;
   final int? diskFreeMb;
   final int? diskTotalMb;
+  final int? diskUsagePercent;
   final String? uptime;
   final String? modelName;
   final bool isLocked;
@@ -1067,8 +1069,10 @@ class RouterDeviceModel {
     this.cpuLoad,
     this.memoryFreeMb,
     this.memoryTotalMb,
+    this.memoryUsagePercent,
     this.diskFreeMb,
     this.diskTotalMb,
+    this.diskUsagePercent,
     this.uptime,
     this.modelName,
     this.isLocked = false,
@@ -1164,8 +1168,10 @@ class RouterDeviceModel {
       cpuLoad: parseInt(json['cpuLoad']),
       memoryFreeMb: parseMb(json['memoryFree'], explicitMbVal: json['memoryFreeMb']),
       memoryTotalMb: parseMb(json['memoryTotal'], explicitMbVal: json['memoryTotalMb']),
+      memoryUsagePercent: parseInt(json['memoryUsagePercent']),
       diskFreeMb: parseMb(json['diskFree'], explicitMbVal: json['diskFreeMb']),
       diskTotalMb: parseMb(json['diskTotal'], explicitMbVal: json['diskTotalMb']),
+      diskUsagePercent: parseInt(json['diskUsagePercent']),
       uptime: json['uptime'] as String?,
       modelName: json['modelName'] as String?,
       isLocked: json['isLocked'] as bool? ?? false,
@@ -1199,8 +1205,10 @@ class RouterDeviceModel {
     int? cpuLoad,
     int? memoryFreeMb,
     int? memoryTotalMb,
+    int? memoryUsagePercent,
     int? diskFreeMb,
     int? diskTotalMb,
+    int? diskUsagePercent,
     String? uptime,
     String? modelName,
     bool? isLocked,
@@ -1230,8 +1238,10 @@ class RouterDeviceModel {
       cpuLoad: clearMetrics ? null : (cpuLoad ?? this.cpuLoad),
       memoryFreeMb: clearMetrics ? null : (memoryFreeMb ?? this.memoryFreeMb),
       memoryTotalMb: clearMetrics ? null : (memoryTotalMb ?? this.memoryTotalMb),
+      memoryUsagePercent: clearMetrics ? null : (memoryUsagePercent ?? this.memoryUsagePercent),
       diskFreeMb: clearMetrics ? null : (diskFreeMb ?? this.diskFreeMb),
       diskTotalMb: clearMetrics ? null : (diskTotalMb ?? this.diskTotalMb),
+      diskUsagePercent: clearMetrics ? null : (diskUsagePercent ?? this.diskUsagePercent),
       uptime: uptime ?? this.uptime,
       modelName: modelName ?? this.modelName,
       isLocked: isLocked ?? this.isLocked,
@@ -1263,8 +1273,10 @@ class RouterDeviceModel {
     'cpuLoad': cpuLoad,
     'memoryFreeMb': memoryFreeMb,
     'memoryTotalMb': memoryTotalMb,
+    'memoryUsagePercent': memoryUsagePercent,
     'diskFreeMb': diskFreeMb,
     'diskTotalMb': diskTotalMb,
+    'diskUsagePercent': diskUsagePercent,
     'uptime': uptime,
     'modelName': modelName,
     'isLocked': isLocked,

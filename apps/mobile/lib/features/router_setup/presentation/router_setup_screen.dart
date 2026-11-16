@@ -722,6 +722,7 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
 
       // Prompt for password if still empty on private LAN router
       if (isPrivateIp && pass.isEmpty) {
+        if (!mounted) return;
         final entered = await _showPasswordPromptDialog(context, host);
         if (entered != null && entered.trim().isNotEmpty) {
           pass = entered.trim();
@@ -4090,13 +4091,17 @@ class _RouterSetupScreenState extends ConsumerState<RouterSetupScreen> {
               _buildVerifItem(
                 title: 'حالة وصول الإنترنت الخارجي',
                 isOk: verif.internetReachable,
-                details: verif.internetReachable ? 'استجاب فحص Ping بنجاح' : 'تعذر وصول الإنترنت عبر منفذ WAN',
+                details: verif.internetReachable
+                    ? 'استجاب فحص Ping بنجاح'
+                    : 'تعذر وصول الإنترنت عبر منفذ WAN (تحقق من كابل المودم والاشتراك)',
               ),
               const Divider(height: 16),
               _buildVerifItem(
                 title: 'تكوين منفذ الإنترنت (WAN)',
                 isOk: verif.wanConfigured,
-                details: verif.wanConfigured ? 'تم تعيين عنوان IP صالح لمنفذ WAN' : 'لم يحصل المنفذ على عنوان IP',
+                details: verif.wanConfigured
+                    ? 'تم تعيين عنوان IP صالح لمنفذ WAN'
+                    : 'لم يحصل المنفذ على عنوان IP (تأكد من توصيل كيبل الإنترنت في المنفذ المختار)',
               ),
               const Divider(height: 16),
               _buildVerifItem(

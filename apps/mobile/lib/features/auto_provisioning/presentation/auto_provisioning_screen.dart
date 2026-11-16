@@ -254,6 +254,7 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
           } catch (_) {}
         }
         if (pass.isEmpty) {
+          if (!mounted) return;
           final entered = await _showPasswordPromptDialog(context, host);
           if (entered != null && entered.trim().isNotEmpty) {
             pass = entered.trim();
@@ -488,6 +489,7 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
         final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
         String pass = ref.read(routersProvider.notifier).getSessionPassword(deviceId) ?? '';
         if (pass.isEmpty) {
+          if (!mounted) return;
           final entered = await _showPasswordPromptDialog(context, host);
           if (entered != null && entered.trim().isNotEmpty) {
             pass = entered.trim();

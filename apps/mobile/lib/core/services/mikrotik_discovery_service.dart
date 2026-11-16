@@ -362,16 +362,30 @@ class MikrotikDiscoveryService {
     required String fallbackVersion,
     required String protocol,
     int? activeHotspotSessions,
+    int? avgCpuLoad,
   }) {
     final freeMem = _parseMikrotikInt(rawResource['free-memory'] ?? rawResource['memoryFree']);
     final totalMem = _parseMikrotikInt(rawResource['total-memory'] ?? rawResource['memoryTotal']);
     final freeHdd = _parseMikrotikInt(rawResource['free-hdd-space'] ?? rawResource['diskFree']);
     final totalHdd = _parseMikrotikInt(rawResource['total-hdd-space'] ?? rawResource['diskTotal']);
-    final cpuLoad = _parseMikrotikInt(rawResource['cpu-load'] ?? rawResource['cpuLoad']);
+    final cpuLoad = avgCpuLoad ?? _parseMikrotikInt(rawResource['cpu-load'] ?? rawResource['cpuLoad']);
     final uptime = rawResource['uptime']?.toString();
     final versionStr = rawResource['version']?.toString() ?? fallbackVersion;
     final modelName =
         (rawResource['board-name'] ?? rawResource['platform'] ?? 'MikroTik Router').toString();
+
+    // Exact precision calculations matching WinBox
+    int? memoryUsagePercent;
+    if (totalMem != null && totalMem > 0 && freeMem != null) {
+      final usedMem = (totalMem - freeMem).clamp(0, totalMem);
+      memoryUsagePercent = ((usedMem / totalMem) * 100).round().clamp(0, 100);
+    }
+
+    int? diskUsagePercent;
+    if (totalHdd != null && totalHdd > 0 && freeHdd != null) {
+      final usedHdd = (totalHdd - freeHdd).clamp(0, totalHdd);
+      diskUsagePercent = ((usedHdd / totalHdd) * 100).round().clamp(0, 100);
+    }
 
     return {
       'model': modelName,
@@ -381,8 +395,10 @@ class MikrotikDiscoveryService {
       'cpuLoad': cpuLoad,
       'memoryFree': freeMem,
       'memoryTotal': totalMem,
+      'memoryUsagePercent': memoryUsagePercent,
       'diskFree': freeHdd,
       'diskTotal': totalHdd,
+      'diskUsagePercent': diskUsagePercent,
       'uptime': uptime,
       if (activeHotspotSessions != null) 'activeHotspotSessions': activeHotspotSessions,
       'protocol': protocol,
@@ -407,18 +423,18 @@ class MikrotikDiscoveryService {
       HttpClient? httpClient;
       try {
         httpClient = HttpClient()
-          ..connectionTimeout = const Duration(seconds: 3)
+          ..connectionTimeout = const Duration(seconds: 6)
           ..badCertificateCallback = (cert, h, p) => true;
 
         final port = useSsl ? (restPort == 80 ? 443 : restPort) : (restPort == 443 ? 80 : restPort);
         final scheme = useSsl ? 'https' : 'http';
         final uri = Uri.parse('$scheme://$host:$port/rest/system/resource');
 
-        final request = await httpClient.getUrl(uri).timeout(const Duration(seconds: 3));
+        final request = await httpClient.getUrl(uri).timeout(const Duration(seconds: 6));
         final authStr = base64Encode(utf8.encode('$username:$password'));
         request.headers.set('Authorization', 'Basic $authStr');
 
-        final response = await request.close().timeout(const Duration(seconds: 3));
+        final response = await request.close().timeout(const Duration(seconds: 6));
         final latency = DateTime.now().difference(start).inMilliseconds;
 
         if (response.statusCode == 200) {
@@ -429,12 +445,40 @@ class MikrotikDiscoveryService {
             if (decoded is Map<String, dynamic>) resMap = decoded;
           } catch (_) {}
 
+          int? avgCpu;
+          try {
+            final cpuUri = Uri.parse('$scheme://$host:$port/rest/system/resource/cpu');
+            final cpuReq = await httpClient.getUrl(cpuUri).timeout(const Duration(seconds: 4));
+            cpuReq.headers.set('Authorization', 'Basic $authStr');
+            final cpuRes = await cpuReq.close().timeout(const Duration(seconds: 4));
+            if (cpuRes.statusCode == 200) {
+              final cpuBody = await cpuRes.transform(utf8.decoder).join();
+              final decodedCpu = jsonDecode(cpuBody);
+              if (decodedCpu is List && decodedCpu.isNotEmpty) {
+                int sum = 0;
+                int count = 0;
+                for (final c in decodedCpu) {
+                  if (c is Map) {
+                    final l = _parseMikrotikInt(c['load'] ?? c['cpu-load']);
+                    if (l != null) {
+                      sum += l;
+                      count++;
+                    }
+                  }
+                }
+                if (count > 0) {
+                  avgCpu = (sum / count).round();
+                }
+              }
+            }
+          } catch (_) {}
+
           int? activeSessions;
           try {
             final activeUri = Uri.parse('$scheme://$host:$port/rest/ip/hotspot/active');
-            final activeReq = await httpClient.getUrl(activeUri).timeout(const Duration(seconds: 2));
+            final activeReq = await httpClient.getUrl(activeUri).timeout(const Duration(seconds: 4));
             activeReq.headers.set('Authorization', 'Basic $authStr');
-            final activeRes = await activeReq.close().timeout(const Duration(seconds: 2));
+            final activeRes = await activeReq.close().timeout(const Duration(seconds: 4));
             if (activeRes.statusCode == 200) {
               final activeBody = await activeRes.transform(utf8.decoder).join();
               final decodedActive = jsonDecode(activeBody);
@@ -454,6 +498,7 @@ class MikrotikDiscoveryService {
               fallbackVersion: rosVersion,
               protocol: 'REST API (Local)',
               activeHotspotSessions: activeSessions,
+              avgCpuLoad: avgCpu,
             ),
           };
         } else if (response.statusCode == 401 || response.statusCode == 403) {
@@ -479,7 +524,7 @@ class MikrotikDiscoveryService {
         useSsl: useSsl,
       );
       try {
-        await binClient.connect(timeout: const Duration(seconds: 4));
+        await binClient.connect(timeout: const Duration(seconds: 8));
         final authOk = await binClient.login(username, password);
         final latency = DateTime.now().difference(start).inMilliseconds;
         if (!authOk) {
@@ -492,10 +537,29 @@ class MikrotikDiscoveryService {
         }
 
         Map<String, dynamic> resAttrs = {};
+        int? avgCpu;
         try {
           final resRows = await binClient.sendCommand(['/system/resource/print']);
           if (resRows.isNotEmpty) {
             resAttrs = Map<String, dynamic>.from(resRows.first);
+          }
+        } catch (_) {}
+
+        try {
+          final cpuRows = await binClient.sendCommand(['/system/resource/cpu/print']);
+          if (cpuRows.isNotEmpty) {
+            int sum = 0;
+            int count = 0;
+            for (final c in cpuRows) {
+              final l = _parseMikrotikInt(c['load'] ?? c['cpu-load']);
+              if (l != null) {
+                sum += l;
+                count++;
+              }
+            }
+            if (count > 0) {
+              avgCpu = (sum / count).round();
+            }
           }
         } catch (_) {}
 
@@ -517,6 +581,7 @@ class MikrotikDiscoveryService {
             fallbackVersion: rosVersion,
             protocol: 'API Socket (Authenticated)',
             activeHotspotSessions: activeSessions,
+            avgCpuLoad: avgCpu,
           ),
         };
       } on _LocalBinaryAuthException catch (authErr) {
@@ -698,7 +763,7 @@ class MikrotikDiscoveryService {
       HttpClient? client;
       try {
         client = HttpClient()
-          ..connectionTimeout = const Duration(seconds: 5)
+          ..connectionTimeout = const Duration(seconds: 8)
           ..badCertificateCallback = (cert, host, port) => true;
 
         final endpointErrors = <String, String>{};
@@ -717,10 +782,10 @@ class MikrotikDiscoveryService {
         Future<dynamic> fetchEndpoint(String endpoint) async {
           try {
             final uri = Uri.parse('$scheme://$host:$port/rest$endpoint');
-            final req = await client!.getUrl(uri).timeout(const Duration(seconds: 3));
+            final req = await client!.getUrl(uri).timeout(const Duration(seconds: 7));
             req.headers.set('Authorization', authHeader);
             req.headers.set('Accept', 'application/json');
-            final res = await req.close().timeout(const Duration(seconds: 3));
+            final res = await req.close().timeout(const Duration(seconds: 7));
             if (res.statusCode == 200) {
               final body = await res.transform(utf8.decoder).join();
               if (body.trim().isNotEmpty) {
@@ -762,6 +827,7 @@ class MikrotikDiscoveryService {
           fetchEndpoint('/ip/firewall/filter'),
           fetchEndpoint('/ip/firewall/mangle'),
           fetchEndpoint('/ip/dns'),
+          fetchEndpoint('/system/resource/cpu'),
         ]);
 
         final resRaw = results[0] as Map<String, dynamic>? ?? {};
@@ -781,6 +847,23 @@ class MikrotikDiscoveryService {
         final filterRulesRaw = normalizeList(results[14]);
         final mangleRulesRaw = normalizeList(results[15]);
         final dnsRaw = results[16] is Map<String, dynamic> ? results[16] as Map<String, dynamic> : null;
+
+        int? avgCpuLoad;
+        final cpuList = normalizeList(results[17]);
+        if (cpuList.isNotEmpty) {
+          int sumLoad = 0;
+          int coreCount = 0;
+          for (final c in cpuList) {
+            final loadVal = int.tryParse(c['load']?.toString() ?? c['cpu-load']?.toString() ?? '');
+            if (loadVal != null) {
+              sumLoad += loadVal;
+              coreCount++;
+            }
+          }
+          if (coreCount > 0) {
+            avgCpuLoad = (sumLoad / coreCount).round();
+          }
+        }
 
         final authError = endpointErrors.values.any((v) => v.contains('HTTP 401') || v.contains('HTTP 403'));
         if (authError) {
@@ -818,6 +901,7 @@ class MikrotikDiscoveryService {
             dnsRaw: dnsRaw,
             rosVersion: rosVersion,
             isComplete: endpointErrors.isEmpty,
+            avgCpuLoad: avgCpuLoad,
           );
         }
       } catch (err) {
@@ -882,6 +966,7 @@ class MikrotikDiscoveryService {
     required Map<String, dynamic>? dnsRaw,
     required String rosVersion,
     required bool isComplete,
+    int? avgCpuLoad,
   }) {
     final normalizedBridgePorts = normalizeRawEntriesWithIds(bridgePortsRaw);
     final normalizedRoutes = normalizeRawEntriesWithIds(routesRaw);
@@ -948,7 +1033,7 @@ class MikrotikDiscoveryService {
       bridges: bridges,
       hotspotServers: hotspots,
       version: resRaw['version']?.toString() ?? rosVersion,
-      cpuLoad: int.tryParse(resRaw['cpu-load']?.toString() ?? '') ?? 0,
+      cpuLoad: avgCpuLoad ?? (int.tryParse(resRaw['cpu-load']?.toString() ?? '') ?? 0),
       uptime: resRaw['uptime']?.toString() ?? '',
       bridgePorts: normalizedBridgePorts,
       dhcpServers: normalizedDhcpServers,
@@ -982,7 +1067,7 @@ class MikrotikDiscoveryService {
       useSsl: useSsl,
     );
     try {
-      await binClient.connect(timeout: const Duration(seconds: 5));
+      await binClient.connect(timeout: const Duration(seconds: 10));
       final authOk = await binClient.login(username, password);
       if (!authOk) {
         throw Exception('بيانات تسجيل الدخول غير صحيحة عبر منفذ Binary API ($apiPort).');
@@ -999,6 +1084,24 @@ class MikrotikDiscoveryService {
       }
 
       final resList = await printList('/system/resource/print', required: true);
+      int? avgCpuLoad;
+      try {
+        final cpuList = await printList('/system/resource/cpu/print');
+        if (cpuList.isNotEmpty) {
+          int sumLoad = 0;
+          int coreCount = 0;
+          for (final c in cpuList) {
+            final loadVal = int.tryParse(c['load']?.toString() ?? c['cpu-load']?.toString() ?? '');
+            if (loadVal != null) {
+              sumLoad += loadVal;
+              coreCount++;
+            }
+          }
+          if (coreCount > 0) {
+            avgCpuLoad = (sumLoad / coreCount).round();
+          }
+        }
+      } catch (_) {}
       final ifacesRaw = await printList('/interface/print', required: true);
       final bridgesRaw = await printList('/interface/bridge/print', required: true);
       final bridgePortsRaw = await printList('/interface/bridge/port/print', required: true);
@@ -1040,6 +1143,7 @@ class MikrotikDiscoveryService {
         dnsRaw: dnsRows.isNotEmpty ? dnsRows.first : null,
         rosVersion: rosVersion,
         isComplete: true,
+        avgCpuLoad: avgCpuLoad,
       );
     } finally {
       await binClient.close();
@@ -1479,10 +1583,10 @@ class MikrotikDiscoveryService {
         final port = useSsl ? (restPort == 80 ? 443 : restPort) : (restPort == 443 ? 80 : restPort);
         final client = HttpClient();
         client.badCertificateCallback = (cert, host, port) => true;
-        client.connectionTimeout = const Duration(seconds: 4);
+        client.connectionTimeout = const Duration(seconds: 10);
         final req = await client.getUrl(Uri.parse('$scheme://$host:$port/rest/file/$backupFileName'));
         req.headers.set('Authorization', 'Basic ${base64Encode(utf8.encode('$username:$password'))}');
-        final res = await req.close().timeout(const Duration(seconds: 6));
+        final res = await req.close().timeout(const Duration(seconds: 30));
         if (res.statusCode == 200) {
           final sink = localFile.openWrite();
           await res.pipe(sink);
@@ -1541,7 +1645,7 @@ class MikrotikDiscoveryService {
         port: apiPort,
         useSsl: useSsl,
       );
-      await binClient.connect(timeout: const Duration(seconds: 5));
+      await binClient.connect(timeout: const Duration(seconds: 10));
       final authOk = await binClient.login(username, password);
       if (authOk) {
         binaryConnected = true;
@@ -1562,7 +1666,7 @@ class MikrotikDiscoveryService {
             '/system/backup/save',
             '=name=$safeBackupName',
             '=password=$bPass',
-          ]);
+          ], timeout: const Duration(seconds: 35));
           backupFilename = '$safeBackupName.backup';
           executedStages.add(ExecutedStageLogModel(
             stage: 'PRE_BACKUP',
@@ -1608,56 +1712,99 @@ class MikrotikDiscoveryService {
           final words = parseCliToBinaryWords(item.command);
           if (words.isEmpty) continue;
 
-          try {
-            await binClient.sendCommand(words);
-            executedStages.add(ExecutedStageLogModel(
-              stage: item.stage,
-              command: item.command,
-              status: 'SUCCESS',
-              timestamp: DateTime.now().toIso8601String(),
-            ));
-          } catch (e) {
-            final errMsg = e.toString().replaceFirst('Exception: ', '');
-            if (errMsg.contains('already exists') ||
-                errMsg.contains('already have') ||
-                errMsg.contains('already has') ||
-                errMsg.contains('failure: already')) {
+          bool success = false;
+          String? lastErrorMsg;
+
+          for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+              if (attempt > 0) {
+                // If previous attempt hit a transient link flap/timeout, wait for RSTP to settle and reconnect
+                await Future.delayed(const Duration(milliseconds: 1500));
+                try {
+                  await binClient?.close();
+                } catch (_) {}
+                binClient = _LocalMikrotikBinaryApiClient(
+                  host: host,
+                  port: apiPort,
+                  useSsl: useSsl,
+                );
+                await binClient.connect(timeout: const Duration(seconds: 8));
+                final authOk = await binClient.login(username, password);
+                if (!authOk) throw Exception('بيانات تسجيل الدخول غير صحيحة عند إعادة المحاولة');
+              }
+
+              await binClient!.sendCommand(words, timeout: const Duration(seconds: 20));
+              success = true;
               executedStages.add(ExecutedStageLogModel(
                 stage: item.stage,
                 command: item.command,
                 status: 'SUCCESS',
                 timestamp: DateTime.now().toIso8601String(),
               ));
-            } else {
-              executedStages.add(ExecutedStageLogModel(
-                stage: item.stage,
-                command: item.command,
-                status: 'FAILED',
-                error: errMsg,
-                timestamp: DateTime.now().toIso8601String(),
-              ));
-              await binClient.close();
-              return ProvisionApplyResult(
-                success: false,
-                deviceId: host,
-                deviceName: host,
-                backupFilename: backupFilename,
-                executedStages: executedStages,
-                failedStage: item.stage,
-                failureReason: 'تعذر تطبيق الأمر [${item.command}] على الراوتر: $errMsg',
-                recoveryInstructions: 'تم أخذ نسخة احتياطية باسم [$backupFilename].',
-                verification: const ProvisionVerificationResultModel(
-                  internetReachable: false,
-                  wanConfigured: false,
-                  defaultRouteActive: false,
-                  hotspotOperational: false,
-                  securityPoliciesVerified: false,
-                  pingPacketsReceived: 0,
-                  overallStatus: 'PARTIALLY_VERIFIED',
-                  diagnosticsMessage: 'توقف الإعداد عند مرحلة غير مكتملة.',
-                ),
-              );
+              break;
+            } catch (e) {
+              final errMsg = e.toString().replaceFirst('Exception: ', '');
+              if (errMsg.contains('already exists') ||
+                  errMsg.contains('already have') ||
+                  errMsg.contains('already has') ||
+                  errMsg.contains('failure: already')) {
+                success = true;
+                executedStages.add(ExecutedStageLogModel(
+                  stage: item.stage,
+                  command: item.command,
+                  status: 'SUCCESS',
+                  timestamp: DateTime.now().toIso8601String(),
+                ));
+                break;
+              }
+              lastErrorMsg = errMsg;
+              // If it's the first attempt and looks like link flap, timeout or socket drop, retry once
+              if (attempt == 0 &&
+                  (errMsg.contains('Timeout') ||
+                      errMsg.contains('Socket') ||
+                      errMsg.contains('closed') ||
+                      errMsg.contains('Connection refused'))) {
+                debugPrint('[executePlanLocally] Transient link reset on ${item.stage}: $errMsg. Retrying after link stabilization...');
+                continue;
+              }
+              break;
             }
+          }
+
+          if (!success) {
+            executedStages.add(ExecutedStageLogModel(
+              stage: item.stage,
+              command: item.command,
+              status: 'FAILED',
+              error: lastErrorMsg,
+              timestamp: DateTime.now().toIso8601String(),
+            ));
+            await binClient?.close();
+            return ProvisionApplyResult(
+              success: false,
+              deviceId: host,
+              deviceName: host,
+              backupFilename: backupFilename,
+              executedStages: executedStages,
+              failedStage: item.stage,
+              failureReason: 'تعذر تطبيق الأمر [${item.command}] على الراوتر: $lastErrorMsg',
+              recoveryInstructions: 'تم أخذ نسخة احتياطية باسم [$backupFilename].',
+              verification: const ProvisionVerificationResultModel(
+                internetReachable: false,
+                wanConfigured: false,
+                defaultRouteActive: false,
+                hotspotOperational: false,
+                securityPoliciesVerified: false,
+                pingPacketsReceived: 0,
+                overallStatus: 'PARTIALLY_VERIFIED',
+                diagnosticsMessage: 'توقف الإعداد عند مرحلة غير مكتملة.',
+              ),
+            );
+          }
+
+          // If bridge was modified, give hardware a settling delay to finish RSTP convergence
+          if (item.stage.startsWith('BRIDGE') || item.command.contains('/interface/bridge')) {
+            await Future.delayed(const Duration(milliseconds: 1200));
           }
         }
 
@@ -1671,31 +1818,34 @@ class MikrotikDiscoveryService {
         bool internetReachable = false;
 
         try {
-          final bridges = await binClient.sendCommand(['/interface/bridge/print']);
-          final ips = await binClient.sendCommand(['/ip/address/print']);
-          final hs = await binClient.sendCommand(['/ip/hotspot/print']);
-          final hsProfiles = await binClient.sendCommand(['/ip/hotspot/profile/print']);
-          final nats = await binClient.sendCommand(['/ip/firewall/nat/print']);
-          final routes = await binClient.sendCommand(['/ip/route/print']);
-          final dhcpClients = await binClient.sendCommand(['/ip/dhcp-client/print']);
+          final activeClient = binClient;
+          if (activeClient != null) {
+            final bridges = await activeClient.sendCommand(['/interface/bridge/print']);
+            final ips = await activeClient.sendCommand(['/ip/address/print']);
+            final hs = await activeClient.sendCommand(['/ip/hotspot/print']);
+            final hsProfiles = await activeClient.sendCommand(['/ip/hotspot/profile/print']);
+            final nats = await activeClient.sendCommand(['/ip/firewall/nat/print']);
+            final routes = await activeClient.sendCommand(['/ip/route/print']);
+            final dhcpClients = await activeClient.sendCommand(['/ip/dhcp-client/print']);
 
-          bridgeConfigured = bridges.any((b) =>
-              (b['name'] ?? '').contains('hotspot') ||
-              (b['name'] ?? '').contains('bridge') ||
-              (b['comment'] ?? '').contains('SudaFi'));
+            bridgeConfigured = bridges.any((b) =>
+                (b['name'] ?? '').contains('hotspot') ||
+                (b['name'] ?? '').contains('bridge') ||
+                (b['comment'] ?? '').contains('SudaFi'));
 
-          wanConfigured = ips.isNotEmpty || dhcpClients.any((d) => d['disabled'] != 'true');
+            wanConfigured = ips.isNotEmpty || dhcpClients.any((d) => d['disabled'] != 'true');
 
-          defaultRouteActive = routes.any((r) =>
-              (r['dst-address'] == '0.0.0.0/0' || r['dst-address'] == '0.0.0.0') &&
-              r['disabled'] != 'true');
+            defaultRouteActive = routes.any((r) =>
+                (r['dst-address'] == '0.0.0.0/0' || r['dst-address'] == '0.0.0.0') &&
+                r['disabled'] != 'true');
 
-          hotspotOperational = hs.any((h) => h['disabled'] != 'true') && hsProfiles.isNotEmpty;
+            hotspotOperational = hs.any((h) => h['disabled'] != 'true') && hsProfiles.isNotEmpty;
 
-          securityPoliciesVerified = nats.any((n) =>
-              n['action'] == 'masquerade' && n['disabled'] != 'true');
+            securityPoliciesVerified = nats.any((n) =>
+                n['action'] == 'masquerade' && n['disabled'] != 'true');
 
-          internetReachable = defaultRouteActive && wanConfigured;
+            internetReachable = defaultRouteActive && wanConfigured;
+          }
         } catch (_) {}
 
         final bool is100PercentVerified = bridgeConfigured && hotspotOperational && securityPoliciesVerified;
@@ -1725,7 +1875,7 @@ class MikrotikDiscoveryService {
           ),
         );
       } finally {
-        await binClient.close();
+        await binClient?.close();
       }
     }
 
@@ -2570,7 +2720,7 @@ class _LocalMikrotikBinaryApiClient {
     this.useSsl = false,
   });
 
-  Future<void> connect({Duration timeout = const Duration(seconds: 4)}) async {
+  Future<void> connect({Duration timeout = const Duration(seconds: 8)}) async {
     if (useSsl) {
       _socket = await SecureSocket.connect(
         host,
@@ -2659,10 +2809,6 @@ class _LocalMikrotikBinaryApiClient {
     );
   }
 
-  ({int length, int headerBytes})? _tryDecodeLength(Uint8List b) {
-    return _tryDecodeLengthAt(b, 0);
-  }
-
   Uint8List _encodeRawWord(Object word) {
     final Uint8List data = (word is Uint8List) ? word : utf8.encode(word.toString());
     final len = data.length;
@@ -2687,7 +2833,7 @@ class _LocalMikrotikBinaryApiClient {
 
   Future<List<List<String>>> _writeAndReadSentences(
     List<String> words, {
-    Duration timeout = const Duration(seconds: 6),
+    Duration timeout = const Duration(seconds: 20),
     int? maxReplies,
   }) async {
     return _writeAndReadRawSentences(words, timeout: timeout, maxReplies: maxReplies);
@@ -2695,7 +2841,7 @@ class _LocalMikrotikBinaryApiClient {
 
   Future<List<List<String>>> _writeAndReadRawSentences(
     List<Object> words, {
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = const Duration(seconds: 25),
     int? maxReplies,
   }) async {
     final sock = _socket;
@@ -2812,9 +2958,10 @@ class _LocalMikrotikBinaryApiClient {
 
   Future<List<Map<String, String>>> sendCommand(
     List<String> words, {
+    Duration timeout = const Duration(seconds: 20),
     int? maxReplies,
   }) async {
-    final replies = await _writeAndReadSentences(words, maxReplies: maxReplies);
+    final replies = await _writeAndReadSentences(words, timeout: timeout, maxReplies: maxReplies);
     final rows = <Map<String, String>>[];
     for (final s in replies) {
       if (s.isEmpty) continue;

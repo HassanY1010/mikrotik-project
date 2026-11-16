@@ -1011,6 +1011,44 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
     return {'success': true, 'data': res.data};
   }
 
+  Future<Map<String, dynamic>> deleteRouter(String id) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.delete(
+        ApiEndpoints.deviceItem(id),
+        options: Options(
+          sendTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 10),
+        ),
+      );
+
+      // Remove from memory and cache optimistically
+      final currentList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
+      currentList.removeWhere((r) => r.id == id);
+      state = AsyncValue.data(currentList);
+      await ref.read(localStorageProvider).saveCachedRouters(currentList);
+
+      // If deleted router was selected, switch to first remaining router or null
+      final selectedId = ref.read(selectedRouterIdProvider);
+      if (selectedId == id) {
+        if (currentList.isNotEmpty) {
+          ref.read(selectedRouterIdProvider.notifier).select(currentList.first.id);
+        } else {
+          ref.read(selectedRouterIdProvider.notifier).select(null);
+        }
+      }
+
+      try {
+        await refresh();
+      } catch (_) {}
+
+      return {'success': true, 'message': 'تم حذف الراوتر بنجاح'};
+    } catch (e) {
+      final details = parseApiError(e, fallback: 'فشل حذف الراوتر من السيرفر');
+      return {'success': false, 'message': details.message};
+    }
+  }
+
   /// Syncs locally-verified router status and real resource telemetry (CPU, RAM, Disk, Uptime)
   /// to the protected backend `/devices/:id/local-telemetry` endpoint and updates in-memory/local cache.
   Future<RouterDeviceModel?> reportLocalTelemetry({
@@ -1044,6 +1082,10 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
       if (isSuccess && routerInfo['memoryTotal'] != null) 'memoryTotal': toInt(routerInfo['memoryTotal']),
       if (isSuccess && routerInfo['diskFree'] != null) 'diskFree': toInt(routerInfo['diskFree']),
       if (isSuccess && routerInfo['diskTotal'] != null) 'diskTotal': toInt(routerInfo['diskTotal']),
+      if (isSuccess && routerInfo['memoryUsagePercent'] != null)
+        'memoryUsagePercent': toInt(routerInfo['memoryUsagePercent']),
+      if (isSuccess && routerInfo['diskUsagePercent'] != null)
+        'diskUsagePercent': toInt(routerInfo['diskUsagePercent']),
       if (isSuccess && routerInfo['uptime'] != null) 'uptime': routerInfo['uptime'].toString(),
       if (isSuccess && (routerInfo['modelName'] ?? routerInfo['model']) != null)
         'modelName': (routerInfo['modelName'] ?? routerInfo['model']).toString(),
@@ -1084,6 +1126,8 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         lastVerifiedAt: isSuccess ? payload['verifiedAt']?.toString() : existing.lastVerifiedAt,
         localCheckedAt: payload['verifiedAt']?.toString(),
         cpuLoad: isSuccess ? (toInt(routerInfo['cpuLoad']) ?? existing.cpuLoad) : null,
+        memoryUsagePercent: isSuccess ? (toInt(routerInfo['memoryUsagePercent']) ?? existing.memoryUsagePercent) : null,
+        diskUsagePercent: isSuccess ? (toInt(routerInfo['diskUsagePercent']) ?? existing.diskUsagePercent) : null,
         memoryFreeMb: isSuccess && memFree != null ? (memFree / (1024 * 1024)).round() : (isSuccess ? existing.memoryFreeMb : null),
         memoryTotalMb: isSuccess && memTotal != null ? (memTotal / (1024 * 1024)).round() : (isSuccess ? existing.memoryTotalMb : null),
         diskFreeMb: isSuccess && diskFree != null ? (diskFree / (1024 * 1024)).round() : (isSuccess ? existing.diskFreeMb : null),
@@ -1112,8 +1156,8 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
           ApiEndpoints.deviceLocalTelemetry(deviceId),
           data: payload,
           options: Options(
-            sendTimeout: const Duration(seconds: 4),
-            receiveTimeout: const Duration(seconds: 4),
+            sendTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 10),
           ),
         );
       } catch (_) {
@@ -1247,8 +1291,8 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         final res = await apiClient.get(
           ApiEndpoints.deviceDiagnostics(deviceId),
           options: Options(
-            sendTimeout: const Duration(seconds: 4),
-            receiveTimeout: const Duration(seconds: 4),
+            sendTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 10),
           ),
         );
         final data = unwrapApiEnvelope(res.data);
@@ -1264,6 +1308,12 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
             connectivityState: isLive ? 'ONLINE' : 'OFFLINE',
             cloudStatus: isLive ? 'ONLINE' : 'OFFLINE',
             cpuLoad: isLive && data['cpuLoad'] is num ? (data['cpuLoad'] as num).toInt() : null,
+            memoryUsagePercent: isLive && data['memoryUsagePercent'] is num
+                ? (data['memoryUsagePercent'] as num).toInt()
+                : (isLive ? existing.memoryUsagePercent : null),
+            diskUsagePercent: isLive && data['diskUsagePercent'] is num
+                ? (data['diskUsagePercent'] as num).toInt()
+                : (isLive ? existing.diskUsagePercent : null),
             memoryFreeMb: isLive && data['freeMemoryMb'] is num ? (data['freeMemoryMb'] as num).toInt() : (isLive ? existing.memoryFreeMb : null),
             memoryTotalMb: isLive && data['totalMemoryMb'] is num ? (data['totalMemoryMb'] as num).toInt() : (isLive ? existing.memoryTotalMb : null),
             diskFreeMb: isLive && data['diskFreeMb'] is num ? (data['diskFreeMb'] as num).toInt() : (isLive ? existing.diskFreeMb : null),
@@ -1760,19 +1810,23 @@ final radarRouterStatusesProvider = NotifierProvider<RadarRouterStatusesNotifier
 
 // Active Sessions AsyncNotifier (Radar)
 class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
-  bool _isFetching = false;
+  int _activeRequestId = 0;
 
   @override
   Future<List<ActiveSessionModel>> build() async {
     final selectedId = ref.watch(selectedRouterIdProvider);
-    return _fetch(selectedId);
+    final reqId = ++_activeRequestId;
+    final fresh = await _fetch(selectedId, reqId);
+    if (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != selectedId) {
+      return const [];
+    }
+    return fresh;
   }
 
-  Future<List<ActiveSessionModel>> _fetch(String? deviceId) async {
-    if (_isFetching) {
-      return state.value ?? [];
+  Future<List<ActiveSessionModel>> _fetch(String? deviceId, [int? reqId]) async {
+    if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+      return const [];
     }
-    _isFetching = true;
 
     try {
       final routers = ref.read(routersProvider).asData?.value ?? const <RouterDeviceModel>[];
@@ -1780,14 +1834,19 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
           ? routers.cast<RouterDeviceModel?>().firstWhere((r) => r?.id == deviceId, orElse: () => null)
           : (routers.isNotEmpty ? routers.first : null);
 
+      if (targetRouter == null) return const [];
+
       // Fast direct local LAN fetch for private LAN router (prevents 20s cloud timeout hangs)
-      if (targetRouter != null && targetRouter.isPrivateLan) {
+      if (targetRouter.isPrivateLan) {
         final pwd = ref.read(routersProvider.notifier).getSessionPassword(targetRouter.id);
         if (pwd != null && pwd.isNotEmpty) {
           try {
             final localRaw = await ref
                 .read(mikrotikDiscoveryServiceProvider)
                 .fetchLocalActiveSessions(device: targetRouter, password: pwd);
+            if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+              return const [];
+            }
             ref.read(radarLastUpdatedProvider.notifier).update(DateTime.now());
             ref.read(radarRouterStatusesProvider.notifier).update([
               RouterConnectionStatus(
@@ -1798,10 +1857,10 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
             ]);
             return localRaw.map((s) => ActiveSessionModel.fromJson(s)).toList();
           } catch (_) {
-            return [];
+            return const [];
           }
         }
-        return [];
+        return const [];
       }
 
       final apiClient = ref.read(apiClientProvider);
@@ -1811,14 +1870,16 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
       final res = await apiClient.get(
         url,
         options: Options(
-          sendTimeout: const Duration(seconds: 4),
-          receiveTimeout: const Duration(seconds: 4),
+          sendTimeout: const Duration(seconds: 12),
+          receiveTimeout: const Duration(seconds: 12),
         ),
       );
+      if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+        return const [];
+      }
       final raw = res.data;
 
       // Extract metadata if available
-      bool routerReportedUnreachable = false;
       if (raw is Map && raw['meta'] != null) {
         final meta = raw['meta'];
         if (meta is Map) {
@@ -1833,7 +1894,6 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
                 .map((r) => RouterConnectionStatus.fromJson(r as Map<String, dynamic>))
                 .toList();
             ref.read(radarRouterStatusesProvider.notifier).update(routerList);
-            routerReportedUnreachable = routerList.any((r) => r.status != 'online');
           }
         }
       } else {
@@ -1848,25 +1908,25 @@ class ActiveSessionsNotifier extends AsyncNotifier<List<ActiveSessionModel>> {
       if (list is List) {
         return list.map((s) => ActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
       }
-      return [];
+      return const [];
     } catch (e) {
-      return [];
-    } finally {
-      _isFetching = false;
+      return const [];
     }
   }
 
   Future<void> refresh({bool showLoading = false}) async {
-    if (_isFetching) return;
     final selectedId = ref.read(selectedRouterIdProvider);
-    if (showLoading && !state.hasValue) {
+    final reqId = ++_activeRequestId;
+    if (showLoading) {
       state = const AsyncValue.loading();
     }
     try {
-      final fresh = await _fetch(selectedId);
-      state = AsyncValue.data(fresh);
+      final fresh = await _fetch(selectedId, reqId);
+      if (reqId == _activeRequestId && ref.read(selectedRouterIdProvider) == selectedId) {
+        state = AsyncValue.data(fresh);
+      }
     } catch (e, st) {
-      if (!state.hasValue) {
+      if (reqId == _activeRequestId) {
         state = AsyncValue.error(e, st);
       }
     }
@@ -1923,19 +1983,30 @@ final activeSessionsProvider = AsyncNotifierProvider<ActiveSessionsNotifier, Lis
 
 /// Live Hotspot cards stored in MikroTik router memory (/ip/hotspot/user/print)
 class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
+  int _activeRequestId = 0;
+
   @override
   Future<List<Map<String, dynamic>>> build() async {
     final selectedId = ref.watch(selectedRouterIdProvider);
-    return _fetch(selectedId);
+    final reqId = ++_activeRequestId;
+    final fresh = await _fetch(selectedId, reqId);
+    if (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != selectedId) {
+      return const [];
+    }
+    return fresh;
   }
 
-  Future<List<Map<String, dynamic>>> _fetch(String? deviceId) async {
+  Future<List<Map<String, dynamic>>> _fetch(String? deviceId, [int? reqId]) async {
+    if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+      return const [];
+    }
+
     final routers = ref.read(routersProvider).asData?.value ?? const <RouterDeviceModel>[];
     final targetRouter = deviceId != null
         ? routers.cast<RouterDeviceModel?>().firstWhere((r) => r?.id == deviceId, orElse: () => null)
         : (routers.isNotEmpty ? routers.first : null);
 
-    if (targetRouter == null) return [];
+    if (targetRouter == null) return const [];
 
     final discoveryService = ref.read(mikrotikDiscoveryServiceProvider);
     final routersNotifier = ref.read(routersProvider.notifier);
@@ -1954,6 +2025,9 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
               port: targetRouter.apiPort,
               useSsl: targetRouter.useSsl,
             );
+            if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+              return const [];
+            }
             return List.filled(count, const <String, dynamic>{});
           } else {
             // Full user list when explicitly requested in store
@@ -1966,13 +2040,16 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
               maxLimit: _maxLimit,
               searchQuery: _searchQuery,
             );
+            if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+              return const [];
+            }
             return users;
           }
         } catch (_) {
-          return [];
+          return const [];
         }
       }
-      return [];
+      return const [];
     }
 
     // Cloud query
@@ -1981,18 +2058,21 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
       final res = await apiClient.get(
         ApiEndpoints.deviceRouterUsers(targetRouter.id),
         options: Options(
-          sendTimeout: const Duration(seconds: 4),
-          receiveTimeout: const Duration(seconds: 4),
+          sendTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 15),
         ),
       );
+      if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+        return const [];
+      }
       final raw = res.data;
       final list = (raw is Map && raw['data'] != null) ? raw['data'] : (raw is List ? raw : []);
       if (list is List) {
         return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
-      return [];
+      return const [];
     } catch (_) {
-      return [];
+      return const [];
     }
   }
 
@@ -2010,14 +2090,17 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
     if (searchQuery != null) _searchQuery = searchQuery;
     if (maxLimit != null) _maxLimit = maxLimit;
     final selectedId = ref.read(selectedRouterIdProvider);
-    if (showLoading && !state.hasValue) {
+    final reqId = ++_activeRequestId;
+    if (showLoading) {
       state = const AsyncValue.loading();
     }
     try {
-      final fresh = await _fetch(selectedId);
-      state = AsyncValue.data(fresh);
+      final fresh = await _fetch(selectedId, reqId);
+      if (reqId == _activeRequestId && ref.read(selectedRouterIdProvider) == selectedId) {
+        state = AsyncValue.data(fresh);
+      }
     } catch (e, st) {
-      if (!state.hasValue) {
+      if (reqId == _activeRequestId) {
         state = AsyncValue.error(e, st);
       }
     }
@@ -3504,20 +3587,33 @@ final pppoeProfilesProvider = AsyncNotifierProvider<PppoeProfilesNotifier, List<
 
 /// PPPoE Accounts AsyncNotifier
 class PppoeAccountsNotifier extends AsyncNotifier<List<PppoeAccountModel>> {
+  int _activeRequestId = 0;
+
   @override
   Future<List<PppoeAccountModel>> build() async {
     final selectedId = ref.watch(selectedRouterIdProvider);
-    return _fetch(selectedId);
+    final reqId = ++_activeRequestId;
+    final fresh = await _fetch(selectedId, reqId);
+    if (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != selectedId) {
+      return const [];
+    }
+    return fresh;
   }
 
-  Future<List<PppoeAccountModel>> _fetch(String? deviceId) async {
-    if (deviceId == null || deviceId.isEmpty) return [];
+  Future<List<PppoeAccountModel>> _fetch(String? deviceId, [int? reqId]) async {
+    if (deviceId == null || deviceId.isEmpty) return const [];
+    if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+      return const [];
+    }
     final apiClient = ref.read(apiClientProvider);
     try {
       final res = await apiClient.get(
         ApiEndpoints.pppoeAccounts(deviceId),
         queryParameters: {'limit': 200},
       );
+      if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+        return const [];
+      }
       final raw = res.data;
       final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
       final items = (data is Map && data['items'] != null) ? data['items'] : (data is List ? data : []);
@@ -3525,19 +3621,22 @@ class PppoeAccountsNotifier extends AsyncNotifier<List<PppoeAccountModel>> {
         return items.map((a) => PppoeAccountModel.fromJson(a as Map<String, dynamic>)).toList();
       }
     } catch (_) {}
-    return [];
+    return const [];
   }
 
   Future<void> refresh({bool showLoading = false}) async {
     final selectedId = ref.read(selectedRouterIdProvider);
-    if (showLoading && !state.hasValue) {
+    final reqId = ++_activeRequestId;
+    if (showLoading) {
       state = const AsyncValue.loading();
     }
     try {
-      final fresh = await _fetch(selectedId);
-      state = AsyncValue.data(fresh);
+      final fresh = await _fetch(selectedId, reqId);
+      if (reqId == _activeRequestId && ref.read(selectedRouterIdProvider) == selectedId) {
+        state = AsyncValue.data(fresh);
+      }
     } catch (e, st) {
-      if (!state.hasValue) {
+      if (reqId == _activeRequestId) {
         state = AsyncValue.error(e, st);
       }
     }
@@ -3728,20 +3827,32 @@ final pppoeAccountsProvider = AsyncNotifierProvider<PppoeAccountsNotifier, List<
 /// PPPoE Live Sessions AsyncNotifier
 class PppoeSessionsNotifier extends AsyncNotifier<List<PppoeActiveSessionModel>> {
   DateTime? lastSyncTime;
+  int _activeRequestId = 0;
 
   @override
   Future<List<PppoeActiveSessionModel>> build() async {
     final selectedId = ref.watch(selectedRouterIdProvider);
-    return _fetch(selectedId, syncFromRouter: false);
+    final reqId = ++_activeRequestId;
+    final fresh = await _fetch(selectedId, syncFromRouter: false, reqId: reqId);
+    if (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != selectedId) {
+      return const [];
+    }
+    return fresh;
   }
 
-  Future<List<PppoeActiveSessionModel>> _fetch(String? deviceId, {bool syncFromRouter = false}) async {
-    if (deviceId == null || deviceId.isEmpty) return [];
+  Future<List<PppoeActiveSessionModel>> _fetch(String? deviceId, {bool syncFromRouter = false, int? reqId}) async {
+    if (deviceId == null || deviceId.isEmpty) return const [];
+    if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+      return const [];
+    }
     final apiClient = ref.read(apiClientProvider);
     try {
       final res = await apiClient.get(
         ApiEndpoints.pppoeSessions(deviceId, sync: syncFromRouter),
       );
+      if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
+        return const [];
+      }
       final raw = res.data;
       final data = (raw is Map && raw['data'] != null) ? raw['data'] : raw;
       final sessionsRaw = (data is Map && data['sessions'] != null) ? data['sessions'] : (data is List ? data : []);
@@ -3761,13 +3872,23 @@ class PppoeSessionsNotifier extends AsyncNotifier<List<PppoeActiveSessionModel>>
         return sessionsRaw.map((s) => PppoeActiveSessionModel.fromJson(s as Map<String, dynamic>)).toList();
       }
     } catch (_) {}
-    return [];
+    return const [];
   }
 
   Future<Map<String, dynamic>> refresh({bool syncFromRouter = false}) async {
     final selectedId = ref.read(selectedRouterIdProvider);
+    final reqId = ++_activeRequestId;
     state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _fetch(selectedId, syncFromRouter: syncFromRouter));
+    try {
+      final fresh = await _fetch(selectedId, syncFromRouter: syncFromRouter, reqId: reqId);
+      if (reqId == _activeRequestId && ref.read(selectedRouterIdProvider) == selectedId) {
+        state = AsyncValue.data(fresh);
+      }
+    } catch (e, st) {
+      if (reqId == _activeRequestId) {
+        state = AsyncValue.error(e, st);
+      }
+    }
     return {
       'success': true,
       'message': syncFromRouter ? 'تم طلب مزامنة الجلسات النشطة من الراوتر' : 'تم تحديث قائمة الجلسات',

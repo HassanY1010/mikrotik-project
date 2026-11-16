@@ -20,6 +20,7 @@ import '../../studio/presentation/card_templates_screen.dart';
 import '../../hotspot_profiles/presentation/hotspot_profiles_screen.dart';
 import '../../portal/presentation/hotspot_portal_designer_screen.dart';
 import '../../pppoe/presentation/pppoe_management_screen.dart';
+import '../../devices/presentation/my_routers_screen.dart';
 
 class MainNavigationScreen extends ConsumerStatefulWidget {
   const MainNavigationScreen({super.key});
@@ -312,6 +313,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         onOpenUserProfile: () => _navigateToTab(4),
         onOpenTenantUsers: () => _pushScreen(const TenantUsersScreen()),
         onOpenPortalDesigner: () => _pushScreen(const HotspotPortalDesignerScreen()),
+        onOpenMyRouters: () => _pushScreen(const MyRoutersScreen()),
       ),
       const CardsStoreScreen(),
       CardStudioScreen(
@@ -508,6 +510,27 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               onTap: () {
                 Navigator.pop(context);
                 _pushScreen(const SyncScreen());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.router_rounded, color: Color(0xFF10B981)),
+              title: Row(
+                children: [
+                  Text('راوتري (إدارة الراوترات)', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text('جديد', style: TextStyle(color: Color(0xFF10B981), fontSize: 10, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                _pushScreen(const MyRoutersScreen());
               },
             ),
             ListTile(

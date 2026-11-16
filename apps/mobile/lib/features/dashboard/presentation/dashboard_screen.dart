@@ -31,6 +31,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
   final VoidCallback? onOpenTenantUsers;
   final VoidCallback? onOpenPortalDesigner;
   final VoidCallback? onOpenRouterProvisioning;
+  final VoidCallback? onOpenMyRouters;
 
   const DashboardScreen({
     super.key,
@@ -50,6 +51,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
     this.onOpenTenantUsers,
     this.onOpenPortalDesigner,
     this.onOpenRouterProvisioning,
+    this.onOpenMyRouters,
   });
 
   @override
@@ -136,11 +138,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
 
       // Refresh Active Hotspot Users, Card inventory & Financial report concurrently every other cycle (every ~10s)
       if (_pollCycleCounter % 2 == 0 || _lastMetricsPollSuccessAt == null) {
+        ref.read(offlineCardsProvider.notifier).refresh();
         await Future.wait([
           ref.read(activeSessionsProvider.notifier).refresh(),
           ref.read(financialReportProvider.notifier).refresh(),
           ref.read(cardsInventoryProvider.notifier).refresh(),
-          ref.read(offlineCardsProvider.notifier).refresh(),
           ref.read(routerHotspotCardsProvider.notifier).refresh(),
         ]);
       }
@@ -2946,6 +2948,39 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             },
           ),
           const SizedBox(width: 6),
+          // Manage Routers (راوتري) Button
+          if (widget.onOpenMyRouters != null)
+            Tooltip(
+              message: 'قسم راوتري - إدارة جميع الأجهزة',
+              child: InkWell(
+                onTap: widget.onOpenMyRouters,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.router_rounded, size: 14, color: Color(0xFF10B981)),
+                      SizedBox(width: 4),
+                      Text(
+                        'راوتري',
+                        style: TextStyle(
+                          color: Color(0xFF10B981),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(width: 6),
           // Quick Add Router button
           Tooltip(
             message: 'إضافة راوتر جديد إلى باقتك',
@@ -3005,13 +3040,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     final double ramRatio;
     final Color ramColor;
     if (isOnline &&
-        router.memoryTotalMb != null &&
-        router.memoryTotalMb! > 0 &&
-        router.memoryFreeMb != null) {
-      final memTotal = router.memoryTotalMb!;
-      final memFree = router.memoryFreeMb!;
+        (router.memoryUsagePercent != null ||
+            (router.memoryTotalMb != null &&
+                router.memoryTotalMb! > 0 &&
+                router.memoryFreeMb != null))) {
+      final memTotal = router.memoryTotalMb ?? 1;
+      final memFree = router.memoryFreeMb ?? 0;
       final memUsed = (memTotal - memFree).clamp(0, memTotal);
-      final memPct = ((memUsed / memTotal) * 100).round().clamp(0, 100);
+      final calculatedPct = memTotal > 0 ? ((memUsed / memTotal) * 100).round().clamp(0, 100) : 0;
+      final memPct = (router.memoryUsagePercent ?? calculatedPct).clamp(0, 100);
       ramStr = '$memPct%';
       ramRatio = (memPct / 100.0).clamp(0.0, 1.0);
       ramColor = _getColorForPercent(memPct);
@@ -3026,13 +3063,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     final double diskRatio;
     final Color diskColor;
     if (isOnline &&
-        router.diskTotalMb != null &&
-        router.diskTotalMb! > 0 &&
-        router.diskFreeMb != null) {
-      final diskTotal = router.diskTotalMb!;
-      final diskFree = router.diskFreeMb!;
+        (router.diskUsagePercent != null ||
+            (router.diskTotalMb != null &&
+                router.diskTotalMb! > 0 &&
+                router.diskFreeMb != null))) {
+      final diskTotal = router.diskTotalMb ?? 1;
+      final diskFree = router.diskFreeMb ?? 0;
       final diskUsed = (diskTotal - diskFree).clamp(0, diskTotal);
-      final diskPct = ((diskUsed / diskTotal) * 100).round().clamp(0, 100);
+      final calculatedPct = diskTotal > 0 ? ((diskUsed / diskTotal) * 100).round().clamp(0, 100) : 0;
+      final diskPct = (router.diskUsagePercent ?? calculatedPct).clamp(0, 100);
       diskStr = '$diskPct%';
       diskRatio = (diskPct / 100.0).clamp(0.0, 1.0);
       diskColor = _getColorForPercent(diskPct);
