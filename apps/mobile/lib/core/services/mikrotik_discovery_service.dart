@@ -357,22 +357,38 @@ class MikrotikDiscoveryService {
     return int.tryParse(cleaned) ?? double.tryParse(cleaned)?.round();
   }
 
+  /// Normalizes a MikroTik /system/resource response which can be a single Map
+  /// or a JSON Array containing a Map (the standard format in RouterOS v7 REST API).
+  static Map<String, dynamic> normalizeResourceResponse(dynamic raw) {
+    if (raw == null) return {};
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    if (raw is List && raw.isNotEmpty) {
+      final first = raw.first;
+      if (first is Map<String, dynamic>) return first;
+      if (first is Map) return Map<String, dynamic>.from(first);
+    }
+    return {};
+  }
+
   static Map<String, dynamic> _buildRouterInfo({
-    required Map<String, dynamic> rawResource,
+    required dynamic rawResource,
     required String fallbackVersion,
     required String protocol,
     int? activeHotspotSessions,
     int? avgCpuLoad,
   }) {
-    final freeMem = _parseMikrotikInt(rawResource['free-memory'] ?? rawResource['memoryFree']);
-    final totalMem = _parseMikrotikInt(rawResource['total-memory'] ?? rawResource['memoryTotal']);
-    final freeHdd = _parseMikrotikInt(rawResource['free-hdd-space'] ?? rawResource['diskFree']);
-    final totalHdd = _parseMikrotikInt(rawResource['total-hdd-space'] ?? rawResource['diskTotal']);
-    final cpuLoad = avgCpuLoad ?? _parseMikrotikInt(rawResource['cpu-load'] ?? rawResource['cpuLoad']);
-    final uptime = rawResource['uptime']?.toString();
-    final versionStr = rawResource['version']?.toString() ?? fallbackVersion;
+    final normResource = normalizeResourceResponse(rawResource);
+    final freeMem = _parseMikrotikInt(normResource['free-memory'] ?? normResource['memoryFree']);
+    final totalMem = _parseMikrotikInt(normResource['total-memory'] ?? normResource['memoryTotal']);
+    final freeHdd = _parseMikrotikInt(normResource['free-hdd-space'] ?? normResource['diskFree']);
+    final totalHdd = _parseMikrotikInt(normResource['total-hdd-space'] ?? normResource['diskTotal']);
+    // Prioritize canonical RouterOS cpu-load from /system/resource (exact WinBox source)
+    final cpuLoad = _parseMikrotikInt(normResource['cpu-load'] ?? normResource['cpuLoad']) ?? avgCpuLoad;
+    final uptime = normResource['uptime']?.toString();
+    final versionStr = normResource['version']?.toString() ?? fallbackVersion;
     final modelName =
-        (rawResource['board-name'] ?? rawResource['platform'] ?? 'MikroTik Router').toString();
+        (normResource['board-name'] ?? normResource['platform'] ?? 'MikroTik Router').toString();
 
     // Exact precision calculations matching WinBox
     int? memoryUsagePercent;
@@ -386,6 +402,25 @@ class MikrotikDiscoveryService {
       final usedHdd = (totalHdd - freeHdd).clamp(0, totalHdd);
       diskUsagePercent = ((usedHdd / totalHdd) * 100).round().clamp(0, 100);
     }
+
+    final sampleTime = DateTime.now().toIso8601String();
+    debugPrint('''
+╔═══════════════════════════════════════════════════════════════════════
+║ [Sudafi Resource Diagnostic] - Sample Time: $sampleTime
+╠═══════════════════════════════════════════════════════════════════════
+║ 1. Protocol: $protocol
+║ 2. RouterOS Raw Response Type: ${rawResource.runtimeType}
+║ 3. Value after normalizeResourceResponse:
+║    cpu-load: ${normResource['cpu-load'] ?? normResource['cpuLoad']} | free-mem: ${normResource['free-memory'] ?? normResource['memoryFree']} | total-mem: ${normResource['total-memory'] ?? normResource['memoryTotal']}
+║    free-hdd: ${normResource['free-hdd-space'] ?? normResource['diskFree']} | total-hdd: ${normResource['total-hdd-space'] ?? normResource['diskTotal']}
+║ 4. Extracted CPU Load: $cpuLoad% (canonical /system/resource)
+║ 5. Memory: Free=${freeMem != null ? '$freeMem bytes (~${(freeMem / (1024 * 1024)).toStringAsFixed(1)}MB)' : 'null'}, Total=${totalMem != null ? '$totalMem bytes (~${(totalMem / (1024 * 1024)).toStringAsFixed(1)}MB)' : 'null'}
+║ 6. Storage (HDD): Free=${freeHdd != null ? '$freeHdd bytes (~${(freeHdd / (1024 * 1024)).toStringAsFixed(1)}MB)' : 'null'}, Total=${totalHdd != null ? '$totalHdd bytes (~${(totalHdd / (1024 * 1024)).toStringAsFixed(1)}MB)' : 'null'}
+║ 7. Final Computed Percentages for Dashboard:
+║    RAM Usage: $memoryUsagePercent%
+║    DISK Usage: $diskUsagePercent%
+╚═══════════════════════════════════════════════════════════════════════
+''');
 
     return {
       'model': modelName,
@@ -442,36 +477,43 @@ class MikrotikDiscoveryService {
           Map<String, dynamic> resMap = {};
           try {
             final decoded = jsonDecode(body);
-            if (decoded is Map<String, dynamic>) resMap = decoded;
-          } catch (_) {}
+            resMap = normalizeResourceResponse(decoded);
+            debugPrint('[tryRest Raw Response] HTTP 200 | Body length: ${body.length} | Decoded type: ${decoded.runtimeType} | Normalized keys: ${resMap.keys.toList()}');
+          } catch (e) {
+            debugPrint('[tryRest JSON Parse Error]: $e');
+          }
 
           int? avgCpu;
-          try {
-            final cpuUri = Uri.parse('$scheme://$host:$port/rest/system/resource/cpu');
-            final cpuReq = await httpClient.getUrl(cpuUri).timeout(const Duration(seconds: 4));
-            cpuReq.headers.set('Authorization', 'Basic $authStr');
-            final cpuRes = await cpuReq.close().timeout(const Duration(seconds: 4));
-            if (cpuRes.statusCode == 200) {
-              final cpuBody = await cpuRes.transform(utf8.decoder).join();
-              final decodedCpu = jsonDecode(cpuBody);
-              if (decodedCpu is List && decodedCpu.isNotEmpty) {
-                int sum = 0;
-                int count = 0;
-                for (final c in decodedCpu) {
-                  if (c is Map) {
-                    final l = _parseMikrotikInt(c['load'] ?? c['cpu-load']);
-                    if (l != null) {
-                      sum += l;
-                      count++;
+          // RouterOS /system/resource directly provides canonical cpu-load matching WinBox.
+          // Only perform secondary /system/resource/cpu query as fallback if cpu-load is absent.
+          if (resMap['cpu-load'] == null && resMap['cpuLoad'] == null) {
+            try {
+              final cpuUri = Uri.parse('$scheme://$host:$port/rest/system/resource/cpu');
+              final cpuReq = await httpClient.getUrl(cpuUri).timeout(const Duration(seconds: 4));
+              cpuReq.headers.set('Authorization', 'Basic $authStr');
+              final cpuRes = await cpuReq.close().timeout(const Duration(seconds: 4));
+              if (cpuRes.statusCode == 200) {
+                final cpuBody = await cpuRes.transform(utf8.decoder).join();
+                final decodedCpu = jsonDecode(cpuBody);
+                if (decodedCpu is List && decodedCpu.isNotEmpty) {
+                  int sum = 0;
+                  int count = 0;
+                  for (final c in decodedCpu) {
+                    if (c is Map) {
+                      final l = _parseMikrotikInt(c['load'] ?? c['cpu-load']);
+                      if (l != null) {
+                        sum += l;
+                        count++;
+                      }
                     }
                   }
-                }
-                if (count > 0) {
-                  avgCpu = (sum / count).round();
+                  if (count > 0) {
+                    avgCpu = (sum / count).round();
+                  }
                 }
               }
-            }
-          } catch (_) {}
+            } catch (_) {}
+          }
 
           int? activeSessions;
           try {
@@ -542,26 +584,32 @@ class MikrotikDiscoveryService {
           final resRows = await binClient.sendCommand(['/system/resource/print']);
           if (resRows.isNotEmpty) {
             resAttrs = Map<String, dynamic>.from(resRows.first);
+            debugPrint('[tryBinary Raw Response] Sentence count: ${resRows.length} | Attributes: ${resAttrs.keys.toList()}');
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('[tryBinary Resource Print Error]: $e');
+        }
 
-        try {
-          final cpuRows = await binClient.sendCommand(['/system/resource/cpu/print']);
-          if (cpuRows.isNotEmpty) {
-            int sum = 0;
-            int count = 0;
-            for (final c in cpuRows) {
-              final l = _parseMikrotikInt(c['load'] ?? c['cpu-load']);
-              if (l != null) {
-                sum += l;
-                count++;
+        // Only perform secondary /system/resource/cpu query as fallback if cpu-load is absent
+        if (resAttrs['cpu-load'] == null && resAttrs['cpuLoad'] == null) {
+          try {
+            final cpuRows = await binClient.sendCommand(['/system/resource/cpu/print']);
+            if (cpuRows.isNotEmpty) {
+              int sum = 0;
+              int count = 0;
+              for (final c in cpuRows) {
+                final l = _parseMikrotikInt(c['load'] ?? c['cpu-load']);
+                if (l != null) {
+                  sum += l;
+                  count++;
+                }
+              }
+              if (count > 0) {
+                avgCpu = (sum / count).round();
               }
             }
-            if (count > 0) {
-              avgCpu = (sum / count).round();
-            }
-          }
-        } catch (_) {}
+          } catch (_) {}
+        }
 
         int? activeSessions;
         try {
@@ -803,14 +851,15 @@ class MikrotikDiscoveryService {
 
         // Fast probe: check if REST is responsive on this scheme/port before fanout
         final initialTest = await fetchEndpoint('/system/resource');
-        if (initialTest == null || initialTest is! Map) {
+        final normalizedTest = normalizeResourceResponse(initialTest);
+        if (normalizedTest.isEmpty) {
           // REST is disabled, unsupported, or blocked on this port; break early to Binary API
           continue;
         }
 
         // Query comprehensive router state in parallel
         final results = await Future.wait([
-          Future.value(initialTest),
+          Future.value(normalizedTest),
           fetchEndpoint('/interface'),
           fetchEndpoint('/interface/bridge'),
           fetchEndpoint('/interface/bridge/port'),
@@ -830,7 +879,7 @@ class MikrotikDiscoveryService {
           fetchEndpoint('/system/resource/cpu'),
         ]);
 
-        final resRaw = results[0] as Map<String, dynamic>? ?? {};
+        final resRaw = normalizeResourceResponse(results[0]);
         final ifacesRaw = normalizeList(results[1]);
         final bridgesRaw = normalizeList(results[2]);
         final bridgePortsRaw = normalizeList(results[3]);
@@ -1033,7 +1082,7 @@ class MikrotikDiscoveryService {
       bridges: bridges,
       hotspotServers: hotspots,
       version: resRaw['version']?.toString() ?? rosVersion,
-      cpuLoad: avgCpuLoad ?? (int.tryParse(resRaw['cpu-load']?.toString() ?? '') ?? 0),
+      cpuLoad: (int.tryParse(resRaw['cpu-load']?.toString() ?? '') ?? _parseMikrotikInt(resRaw['cpuLoad'])) ?? avgCpuLoad ?? 0,
       uptime: resRaw['uptime']?.toString() ?? '',
       bridgePorts: normalizedBridgePorts,
       dhcpServers: normalizedDhcpServers,
@@ -1714,12 +1763,14 @@ class MikrotikDiscoveryService {
 
           bool success = false;
           String? lastErrorMsg;
+          const maxAttempts = 3;
 
-          for (int attempt = 0; attempt < 2; attempt++) {
+          for (int attempt = 0; attempt < maxAttempts; attempt++) {
             try {
               if (attempt > 0) {
-                // If previous attempt hit a transient link flap/timeout, wait for RSTP to settle and reconnect
-                await Future.delayed(const Duration(milliseconds: 1500));
+                // Progressive backoff to allow Wi-Fi / bridge RSTP re-convergence
+                final delayMs = attempt == 1 ? 2500 : 4000;
+                await Future.delayed(Duration(milliseconds: delayMs));
                 try {
                   await binClient?.close();
                 } catch (_) {}
@@ -1728,12 +1779,24 @@ class MikrotikDiscoveryService {
                   port: apiPort,
                   useSsl: useSsl,
                 );
-                await binClient.connect(timeout: const Duration(seconds: 8));
-                final authOk = await binClient.login(username, password);
-                if (!authOk) throw Exception('بيانات تسجيل الدخول غير صحيحة عند إعادة المحاولة');
+                // Connect with inner retry loop in case socket takes a moment to become accessible
+                bool reconnected = false;
+                for (int cTry = 0; cTry < 3; cTry++) {
+                  try {
+                    await binClient.connect(timeout: const Duration(seconds: 8));
+                    final authOk = await binClient.login(username, password);
+                    if (authOk) {
+                      reconnected = true;
+                      break;
+                    }
+                  } catch (_) {
+                    await Future.delayed(const Duration(milliseconds: 1000));
+                  }
+                }
+                if (!reconnected) throw Exception('تعذر إعادة الاتصال بالراوتر بعد تحديث منفذ الجسر');
               }
 
-              await binClient!.sendCommand(words, timeout: const Duration(seconds: 20));
+              await binClient!.sendCommand(words, timeout: const Duration(seconds: 25));
               success = true;
               executedStages.add(ExecutedStageLogModel(
                 stage: item.stage,
@@ -1744,6 +1807,8 @@ class MikrotikDiscoveryService {
               break;
             } catch (e) {
               final errMsg = e.toString().replaceFirst('Exception: ', '');
+
+              // 1. Success on add if already exists
               if (errMsg.contains('already exists') ||
                   errMsg.contains('already have') ||
                   errMsg.contains('already has') ||
@@ -1757,14 +1822,38 @@ class MikrotikDiscoveryService {
                 ));
                 break;
               }
+
+              // 2. Success on remove if item is already deleted or not found
+              if (item.command.contains('/remove') &&
+                  (errMsg.contains('no such item') ||
+                      errMsg.contains('not found') ||
+                      errMsg.contains('no item') ||
+                      errMsg.contains('failure: no such') ||
+                      (errMsg.contains('cannot remove') && errMsg.contains('not found')))) {
+                success = true;
+                executedStages.add(ExecutedStageLogModel(
+                  stage: item.stage,
+                  command: item.command,
+                  status: 'SUCCESS',
+                  timestamp: DateTime.now().toIso8601String(),
+                ));
+                break;
+              }
+
               lastErrorMsg = errMsg;
-              // If it's the first attempt and looks like link flap, timeout or socket drop, retry once
-              if (attempt == 0 &&
-                  (errMsg.contains('Timeout') ||
-                      errMsg.contains('Socket') ||
-                      errMsg.contains('closed') ||
-                      errMsg.contains('Connection refused'))) {
-                debugPrint('[executePlanLocally] Transient link reset on ${item.stage}: $errMsg. Retrying after link stabilization...');
+
+              // 3. If transient link drop / socket abort (e.g. OS Error 103 on bridge change), retry
+              final isTransient = errMsg.contains('Timeout') ||
+                  errMsg.contains('Socket') ||
+                  errMsg.contains('closed') ||
+                  errMsg.contains('abort') ||
+                  errMsg.contains('errno = 103') ||
+                  errMsg.contains('reset') ||
+                  errMsg.contains('broken pipe') ||
+                  errMsg.contains('Connection refused');
+
+              if (attempt < maxAttempts - 1 && isTransient) {
+                debugPrint('[executePlanLocally] Transient link reset on ${item.stage} (attempt $attempt): $errMsg. Retrying after link stabilization...');
                 continue;
               }
               break;
@@ -1803,8 +1892,10 @@ class MikrotikDiscoveryService {
           }
 
           // If bridge was modified, give hardware a settling delay to finish RSTP convergence
-          if (item.stage.startsWith('BRIDGE') || item.command.contains('/interface/bridge')) {
-            await Future.delayed(const Duration(milliseconds: 1200));
+          if (item.stage.startsWith('BRIDGE') ||
+              item.command.contains('/interface/bridge') ||
+              item.command.contains('/ip/address')) {
+            await Future.delayed(const Duration(milliseconds: 1800));
           }
         }
 
@@ -2039,6 +2130,18 @@ class MikrotikDiscoveryService {
             rawStr.contains('already have') ||
             rawStr.contains('already has') ||
             rawStr.contains('failure: already')) {
+          executedStages.add(ExecutedStageLogModel(
+            stage: item.stage,
+            command: item.command,
+            status: 'SUCCESS',
+            timestamp: DateTime.now().toIso8601String(),
+          ));
+        } else if (item.command.contains('/remove') &&
+            (statusCode == 404 ||
+                rawStr.contains('no such item') ||
+                rawStr.contains('not found') ||
+                rawStr.contains('no item') ||
+                rawStr.contains('failure: no such'))) {
           executedStages.add(ExecutedStageLogModel(
             stage: item.stage,
             command: item.command,

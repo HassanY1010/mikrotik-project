@@ -432,6 +432,11 @@ export class AutoProvisionConfigDto {
   @IsBoolean()
   @IsOptional()
   confirmCleanSetup?: boolean;
+
+  @ApiPropertyOptional({ description: 'Client snapshot from local LAN discovery' })
+  @IsObject()
+  @IsOptional()
+  snapshot?: Record<string, unknown>;
 }
 
 export class StartAutoProvisioningDto extends AutoProvisionConfigDto {

@@ -1034,9 +1034,13 @@ class RouterDeviceModel {
   final int? activeHotspotSessions;
   final String? lastError;
   final int? cpuLoad;
+  final int? memoryFree;
+  final int? memoryTotal;
   final int? memoryFreeMb;
   final int? memoryTotalMb;
   final int? memoryUsagePercent;
+  final int? diskFree;
+  final int? diskTotal;
   final int? diskFreeMb;
   final int? diskTotalMb;
   final int? diskUsagePercent;
@@ -1044,6 +1048,32 @@ class RouterDeviceModel {
   final String? modelName;
   final bool isLocked;
   final bool antiTetheringEnabled;
+
+  int? get effectiveMemoryUsagePercent {
+    if (memoryUsagePercent != null) return memoryUsagePercent!.clamp(0, 100);
+    if (memoryTotal != null && memoryTotal! > 0 && memoryFree != null) {
+      final used = (memoryTotal! - memoryFree!).clamp(0, memoryTotal!);
+      return ((used / memoryTotal!) * 100).round().clamp(0, 100);
+    }
+    if (memoryTotalMb != null && memoryTotalMb! > 0 && memoryFreeMb != null) {
+      final used = (memoryTotalMb! - memoryFreeMb!).clamp(0, memoryTotalMb!);
+      return ((used / memoryTotalMb!) * 100).round().clamp(0, 100);
+    }
+    return null;
+  }
+
+  int? get effectiveDiskUsagePercent {
+    if (diskUsagePercent != null) return diskUsagePercent!.clamp(0, 100);
+    if (diskTotal != null && diskTotal! > 0 && diskFree != null) {
+      final used = (diskTotal! - diskFree!).clamp(0, diskTotal!);
+      return ((used / diskTotal!) * 100).round().clamp(0, 100);
+    }
+    if (diskTotalMb != null && diskTotalMb! > 0 && diskFreeMb != null) {
+      final used = (diskTotalMb! - diskFreeMb!).clamp(0, diskTotalMb!);
+      return ((used / diskTotalMb!) * 100).round().clamp(0, 100);
+    }
+    return null;
+  }
 
   RouterDeviceModel({
     required this.id,
@@ -1067,9 +1097,13 @@ class RouterDeviceModel {
     this.activeHotspotSessions,
     this.lastError,
     this.cpuLoad,
+    this.memoryFree,
+    this.memoryTotal,
     this.memoryFreeMb,
     this.memoryTotalMb,
     this.memoryUsagePercent,
+    this.diskFree,
+    this.diskTotal,
     this.diskFreeMb,
     this.diskTotalMb,
     this.diskUsagePercent,
@@ -1143,6 +1177,22 @@ class RouterDeviceModel {
             ? 'ONLINE'
             : (rawStatus == 'ERROR' ? 'ERROR' : (json['lastSyncAt'] == null ? 'UNKNOWN' : rawStatus)));
 
+    final rawMemTotal = parseInt(json['memoryTotal']);
+    final rawMemFree = parseInt(json['memoryFree']);
+    int? computedMemPct = parseInt(json['memoryUsagePercent']);
+    if (computedMemPct == null && rawMemTotal != null && rawMemTotal > 0 && rawMemFree != null) {
+      final used = (rawMemTotal - rawMemFree).clamp(0, rawMemTotal);
+      computedMemPct = ((used / rawMemTotal) * 100).round().clamp(0, 100);
+    }
+
+    final rawDiskTotal = parseInt(json['diskTotal']);
+    final rawDiskFree = parseInt(json['diskFree']);
+    int? computedDiskPct = parseInt(json['diskUsagePercent']);
+    if (computedDiskPct == null && rawDiskTotal != null && rawDiskTotal > 0 && rawDiskFree != null) {
+      final used = (rawDiskTotal - rawDiskFree).clamp(0, rawDiskTotal);
+      computedDiskPct = ((used / rawDiskTotal) * 100).round().clamp(0, 100);
+    }
+
     return RouterDeviceModel(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? 'MikroTik Router',
@@ -1166,12 +1216,16 @@ class RouterDeviceModel {
       activeHotspotSessions: parseInt(json['activeHotspotSessions']),
       lastError: json['lastError']?.toString(),
       cpuLoad: parseInt(json['cpuLoad']),
+      memoryFree: rawMemFree,
+      memoryTotal: rawMemTotal,
       memoryFreeMb: parseMb(json['memoryFree'], explicitMbVal: json['memoryFreeMb']),
       memoryTotalMb: parseMb(json['memoryTotal'], explicitMbVal: json['memoryTotalMb']),
-      memoryUsagePercent: parseInt(json['memoryUsagePercent']),
+      memoryUsagePercent: computedMemPct,
+      diskFree: rawDiskFree,
+      diskTotal: rawDiskTotal,
       diskFreeMb: parseMb(json['diskFree'], explicitMbVal: json['diskFreeMb']),
       diskTotalMb: parseMb(json['diskTotal'], explicitMbVal: json['diskTotalMb']),
-      diskUsagePercent: parseInt(json['diskUsagePercent']),
+      diskUsagePercent: computedDiskPct,
       uptime: json['uptime'] as String?,
       modelName: json['modelName'] as String?,
       isLocked: json['isLocked'] as bool? ?? false,
@@ -1203,9 +1257,13 @@ class RouterDeviceModel {
     bool clearLastError = false,
     bool clearMetrics = false,
     int? cpuLoad,
+    int? memoryFree,
+    int? memoryTotal,
     int? memoryFreeMb,
     int? memoryTotalMb,
     int? memoryUsagePercent,
+    int? diskFree,
+    int? diskTotal,
     int? diskFreeMb,
     int? diskTotalMb,
     int? diskUsagePercent,
@@ -1236,9 +1294,13 @@ class RouterDeviceModel {
       activeHotspotSessions: activeHotspotSessions ?? this.activeHotspotSessions,
       lastError: clearLastError ? null : (lastError ?? this.lastError),
       cpuLoad: clearMetrics ? null : (cpuLoad ?? this.cpuLoad),
+      memoryFree: clearMetrics ? null : (memoryFree ?? this.memoryFree),
+      memoryTotal: clearMetrics ? null : (memoryTotal ?? this.memoryTotal),
       memoryFreeMb: clearMetrics ? null : (memoryFreeMb ?? this.memoryFreeMb),
       memoryTotalMb: clearMetrics ? null : (memoryTotalMb ?? this.memoryTotalMb),
       memoryUsagePercent: clearMetrics ? null : (memoryUsagePercent ?? this.memoryUsagePercent),
+      diskFree: clearMetrics ? null : (diskFree ?? this.diskFree),
+      diskTotal: clearMetrics ? null : (diskTotal ?? this.diskTotal),
       diskFreeMb: clearMetrics ? null : (diskFreeMb ?? this.diskFreeMb),
       diskTotalMb: clearMetrics ? null : (diskTotalMb ?? this.diskTotalMb),
       diskUsagePercent: clearMetrics ? null : (diskUsagePercent ?? this.diskUsagePercent),
@@ -1271,9 +1333,13 @@ class RouterDeviceModel {
     'activeHotspotSessions': activeHotspotSessions,
     'lastError': lastError,
     'cpuLoad': cpuLoad,
+    'memoryFree': memoryFree,
+    'memoryTotal': memoryTotal,
     'memoryFreeMb': memoryFreeMb,
     'memoryTotalMb': memoryTotalMb,
     'memoryUsagePercent': memoryUsagePercent,
+    'diskFree': diskFree,
+    'diskTotal': diskTotal,
     'diskFreeMb': diskFreeMb,
     'diskTotalMb': diskTotalMb,
     'diskUsagePercent': diskUsagePercent,

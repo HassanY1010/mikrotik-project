@@ -1111,6 +1111,14 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
       final memTotal = toInt(routerInfo['memoryTotal']);
       final diskFree = toInt(routerInfo['diskFree']);
       final diskTotal = toInt(routerInfo['diskTotal']);
+      int? calculatedMemPct = toInt(routerInfo['memoryUsagePercent']);
+      if (calculatedMemPct == null && memTotal != null && memFree != null && memTotal > 0) {
+        calculatedMemPct = (((memTotal - memFree) / memTotal) * 100).round().clamp(0, 100);
+      }
+      int? calculatedDiskPct = toInt(routerInfo['diskUsagePercent']);
+      if (calculatedDiskPct == null && diskTotal != null && diskFree != null && diskTotal > 0) {
+        calculatedDiskPct = (((diskTotal - diskFree) / diskTotal) * 100).round().clamp(0, 100);
+      }
       localUpdatedModel = existing.copyWith(
         isOnline: isSuccess,
         status: isSuccess
@@ -1126,8 +1134,12 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         lastVerifiedAt: isSuccess ? payload['verifiedAt']?.toString() : existing.lastVerifiedAt,
         localCheckedAt: payload['verifiedAt']?.toString(),
         cpuLoad: isSuccess ? (toInt(routerInfo['cpuLoad']) ?? existing.cpuLoad) : null,
-        memoryUsagePercent: isSuccess ? (toInt(routerInfo['memoryUsagePercent']) ?? existing.memoryUsagePercent) : null,
-        diskUsagePercent: isSuccess ? (toInt(routerInfo['diskUsagePercent']) ?? existing.diskUsagePercent) : null,
+        memoryUsagePercent: isSuccess ? (calculatedMemPct ?? existing.memoryUsagePercent) : null,
+        diskUsagePercent: isSuccess ? (calculatedDiskPct ?? existing.diskUsagePercent) : null,
+        memoryFree: isSuccess ? (memFree ?? existing.memoryFree) : null,
+        memoryTotal: isSuccess ? (memTotal ?? existing.memoryTotal) : null,
+        diskFree: isSuccess ? (diskFree ?? existing.diskFree) : null,
+        diskTotal: isSuccess ? (diskTotal ?? existing.diskTotal) : null,
         memoryFreeMb: isSuccess && memFree != null ? (memFree / (1024 * 1024)).round() : (isSuccess ? existing.memoryFreeMb : null),
         memoryTotalMb: isSuccess && memTotal != null ? (memTotal / (1024 * 1024)).round() : (isSuccess ? existing.memoryTotalMb : null),
         diskFreeMb: isSuccess && diskFree != null ? (diskFree / (1024 * 1024)).round() : (isSuccess ? existing.diskFreeMb : null),
@@ -1144,6 +1156,7 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         clearMetrics: !isSuccess,
       );
       existingList[idx] = localUpdatedModel;
+      debugPrint('[reportLocalTelemetry -> Dashboard State] Device: $deviceId | Host: $reportedHost | CPU: ${localUpdatedModel.cpuLoad}% | RAM: ${localUpdatedModel.effectiveMemoryUsagePercent}% | DISK: ${localUpdatedModel.effectiveDiskUsagePercent}% | Timestamp: ${payload['verifiedAt']}');
       state = AsyncValue.data(existingList);
       ref.read(localStorageProvider).saveCachedRouters(existingList);
     }
@@ -1314,6 +1327,10 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
             diskUsagePercent: isLive && data['diskUsagePercent'] is num
                 ? (data['diskUsagePercent'] as num).toInt()
                 : (isLive ? existing.diskUsagePercent : null),
+            memoryFree: isLive && data['memoryFree'] is num ? (data['memoryFree'] as num).toInt() : (isLive ? existing.memoryFree : null),
+            memoryTotal: isLive && data['memoryTotal'] is num ? (data['memoryTotal'] as num).toInt() : (isLive ? existing.memoryTotal : null),
+            diskFree: isLive && data['diskFree'] is num ? (data['diskFree'] as num).toInt() : (isLive ? existing.diskFree : null),
+            diskTotal: isLive && data['diskTotal'] is num ? (data['diskTotal'] as num).toInt() : (isLive ? existing.diskTotal : null),
             memoryFreeMb: isLive && data['freeMemoryMb'] is num ? (data['freeMemoryMb'] as num).toInt() : (isLive ? existing.memoryFreeMb : null),
             memoryTotalMb: isLive && data['totalMemoryMb'] is num ? (data['totalMemoryMb'] as num).toInt() : (isLive ? existing.memoryTotalMb : null),
             diskFreeMb: isLive && data['diskFreeMb'] is num ? (data['diskFreeMb'] as num).toInt() : (isLive ? existing.diskFreeMb : null),

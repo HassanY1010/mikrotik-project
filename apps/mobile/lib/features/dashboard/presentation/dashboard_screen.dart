@@ -3039,16 +3039,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     final String ramStr;
     final double ramRatio;
     final Color ramColor;
-    if (isOnline &&
-        (router.memoryUsagePercent != null ||
-            (router.memoryTotalMb != null &&
-                router.memoryTotalMb! > 0 &&
-                router.memoryFreeMb != null))) {
-      final memTotal = router.memoryTotalMb ?? 1;
-      final memFree = router.memoryFreeMb ?? 0;
-      final memUsed = (memTotal - memFree).clamp(0, memTotal);
-      final calculatedPct = memTotal > 0 ? ((memUsed / memTotal) * 100).round().clamp(0, 100) : 0;
-      final memPct = (router.memoryUsagePercent ?? calculatedPct).clamp(0, 100);
+    final effectiveMemPct = router.effectiveMemoryUsagePercent;
+    if (isOnline && effectiveMemPct != null) {
+      final memPct = effectiveMemPct.clamp(0, 100);
       ramStr = '$memPct%';
       ramRatio = (memPct / 100.0).clamp(0.0, 1.0);
       ramColor = _getColorForPercent(memPct);
@@ -3062,16 +3055,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     final String diskStr;
     final double diskRatio;
     final Color diskColor;
-    if (isOnline &&
-        (router.diskUsagePercent != null ||
-            (router.diskTotalMb != null &&
-                router.diskTotalMb! > 0 &&
-                router.diskFreeMb != null))) {
-      final diskTotal = router.diskTotalMb ?? 1;
-      final diskFree = router.diskFreeMb ?? 0;
-      final diskUsed = (diskTotal - diskFree).clamp(0, diskTotal);
-      final calculatedPct = diskTotal > 0 ? ((diskUsed / diskTotal) * 100).round().clamp(0, 100) : 0;
-      final diskPct = (router.diskUsagePercent ?? calculatedPct).clamp(0, 100);
+    final effectiveDiskPct = router.effectiveDiskUsagePercent;
+    if (isOnline && effectiveDiskPct != null) {
+      final diskPct = effectiveDiskPct.clamp(0, 100);
       diskStr = '$diskPct%';
       diskRatio = (diskPct / 100.0).clamp(0.0, 1.0);
       diskColor = _getColorForPercent(diskPct);

@@ -91,7 +91,7 @@ void main() {
   final testRouter = RouterDeviceModel(
     id: 'dev-1',
     name: 'راوتر المختبر',
-    host: '192.168.88.1',
+    host: '100.64.0.1',
     apiPort: 8728,
     restPort: 443,
     rosVersion: 'V7',

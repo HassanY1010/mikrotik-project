@@ -80,6 +80,20 @@ export class ReportLocalTelemetryDto {
   @Min(0)
   diskTotal?: number;
 
+  @ApiPropertyOptional({ description: 'Router RAM usage percentage (0-100)' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  memoryUsagePercent?: number;
+
+  @ApiPropertyOptional({ description: 'Router Disk usage percentage (0-100)' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  diskUsagePercent?: number;
+
   @ApiPropertyOptional({ description: 'RouterOS reported uptime string' })
   @IsOptional()
   @IsString()

@@ -48,13 +48,7 @@ export class RouterDiscoveryEngineService {
     options?: { forceRefresh?: boolean; clientSnapshot?: any },
   ): Promise<FullRouterDiscoveryReport> {
     const cacheKey = `${tenantId}:${deviceId}`;
-    if (!options?.forceRefresh) {
-      const hit = this.cache.get(cacheKey);
-      // Keep discovery cache short (30s) so preview/execution never relies on stale router topology
-      if (hit && Date.now() - hit.cachedAt < 30 * 1000) {
-        return hit.report;
-      }
-    }
+    const hit = this.cache.get(cacheKey);
 
     const device = await this.prisma.mikroTikDevice.findFirst({
       where: { id: deviceId, tenantId, deletedAt: null },
@@ -65,6 +59,8 @@ export class RouterDiscoveryEngineService {
         message: `لم يتم العثور على جهاز الراوتر (${deviceId}) ضمن المستأجر الحالي.`,
       });
     }
+
+    const isPrivate = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(device.host.trim());
 
     // 1. If client sent a locally-discovered snapshot (from phone on same LAN), build report directly
     if (options?.clientSnapshot && typeof options.clientSnapshot === 'object') {
@@ -77,6 +73,14 @@ export class RouterDiscoveryEngineService {
       });
       this.cache.set(cacheKey, { report, cachedAt: Date.now() });
       return report;
+    }
+
+    // 2. Normal cache check if not forceRefresh
+    if (!options?.forceRefresh) {
+      // Keep discovery cache short (30s) so preview/execution never relies on stale router topology
+      if (hit && Date.now() - hit.cachedAt < 30 * 1000) {
+        return hit.report;
+      }
     }
 
     let client: IMikrotikClient;
@@ -95,8 +99,14 @@ export class RouterDiscoveryEngineService {
         rosVersion: device.rosVersion,
       });
     } catch (err) {
+      // For private LAN routers: cloud cannot directly reach RFC 1918 IPs.
+      // If a recent local discovery report exists (up to 15 minutes), reuse it safely
+      // rather than throwing a false BadGatewayException when cloud connection fails.
+      if (isPrivate && hit && Date.now() - hit.cachedAt < 15 * 60 * 1000) {
+        return hit.report;
+      }
+
       const msg = err instanceof Error ? err.message : String(err);
-      const isPrivate = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(device.host.trim());
       throw new BadGatewayException({
         code: isPrivate ? 'CLOUD_UNREACHABLE_PRIVATE_LAN' : 'ROUTER_CONNECTION_FAILED',
         message: isPrivate

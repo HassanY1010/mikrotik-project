@@ -152,7 +152,11 @@ export class MikrotikProvisioningService {
     forceRefresh = false,
   ) {
     await this.assertDeviceAccess(tenantId, deviceId, currentUser);
-    const discovery = await this.discoveryService.discover(tenantId, deviceId, { forceRefresh });
+    const clientSnapshot = (dto as any)?.snapshot ?? (dto as any)?.clientSnapshot;
+    const discovery = await this.discoveryService.discover(tenantId, deviceId, {
+      forceRefresh,
+      clientSnapshot,
+    });
     return this.plannerService.buildPlan(dto, discovery, tenantId);
   }
 
@@ -346,8 +350,10 @@ export class MikrotikProvisioningService {
     await this.assertDeviceAccess(tenantId, deviceId, currentUser);
 
     // Always inspect live router state before building executable plan
+    const clientSnapshot = (dto as any)?.snapshot ?? (dto as any)?.clientSnapshot;
     const liveDiscovery = await this.discoveryService.discover(tenantId, deviceId, {
       forceRefresh: true,
+      clientSnapshot,
     });
     const plan = this.plannerService.buildPlan(dto, liveDiscovery, tenantId);
 

@@ -76,6 +76,7 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
   bool _enableAutoBackupSchedule = false;
   bool _enableNetwatch = false;
   bool _createPreBackup = true;
+  Map<String, dynamic>? _clientSnapshot;
 
   AutoProvisioningService get _service => ref.read(autoProvisioningServiceProvider);
 
@@ -219,7 +220,9 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
     if (deviceId == null || deviceId.isEmpty) return;
 
     final routers = ref.read(routersProvider).asData?.value ?? [];
-    final currentRouter = routers.firstWhere((r) => r.id == deviceId, orElse: () => routers.first);
+    final RouterDeviceModel? currentRouter = routers.where((r) => r.id == deviceId).firstOrNull ??
+        (widget.initialRouter?.id == deviceId ? widget.initialRouter : routers.firstOrNull);
+    if (currentRouter == null) return;
 
     setState(() {
       _loading = true;
@@ -298,6 +301,8 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
       _applyDiscoveryDefaults(report);
       setState(() {
         _discovery = report;
+        _clientSnapshot = clientSnapshot;
+        _errorMessage = null;
         _preview = null;
       });
     } catch (e) {
@@ -398,6 +403,7 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
         'enforceSingleDevice': _enforceSingleDevice,
         'blockUnauthenticatedBypass': _blockUnauthenticatedBypass,
       },
+      if (_clientSnapshot != null) 'snapshot': _clientSnapshot,
     };
 
     if (includeApplyFlags) {
@@ -425,6 +431,7 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
       if (!mounted) return;
       setState(() {
         _preview = prev;
+        _errorMessage = null;
         _step = 2;
       });
     } catch (e) {
@@ -472,7 +479,9 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
 
     try {
       final routers = ref.read(routersProvider).asData?.value ?? [];
-      final currentRouter = routers.firstWhere((r) => r.id == deviceId, orElse: () => routers.first);
+      final RouterDeviceModel? currentRouter = routers.where((r) => r.id == deviceId).firstOrNull ??
+          (widget.initialRouter?.id == deviceId ? widget.initialRouter : routers.firstOrNull);
+      if (currentRouter == null) return;
       final host = currentRouter.host.trim();
       final isPrivateIp = host.startsWith('192.168.') ||
           host.startsWith('10.') ||

@@ -144,19 +144,21 @@ export class RouterOsRestClient implements IMikrotikClient {
 
   async ping(): Promise<boolean> {
     try {
-      const res = await this.request<Record<string, unknown>>('/system/resource', {
+      const res = await this.request<any>('/system/resource', {
         method: 'GET',
       });
-      return res !== null && typeof res === 'object';
+      return res !== null && (typeof res === 'object' || Array.isArray(res));
     } catch {
       return false;
     }
   }
 
   async getSystemResource(): Promise<RouterResource> {
-    const res = await this.request<Record<string, string>>('/system/resource', {
+    const raw = await this.request<any>('/system/resource', {
       method: 'GET',
     });
+    const list = this.toArray<Record<string, string>>(raw);
+    const res = list.length > 0 ? list[0] : (typeof raw === 'object' && raw !== null ? raw : {});
 
     return {
       uptime: res['uptime'] ?? '0s',

@@ -75,6 +75,8 @@ export interface DeviceResponse {
   memoryTotal: number | null;
   diskFree: number | null;
   diskTotal: number | null;
+  memoryUsagePercent?: number | null;
+  diskUsagePercent?: number | null;
   uptime: string | null;
   modelName: string | null;
   isLocked: boolean;
@@ -195,6 +197,34 @@ export class DevicesService {
       memoryTotal: device.memoryTotal !== null ? Number(device.memoryTotal) : null,
       diskFree: device.diskFree !== null ? Number(device.diskFree) : null,
       diskTotal: device.diskTotal !== null ? Number(device.diskTotal) : null,
+      memoryUsagePercent:
+        device.memoryTotal && Number(device.memoryTotal) > 0 && device.memoryFree !== null
+          ? Math.min(
+              100,
+              Math.max(
+                0,
+                Math.round(
+                  ((Number(device.memoryTotal) - Number(device.memoryFree)) /
+                    Number(device.memoryTotal)) *
+                    100,
+                ),
+              ),
+            )
+          : null,
+      diskUsagePercent:
+        device.diskTotal && Number(device.diskTotal) > 0 && device.diskFree !== null
+          ? Math.min(
+              100,
+              Math.max(
+                0,
+                Math.round(
+                  ((Number(device.diskTotal) - Number(device.diskFree)) /
+                    Number(device.diskTotal)) *
+                    100,
+                ),
+              ),
+            )
+          : null,
       uptime: device.uptime,
       modelName: device.modelName ?? null,
       isLocked: device.isLocked ?? false,
@@ -1322,6 +1352,12 @@ export class DevicesService {
     totalMemoryMb: number | null;
     diskFreeMb?: number | null;
     diskTotalMb?: number | null;
+    memoryUsagePercent?: number | null;
+    diskUsagePercent?: number | null;
+    memoryFree?: number | null;
+    memoryTotal?: number | null;
+    diskFree?: number | null;
+    diskTotal?: number | null;
     uptime: string | null;
     activeHotspotSessions: number;
     boardName: string | null;
@@ -1385,6 +1421,18 @@ export class DevicesService {
         lastVerifiedSource: 'CLOUD_API',
       });
 
+      const memUsed = resource.totalMemory - resource.freeMemory;
+      const memoryUsagePercent =
+        resource.totalMemory > 0
+          ? Math.min(100, Math.max(0, Math.round((memUsed / resource.totalMemory) * 100)))
+          : null;
+      const diskUsed =
+        resource.totalHdd && resource.freeHdd ? resource.totalHdd - resource.freeHdd : null;
+      const diskUsagePercent =
+        resource.totalHdd && resource.totalHdd > 0 && diskUsed !== null
+          ? Math.min(100, Math.max(0, Math.round((diskUsed / resource.totalHdd) * 100)))
+          : null;
+
       return {
         isLive: true,
         connectivityState: 'ONLINE',
@@ -1393,6 +1441,12 @@ export class DevicesService {
         totalMemoryMb: Math.round(resource.totalMemory / (1024 * 1024)),
         diskFreeMb: resource.freeHdd ? Math.round(resource.freeHdd / (1024 * 1024)) : null,
         diskTotalMb: resource.totalHdd ? Math.round(resource.totalHdd / (1024 * 1024)) : null,
+        memoryUsagePercent,
+        diskUsagePercent,
+        memoryFree: resource.freeMemory,
+        memoryTotal: resource.totalMemory,
+        diskFree: resource.freeHdd ?? null,
+        diskTotal: resource.totalHdd ?? null,
         uptime: resource.uptime,
         activeHotspotSessions: activeSessions,
         boardName: resource.boardName || device.modelName || null,
@@ -1424,26 +1478,45 @@ export class DevicesService {
       }
 
       const channel = DevicesService.deviceChannelStates.get(device.id);
+      const dbMemTotal =
+        device.memoryTotal !== null && device.memoryTotal !== undefined
+          ? Number(device.memoryTotal)
+          : null;
+      const dbMemFree =
+        device.memoryFree !== null && device.memoryFree !== undefined
+          ? Number(device.memoryFree)
+          : null;
+      const dbDiskTotal =
+        device.diskTotal !== null && device.diskTotal !== undefined
+          ? Number(device.diskTotal)
+          : null;
+      const dbDiskFree =
+        device.diskFree !== null && device.diskFree !== undefined
+          ? Number(device.diskFree)
+          : null;
+      const dbMemPct =
+        dbMemTotal && dbMemTotal > 0 && dbMemFree !== null
+          ? Math.min(100, Math.max(0, Math.round(((dbMemTotal - dbMemFree) / dbMemTotal) * 100)))
+          : null;
+      const dbDiskPct =
+        dbDiskTotal && dbDiskTotal > 0 && dbDiskFree !== null
+          ? Math.min(100, Math.max(0, Math.round(((dbDiskTotal - dbDiskFree) / dbDiskTotal) * 100)))
+          : null;
+
       return {
         isLive: false,
         connectivityState: this.resolveEffectiveConnectivityState(device),
         cpuLoad: device.cpuLoad ?? null,
-        freeMemoryMb:
-          device.memoryFree !== null && device.memoryFree !== undefined
-            ? Math.round(Number(device.memoryFree) / (1024 * 1024))
-            : null,
-        totalMemoryMb:
-          device.memoryTotal !== null && device.memoryTotal !== undefined
-            ? Math.round(Number(device.memoryTotal) / (1024 * 1024))
-            : null,
-        diskFreeMb:
-          device.diskFree !== null && device.diskFree !== undefined
-            ? Math.round(Number(device.diskFree) / (1024 * 1024))
-            : null,
-        diskTotalMb:
-          device.diskTotal !== null && device.diskTotal !== undefined
-            ? Math.round(Number(device.diskTotal) / (1024 * 1024))
-            : null,
+        freeMemoryMb: dbMemFree !== null ? Math.round(dbMemFree / (1024 * 1024)) : null,
+        totalMemoryMb: dbMemTotal !== null ? Math.round(dbMemTotal / (1024 * 1024)) : null,
+        diskFreeMb: dbDiskFree !== null ? Math.round(dbDiskFree / (1024 * 1024)) : null,
+        diskTotalMb: dbDiskTotal !== null ? Math.round(dbDiskTotal / (1024 * 1024)) : null,
+        memoryUsagePercent: dbMemPct,
+        diskUsagePercent: dbDiskPct,
+        memoryFree: dbMemFree,
+        memoryTotal: dbMemTotal,
+        diskFree: dbDiskFree,
+        diskTotal: dbDiskTotal,
         uptime: device.uptime ?? null,
         activeHotspotSessions: channel?.activeHotspotSessions ?? activeSessions,
         boardName: device.modelName ?? null,

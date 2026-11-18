@@ -206,4 +206,87 @@ describe('RouterOsRestClient REST API Compliance & Removal Operations (RouterOS 
 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  describe('getSystemResource normalization & metrics parsing', () => {
+    it('should correctly normalize RouterOS v7 JSON Array response and extract canonical cpu-load, memory, and hdd', async () => {
+      const v7ArrayResponse = [
+        {
+          uptime: '2w3d',
+          version: '7.16',
+          'cpu-load': '7',
+          'free-memory': '343932928',
+          'total-memory': '536870912',
+          'free-hdd-space': '87241523',
+          'total-hdd-space': '134217728',
+          'board-name': 'L009UiGS-2HaxD',
+          'architecture-name': 'arm',
+          platform: 'MikroTik',
+        },
+      ];
+
+      global.fetch = jest.fn().mockImplementation(async (url: string) => {
+        if (url.includes('/rest/system/resource')) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify(v7ArrayResponse),
+            headers: new Headers(),
+          } as any;
+        }
+        return { ok: true, status: 200, text: async () => '{}', headers: new Headers() } as any;
+      });
+
+      const res = await client.getSystemResource();
+
+      expect(res.cpuLoad).toBe(7);
+      expect(res.freeMemory).toBe(343932928);
+      expect(res.totalMemory).toBe(536870912);
+      expect(res.freeHdd).toBe(87241523);
+      expect(res.totalHdd).toBe(134217728);
+      expect(res.boardName).toBe('L009UiGS-2HaxD');
+    });
+
+    it('should correctly parse standard JSON Map response', async () => {
+      const mapResponse = {
+        uptime: '1d',
+        version: '7.15',
+        'cpu-load': '11',
+        'free-memory': '300000000',
+        'total-memory': '500000000',
+        'free-hdd-space': '80000000',
+        'total-hdd-space': '130000000',
+      };
+
+      global.fetch = jest.fn().mockImplementation(async () => {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(mapResponse),
+          headers: new Headers(),
+        } as any;
+      });
+
+      const res = await client.getSystemResource();
+      expect(res.cpuLoad).toBe(11);
+      expect(res.freeMemory).toBe(300000000);
+      expect(res.totalMemory).toBe(500000000);
+    });
+
+    it('should handle empty response or missing fields safely', async () => {
+      global.fetch = jest.fn().mockImplementation(async () => {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => '[]',
+          headers: new Headers(),
+        } as any;
+      });
+
+      const res = await client.getSystemResource();
+      expect(res.cpuLoad).toBe(0);
+      expect(res.freeMemory).toBe(0);
+      expect(res.totalMemory).toBe(0);
+      expect(res.uptime).toBe('0s');
+    });
+  });
 });
