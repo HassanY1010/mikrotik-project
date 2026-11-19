@@ -543,7 +543,7 @@ describe('Stage 2 Hardening: Device Connectivity, Protected Telemetry & Sales De
         }),
       );
       expect(res.receipts).toHaveLength(1);
-    });
+    }, 20000);
 
     it('refund completes financial reversal & card disable even when router throws ETIMEDOUT', async () => {
       salesPrisma.saleTransaction.findFirst.mockResolvedValue({

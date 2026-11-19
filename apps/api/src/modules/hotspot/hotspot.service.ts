@@ -6,10 +6,16 @@ import {
   BadGatewayException,
   ForbiddenException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { DeviceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
-import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
+import { MikrotikClientFactory, DeviceConnectionConfig } from '../../core/mikrotik/mikrotik-client.factory';
+import { MikrotikOperationExecutorService } from '../../core/mikrotik/services/mikrotik-operation-executor.service';
+import {
+  OperationExecutionStatus,
+  OperationFailurePhase,
+} from '../../core/mikrotik/interfaces/mikrotik-operation.interface';
 import { DevicesService } from '../devices/devices.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -38,10 +44,92 @@ import {
 export class HotspotService {
   private readonly logger = new Logger(HotspotService.name);
 
+  private readonly executor: MikrotikOperationExecutorService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mikrotikClientFactory: MikrotikClientFactory,
-  ) {}
+    @Optional() executor?: MikrotikOperationExecutorService,
+  ) {
+    this.executor = executor || new MikrotikOperationExecutorService(mikrotikClientFactory);
+  }
+
+  private toDeviceConfig(device: any): DeviceConnectionConfig {
+    return {
+      id: device.id,
+      name: device.name,
+      host: device.host,
+      apiPort: device.apiPort,
+      restPort: device.restPort,
+      useSsl: device.useSsl,
+      username: device.username,
+      passwordEncrypted: device.passwordEncrypted,
+      iv: device.iv,
+      authTag: device.authTag,
+      rosVersion: device.rosVersion,
+    };
+  }
+
+  private handleExecutorFailure(result: any, fallbackMessage: string): never {
+    const errorArabic = result.errorArabic || result.error || fallbackMessage;
+    const code =
+      result.phase === OperationFailurePhase.CONNECTION
+        ? 'ROUTER_CONNECTION_FAILED'
+        : result.phase === OperationFailurePhase.PRE_VERIFICATION
+          ? 'PROFILE_ALREADY_EXISTS_ON_ROUTER'
+          : result.phase === OperationFailurePhase.COMMAND_EXECUTION
+            ? 'ROUTER_PROVISIONING_FAILED'
+            : result.phase === OperationFailurePhase.POST_VERIFICATION
+              ? 'ROUTER_VERIFICATION_FAILED'
+              : result.phase === OperationFailurePhase.PERSISTENCE
+                ? 'PERSISTENCE_FAILED'
+                : 'ROUTER_OPERATION_FAILED';
+
+    if (result.phase === OperationFailurePhase.PRE_VERIFICATION && /already exists/i.test(result.error || '')) {
+      throw new ConflictException({
+        code: 'PROFILE_EXISTS',
+        message: errorArabic,
+        details: result.details,
+      });
+    }
+
+    if (result.status === OperationExecutionStatus.UNKNOWN) {
+      throw new BadGatewayException({
+        code: 'ROUTER_STATE_UNKNOWN',
+        message: errorArabic,
+        details: {
+          routerId: result.routerId,
+          routerHost: result.routerHost,
+          phase: result.phase,
+          error: result.error,
+        },
+      });
+    }
+
+    if (result.phase === OperationFailurePhase.PERSISTENCE) {
+      throw new BadGatewayException({
+        code: 'PERSISTENCE_FAILED',
+        message: errorArabic,
+        details: {
+          routerId: result.routerId,
+          routerHost: result.routerHost,
+          phase: result.phase,
+          error: result.error,
+        },
+      });
+    }
+
+    throw new BadGatewayException({
+      code,
+      message: errorArabic,
+      details: {
+        routerId: result.routerId,
+        routerHost: result.routerHost,
+        phase: result.phase,
+        error: result.error,
+      },
+    });
+  }
 
   private async getValidDevice(
     tenantId: string | undefined,
@@ -343,93 +431,6 @@ export class HotspotService {
     const effectiveValidity = dto.validity || dto.sessionTimeout;
     const normalizedValidity = effectiveValidity ? normalizeValidityDuration(effectiveValidity) : null;
 
-    // Provision on MikroTik router (only if router is cloud-reachable and syncToRouter is not explicitly false)
-    let routerProvisioned = false;
-    const isLocalPrivateLan = Boolean(DevicesService?.isLocalOnlyPrivateLan?.(device.id));
-    const shouldSyncToRouter = dto.syncToRouter !== false && device.isOnline && !isLocalPrivateLan;
-
-    if (shouldSyncToRouter) {
-      const connectionType = device.rosVersion === 'V7' && device.restPort ? 'REST' : 'API';
-      try {
-        const client = await this.mikrotikClientFactory.getClient({
-          id: device.id,
-          name: device.name,
-          host: device.host,
-          apiPort: device.apiPort,
-          restPort: device.restPort,
-          useSsl: device.useSsl,
-          username: device.username,
-          passwordEncrypted: device.passwordEncrypted,
-          iv: device.iv,
-          authTag: device.authTag,
-          rosVersion: device.rosVersion,
-        });
-
-        await client.createHotspotProfile({
-          name: dto.name,
-          rateLimit: dto.rateLimit,
-          sessionTimeout: normalizedValidity ?? undefined,
-          idleTimeout: dto.idleTimeout,
-          keepaliveTimeout: dto.keepaliveTimeout,
-          sharedUsers: dto.sharedUsers ?? 1,
-          addressPool: dto.addressPool,
-        });
-        routerProvisioned = true;
-      } catch (err: unknown) {
-        const rawErrMsg = err instanceof Error ? err.message : String(err);
-        const sanitizedErrMsg = rawErrMsg.replace(/password=\S+/gi, 'password=***');
-
-        // Detailed technical logging according to Section 5 without leaking secrets
-        this.logger.error({
-          operation: 'CREATE_HOTSPOT_PROFILE',
-          stage: 'ROUTEROS_PROVISIONING',
-          routerId: device.id,
-          routerHost: device.host,
-          rosVersion: device.rosVersion,
-          connectionType,
-          routerPath: '/ip/hotspot/user/profile',
-          safePayload: {
-            name: dto.name,
-            rateLimit: dto.rateLimit ?? null,
-            sessionTimeout: normalizedValidity,
-            sharedUsers: dto.sharedUsers ?? 1,
-          },
-          originalError: sanitizedErrMsg,
-        });
-
-        let userMessage = 'فشل إنشاء البروفايل على الراوتر';
-        if (/permission|not enough permissions|action not permitted|read-only/i.test(rawErrMsg)) {
-          userMessage = 'فشل إنشاء البروفايل: حساب الاتصال بالراوتر لا يمتلك صلاحيات الكتابة';
-        } else if (/timeout|timed out|ETIMEDOUT/i.test(rawErrMsg)) {
-          userMessage = 'فشل إنشاء البروفايل: انتهت مهلة الاتصال بالراوتر (Timeout)';
-        } else if (/ECONNREFUSED|ENETUNREACH|EHOSTUNREACH/i.test(rawErrMsg)) {
-          userMessage = 'فشل إنشاء البروفايل: تعذر الاتصال بعنوان الراوتر';
-        } else if (/already have profile/i.test(rawErrMsg)) {
-          userMessage = `فشل إنشاء البروفايل: يوجد بروفايل بنفس الاسم (${dto.name}) على الراوتر`;
-        } else if (/invalid/i.test(rawErrMsg)) {
-          userMessage = `فشل إنشاء البروفايل على الراوتر: قيمة غير صالحة (${sanitizedErrMsg})`;
-        } else {
-          userMessage = `فشل إنشاء البروفايل على الراوتر: ${sanitizedErrMsg}`;
-        }
-
-        throw new BadGatewayException({
-          code: 'ROUTER_PROVISIONING_FAILED',
-          message: userMessage,
-          details: {
-            routerId: device.id,
-            routerName: device.name,
-            connectionType,
-            stage: 'ROUTEROS_PROVISIONING',
-            originalError: sanitizedErrMsg,
-          },
-        });
-      }
-    } else {
-      this.logger.log(
-        `Router "${device.name}" (${device.host}) is currently offline. Profile "${dto.name}" saved in database; sync will occur once router connects.`,
-      );
-    }
-
     // Calculate quota limit in bytes if provided
     let calculatedDataLimitBytes: bigint | null = null;
     if (dto.dataLimitMb !== undefined && dto.dataLimitMb !== null) {
@@ -454,38 +455,90 @@ export class HotspotService {
       calculatedDataLimitBytes = bVal > 0 ? BigInt(dto.dataLimitBytes) : null;
     }
 
-    // Save in DB
-    const profile = await this.prisma.hotspotProfile.create({
-      data: {
-        tenantId: effectiveTenantId,
-        deviceId,
-        name: dto.name,
-        displayName: dto.displayName?.trim() || null,
-        price: dto.price !== undefined && dto.price !== null ? dto.price : null,
-        sessionTimeout: normalizedValidity,
-        rateLimit: dto.rateLimit ?? null,
-        idleTimeout: dto.idleTimeout ?? null,
-        keepaliveTimeout: dto.keepaliveTimeout ?? null,
-        sharedUsers: dto.sharedUsers ?? 1,
-        addressPool: dto.addressPool ?? null,
-        dataLimitBytes: calculatedDataLimitBytes,
-      },
-    });
+    // Enforce genuine router connectivity or explicit Private LAN handling
+    const isLocalPrivateLan = Boolean(DevicesService?.isLocalOnlyPrivateLan?.(device.id));
+    if (isLocalPrivateLan) {
+      const created = await this.prisma.hotspotProfile.create({
+        data: {
+          tenantId: effectiveTenantId,
+          deviceId,
+          name: dto.name,
+          displayName: dto.displayName?.trim() || null,
+          price: dto.price !== undefined && dto.price !== null ? dto.price : null,
+          sessionTimeout: normalizedValidity,
+          rateLimit: dto.rateLimit ?? null,
+          idleTimeout: dto.idleTimeout ?? null,
+          keepaliveTimeout: dto.keepaliveTimeout ?? null,
+          sharedUsers: dto.sharedUsers ?? 1,
+          addressPool: dto.addressPool ?? null,
+          dataLimitBytes: calculatedDataLimitBytes,
+        },
+      });
+      return {
+        ...created,
+        price: created.price ? Number(created.price) : (dto.price ?? 0),
+        displayName: created.displayName || dto.displayName || created.name,
+        dataLimitBytes: created.dataLimitBytes ? Number(created.dataLimitBytes) : null,
+        dataLimitGb: created.dataLimitBytes ? Number(created.dataLimitBytes) / (1024 * 1024 * 1024) : null,
+        syncedToRouter: false,
+        routerSyncStatus: 'SKIPPED_PRIVATE_LAN',
+      };
+    }
 
-    this.logger.log(`Created hotspot profile "${profile.name}" on device ${device.id} (synced: ${routerProvisioned})`);
+    if (!device.isOnline && device.status !== DeviceStatus.ONLINE) {
+      throw new BadGatewayException({
+        code: 'ROUTER_OFFLINE',
+        message: 'تعذر إنشاء البروفايل: الراوتر غير متصل حالياً (Offline). يجب أن يكون الراوتر متصلاً لضمان إنشاء البروفايل عليه أولاً.',
+      });
+    }
+
+    const deviceConfig = this.toDeviceConfig(device);
+    let createdProfileRecord: any = null;
+
+    const result = await this.executor.executeHotspotProfileCreate(
+      deviceConfig,
+      {
+        name: dto.name,
+        rateLimit: dto.rateLimit,
+        sessionTimeout: normalizedValidity ?? undefined,
+        idleTimeout: dto.idleTimeout,
+        keepaliveTimeout: dto.keepaliveTimeout,
+        sharedUsers: dto.sharedUsers ?? 1,
+        addressPool: dto.addressPool,
+      },
+      async () => {
+        createdProfileRecord = await this.prisma.hotspotProfile.create({
+          data: {
+            tenantId: effectiveTenantId,
+            deviceId,
+            name: dto.name,
+            displayName: dto.displayName?.trim() || null,
+            price: dto.price !== undefined && dto.price !== null ? dto.price : null,
+            sessionTimeout: normalizedValidity,
+            rateLimit: dto.rateLimit ?? null,
+            idleTimeout: dto.idleTimeout ?? null,
+            keepaliveTimeout: dto.keepaliveTimeout ?? null,
+            sharedUsers: dto.sharedUsers ?? 1,
+            addressPool: dto.addressPool ?? null,
+            dataLimitBytes: calculatedDataLimitBytes,
+          },
+        });
+      },
+    );
+
+    if (result.status !== OperationExecutionStatus.SUCCESS) {
+      this.handleExecutorFailure(result, 'فشل إنشاء البروفايل على الراوتر');
+    }
+
+    this.logger.log(`Created and verified hotspot profile "${dto.name}" on device ${device.id}`);
     return {
-      ...profile,
-      price: profile.price ? Number(profile.price) : (dto.price ?? 0),
-      displayName: profile.displayName || dto.displayName || profile.name,
-      dataLimitBytes: profile.dataLimitBytes ? Number(profile.dataLimitBytes) : null,
-      dataLimitGb: profile.dataLimitBytes ? Number(profile.dataLimitBytes) / (1024 * 1024 * 1024) : null,
-      syncedToRouter: routerProvisioned,
-      routerSyncStatus:
-        dto.syncToRouter === false || isLocalPrivateLan
-          ? 'SKIPPED_PRIVATE_LAN'
-          : routerProvisioned
-            ? 'SYNCED'
-            : 'PENDING_OFFLINE',
+      ...createdProfileRecord,
+      price: createdProfileRecord.price ? Number(createdProfileRecord.price) : (dto.price ?? 0),
+      displayName: createdProfileRecord.displayName || dto.displayName || createdProfileRecord.name,
+      dataLimitBytes: createdProfileRecord.dataLimitBytes ? Number(createdProfileRecord.dataLimitBytes) : null,
+      dataLimitGb: createdProfileRecord.dataLimitBytes ? Number(createdProfileRecord.dataLimitBytes) / (1024 * 1024 * 1024) : null,
+      syncedToRouter: true,
+      routerSyncStatus: 'PROVISIONED',
     };
   }
 
@@ -541,43 +594,33 @@ export class HotspotService {
         });
       }
 
-      if (!device.isOnline) {
+      if (!device.isOnline && device.status !== DeviceStatus.ONLINE) {
         throw new BadGatewayException({
           code: 'ROUTER_OFFLINE',
           message: 'تعذر حذف البروفايل: الراوتر غير متصل حالياً. يجب أن يكون الراوتر متصلاً لحذف البروفايل منه أولاً، ولن يتم حذفه من التطبيق لضمان التطابق.',
         });
       }
 
-      try {
-        const client = await this.mikrotikClientFactory.getClient({
-          id: device.id,
-          name: device.name,
-          host: device.host,
-          apiPort: device.apiPort,
-          restPort: device.restPort,
-          useSsl: device.useSsl,
-          username: device.username,
-          passwordEncrypted: device.passwordEncrypted,
-          iv: device.iv,
-          authTag: device.authTag,
-          rosVersion: device.rosVersion,
-        });
+      const deviceConfig = this.toDeviceConfig(device);
+      const result = await this.executor.executeHotspotProfileDelete(
+        deviceConfig,
+        profile.name,
+        async () => {
+          await this.prisma.hotspotProfile.delete({
+            where: { id: profileId },
+          });
+        },
+      );
 
-        await client.deleteHotspotProfile(profile.name);
-      } catch (err: any) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.logger.error(`Failed to delete profile "${profile.name}" on router: ${msg}`);
-        throw new BadGatewayException({
-          code: 'ROUTER_DELETE_FAILED',
-          message: `فشل حذف البروفايل من راوتر MikroTik (${msg}). تم إلغاء العملية ولم يُحذف البروفايل من قاعدة البيانات لضمان تطابق البيانات.`,
-        });
+      if (result.status !== OperationExecutionStatus.SUCCESS) {
+        this.handleExecutorFailure(result, `فشل حذف البروفايل "${profile.name}" من راوتر MikroTik`);
       }
+    } else {
+      // Only delete from DB if syncToRouter was explicitly false
+      await this.prisma.hotspotProfile.delete({
+        where: { id: profileId },
+      });
     }
-
-    // Only delete from DB once router deletion succeeded or was already confirmed
-    await this.prisma.hotspotProfile.delete({
-      where: { id: profileId },
-    });
 
     return {
       success: true,
@@ -611,39 +654,29 @@ export class HotspotService {
       });
     }
 
+    if (!profile.device) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: 'الراوتر المرتبط بهذه الباقة غير موجود',
+      });
+    }
+
+    if (DevicesService?.isLocalOnlyPrivateLan?.(profile.device.id)) {
+      throw new BadGatewayException({
+        code: 'ROUTER_LOCAL_LAN_REQUIRED',
+        message: 'الراوتر متصل عبر شبكة محلية خاصة (Private LAN) دون نفق سحابي؛ يرجى تعديل الباقة عبر تطبيق الهاتف المتصل بالشبكة المحلية لضمان تعديلها على الراوتر أولاً.',
+      });
+    }
+
+    if (!profile.device.isOnline && profile.device.status !== DeviceStatus.ONLINE) {
+      throw new BadGatewayException({
+        code: 'ROUTER_OFFLINE',
+        message: 'تعذر تعديل الباقة: الراوتر غير متصل حالياً (Offline). يجب أن يكون الراوتر متصلاً لتعديل الباقة عليه أولاً.',
+      });
+    }
+
     const effectiveValidity = dto.validity || dto.sessionTimeout;
     const normalizedValidity = effectiveValidity !== undefined ? normalizeValidityDuration(effectiveValidity) : undefined;
-
-    if (
-      profile.device &&
-      profile.device.isOnline &&
-      !DevicesService?.isLocalOnlyPrivateLan?.(profile.device.id)
-    ) {
-      try {
-        const client = await this.mikrotikClientFactory.getClient({
-          id: profile.device.id,
-          name: profile.device.name,
-          host: profile.device.host,
-          apiPort: profile.device.apiPort,
-          restPort: profile.device.restPort,
-          useSsl: profile.device.useSsl,
-          username: profile.device.username,
-          passwordEncrypted: profile.device.passwordEncrypted,
-          iv: profile.device.iv,
-          authTag: profile.device.authTag,
-          rosVersion: profile.device.rosVersion,
-        });
-
-        await client.updateHotspotProfile(profile.name, {
-          rateLimit: dto.rateLimit,
-          sessionTimeout: normalizedValidity,
-          sharedUsers: dto.sharedUsers,
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`Could not update profile on physical router: ${msg}`);
-      }
-    }
 
     let newDataLimitBytes: bigint | null | undefined = undefined;
     if (dto.dataLimitMb !== undefined) {
@@ -678,68 +711,69 @@ export class HotspotService {
       }
     }
 
-    const updated = await this.prisma.hotspotProfile.update({
-      where: { id: profileId },
-      data: {
-        ...(dto.name ? { name: dto.name } : {}),
-        ...(dto.displayName !== undefined ? { displayName: dto.displayName?.trim() || null } : {}),
-        ...(dto.price !== undefined ? { price: dto.price !== null ? dto.price : null } : {}),
-        ...(dto.rateLimit !== undefined ? { rateLimit: dto.rateLimit } : {}),
-        ...(normalizedValidity !== undefined ? { sessionTimeout: normalizedValidity } : {}),
-        ...(dto.sharedUsers !== undefined ? { sharedUsers: dto.sharedUsers } : {}),
-        ...(dto.addressPool !== undefined ? { addressPool: dto.addressPool } : {}),
-        ...(newDataLimitBytes !== undefined ? { dataLimitBytes: newDataLimitBytes } : {}),
+    const deviceConfig = this.toDeviceConfig(profile.device);
+    let updated: any = null;
+
+    const result = await this.executor.executeHotspotProfileUpdate(
+      deviceConfig,
+      profile.name,
+      {
+        rateLimit: dto.rateLimit,
+        sessionTimeout: normalizedValidity,
+        sharedUsers: dto.sharedUsers,
       },
-    });
+      async () => {
+        updated = await this.prisma.hotspotProfile.update({
+          where: { id: profileId },
+          data: {
+            ...(dto.name ? { name: dto.name } : {}),
+            ...(dto.displayName !== undefined ? { displayName: dto.displayName?.trim() || null } : {}),
+            ...(dto.price !== undefined ? { price: dto.price !== null ? dto.price : null } : {}),
+            ...(dto.rateLimit !== undefined ? { rateLimit: dto.rateLimit } : {}),
+            ...(normalizedValidity !== undefined ? { sessionTimeout: normalizedValidity } : {}),
+            ...(dto.sharedUsers !== undefined ? { sharedUsers: dto.sharedUsers } : {}),
+            ...(dto.addressPool !== undefined ? { addressPool: dto.addressPool } : {}),
+            ...(newDataLimitBytes !== undefined ? { dataLimitBytes: newDataLimitBytes } : {}),
+          },
+        });
+
+        if (newDataLimitBytes !== undefined) {
+          await this.prisma.card.updateMany({
+            where: { profileId, status: 'AVAILABLE' },
+            data: { dataLimitBytes: newDataLimitBytes },
+          });
+          await this.prisma.cardBatch.updateMany({
+            where: { profileId },
+            data: { dataLimitBytes: newDataLimitBytes },
+          });
+        }
+      },
+    );
+
+    if (result.status !== OperationExecutionStatus.SUCCESS) {
+      this.handleExecutorFailure(result, 'فشل تعديل البروفايل على الراوتر');
+    }
 
     if (newDataLimitBytes !== undefined) {
-      await this.prisma.card.updateMany({
-        where: { profileId, status: 'AVAILABLE' },
-        data: { dataLimitBytes: newDataLimitBytes },
-      });
-      await this.prisma.cardBatch.updateMany({
-        where: { profileId },
-        data: { dataLimitBytes: newDataLimitBytes },
-      });
+      try {
+        const client = await this.mikrotikClientFactory.getClient(deviceConfig);
+        const availableCards = await this.prisma.card.findMany({
+          where: { profileId, status: 'AVAILABLE' },
+          select: { username: true },
+          take: 200,
+        });
 
-      if (
-      profile.device &&
-      profile.device.isOnline &&
-      !DevicesService?.isLocalOnlyPrivateLan?.(profile.device.id)
-    ) {
-        try {
-          const client = await this.mikrotikClientFactory.getClient({
-            id: profile.device.id,
-            name: profile.device.name,
-            host: profile.device.host,
-            apiPort: profile.device.apiPort,
-            restPort: profile.device.restPort,
-            useSsl: profile.device.useSsl,
-            username: profile.device.username,
-            passwordEncrypted: profile.device.passwordEncrypted,
-            iv: profile.device.iv,
-            authTag: profile.device.authTag,
-            rosVersion: profile.device.rosVersion,
-          });
-
-          const availableCards = await this.prisma.card.findMany({
-            where: { profileId, status: 'AVAILABLE' },
-            select: { username: true },
-            take: 200,
-          });
-
-          for (const card of availableCards) {
-            try {
-              await client.updateHotspotUser(card.username, {
-                limitBytesTotal: newDataLimitBytes ? Number(newDataLimitBytes) : 0,
-              });
-            } catch {
-              // Ignore if card not present on router
-            }
+        for (const card of availableCards) {
+          try {
+            await client.updateHotspotUser(card.username, {
+              limitBytesTotal: newDataLimitBytes ? Number(newDataLimitBytes) : 0,
+            });
+          } catch {
+            // Ignore if card not present on router
           }
-        } catch (err) {
-          this.logger.warn(`Could not sync updated card limits to router: ${err}`);
         }
+      } catch (syncErr) {
+        this.logger.warn(`Could not sync updated card limits to router: ${syncErr}`);
       }
     }
 
@@ -786,55 +820,44 @@ export class HotspotService {
     currentUser?: RequestUser,
   ) {
     const device = await this.getValidDevice(tenantId, deviceId, currentUser);
+    const deviceConfig = this.toDeviceConfig(device);
 
-    const client = await this.mikrotikClientFactory.getClient({
-      id: device.id,
-      name: device.name,
-      host: device.host,
-      apiPort: device.apiPort,
-      restPort: device.restPort,
-      useSsl: device.useSsl,
-      username: device.username,
-      passwordEncrypted: device.passwordEncrypted,
-      iv: device.iv,
-      authTag: device.authTag,
-      rosVersion: device.rosVersion,
-    });
+    const result = await this.executor.executeActiveSessionRemove(
+      deviceConfig,
+      { id: sessionId, user: username },
+      async () => {
+        // Record administrative action in AuditLog
+        try {
+          await this.prisma.auditLog.create({
+            data: {
+              tenantId,
+              userId: userId ?? null,
+              action: 'KICK_HOTSPOT_SESSION',
+              entity: 'HotspotActiveSession',
+              entityId: sessionId,
+              newValues: {
+                deviceId: device.id,
+                deviceName: device.name,
+                username: username ?? sessionId,
+                ipAddress: ipAddress ?? null,
+                timestamp: new Date().toISOString(),
+              },
+            },
+          });
+        } catch (_) {}
 
-    try {
-      await client.removeActiveSession(sessionId);
-    } catch (err) {
-      // If session not found, check if it's already terminated
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('404') || msg.toLowerCase().includes('no such') || msg.toLowerCase().includes('not found')) {
-        return {
-          success: true,
-          message: `المستخدم ${username || sessionId} غير متصل حالياً أو تم فصله بالفعل`,
-          alreadyDisconnected: true,
-        };
-      }
-      throw err;
+        // Remove active session cache record if present
+        try {
+          await (this.prisma as any).hotspotActiveSession?.deleteMany?.({
+            where: { deviceId: device.id, sessionId },
+          });
+        } catch (_) {}
+      },
+    );
+
+    if (result.status !== OperationExecutionStatus.SUCCESS) {
+      this.handleExecutorFailure(result, 'فشل فصل الجلسة على راوتر MikroTik');
     }
-
-    // Record administrative action in AuditLog
-    try {
-      await this.prisma.auditLog.create({
-        data: {
-          tenantId,
-          userId: userId ?? null,
-          action: 'KICK_HOTSPOT_SESSION',
-          entity: 'HotspotActiveSession',
-          entityId: sessionId,
-          newValues: {
-            deviceId: device.id,
-            deviceName: device.name,
-            username: username ?? sessionId,
-            ipAddress: ipAddress ?? null,
-            timestamp: new Date().toISOString(),
-          },
-        },
-      });
-    } catch (_) {}
 
     return {
       success: true,

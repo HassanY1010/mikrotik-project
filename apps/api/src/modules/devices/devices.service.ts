@@ -6,11 +6,13 @@ import {
   BadGatewayException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import * as path from 'path';
 import { PrismaService } from '../../core/database/prisma.service';
 import { EncryptionService } from '../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
+import { MikrotikReconciliationService } from '../../core/mikrotik/services/mikrotik-reconciliation.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { TestDeviceConnectionDto } from './dto/test-device-connection.dto';
@@ -96,6 +98,7 @@ export class DevicesService {
     private readonly prisma: PrismaService,
     private readonly encryptionService: EncryptionService,
     private readonly mikrotikClientFactory: MikrotikClientFactory,
+    @Optional() private readonly reconciliationService?: MikrotikReconciliationService,
   ) {}
 
   public static updateChannelState(
@@ -2742,6 +2745,21 @@ export class DevicesService {
         message: `تعذر جلب كروت الهوتسبوت من الراوتر (${device.name})`,
       });
     }
+  }
+
+  /**
+   * Reconciles external changes from MikroTik (WinBox/Terminal) into SudaFi database
+   */
+  async reconcile(
+    tenantId: string | undefined | null,
+    id: string,
+    currentUser?: RequestUser,
+  ): Promise<any> {
+    const device = await this.assertUserDeviceAccess(tenantId, id, currentUser);
+    if (!this.reconciliationService) {
+      throw new BadRequestException('خدمة المزامنة العكسية غير مفعلة');
+    }
+    return this.reconciliationService.reconcileRouter(device.tenantId, device.id);
   }
 
   /**

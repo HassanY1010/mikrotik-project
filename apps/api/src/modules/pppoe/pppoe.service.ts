@@ -5,6 +5,8 @@ import {
   ForbiddenException,
   ConflictException,
   BadRequestException,
+  BadGatewayException,
+  Optional,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -19,6 +21,8 @@ import {
   PppoeAccount,
 } from '@prisma/client';
 import { AgentCommandType } from '../agent/dto/command.dto';
+import { MikrotikOperationExecutorService } from '../../core/mikrotik/services/mikrotik-operation-executor.service';
+import { OperationExecutionStatus } from '../../core/mikrotik/interfaces/mikrotik-operation.interface';
 import {
   CreatePppoeProfileDto,
   UpdatePppoeProfileDto,
@@ -39,7 +43,35 @@ export class PppoeService {
     private readonly prisma: PrismaService,
     private readonly encryptionService: EncryptionService,
     private readonly agentService: AgentService,
+    @Optional() private readonly executor?: MikrotikOperationExecutorService,
   ) {}
+
+  private canDirectConnect(device: any): boolean {
+    return Boolean(
+      this.executor &&
+      device?.host &&
+      device.host.trim().length > 0 &&
+      device?.passwordEncrypted,
+    );
+  }
+
+  private buildDeviceConfig(device: any): any {
+    return {
+      id: device.id,
+      name: device.name,
+      host: device.host,
+      apiPort: device.apiPort || 8728,
+      restPort: device.restPort || 443,
+      username: device.username || 'admin',
+      password: this.encryptionService.decrypt(
+        device.passwordEncrypted,
+        device.iv || '',
+        device.authTag || '',
+      ),
+      useTls: device.useSsl ?? false,
+      useRest: device.rosVersion === 'V7',
+    };
+  }
 
   // High-performance thread-safe multi-tenant PPPoE stores (resilient against pending DB migrations)
   private readonly memoryProfiles = new Map<string, any[]>();
@@ -315,48 +347,89 @@ export class PppoeService {
       );
     }
 
-    // 2. Persist profile record
-    const profile = await this.prisma.pppoeProfile.create({
-      data: {
-        tenantId: device.tenantId,
-        deviceId: device.id,
-        name: dto.name.trim(),
-        rateLimit: dto.rateLimit?.trim() || null,
-        localAddress: dto.localAddress?.trim() || null,
-        remoteAddress: dto.remoteAddress?.trim() || null,
-        dnsServers: dto.dnsServers?.trim() || null,
-        onlyOne: dto.onlyOne !== undefined ? dto.onlyOne : true,
-        price: dto.price !== undefined ? dto.price : 0,
-        description: dto.description?.trim() || null,
-      },
-    });
-
-    // 3. Queue router sync command if agent is paired
+    // 2. Direct Router Execution or Database Persistence
+    let profile: any;
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
-    if (activeAgent) {
-      try {
-        const cmd = await this.agentService.queueCommand(
-          device.tenantId,
-          device.id,
-          {
-            operationId: crypto.randomUUID(),
-            type: AgentCommandType.PPPOE_PROFILE_SYNC,
-            payload: {
-              name: profile.name,
-              rateLimit: profile.rateLimit ?? undefined,
-              localAddress: profile.localAddress ?? undefined,
-              remoteAddress: profile.remoteAddress ?? undefined,
-              dnsServers: profile.dnsServers ?? undefined,
-              onlyOne: profile.onlyOne,
+    if (this.canDirectConnect(device)) {
+      const devConfig = this.buildDeviceConfig(device);
+      const opResult = await this.executor!.executePppProfileCreate(
+        devConfig,
+        {
+          name: dto.name.trim(),
+          rateLimit: dto.rateLimit?.trim() || undefined,
+          localAddress: dto.localAddress?.trim() || undefined,
+          remoteAddress: dto.remoteAddress?.trim() || undefined,
+          dnsServer: dto.dnsServers?.trim() || undefined,
+          onlyOne: dto.onlyOne !== undefined ? (dto.onlyOne ? 'yes' : 'no') : 'yes',
+          comment: dto.description?.trim() || undefined,
+        },
+        async () => {
+          profile = await this.prisma.pppoeProfile.create({
+            data: {
+              tenantId: device.tenantId,
+              deviceId: device.id,
+              name: dto.name.trim(),
+              rateLimit: dto.rateLimit?.trim() || null,
+              localAddress: dto.localAddress?.trim() || null,
+              remoteAddress: dto.remoteAddress?.trim() || null,
+              dnsServers: dto.dnsServers?.trim() || null,
+              onlyOne: dto.onlyOne !== undefined ? dto.onlyOne : true,
+              price: dto.price !== undefined ? dto.price : 0,
+              description: dto.description?.trim() || null,
             },
-          },
-          userId,
-        );
-        queuedCommandId = cmd.id;
-      } catch (err) {
-        this.logger.warn(`Could not queue profile sync command to agent: ${err}`);
+          });
+        },
+      );
+
+      if (opResult.status !== OperationExecutionStatus.SUCCESS) {
+        throw new BadGatewayException({
+          code: 'ROUTER_PPP_PROFILE_CREATE_FAILED',
+          message: `فشل إنشاء بروفايل PPPoE على راوتر MikroTik: ${opResult.errorArabic || opResult.error}`,
+          phase: opResult.phase,
+        });
+      }
+    } else {
+      profile = await this.prisma.pppoeProfile.create({
+        data: {
+          tenantId: device.tenantId,
+          deviceId: device.id,
+          name: dto.name.trim(),
+          rateLimit: dto.rateLimit?.trim() || null,
+          localAddress: dto.localAddress?.trim() || null,
+          remoteAddress: dto.remoteAddress?.trim() || null,
+          dnsServers: dto.dnsServers?.trim() || null,
+          onlyOne: dto.onlyOne !== undefined ? dto.onlyOne : true,
+          price: dto.price !== undefined ? dto.price : 0,
+          description: dto.description?.trim() || null,
+        },
+      });
+
+      // Queue router sync command if agent is paired
+      const activeAgent = await this.getActiveDeviceAgent(device.id);
+      if (activeAgent) {
+        try {
+          const cmd = await this.agentService.queueCommand(
+            device.tenantId,
+            device.id,
+            {
+              operationId: crypto.randomUUID(),
+              type: AgentCommandType.PPPOE_PROFILE_SYNC,
+              payload: {
+                name: profile.name,
+                rateLimit: profile.rateLimit ?? undefined,
+                localAddress: profile.localAddress ?? undefined,
+                remoteAddress: profile.remoteAddress ?? undefined,
+                dnsServers: profile.dnsServers ?? undefined,
+                onlyOne: profile.onlyOne,
+              },
+            },
+            userId,
+          );
+          queuedCommandId = cmd.id;
+        } catch (err) {
+          this.logger.warn(`Could not queue profile sync command to agent: ${err}`);
+        }
       }
     }
 
@@ -422,51 +495,97 @@ export class PppoeService {
       }
     }
 
-    const updated = await this.prisma.pppoeProfile.update({
-      where: { id: profileId },
-      data: {
-        name: dto.name ? dto.name.trim() : undefined,
-        rateLimit: dto.rateLimit !== undefined ? (dto.rateLimit?.trim() || null) : undefined,
-        localAddress: dto.localAddress !== undefined ? (dto.localAddress?.trim() || null) : undefined,
-        remoteAddress: dto.remoteAddress !== undefined ? (dto.remoteAddress?.trim() || null) : undefined,
-        dnsServers: dto.dnsServers !== undefined ? (dto.dnsServers?.trim() || null) : undefined,
-        onlyOne: dto.onlyOne !== undefined ? dto.onlyOne : undefined,
-        price: dto.price !== undefined ? dto.price : undefined,
-        description: dto.description !== undefined ? (dto.description?.trim() || null) : undefined,
-      },
-      include: {
-        _count: {
-          select: { accounts: true },
-        },
-      },
-    });
-
-    // Queue sync command to agent
+    let updated: any;
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
-    if (activeAgent) {
-      try {
-        const cmd = await this.agentService.queueCommand(
-          device.tenantId,
-          device.id,
-          {
-            operationId: crypto.randomUUID(),
-            type: AgentCommandType.PPPOE_PROFILE_SYNC,
-            payload: {
-              name: updated.name,
-              rateLimit: updated.rateLimit ?? undefined,
-              localAddress: updated.localAddress ?? undefined,
-              remoteAddress: updated.remoteAddress ?? undefined,
-              dnsServers: updated.dnsServers ?? undefined,
-              onlyOne: updated.onlyOne,
+    if (this.canDirectConnect(device)) {
+      const devConfig = this.buildDeviceConfig(device);
+      const opResult = await this.executor!.executePppProfileUpdate(
+        devConfig,
+        profile.name,
+        {
+          name: dto.name ? dto.name.trim() : undefined,
+          rateLimit: dto.rateLimit !== undefined ? (dto.rateLimit?.trim() || undefined) : undefined,
+          localAddress: dto.localAddress !== undefined ? (dto.localAddress?.trim() || undefined) : undefined,
+          remoteAddress: dto.remoteAddress !== undefined ? (dto.remoteAddress?.trim() || undefined) : undefined,
+          dnsServer: dto.dnsServers !== undefined ? (dto.dnsServers?.trim() || undefined) : undefined,
+          onlyOne: dto.onlyOne !== undefined ? (dto.onlyOne ? 'yes' : 'no') : undefined,
+          comment: dto.description !== undefined ? (dto.description?.trim() || undefined) : undefined,
+        },
+        async () => {
+          updated = await this.prisma.pppoeProfile.update({
+            where: { id: profileId },
+            data: {
+              name: dto.name ? dto.name.trim() : undefined,
+              rateLimit: dto.rateLimit !== undefined ? (dto.rateLimit?.trim() || null) : undefined,
+              localAddress: dto.localAddress !== undefined ? (dto.localAddress?.trim() || null) : undefined,
+              remoteAddress: dto.remoteAddress !== undefined ? (dto.remoteAddress?.trim() || null) : undefined,
+              dnsServers: dto.dnsServers !== undefined ? (dto.dnsServers?.trim() || null) : undefined,
+              onlyOne: dto.onlyOne !== undefined ? dto.onlyOne : undefined,
+              price: dto.price !== undefined ? dto.price : undefined,
+              description: dto.description !== undefined ? (dto.description?.trim() || null) : undefined,
             },
+            include: {
+              _count: {
+                select: { accounts: true },
+              },
+            },
+          });
+        },
+      );
+
+      if (opResult.status !== OperationExecutionStatus.SUCCESS) {
+        throw new BadGatewayException({
+          code: 'ROUTER_PPP_PROFILE_UPDATE_FAILED',
+          message: `فشل تعديل بروفايل PPPoE على راوتر MikroTik: ${opResult.errorArabic || opResult.error}`,
+          phase: opResult.phase,
+        });
+      }
+    } else {
+      updated = await this.prisma.pppoeProfile.update({
+        where: { id: profileId },
+        data: {
+          name: dto.name ? dto.name.trim() : undefined,
+          rateLimit: dto.rateLimit !== undefined ? (dto.rateLimit?.trim() || null) : undefined,
+          localAddress: dto.localAddress !== undefined ? (dto.localAddress?.trim() || null) : undefined,
+          remoteAddress: dto.remoteAddress !== undefined ? (dto.remoteAddress?.trim() || null) : undefined,
+          dnsServers: dto.dnsServers !== undefined ? (dto.dnsServers?.trim() || null) : undefined,
+          onlyOne: dto.onlyOne !== undefined ? dto.onlyOne : undefined,
+          price: dto.price !== undefined ? dto.price : undefined,
+          description: dto.description !== undefined ? (dto.description?.trim() || null) : undefined,
+        },
+        include: {
+          _count: {
+            select: { accounts: true },
           },
-          userId,
-        );
-        queuedCommandId = cmd.id;
-      } catch (err) {
-        this.logger.warn(`Could not queue profile update command to agent: ${err}`);
+        },
+      });
+
+      // Queue sync command to agent
+      const activeAgent = await this.getActiveDeviceAgent(device.id);
+      if (activeAgent) {
+        try {
+          const cmd = await this.agentService.queueCommand(
+            device.tenantId,
+            device.id,
+            {
+              operationId: crypto.randomUUID(),
+              type: AgentCommandType.PPPOE_PROFILE_SYNC,
+              payload: {
+                name: updated.name,
+                rateLimit: updated.rateLimit ?? undefined,
+                localAddress: updated.localAddress ?? undefined,
+                remoteAddress: updated.remoteAddress ?? undefined,
+                dnsServers: updated.dnsServers ?? undefined,
+                onlyOne: updated.onlyOne,
+              },
+            },
+            userId,
+          );
+          queuedCommandId = cmd.id;
+        } catch (err) {
+          this.logger.warn(`Could not queue profile update command to agent: ${err}`);
+        }
       }
     }
 
@@ -525,9 +644,30 @@ export class PppoeService {
       );
     }
 
-    await this.prisma.pppoeProfile.delete({
-      where: { id: profileId },
-    });
+    if (this.canDirectConnect(device)) {
+      const devConfig = this.buildDeviceConfig(device);
+      const opResult = await this.executor!.executePppProfileDelete(
+        devConfig,
+        profile.name,
+        async () => {
+          await this.prisma.pppoeProfile.delete({
+            where: { id: profileId },
+          });
+        },
+      );
+
+      if (opResult.status !== OperationExecutionStatus.SUCCESS) {
+        throw new BadGatewayException({
+          code: 'ROUTER_PPP_PROFILE_DELETE_FAILED',
+          message: `فشل حذف بروفايل PPPoE من راوتر MikroTik: ${opResult.errorArabic || opResult.error}`,
+          phase: opResult.phase,
+        });
+      }
+    } else {
+      await this.prisma.pppoeProfile.delete({
+        where: { id: profileId },
+      });
+    }
 
     // Audit Log
     await this.prisma.auditLog.create({
@@ -793,33 +933,86 @@ export class PppoeService {
       const price = dto.price !== undefined ? dto.price : Number(profile.price);
       const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
 
-      // 5. Persist account record
-      account = await this.prisma.pppoeAccount.create({
-        data: {
-          tenantId: device.tenantId,
-          deviceId: device.id,
-          profileId: profile.id,
-          username: dto.username.trim(),
-          passwordEncrypted: encrypted.ciphertext,
-          iv: encrypted.iv,
-          authTag: encrypted.authTag,
-          status: PppoeAccountStatus.ACTIVE,
-          callerId: dto.callerId?.trim() || null,
-          staticIp: dto.staticIp?.trim() || null,
-          customerName: dto.customerName?.trim() || null,
-          customerPhone: dto.customerPhone?.trim() || null,
-          price,
-          billingCycle: dto.billingCycle || 'MONTHLY',
-          expiresAt,
-          notes: dto.notes?.trim() || null,
-          syncStatus: SyncStatus.PENDING,
-        },
-        include: {
-          profile: {
-            select: { name: true },
+      // 5. Direct Router Execution or Database Persistence
+      if (this.canDirectConnect(device)) {
+        const devConfig = this.buildDeviceConfig(device);
+        const opResult = await this.executor!.executePppSecretCreate(
+          devConfig,
+          {
+            name: dto.username.trim(),
+            password: dto.password,
+            service: 'pppoe',
+            profile: profile.name,
+            localAddress: undefined,
+            remoteAddress: dto.staticIp?.trim() || undefined,
+            comment: dto.customerName?.trim() || undefined,
+            disabled: false,
           },
-        },
-      });
+          async () => {
+            account = await this.prisma.pppoeAccount.create({
+              data: {
+                tenantId: device.tenantId,
+                deviceId: device.id,
+                profileId: profile.id,
+                username: dto.username.trim(),
+                passwordEncrypted: encrypted.ciphertext,
+                iv: encrypted.iv,
+                authTag: encrypted.authTag,
+                status: PppoeAccountStatus.ACTIVE,
+                callerId: dto.callerId?.trim() || null,
+                staticIp: dto.staticIp?.trim() || null,
+                customerName: dto.customerName?.trim() || null,
+                customerPhone: dto.customerPhone?.trim() || null,
+                price,
+                billingCycle: dto.billingCycle || 'MONTHLY',
+                expiresAt,
+                notes: dto.notes?.trim() || null,
+                syncStatus: SyncStatus.SYNCED,
+              },
+              include: {
+                profile: {
+                  select: { name: true },
+                },
+              },
+            });
+          },
+        );
+
+        if (opResult.status !== OperationExecutionStatus.SUCCESS) {
+          throw new BadGatewayException({
+            code: 'ROUTER_PPP_SECRET_CREATE_FAILED',
+            message: `فشل إنشاء حساب اشتراك PPPoE على راوتر MikroTik: ${opResult.errorArabic || opResult.error}`,
+            phase: opResult.phase,
+          });
+        }
+      } else {
+        account = await this.prisma.pppoeAccount.create({
+          data: {
+            tenantId: device.tenantId,
+            deviceId: device.id,
+            profileId: profile.id,
+            username: dto.username.trim(),
+            passwordEncrypted: encrypted.ciphertext,
+            iv: encrypted.iv,
+            authTag: encrypted.authTag,
+            status: PppoeAccountStatus.ACTIVE,
+            callerId: dto.callerId?.trim() || null,
+            staticIp: dto.staticIp?.trim() || null,
+            customerName: dto.customerName?.trim() || null,
+            customerPhone: dto.customerPhone?.trim() || null,
+            price,
+            billingCycle: dto.billingCycle || 'MONTHLY',
+            expiresAt,
+            notes: dto.notes?.trim() || null,
+            syncStatus: SyncStatus.PENDING,
+          },
+          include: {
+            profile: {
+              select: { name: true },
+            },
+          },
+        });
+      }
     } catch (err: any) {
       if (this.isTableMissingError(err)) {
         const key = `${device.tenantId}:${device.id}`;
@@ -860,53 +1053,56 @@ export class PppoeService {
       }
     }
 
-    // 6. Queue command to agent with decrypted password for router provision
+    // 6. Queue command to agent with decrypted password for router provision (only if not directly connected)
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
-    if (activeAgent) {
-      try {
-        const cmd = await this.agentService.queueCommand(
-          device.tenantId,
-          device.id,
-          {
-            operationId: crypto.randomUUID(),
-            type: AgentCommandType.PPPOE_SECRET_ADD,
-            payload: {
-              username: account.username,
-              password: dto.password, // Raw password transmitted only to agent in HTTPS payload
-              profile: profile.name,
-              callerId: account.callerId ?? undefined,
-              remoteAddress: account.staticIp ?? undefined,
-              comment: account.customerName ?? undefined,
-              disabled: false,
+    if (!this.canDirectConnect(device)) {
+      const activeAgent = await this.getActiveDeviceAgent(device.id);
+
+      if (activeAgent) {
+        try {
+          const cmd = await this.agentService.queueCommand(
+            device.tenantId,
+            device.id,
+            {
+              operationId: crypto.randomUUID(),
+              type: AgentCommandType.PPPOE_SECRET_ADD,
+              payload: {
+                username: account.username,
+                password: dto.password, // Raw password transmitted only to agent in HTTPS payload
+                profile: profile.name,
+                callerId: account.callerId ?? undefined,
+                remoteAddress: account.staticIp ?? undefined,
+                comment: account.customerName ?? undefined,
+                disabled: false,
+              },
             },
-          },
-          userId,
-        );
-        queuedCommandId = cmd.id;
-      } catch (err: any) {
-        this.logger.warn(`Could not queue secret addition to router: ${err?.message}`);
+            userId,
+          );
+          queuedCommandId = cmd.id;
+        } catch (err: any) {
+          this.logger.warn(`Could not queue secret addition to router: ${err?.message}`);
+          await this.prisma.pppoeAccount
+            .update({
+              where: { id: account.id },
+              data: {
+                syncStatus: SyncStatus.PENDING,
+                syncError: `Command queue delayed: ${err?.message}`,
+              },
+            })
+            .catch(() => {});
+        }
+      } else {
         await this.prisma.pppoeAccount
           .update({
             where: { id: account.id },
             data: {
               syncStatus: SyncStatus.PENDING,
-              syncError: `Command queue delayed: ${err?.message}`,
+              syncError: 'No active Windows agent paired for this router',
             },
           })
           .catch(() => {});
       }
-    } else {
-      await this.prisma.pppoeAccount
-        .update({
-          where: { id: account.id },
-          data: {
-            syncStatus: SyncStatus.PENDING,
-            syncError: 'No active Windows agent paired for this router',
-          },
-        })
-        .catch(() => {});
     }
 
     // 7. Audit log
@@ -987,56 +1183,105 @@ export class PppoeService {
       rawPasswordToDispatch = dto.password;
     }
 
-    const updated = await this.prisma.pppoeAccount.update({
-      where: { id: accountId },
-      data: {
-        profileId: dto.profileId || undefined,
-        passwordEncrypted,
-        iv,
-        authTag,
-        status: dto.status || undefined,
-        callerId: dto.callerId !== undefined ? (dto.callerId?.trim() || null) : undefined,
-        staticIp: dto.staticIp !== undefined ? (dto.staticIp?.trim() || null) : undefined,
-        customerName: dto.customerName !== undefined ? (dto.customerName?.trim() || null) : undefined,
-        customerPhone: dto.customerPhone !== undefined ? (dto.customerPhone?.trim() || null) : undefined,
-        price: dto.price !== undefined ? dto.price : undefined,
-        billingCycle: dto.billingCycle || undefined,
-        expiresAt: dto.expiresAt !== undefined ? (dto.expiresAt ? new Date(dto.expiresAt) : null) : undefined,
-        notes: dto.notes !== undefined ? (dto.notes?.trim() || null) : undefined,
-        syncStatus: SyncStatus.PENDING,
-      },
-      include: {
-        profile: { select: { name: true } },
-      },
-    });
-
-    // Queue update command to agent
+    let updated: any;
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
-    if (activeAgent) {
-      try {
-        const cmd = await this.agentService.queueCommand(
-          device.tenantId,
-          device.id,
-          {
-            operationId: crypto.randomUUID(),
-            type: AgentCommandType.PPPOE_SECRET_UPDATE,
-            payload: {
-              username: updated.username,
-              password: rawPasswordToDispatch,
-              profile: targetProfile?.name,
-              callerId: updated.callerId ?? undefined,
-              remoteAddress: updated.staticIp ?? undefined,
-              comment: updated.customerName ?? undefined,
-              disabled: updated.status === PppoeAccountStatus.DISABLED,
+    if (this.canDirectConnect(device)) {
+      const devConfig = this.buildDeviceConfig(device);
+      const opResult = await this.executor!.executePppSecretUpdate(
+        devConfig,
+        account.username,
+        {
+          password: rawPasswordToDispatch,
+          profile: targetProfile?.name,
+          remoteAddress: dto.staticIp !== undefined ? (dto.staticIp?.trim() || undefined) : undefined,
+          comment: dto.customerName !== undefined ? (dto.customerName?.trim() || undefined) : undefined,
+          disabled: dto.status ? dto.status === PppoeAccountStatus.DISABLED : undefined,
+        },
+        async () => {
+          updated = await this.prisma.pppoeAccount.update({
+            where: { id: accountId },
+            data: {
+              profileId: dto.profileId || undefined,
+              passwordEncrypted,
+              iv,
+              authTag,
+              status: dto.status || undefined,
+              callerId: dto.callerId !== undefined ? (dto.callerId?.trim() || null) : undefined,
+              staticIp: dto.staticIp !== undefined ? (dto.staticIp?.trim() || null) : undefined,
+              customerName: dto.customerName !== undefined ? (dto.customerName?.trim() || null) : undefined,
+              customerPhone: dto.customerPhone !== undefined ? (dto.customerPhone?.trim() || null) : undefined,
+              price: dto.price !== undefined ? dto.price : undefined,
+              billingCycle: dto.billingCycle || undefined,
+              expiresAt: dto.expiresAt !== undefined ? (dto.expiresAt ? new Date(dto.expiresAt) : null) : undefined,
+              notes: dto.notes !== undefined ? (dto.notes?.trim() || null) : undefined,
+              syncStatus: SyncStatus.SYNCED,
             },
-          },
-          userId,
-        );
-        queuedCommandId = cmd.id;
-      } catch (err: any) {
-        this.logger.warn(`Could not queue secret update to router: ${err?.message}`);
+            include: {
+              profile: { select: { name: true } },
+            },
+          });
+        },
+      );
+
+      if (opResult.status !== OperationExecutionStatus.SUCCESS) {
+        throw new BadGatewayException({
+          code: 'ROUTER_PPP_SECRET_UPDATE_FAILED',
+          message: `فشل تعديل حساب اشتراك PPPoE على راوتر MikroTik: ${opResult.errorArabic || opResult.error}`,
+          phase: opResult.phase,
+        });
+      }
+    } else {
+      updated = await this.prisma.pppoeAccount.update({
+        where: { id: accountId },
+        data: {
+          profileId: dto.profileId || undefined,
+          passwordEncrypted,
+          iv,
+          authTag,
+          status: dto.status || undefined,
+          callerId: dto.callerId !== undefined ? (dto.callerId?.trim() || null) : undefined,
+          staticIp: dto.staticIp !== undefined ? (dto.staticIp?.trim() || null) : undefined,
+          customerName: dto.customerName !== undefined ? (dto.customerName?.trim() || null) : undefined,
+          customerPhone: dto.customerPhone !== undefined ? (dto.customerPhone?.trim() || null) : undefined,
+          price: dto.price !== undefined ? dto.price : undefined,
+          billingCycle: dto.billingCycle || undefined,
+          expiresAt: dto.expiresAt !== undefined ? (dto.expiresAt ? new Date(dto.expiresAt) : null) : undefined,
+          notes: dto.notes !== undefined ? (dto.notes?.trim() || null) : undefined,
+          syncStatus: SyncStatus.PENDING,
+        },
+        include: {
+          profile: { select: { name: true } },
+        },
+      });
+
+      // Queue update command to agent
+      const activeAgent = await this.getActiveDeviceAgent(device.id);
+
+      if (activeAgent) {
+        try {
+          const cmd = await this.agentService.queueCommand(
+            device.tenantId,
+            device.id,
+            {
+              operationId: crypto.randomUUID(),
+              type: AgentCommandType.PPPOE_SECRET_UPDATE,
+              payload: {
+                username: updated.username,
+                password: rawPasswordToDispatch,
+                profile: targetProfile?.name,
+                callerId: updated.callerId ?? undefined,
+                remoteAddress: updated.staticIp ?? undefined,
+                comment: updated.customerName ?? undefined,
+                disabled: updated.status === PppoeAccountStatus.DISABLED,
+              },
+            },
+            userId,
+          );
+          queuedCommandId = cmd.id;
+        } catch (err: any) {
+          this.logger.warn(`Could not queue secret update to router: ${err?.message}`);
+        }
       }
     }
 
@@ -1084,36 +1329,68 @@ export class PppoeService {
       throw new NotFoundException(`PPPoE account [${accountId}] not found on router [${deviceId}]`);
     }
 
-    const updated = await this.prisma.pppoeAccount.update({
-      where: { id: accountId },
-      data: {
-        status: PppoeAccountStatus.DISABLED,
-        syncStatus: SyncStatus.PENDING,
-      },
-      include: { profile: { select: { name: true } } },
-    });
-
+    let updated: any;
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
-    if (activeAgent) {
-      try {
-        const cmd = await this.agentService.queueCommand(
-          device.tenantId,
-          device.id,
-          {
-            operationId: crypto.randomUUID(),
-            type: AgentCommandType.PPPOE_SECRET_DISABLE,
-            payload: {
-              username: account.username,
-              disconnectActive: true,
+    if (this.canDirectConnect(device)) {
+      const devConfig = this.buildDeviceConfig(device);
+      const opResult = await this.executor!.executePppSecretUpdate(
+        devConfig,
+        account.username,
+        { disabled: true },
+        async () => {
+          updated = await this.prisma.pppoeAccount.update({
+            where: { id: accountId },
+            data: {
+              status: PppoeAccountStatus.DISABLED,
+              syncStatus: SyncStatus.SYNCED,
             },
-          },
-          userId,
-        );
-        queuedCommandId = cmd.id;
-      } catch (err) {
-        this.logger.warn(`Could not queue secret disable command: ${err}`);
+            include: { profile: { select: { name: true } } },
+          });
+        },
+      );
+
+      if (opResult.status !== OperationExecutionStatus.SUCCESS) {
+        throw new BadGatewayException({
+          code: 'ROUTER_PPP_SECRET_DISABLE_FAILED',
+          message: `فشل تعطيل حساب PPPoE على راوتر MikroTik: ${opResult.errorArabic || opResult.error}`,
+          phase: opResult.phase,
+        });
+      }
+
+      // Also kick active session if online
+      await this.executor!.executePppActiveSessionRemove(devConfig, account.username).catch(() => {});
+    } else {
+      updated = await this.prisma.pppoeAccount.update({
+        where: { id: accountId },
+        data: {
+          status: PppoeAccountStatus.DISABLED,
+          syncStatus: SyncStatus.PENDING,
+        },
+        include: { profile: { select: { name: true } } },
+      });
+
+      const activeAgent = await this.getActiveDeviceAgent(device.id);
+
+      if (activeAgent) {
+        try {
+          const cmd = await this.agentService.queueCommand(
+            device.tenantId,
+            device.id,
+            {
+              operationId: crypto.randomUUID(),
+              type: AgentCommandType.PPPOE_SECRET_DISABLE,
+              payload: {
+                username: account.username,
+                disconnectActive: true,
+              },
+            },
+            userId,
+          );
+          queuedCommandId = cmd.id;
+        } catch (err) {
+          this.logger.warn(`Could not queue secret disable command: ${err}`);
+        }
       }
     }
 
@@ -1155,35 +1432,64 @@ export class PppoeService {
       throw new NotFoundException(`PPPoE account [${accountId}] not found on router [${deviceId}]`);
     }
 
-    const updated = await this.prisma.pppoeAccount.update({
-      where: { id: accountId },
-      data: {
-        status: PppoeAccountStatus.ACTIVE,
-        syncStatus: SyncStatus.PENDING,
-      },
-      include: { profile: { select: { name: true } } },
-    });
-
+    let updated: any;
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
-    if (activeAgent) {
-      try {
-        const cmd = await this.agentService.queueCommand(
-          device.tenantId,
-          device.id,
-          {
-            operationId: crypto.randomUUID(),
-            type: AgentCommandType.PPPOE_SECRET_ENABLE,
-            payload: {
-              username: account.username,
+    if (this.canDirectConnect(device)) {
+      const devConfig = this.buildDeviceConfig(device);
+      const opResult = await this.executor!.executePppSecretUpdate(
+        devConfig,
+        account.username,
+        { disabled: false },
+        async () => {
+          updated = await this.prisma.pppoeAccount.update({
+            where: { id: accountId },
+            data: {
+              status: PppoeAccountStatus.ACTIVE,
+              syncStatus: SyncStatus.SYNCED,
             },
-          },
-          userId,
-        );
-        queuedCommandId = cmd.id;
-      } catch (err) {
-        this.logger.warn(`Could not queue secret enable command: ${err}`);
+            include: { profile: { select: { name: true } } },
+          });
+        },
+      );
+
+      if (opResult.status !== OperationExecutionStatus.SUCCESS) {
+        throw new BadGatewayException({
+          code: 'ROUTER_PPP_SECRET_ENABLE_FAILED',
+          message: `فشل تفعيل حساب PPPoE على راوتر MikroTik: ${opResult.errorArabic || opResult.error}`,
+          phase: opResult.phase,
+        });
+      }
+    } else {
+      updated = await this.prisma.pppoeAccount.update({
+        where: { id: accountId },
+        data: {
+          status: PppoeAccountStatus.ACTIVE,
+          syncStatus: SyncStatus.PENDING,
+        },
+        include: { profile: { select: { name: true } } },
+      });
+
+      const activeAgent = await this.getActiveDeviceAgent(device.id);
+
+      if (activeAgent) {
+        try {
+          const cmd = await this.agentService.queueCommand(
+            device.tenantId,
+            device.id,
+            {
+              operationId: crypto.randomUUID(),
+              type: AgentCommandType.PPPOE_SECRET_ENABLE,
+              payload: {
+                username: account.username,
+              },
+            },
+            userId,
+          );
+          queuedCommandId = cmd.id;
+        } catch (err) {
+          this.logger.warn(`Could not queue secret enable command: ${err}`);
+        }
       }
     }
 
@@ -1225,32 +1531,57 @@ export class PppoeService {
     }
 
     let queuedCommandId: string | null = null;
-    const activeAgent = await this.getActiveDeviceAgent(device.id);
 
-    if (activeAgent) {
-      try {
-        const cmd = await this.agentService.queueCommand(
-          device.tenantId,
-          device.id,
-          {
-            operationId: crypto.randomUUID(),
-            type: AgentCommandType.PPPOE_SECRET_REMOVE,
-            payload: {
-              username: account.username,
-              disconnectActive: true,
-            },
-          },
-          userId,
-        );
-        queuedCommandId = cmd.id;
-      } catch (err) {
-        this.logger.warn(`Could not queue secret remove command: ${err}`);
+    if (this.canDirectConnect(device)) {
+      const devConfig = this.buildDeviceConfig(device);
+      const opResult = await this.executor!.executePppSecretDelete(
+        devConfig,
+        account.username,
+        async () => {
+          await this.prisma.pppoeAccount.delete({
+            where: { id: accountId },
+          });
+        },
+      );
+
+      if (opResult.status !== OperationExecutionStatus.SUCCESS) {
+        throw new BadGatewayException({
+          code: 'ROUTER_PPP_SECRET_DELETE_FAILED',
+          message: `فشل حذف حساب PPPoE من راوتر MikroTik: ${opResult.errorArabic || opResult.error}`,
+          phase: opResult.phase,
+        });
       }
-    }
 
-    await this.prisma.pppoeAccount.delete({
-      where: { id: accountId },
-    });
+      // Kick session if active
+      await this.executor!.executePppActiveSessionRemove(devConfig, account.username).catch(() => {});
+    } else {
+      const activeAgent = await this.getActiveDeviceAgent(device.id);
+
+      if (activeAgent) {
+        try {
+          const cmd = await this.agentService.queueCommand(
+            device.tenantId,
+            device.id,
+            {
+              operationId: crypto.randomUUID(),
+              type: AgentCommandType.PPPOE_SECRET_REMOVE,
+              payload: {
+                username: account.username,
+                disconnectActive: true,
+              },
+            },
+            userId,
+          );
+          queuedCommandId = cmd.id;
+        } catch (err) {
+          this.logger.warn(`Could not queue secret remove command: ${err}`);
+        }
+      }
+
+      await this.prisma.pppoeAccount.delete({
+        where: { id: accountId },
+      });
+    }
 
     await this.prisma.auditLog.create({
       data: {
@@ -1400,19 +1731,36 @@ export class PppoeService {
       }
     }
 
-    const cmd = await this.agentService.queueCommand(
-      device.tenantId,
-      device.id,
-      {
-        operationId: crypto.randomUUID(),
-        type: AgentCommandType.PPPOE_SESSION_DISCONNECT,
-        payload: {
-          username: dto.username?.trim(),
-          sessionId: dto.sessionId?.trim(),
+    let queuedCommandId: string = 'direct';
+
+    if (this.canDirectConnect(device)) {
+      const devConfig = this.buildDeviceConfig(device);
+      const target = (dto.username?.trim() || dto.sessionId?.trim())!;
+      const opResult = await this.executor!.executePppActiveSessionRemove(devConfig, target);
+
+      if (opResult.status !== OperationExecutionStatus.SUCCESS) {
+        throw new BadGatewayException({
+          code: 'ROUTER_PPP_SESSION_DISCONNECT_FAILED',
+          message: `فشل قطع جلسة PPPoE على راوتر MikroTik: ${opResult.errorArabic || opResult.error}`,
+          phase: opResult.phase,
+        });
+      }
+    } else {
+      const cmd = await this.agentService.queueCommand(
+        device.tenantId,
+        device.id,
+        {
+          operationId: crypto.randomUUID(),
+          type: AgentCommandType.PPPOE_SESSION_DISCONNECT,
+          payload: {
+            username: dto.username?.trim(),
+            sessionId: dto.sessionId?.trim(),
+          },
         },
-      },
-      userId,
-    );
+        userId,
+      );
+      queuedCommandId = cmd.id;
+    }
 
     // Also remove from active sessions cache in DB if exists
     if (dto.username) {
@@ -1447,8 +1795,8 @@ export class PppoeService {
 
     return {
       success: true,
-      message: 'PPPoE session disconnection queued successfully',
-      queuedCommandId: cmd.id,
+      message: 'PPPoE session disconnection processed successfully',
+      queuedCommandId,
     };
   }
 

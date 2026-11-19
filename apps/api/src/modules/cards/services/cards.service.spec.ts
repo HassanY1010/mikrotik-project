@@ -7,6 +7,7 @@ import { CardCodeGeneratorService } from './card-code-generator.service';
 import { QuotasService } from './quotas.service';
 import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { CardStatus, CardBatchStatus, RouterOsVersion, SyncStatus, PrintJobStatus } from '@prisma/client';
+import { OperationExecutionStatus } from '../../../core/mikrotik/interfaces/mikrotik-operation.interface';
 
 describe('CardsService', () => {
   let service: CardsService;
@@ -37,14 +38,25 @@ describe('CardsService', () => {
   const mockBatchId = 'batch-uuid-1';
 
   beforeEach(async () => {
+    const createdUsers: any[] = [];
     mockClient = {
-      createHotspotUser: jest.fn().mockResolvedValue('*1'),
+      createHotspotUser: jest.fn().mockImplementation(async (payload) => {
+        const item = {
+          id: `*${createdUsers.length + 1}`,
+          name: payload.name,
+          profile: payload.profile,
+          comment: payload.comment,
+          disabled: Boolean(payload.disabled),
+        };
+        createdUsers.push(item);
+        return item.id;
+      }),
       disableHotspotUser: jest.fn().mockResolvedValue(undefined),
       enableHotspotUser: jest.fn().mockResolvedValue(undefined),
       deleteHotspotUser: jest.fn().mockResolvedValue(undefined),
       removeActiveSession: jest.fn().mockResolvedValue(undefined),
       listActiveSessions: jest.fn().mockResolvedValue([]),
-      listHotspotUsers: jest.fn().mockResolvedValue([]),
+      listHotspotUsers: jest.fn().mockImplementation(async () => createdUsers),
     };
 
     prisma = {
@@ -62,7 +74,7 @@ describe('CardsService', () => {
         findMany: jest.fn(),
       },
       card: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
         createMany: jest.fn(),
         update: jest.fn(),
@@ -1559,6 +1571,297 @@ describe('CardsService', () => {
       expect(res.lifecycleStatus).toBe('EXPIRED');
       expect(mockClient.removeActiveSession).toHaveBeenCalledWith('*S99');
       expect(mockClient.disableHotspotUser).toHaveBeenCalledWith('userExpiredLive');
+    });
+  });
+
+  describe('CardsService - Direct MikrotikOperationExecutor Integration & Evidence Verification', () => {
+    let mockExecutor: any;
+    let serviceWithExecutor: CardsService;
+    let mockQuotas: any;
+
+    beforeEach(() => {
+      mockExecutor = {
+        executeHotspotUserCreate: jest.fn(),
+        executeHotspotUserDelete: jest.fn(),
+        executeHotspotUserUpdate: jest.fn(),
+      };
+
+      mockQuotas = {
+        checkAndLockQuota: jest.fn().mockResolvedValue({
+          subscriptionId: 'sub-1',
+          planId: 'plan-1',
+          planName: 'PRO',
+          status: 'ACTIVE',
+          cardLimit: 50000,
+          usedCards: 100,
+          remainingCards: 5000,
+          isUnlimited: false,
+          cycleEnd: new Date('2026-11-01'),
+        }),
+        getTenantQuota: jest.fn().mockResolvedValue({
+          remainingCards: 5000,
+        }),
+      };
+
+      prisma.cardBatch.findUnique.mockImplementation(async ({ where }: any) => ({
+        id: where?.id ?? 'batch-uuid-1',
+        batchNumber: 'B-261003-ABCD',
+        totalCards: 2,
+        price: '500',
+        status: CardBatchStatus.COMPLETED,
+        createdAt: new Date(),
+        device: { name: 'Main Router' },
+        profile: { name: 'default' },
+      }));
+
+      serviceWithExecutor = new CardsService(
+        prisma,
+        encryptionService,
+        mikrotikClientFactory,
+        codeGenerator,
+        mockQuotas,
+        mockExecutor,
+      );
+    });
+
+    it('Scenario 1 & 5: should call executeHotspotUserCreate through executor and mark SYNCED upon verified router success', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValueOnce({
+        ...mockDevice,
+        isOnline: true,
+      });
+      prisma.hotspotProfile.findFirst.mockResolvedValueOnce({
+        id: mockProfileId,
+        name: 'default',
+        tenantId: mockTenantId,
+      });
+      prisma.cardBatch.create.mockResolvedValueOnce({
+        id: 'batch-exec-1',
+        batchNumber: 'B-261003-ABCD',
+      });
+      prisma.card.createMany.mockResolvedValueOnce({ count: 2 });
+
+      mockExecutor.executeHotspotUserCreate.mockResolvedValue({
+        status: OperationExecutionStatus.SUCCESS,
+        phase: 'COMPLETED',
+        data: { id: '*1', name: '10010001', profile: 'default' },
+      });
+
+      const res = await serviceWithExecutor.createBatch(mockTenantId, mockUserId, {
+        deviceId: mockDeviceId,
+        profileId: mockProfileId,
+        totalCards: 2,
+        syncToRouter: true,
+      });
+
+      expect(res.routerSyncStatus).toBe('SYNCED');
+      expect(mockExecutor.executeHotspotUserCreate).toHaveBeenCalledTimes(2);
+      expect(mockExecutor.executeHotspotUserCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ host: '192.168.88.1' }),
+        expect.objectContaining({ name: '10010001', profile: 'default' }),
+      );
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: { batchId: 'batch-exec-1', username: { in: ['10010001', '10010002'] } },
+        data: { syncStatus: SyncStatus.SYNCED, syncError: null },
+      });
+    });
+
+    it('Scenario 2: should leave batch and cards as PENDING_OFFLINE when router is offline without claiming success', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValueOnce({
+        ...mockDevice,
+        isOnline: false,
+      });
+      prisma.hotspotProfile.findFirst.mockResolvedValueOnce({
+        id: mockProfileId,
+        name: 'default',
+        tenantId: mockTenantId,
+      });
+      prisma.cardBatch.create.mockResolvedValueOnce({
+        id: 'batch-exec-offline',
+        batchNumber: 'B-261003-ABCD',
+      });
+
+      const res = await serviceWithExecutor.createBatch(mockTenantId, mockUserId, {
+        deviceId: mockDeviceId,
+        profileId: mockProfileId,
+        totalCards: 2,
+        syncToRouter: true,
+      });
+
+      expect(res.routerSyncStatus).toBe('PENDING_OFFLINE');
+      expect(mockExecutor.executeHotspotUserCreate).not.toHaveBeenCalled();
+      expect(prisma.card.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('Scenario 3: should record partial sync independently when one card succeeds on router and another fails', async () => {
+      prisma.mikroTikDevice.findFirst.mockResolvedValueOnce({
+        ...mockDevice,
+        isOnline: true,
+      });
+      prisma.hotspotProfile.findFirst.mockResolvedValueOnce({
+        id: mockProfileId,
+        name: 'default',
+        tenantId: mockTenantId,
+      });
+      prisma.cardBatch.create.mockResolvedValueOnce({
+        id: 'batch-exec-partial',
+        batchNumber: 'B-261003-ABCD',
+      });
+
+      mockExecutor.executeHotspotUserCreate
+        .mockResolvedValueOnce({
+          status: OperationExecutionStatus.SUCCESS,
+          phase: 'COMPLETED',
+        })
+        .mockResolvedValueOnce({
+          status: OperationExecutionStatus.FAILED,
+          phase: 'POST_VERIFICATION',
+          errorArabic: 'تعذر التحقق من وجود الكرت على الراوتر بعد أمر الإنشاء',
+        });
+
+      const res = await serviceWithExecutor.createBatch(mockTenantId, mockUserId, {
+        deviceId: mockDeviceId,
+        profileId: mockProfileId,
+        totalCards: 2,
+        syncToRouter: true,
+      });
+
+      expect(res.routerSyncStatus).toBe('PARTIAL');
+      expect(res.syncedCount).toBe(1);
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: { batchId: 'batch-exec-partial', username: { in: ['10010001'] } },
+        data: { syncStatus: SyncStatus.SYNCED, syncError: null },
+      });
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: { batchId: 'batch-exec-partial', username: { in: ['10010002'] } },
+        data: {
+          syncStatus: SyncStatus.FAILED,
+          syncError: 'Failed to provision on MikroTik HotSpot user list',
+        },
+      });
+    });
+
+    it('Scenario 6 & 7: should call executeHotspotUserDelete and delete from DB on verified router removal, skipping sold cards', async () => {
+      prisma.card.findMany.mockResolvedValueOnce([
+        {
+          id: 'card-unsold-1',
+          username: 'userUnsold',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+        {
+          id: 'card-sold-1',
+          username: 'userSold',
+          status: CardStatus.SOLD,
+          soldAt: new Date(),
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [{ id: 'sale-1', invoiceNumber: 'INV-001' }],
+        },
+      ]);
+
+      mockExecutor.executeHotspotUserDelete.mockResolvedValueOnce({
+        status: OperationExecutionStatus.SUCCESS,
+        phase: 'COMPLETED',
+      });
+
+      const res = await serviceWithExecutor.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-unsold-1', 'card-sold-1'],
+      });
+
+      expect(res.deletedCount).toBe(1);
+      expect(res.skippedCount).toBe(1);
+      expect(mockExecutor.executeHotspotUserDelete).toHaveBeenCalledTimes(1);
+      expect(mockExecutor.executeHotspotUserDelete).toHaveBeenCalledWith(
+        expect.objectContaining({ host: '192.168.88.1' }),
+        'userUnsold',
+      );
+      expect(prisma.card.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-unsold-1'] } },
+      });
+    });
+
+    it('Scenario 8 & 9: should mark card as PENDING_ROUTER_DELETION on failure and clean up upon retry', async () => {
+      prisma.card.findMany.mockResolvedValueOnce([
+        {
+          id: 'card-fail-1',
+          username: 'userFail1',
+          status: CardStatus.AVAILABLE,
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+
+      mockExecutor.executeHotspotUserDelete.mockResolvedValueOnce({
+        status: OperationExecutionStatus.FAILED,
+        phase: 'COMMAND_EXECUTION',
+        errorArabic: 'انتهت مهلة الاتصال بالراوتر',
+      });
+
+      const res = await serviceWithExecutor.bulkDeleteCards(mockTenantId, {
+        cardIds: ['card-fail-1'],
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.deletedCount).toBe(0);
+      expect(res.pendingCount).toBe(1);
+      expect(prisma.card.updateMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: mockTenantId,
+          id: { in: ['card-fail-1'] },
+        },
+        data: {
+          status: CardStatus.DISABLED,
+          syncStatus: SyncStatus.FAILED,
+          syncError: expect.stringContaining('PENDING_ROUTER_DELETION'),
+        },
+      });
+
+      // Scenario 9: Retry pending deletion
+      prisma.card.findMany.mockResolvedValueOnce([
+        {
+          id: 'card-fail-1',
+          username: 'userFail1',
+          status: CardStatus.DISABLED,
+          syncStatus: SyncStatus.FAILED,
+          syncError: 'PENDING_ROUTER_DELETION: تعذر الاتصال بالراوتر',
+          deviceId: mockDeviceId,
+          device: mockDevice,
+          sales: [],
+        },
+      ]);
+      mockExecutor.executeHotspotUserDelete.mockResolvedValueOnce({
+        status: OperationExecutionStatus.SUCCESS,
+        phase: 'COMPLETED',
+      });
+
+      const retryRes = await serviceWithExecutor.retryPendingDeletions(mockTenantId);
+
+      expect(retryRes.cleanedCount).toBe(1);
+      expect(retryRes.stillPendingCount).toBe(0);
+      expect(prisma.card.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: mockTenantId, id: { in: ['card-fail-1'] } },
+      });
+    });
+
+    it('Scenario 10: should reject concurrent deletion attempts on the same card IDs with ConflictException', async () => {
+      let resolveFirstFind: any;
+      const delayedFind = new Promise((resolve) => {
+        resolveFirstFind = resolve;
+      });
+
+      prisma.card.findMany.mockReturnValueOnce(delayedFind);
+
+      const promise1 = serviceWithExecutor.bulkDeleteCards(mockTenantId, { cardIds: ['card-concurrent-1'] });
+
+      await expect(
+        serviceWithExecutor.bulkDeleteCards(mockTenantId, { cardIds: ['card-concurrent-1'] }),
+      ).rejects.toThrow(ConflictException);
+
+      resolveFirstFind([]);
+      await promise1;
     });
   });
 });

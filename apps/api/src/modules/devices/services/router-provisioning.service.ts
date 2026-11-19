@@ -1739,8 +1739,9 @@ export class RouterProvisioningService {
                 if (client.updateHotspotProfile) {
                   await client.updateHotspotProfile(hsProfileName, { rateLimit: desiredRateLimit });
                 } else if (client.runRawCommand) {
+                  const profTarget = matchedProfile.id ? `=.id=${matchedProfile.id}` : `=.id=${hsProfileName}`;
                   const setWords = this.commandStringToWords(
-                    `/ip/hotspot/user/profile/set =numbers=${hsProfileName}${matchedProfile.id ? ` =.id=${matchedProfile.id}` : ''} =rate-limit=${desiredRateLimit}`,
+                    `/ip/hotspot/user/profile/set ${profTarget} =rate-limit=${desiredRateLimit}`,
                   );
                   await client.runRawCommand(setWords);
                 } else {
@@ -3226,10 +3227,10 @@ export class RouterProvisioningService {
           description: `إضافة المنفذ ${portName} إلى جسر الهوتسبوت${security.clientIsolation !== false ? ' مع تفعيل عزل المشتركين (Horizon=1)' : ''}`,
         });
       } else if (security.clientIsolation !== false && Number(existingBridgePort.horizon) !== 1) {
-        const idArg = existingBridgePort.id ? ` =.id=${existingBridgePort.id}` : '';
+        const portTarget = existingBridgePort.id ? `=.id=${existingBridgePort.id}` : `=.id=${portName}`;
         commands.push({
           stage: 'BRIDGE_PORT',
-          command: `/interface/bridge/port/set =numbers=${portName}${idArg} =horizon=1`,
+          command: `/interface/bridge/port/set ${portTarget} =horizon=1`,
           description: `تفعيل عزل المشتركين (Horizon=1) على المنفذ القائم (${portName})`,
         });
       }
@@ -3352,9 +3353,10 @@ export class RouterProvisioningService {
 
     // Hotspot User Profile (Enforce Single Device per Card & Keepalive on Default Profile)
     const sharedUsersCount = security.enforceSingleDevice !== false ? 1 : 1;
+    const defaultProfileId = discovery?.hotspotUserProfiles?.find((p) => p?.name === 'default')?.id || '*0';
     commands.push({
       stage: 'HOTSPOT_PROFILE',
-      command: `/ip/hotspot/user/profile/set =numbers=default =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d`,
+      command: `/ip/hotspot/user/profile/set =.id=${defaultProfileId} =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d`,
       description: 'ضبط إعدادات بروفايل المستخدمين الافتراضي لمنع تعدد الأجهزة وتثبيت الجلسة',
     });
 
@@ -3380,9 +3382,10 @@ export class RouterProvisioningService {
           : true;
 
       if (!rateLimitMatches || !sharedUsersMatches) {
+        const profTarget = existingProfile.id ? `=.id=${existingProfile.id}` : `=.id=${hsProfileName}`;
         commands.push({
           stage: 'HOTSPOT_PROFILE',
-          command: `/ip/hotspot/user/profile/set =numbers=${hsProfileName}${existingProfile.id ? ` =.id=${existingProfile.id}` : ''} =rate-limit=${desiredRateLimit} =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d`,
+          command: `/ip/hotspot/user/profile/set ${profTarget} =name=${hsProfileName} =rate-limit=${desiredRateLimit} =shared-users=${sharedUsersCount} =keepalive-timeout=2m =status-autorefresh=1m =transparent-proxy=no =mac-cookie-timeout=1d`,
           description: `تحديث بروفايل مستخدمي الكروت الموجود (${hsProfileName}) لتطبيق السرعة المطلوبة (${desiredRateLimit}) ومشاركة الأجهزة`,
         });
       }
@@ -3492,7 +3495,7 @@ export class RouterProvisioningService {
     if (commands.length === 0) {
       commands.push({
         stage: 'HOTSPOT_PROFILE',
-        command: `/ip/hotspot/profile/set =numbers=${hsProfileName} =hotspot-address=${cleanIp} =dns-name=${dnsName}`,
+        command: `/ip/hotspot/profile/set =.id=${hsProfileName} =hotspot-address=${cleanIp} =dns-name=${dnsName}`,
         description: `مزامنة وتأكيد ملف تعريف خادم الهوتسبوت (${hsProfileName})`,
       });
       commands.push({
@@ -3725,7 +3728,55 @@ export class RouterProvisioningService {
   }
 
   private commandStringToWords(cmd: string): string[] {
-    return (cmd || '').trim().split(/\s+/);
+    if (!cmd || typeof cmd !== 'string') return [];
+    const trimmed = cmd.trim();
+    if (!trimmed) return [];
+
+    const words: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    let quoteChar = '';
+
+    for (let i = 0; i < trimmed.length; i++) {
+      const char = trimmed[i];
+
+      if ((char === '"' || char === "'") && (i === 0 || trimmed[i - 1] !== '\\')) {
+        if (!inQuotes) {
+          inQuotes = true;
+          quoteChar = char;
+        } else if (char === quoteChar) {
+          inQuotes = false;
+          quoteChar = '';
+        } else {
+          current += char;
+        }
+      } else if (/\s/.test(char) && !inQuotes) {
+        if (current.length > 0) {
+          words.push(current);
+          current = '';
+        }
+      } else {
+        current += char;
+      }
+    }
+    if (current.length > 0) {
+      words.push(current);
+    }
+
+    // Secondary pass: ensure all parameter words start with '=' or '/' or '?'
+    // If a bare word appears after an attribute word (e.g. ['=comment=SudaFi', 'Hotspot', 'Bridge']),
+    // stitch them back into the preceding attribute word so RouterOS API protocol is not violated.
+    const sanitizedWords: string[] = [];
+    for (const w of words) {
+      if (w.startsWith('/') || w.startsWith('=') || w.startsWith('?') || sanitizedWords.length === 0) {
+        sanitizedWords.push(w);
+      } else {
+        const lastIdx = sanitizedWords.length - 1;
+        sanitizedWords[lastIdx] = `${sanitizedWords[lastIdx]} ${w}`;
+      }
+    }
+
+    return sanitizedWords;
   }
 }
 

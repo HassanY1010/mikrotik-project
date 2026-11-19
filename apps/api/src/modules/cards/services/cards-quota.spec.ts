@@ -5,6 +5,7 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
 import { CardCodeGeneratorService } from './card-code-generator.service';
+import { MikrotikOperationExecutorService } from '../../../core/mikrotik/services/mikrotik-operation-executor.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { CardBatchStatus, RouterOsVersion, SyncStatus, SubscriptionStatus } from '@prisma/client';
 
@@ -24,11 +25,46 @@ describe('SaaS Card Quotas & Synchronization Integrity (Phase 1)', () => {
   const mockProfileId = 'profile-pro-1';
   const mockBatchId = 'batch-uuid-1';
 
+  let routerUsersStore: any[] = [];
+
   beforeEach(async () => {
+    routerUsersStore = [];
     mockClient = {
-      createHotspotUser: jest.fn().mockResolvedValue('*1'),
-      disableHotspotUser: jest.fn().mockResolvedValue(undefined),
-      enableHotspotUser: jest.fn().mockResolvedValue(undefined),
+      createHotspotUser: jest.fn().mockImplementation(async (payload) => {
+        const item = {
+          id: `*${routerUsersStore.length + 1}`,
+          name: payload.name,
+          profile: payload.profile,
+          disabled: Boolean(payload.disabled),
+          comment: payload.comment,
+        };
+        routerUsersStore.push(item);
+        return item.id;
+      }),
+      getHotspotUser: jest.fn().mockImplementation(async (name) => {
+        return routerUsersStore.find((u) => u.name === name) || null;
+      }),
+      listHotspotUsers: jest.fn().mockImplementation(async () => {
+        return routerUsersStore;
+      }),
+      disableHotspotUser: jest.fn().mockImplementation(async (name) => {
+        const u = routerUsersStore.find((x) => x.name === name);
+        if (u) u.disabled = true;
+      }),
+      enableHotspotUser: jest.fn().mockImplementation(async (name) => {
+        const u = routerUsersStore.find((x) => x.name === name);
+        if (u) u.disabled = false;
+      }),
+      deleteHotspotUser: jest.fn().mockImplementation(async (name) => {
+        const idx = routerUsersStore.findIndex((x) => x.name === name);
+        if (idx !== -1) routerUsersStore.splice(idx, 1);
+      }),
+      updateHotspotUser: jest.fn().mockImplementation(async (name, payload) => {
+        const u = routerUsersStore.find((x) => x.name === name);
+        if (u) Object.assign(u, payload);
+      }),
+      removeActiveSession: jest.fn().mockResolvedValue(undefined),
+      listActiveSessions: jest.fn().mockResolvedValue([]),
     };
 
     prisma = {
@@ -90,6 +126,8 @@ describe('SaaS Card Quotas & Synchronization Integrity (Phase 1)', () => {
       generateSerialNumber: jest.fn((batch, i) => `${batch}-00${i}`),
     };
 
+    const executorService = new MikrotikOperationExecutorService(mikrotikClientFactory);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CardsService,
@@ -98,6 +136,7 @@ describe('SaaS Card Quotas & Synchronization Integrity (Phase 1)', () => {
         { provide: EncryptionService, useValue: encryptionService },
         { provide: MikrotikClientFactory, useValue: mikrotikClientFactory },
         { provide: CardCodeGeneratorService, useValue: codeGenerator },
+        { provide: MikrotikOperationExecutorService, useValue: executorService },
       ],
     }).compile();
 
@@ -503,9 +542,13 @@ describe('SaaS Card Quotas & Synchronization Integrity (Phase 1)', () => {
 
     it('should handle partial synchronization without marking all as failed or completed', async () => {
       // First card succeeds, second card fails
-      mockClient.createHotspotUser
-        .mockResolvedValueOnce('*1')
-        .mockRejectedValueOnce(new Error('Profile not found on router'));
+      mockClient.createHotspotUser.mockImplementation(async (payload: any) => {
+        if (payload.name === '99001') {
+          routerUsersStore.push({ id: '*1', name: '99001', profile: payload.profile || '1Hour' });
+          return '*1';
+        }
+        throw new Error('Profile not found on router');
+      });
 
       prisma.cardBatch.findUnique.mockResolvedValue({
         id: mockBatchId,
@@ -577,9 +620,14 @@ describe('SaaS Card Quotas & Synchronization Integrity (Phase 1)', () => {
       });
 
       // User 1 created fresh, user 2 already existed on router (idempotent handling)
-      mockClient.createHotspotUser
-        .mockResolvedValueOnce('*1')
-        .mockRejectedValueOnce(new Error('failure: already have user with this name'));
+      routerUsersStore.push({ id: '*2', name: '99002', profile: '1Hour', disabled: false });
+      mockClient.createHotspotUser.mockImplementation(async (payload: any) => {
+        if (payload.name === '99001') {
+          routerUsersStore.push({ id: '*1', name: '99001', profile: payload.profile || '1Hour' });
+          return '*1';
+        }
+        throw new Error('failure: already have user with this name');
+      });
 
       prisma.card.count.mockResolvedValue(0); // 0 remaining unsynced after retry
 

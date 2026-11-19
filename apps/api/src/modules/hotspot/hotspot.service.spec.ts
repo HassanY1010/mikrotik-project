@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HotspotService } from './hotspot.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
+import { MikrotikOperationExecutorService } from '../../core/mikrotik/services/mikrotik-operation-executor.service';
 import { NotFoundException, ConflictException, BadGatewayException } from '@nestjs/common';
 import { RouterOsVersion } from '@prisma/client';
 
@@ -10,6 +11,7 @@ describe('HotspotService', () => {
   let prisma: any;
   let mikrotikClientFactory: any;
   let mockClient: any;
+  let routerProfilesStore: any[] = [];
 
   const mockTenantId = 'tenant-1';
   const mockDeviceId = 'device-1';
@@ -30,12 +32,25 @@ describe('HotspotService', () => {
   };
 
   beforeEach(async () => {
+    routerProfilesStore = [];
+
     mockClient = {
-      listHotspotProfiles: jest.fn(),
-      createHotspotProfile: jest.fn(),
-      deleteHotspotProfile: jest.fn(),
-      listActiveSessions: jest.fn(),
-      removeActiveSession: jest.fn(),
+      listHotspotProfiles: jest.fn().mockImplementation(async () => routerProfilesStore),
+      createHotspotProfile: jest.fn().mockImplementation(async (p: any) => {
+        routerProfilesStore.push(p);
+        return '*1';
+      }),
+      deleteHotspotProfile: jest.fn().mockImplementation(async (name: string) => {
+        routerProfilesStore = routerProfilesStore.filter((p) => p.name !== name);
+      }),
+      updateHotspotProfile: jest.fn().mockImplementation(async (name: string, payload: any) => {
+        const found = routerProfilesStore.find((p) => p.name === name);
+        if (found) {
+          Object.assign(found, payload);
+        }
+      }),
+      listActiveSessions: jest.fn().mockResolvedValue([]),
+      removeActiveSession: jest.fn().mockResolvedValue(undefined),
     };
 
     prisma = {
@@ -57,6 +72,9 @@ describe('HotspotService', () => {
       tenant: {
         findFirst: jest.fn().mockResolvedValue({ id: mockTenantId }),
       },
+      auditLog: {
+        create: jest.fn().mockResolvedValue({}),
+      },
     };
 
     mikrotikClientFactory = {
@@ -66,6 +84,7 @@ describe('HotspotService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         HotspotService,
+        MikrotikOperationExecutorService,
         { provide: PrismaService, useValue: prisma },
         { provide: MikrotikClientFactory, useValue: mikrotikClientFactory },
       ],
@@ -129,7 +148,10 @@ describe('HotspotService', () => {
 
     it('should provision profile on router and save in database with 3 GB limit, price, and shared users', async () => {
       prisma.hotspotProfile.findFirst.mockResolvedValue(null);
-      mockClient.createHotspotProfile.mockResolvedValue('*1');
+      mockClient.createHotspotProfile.mockImplementation(async (p: any) => {
+        routerProfilesStore.push(p);
+        return '*1';
+      });
       prisma.hotspotProfile.create.mockImplementation(({ data }: any) => {
         return Promise.resolve({
           id: 'prof-3gb',
@@ -384,6 +406,9 @@ describe('HotspotService', () => {
 
   describe('kickSession', () => {
     it('should command router to remove active session', async () => {
+      mockClient.listActiveSessions
+        .mockResolvedValueOnce([{ id: '*A', user: 'card-1' }])
+        .mockResolvedValueOnce([]);
       mockClient.removeActiveSession.mockResolvedValue(undefined);
 
       const result = await service.kickSession(mockTenantId, mockDeviceId, '*A');

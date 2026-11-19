@@ -34,6 +34,9 @@ import type {
   RouterRouteItem,
   RouterBondingItem,
   RouterPppoeClientItem,
+  RouterPppProfileItem,
+  RouterPppSecretItem,
+  RouterPppActiveSessionItem,
   RouterHotspotServerItem,
   RouterPingResult,
 } from '../interfaces/mikrotik-client.interface';
@@ -458,6 +461,28 @@ export class RouterOsApiClient implements IMikrotikClient {
       }));
   }
 
+  async getHotspotUser(nameOrId: string): Promise<HotspotUserItem | null> {
+    await this.connect();
+    const query = nameOrId.startsWith('*') ? `?=.id=${nameOrId}` : `?name=${nameOrId}`;
+    const responses = await this.executeCommand(['/ip/hotspot/user/print', query]);
+    const r = responses.find((resp) => resp.type === '!re');
+    if (!r) return null;
+    return {
+      id: r.attributes['.id'],
+      name: r.attributes['name'] ?? '',
+      profile: r.attributes['profile'],
+      limitUptime: r.attributes['limit-uptime'],
+      limitBytesTotal: r.attributes['limit-bytes-total']
+        ? parseInt(r.attributes['limit-bytes-total'], 10)
+        : undefined,
+      comment: r.attributes['comment'],
+      disabled: r.attributes['disabled'] === 'true',
+      uptime: r.attributes['uptime'],
+      bytesIn: r.attributes['bytes-in'] ? parseInt(r.attributes['bytes-in'], 10) : 0,
+      bytesOut: r.attributes['bytes-out'] ? parseInt(r.attributes['bytes-out'], 10) : 0,
+    };
+  }
+
   async createHotspotUser(user: HotspotUserItem): Promise<string> {
     await this.connect();
     const words = ['/ip/hotspot/user/add', `=name=${user.name}`];
@@ -480,12 +505,16 @@ export class RouterOsApiClient implements IMikrotikClient {
     const target = users.find((u) => u.name === name);
     if (!target?.id) throw new Error(`Hotspot user '${name}' not found on router`);
 
-    const words = ['/ip/hotspot/user/set', `numbers=${target.id}`];
+    const words = ['/ip/hotspot/user/set', `=.id=${target.id}`];
+    if (user.password !== undefined) words.push(`=password=${user.password}`);
     if (user.profile) words.push(`=profile=${user.profile}`);
     if (user.limitUptime) words.push(`=limit-uptime=${user.limitUptime}`);
     if (user.comment) words.push(`=comment=${user.comment}`);
     if (user.limitBytesTotal !== undefined) {
       words.push(`=limit-bytes-total=${user.limitBytesTotal || 0}`);
+    }
+    if (user.disabled !== undefined) {
+      words.push(`=disabled=${user.disabled ? 'yes' : 'no'}`);
     }
 
     await this.executeCommand(words);
@@ -496,7 +525,7 @@ export class RouterOsApiClient implements IMikrotikClient {
     const users = await this.listHotspotUsers();
     const target = users.find((u) => u.name === name);
     if (target?.id) {
-      await this.executeCommand(['/ip/hotspot/user/set', `numbers=${target.id}`, '=disabled=yes']);
+      await this.executeCommand(['/ip/hotspot/user/set', `=.id=${target.id}`, '=disabled=yes']);
     }
   }
 
@@ -505,7 +534,7 @@ export class RouterOsApiClient implements IMikrotikClient {
     const users = await this.listHotspotUsers();
     const target = users.find((u) => u.name === name);
     if (target?.id) {
-      await this.executeCommand(['/ip/hotspot/user/set', `numbers=${target.id}`, '=disabled=no']);
+      await this.executeCommand(['/ip/hotspot/user/set', `=.id=${target.id}`, '=disabled=no']);
     }
   }
 
@@ -513,9 +542,10 @@ export class RouterOsApiClient implements IMikrotikClient {
     await this.connect();
     const users = await this.listHotspotUsers();
     const target = users.find((u) => u.name === name);
-    if (target?.id) {
-      await this.executeCommand(['/ip/hotspot/user/remove', `numbers=${target.id}`]);
+    if (!target?.id) {
+      throw new Error(`Hotspot user '${name}' not found on router`);
     }
+    await this.executeCommand(['/ip/hotspot/user/remove', `=.id=${target.id}`]);
   }
 
   async listActiveSessions(): Promise<HotspotActiveSessionItem[]> {
@@ -554,7 +584,7 @@ export class RouterOsApiClient implements IMikrotikClient {
         s.macAddress.toLowerCase() === sessionOrUserId.toLowerCase(),
     );
     const targetId = match?.id ?? sessionOrUserId;
-    await this.executeCommand(['/ip/hotspot/active/remove', `numbers=${targetId}`]);
+    await this.executeCommand(['/ip/hotspot/active/remove', `=.id=${targetId}`]);
   }
 
   async reboot(): Promise<void> {
@@ -1496,6 +1526,290 @@ export class RouterOsApiClient implements IMikrotikClient {
       `=dst-path=${safeDst}`,
     ]);
     return { filename: safeDst };
+  }
+
+  // =========================================================================
+  // File Management
+  // =========================================================================
+
+  async uploadFile(
+    filename: string,
+    content: Buffer | string,
+  ): Promise<{ filename: string; size: number }> {
+    await this.connect();
+    const cleanFilename = filename.replace(/^\/+/, '').trim();
+    if (!cleanFilename || cleanFilename.includes('..')) {
+      throw new Error(`Invalid file name: "${filename}"`);
+    }
+
+    const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
+
+    // 1. Check if file exists on router
+    const files = await this.executeCommand(['/file/print']);
+    const existing = files
+      .filter((r) => r.type === '!re')
+      .find(
+        (r) =>
+          r.attributes['name'] === cleanFilename ||
+          r.attributes['name'] === `flash/${cleanFilename}`,
+      );
+
+    let targetId = existing?.attributes['.id'];
+
+    if (!targetId) {
+      // Create file via /file/print with file parameter
+      try {
+        await this.executeCommand(['/file/print', `=file=${cleanFilename}`]);
+      } catch {
+        // Fallback: some ROS versions require plain file creation
+        try {
+          await this.executeCommand(['/file/add', `=name=${cleanFilename}`]);
+        } catch (_) {}
+      }
+
+      // Re-scan to get newly assigned .id
+      await new Promise((res) => setTimeout(res, 300));
+      const postFiles = await this.executeCommand(['/file/print']);
+      const created = postFiles
+        .filter((r) => r.type === '!re')
+        .find(
+          (r) =>
+            r.attributes['name'] === cleanFilename ||
+            r.attributes['name'] === `flash/${cleanFilename}`,
+        );
+      targetId = created?.attributes['.id'];
+    }
+
+    if (targetId) {
+      const contentsWord = Buffer.concat([Buffer.from('=contents='), buf]);
+      await this.executeCommand(['/file/set', `=.id=${targetId}`, contentsWord]);
+    }
+
+    return { filename: cleanFilename, size: buf.length };
+  }
+
+  async deleteFile(filename: string): Promise<void> {
+    await this.connect();
+    const cleanFilename = filename.replace(/^\/+/, '').trim();
+    const files = await this.executeCommand(['/file/print']);
+    const target = files
+      .filter((r) => r.type === '!re')
+      .find(
+        (r) =>
+          r.attributes['name'] === cleanFilename ||
+          r.attributes['name'] === `flash/${cleanFilename}`,
+      );
+
+    if (target?.attributes['.id']) {
+      await this.executeCommand(['/file/remove', `=.id=${target.attributes['.id']}`]);
+    }
+  }
+
+  // =========================================================================
+  // PPPoE / PPP Management
+  // =========================================================================
+
+  async listPppProfiles(): Promise<RouterPppProfileItem[]> {
+    await this.connect();
+    const res = await this.executeCommand(['/ppp/profile/print']);
+    return res
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        localAddress: r.attributes['local-address'],
+        remoteAddress: r.attributes['remote-address'],
+        rateLimit: r.attributes['rate-limit'],
+        dnsServer: r.attributes['dns-server'],
+        onlyOne: r.attributes['only-one'] === 'yes',
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async createPppProfile(profile: RouterPppProfileItem): Promise<string> {
+    await this.connect();
+    const words = ['/ppp/profile/add', `=name=${profile.name}`];
+    if (profile.localAddress) words.push(`=local-address=${profile.localAddress}`);
+    if (profile.remoteAddress) words.push(`=remote-address=${profile.remoteAddress}`);
+    if (profile.rateLimit) words.push(`=rate-limit=${profile.rateLimit}`);
+    if (profile.dnsServer) words.push(`=dns-server=${profile.dnsServer}`);
+    if (profile.onlyOne !== undefined) {
+      words.push(`=only-one=${profile.onlyOne ? 'yes' : 'no'}`);
+    }
+    if (profile.comment) words.push(`=comment=${profile.comment}`);
+
+    try {
+      const res = await this.executeCommand(words);
+      const done = res.find((r) => r.type === '!done');
+      return done?.attributes['ret'] ?? profile.name;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/already have profile with (such|this) name|already exists/i.test(msg)) {
+        await this.updatePppProfile(profile.name, profile);
+        return profile.name;
+      }
+      throw err;
+    }
+  }
+
+  async updatePppProfile(name: string, profile: Partial<RouterPppProfileItem>): Promise<void> {
+    await this.connect();
+    const profiles = await this.listPppProfiles();
+    const target = profiles.find((p) => p.name === name);
+    if (!target?.id) throw new Error(`PPP profile '${name}' not found on router`);
+
+    const words = ['/ppp/profile/set', `=.id=${target.id}`];
+    if (profile.localAddress !== undefined) words.push(`=local-address=${profile.localAddress}`);
+    if (profile.remoteAddress !== undefined) words.push(`=remote-address=${profile.remoteAddress}`);
+    if (profile.rateLimit !== undefined) words.push(`=rate-limit=${profile.rateLimit}`);
+    if (profile.dnsServer !== undefined) words.push(`=dns-server=${profile.dnsServer}`);
+    if (profile.onlyOne !== undefined) {
+      words.push(`=only-one=${profile.onlyOne ? 'yes' : 'no'}`);
+    }
+    if (profile.comment !== undefined) words.push(`=comment=${profile.comment}`);
+
+    await this.executeCommand(words);
+  }
+
+  async deletePppProfile(name: string): Promise<void> {
+    await this.connect();
+    const profiles = await this.listPppProfiles();
+    const target = profiles.find((p) => p.name === name);
+    if (!target?.id) {
+      throw new Error(`PPP profile '${name}' not found on router`);
+    }
+    await this.executeCommand(['/ppp/profile/remove', `=.id=${target.id}`]);
+  }
+
+  async listPppSecrets(): Promise<RouterPppSecretItem[]> {
+    await this.connect();
+    const res = await this.executeCommand(['/ppp/secret/print']);
+    return res
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'],
+        name: r.attributes['name'] ?? '',
+        password: r.attributes['password'],
+        service: r.attributes['service'] ?? 'any',
+        profile: r.attributes['profile'] ?? 'default',
+        localAddress: r.attributes['local-address'],
+        remoteAddress: r.attributes['remote-address'],
+        callerId: r.attributes['caller-id'],
+        comment: r.attributes['comment'],
+        disabled: r.attributes['disabled'] === 'true',
+        lastLoggedOut: r.attributes['last-logged-out'],
+        uptime: r.attributes['uptime'],
+      }));
+  }
+
+  async createPppSecret(secret: RouterPppSecretItem): Promise<string> {
+    await this.connect();
+    const words = ['/ppp/secret/add', `=name=${secret.name}`];
+    if (secret.password !== undefined) words.push(`=password=${secret.password}`);
+    if (secret.service) words.push(`=service=${secret.service}`);
+    if (secret.profile) words.push(`=profile=${secret.profile}`);
+    if (secret.localAddress) words.push(`=local-address=${secret.localAddress}`);
+    if (secret.remoteAddress) words.push(`=remote-address=${secret.remoteAddress}`);
+    if (secret.callerId) words.push(`=caller-id=${secret.callerId}`);
+    if (secret.comment) words.push(`=comment=${secret.comment}`);
+    if (secret.disabled !== undefined) {
+      words.push(`=disabled=${secret.disabled ? 'yes' : 'no'}`);
+    }
+
+    try {
+      const res = await this.executeCommand(words);
+      const done = res.find((r) => r.type === '!done');
+      return done?.attributes['ret'] ?? secret.name;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/already have secret with (such|this) name|already exists/i.test(msg)) {
+        await this.updatePppSecret(secret.name, secret);
+        return secret.name;
+      }
+      throw err;
+    }
+  }
+
+  async updatePppSecret(name: string, secret: Partial<RouterPppSecretItem>): Promise<void> {
+    await this.connect();
+    const secrets = await this.listPppSecrets();
+    const target = secrets.find((s) => s.name === name);
+    if (!target?.id) throw new Error(`PPP secret '${name}' not found on router`);
+
+    const words = ['/ppp/secret/set', `=.id=${target.id}`];
+    if (secret.password !== undefined) words.push(`=password=${secret.password}`);
+    if (secret.service !== undefined) words.push(`=service=${secret.service}`);
+    if (secret.profile !== undefined) words.push(`=profile=${secret.profile}`);
+    if (secret.localAddress !== undefined) words.push(`=local-address=${secret.localAddress}`);
+    if (secret.remoteAddress !== undefined) words.push(`=remote-address=${secret.remoteAddress}`);
+    if (secret.callerId !== undefined) words.push(`=caller-id=${secret.callerId}`);
+    if (secret.comment !== undefined) words.push(`=comment=${secret.comment}`);
+    if (secret.disabled !== undefined) {
+      words.push(`=disabled=${secret.disabled ? 'yes' : 'no'}`);
+    }
+
+    await this.executeCommand(words);
+  }
+
+  async deletePppSecret(name: string): Promise<void> {
+    await this.connect();
+    const secrets = await this.listPppSecrets();
+    const target = secrets.find((s) => s.name === name);
+    if (!target?.id) {
+      throw new Error(`PPP secret '${name}' not found on router`);
+    }
+    await this.executeCommand(['/ppp/secret/remove', `=.id=${target.id}`]);
+  }
+
+  async enablePppSecret(name: string): Promise<void> {
+    await this.connect();
+    const secrets = await this.listPppSecrets();
+    const target = secrets.find((s) => s.name === name);
+    if (target?.id) {
+      await this.executeCommand(['/ppp/secret/set', `=.id=${target.id}`, '=disabled=no']);
+    }
+  }
+
+  async disablePppSecret(name: string): Promise<void> {
+    await this.connect();
+    const secrets = await this.listPppSecrets();
+    const target = secrets.find((s) => s.name === name);
+    if (target?.id) {
+      await this.executeCommand(['/ppp/secret/set', `=.id=${target.id}`, '=disabled=yes']);
+    }
+  }
+
+  async listPppActiveSessions(): Promise<RouterPppActiveSessionItem[]> {
+    await this.connect();
+    const res = await this.executeCommand(['/ppp/active/print']);
+    return res
+      .filter((r) => r.type === '!re')
+      .map((r) => ({
+        id: r.attributes['.id'] ?? '',
+        name: r.attributes['name'] ?? '',
+        service: r.attributes['service'],
+        callerId: r.attributes['caller-id'],
+        address: r.attributes['address'],
+        uptime: r.attributes['uptime'],
+        encoding: r.attributes['encoding'],
+        sessionId: r.attributes['session-id'],
+        comment: r.attributes['comment'],
+      }));
+  }
+
+  async removePppActiveSession(sessionOrUsername: string): Promise<void> {
+    await this.connect();
+    const activeList = await this.listPppActiveSessions();
+    const match = activeList.find(
+      (s) =>
+        s.id === sessionOrUsername ||
+        s.name === sessionOrUsername ||
+        s.address === sessionOrUsername ||
+        s.sessionId === sessionOrUsername ||
+        s.callerId?.toLowerCase() === sessionOrUsername.toLowerCase(),
+    );
+    const targetId = match?.id ?? sessionOrUsername;
+    await this.executeCommand(['/ppp/active/remove', `=.id=${targetId}`]);
   }
 }
 

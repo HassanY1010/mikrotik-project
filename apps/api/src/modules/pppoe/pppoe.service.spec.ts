@@ -610,4 +610,242 @@ describe('PppoeService (Task 4.3)', () => {
       expect(profiles).toBeDefined();
     });
   });
+
+  describe('Direct Router Execution & Read-After-Write Verification', () => {
+    let mockExecutor: any;
+    let directService: PppoeService;
+
+    const directDevice = {
+      ...mockDevice,
+      host: '192.168.88.1',
+      apiPort: 8728,
+      restPort: 443,
+      username: 'admin',
+      passwordEncrypted: 'enc-pass',
+      iv: 'iv-pass',
+      authTag: 'tag-pass',
+      useSsl: false,
+      rosVersion: 'V7',
+    };
+
+    beforeEach(async () => {
+      mockExecutor = {
+        executePppProfileCreate: jest.fn(),
+        executePppProfileUpdate: jest.fn(),
+        executePppProfileDelete: jest.fn(),
+        executePppSecretCreate: jest.fn(),
+        executePppSecretUpdate: jest.fn(),
+        executePppSecretDelete: jest.fn(),
+        executePppActiveSessionRemove: jest.fn(),
+      };
+
+      directService = new PppoeService(prisma, encryptionService, agentService, mockExecutor);
+    });
+
+    it('should create PPPoE profile directly on MikroTik and persist on verified success', async () => {
+      prisma.mikroTikDevice.findUnique.mockResolvedValueOnce(directDevice);
+      prisma.subscription.findFirst.mockResolvedValueOnce({
+        id: 'sub-1',
+        status: 'ACTIVE',
+        expiresAt: new Date(Date.now() + 86400000),
+      });
+      prisma.pppoeProfile.findUnique.mockResolvedValueOnce(null);
+
+      mockExecutor.executePppProfileCreate.mockImplementation(
+        async (_cfg: any, _payload: any, persistFn: () => Promise<void>) => {
+          await persistFn();
+          return { status: 'SUCCESS', verified: true };
+        },
+      );
+
+      prisma.pppoeProfile.create.mockResolvedValueOnce({
+        ...mockProfile,
+        name: 'Direct-10M',
+      });
+
+      const res = await directService.createProfile(
+        mockTenantId,
+        mockDeviceId,
+        { name: 'Direct-10M', rateLimit: '10M/5M' },
+        mockUserId,
+      );
+
+      expect(res.name).toBe('Direct-10M');
+      expect(mockExecutor.executePppProfileCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ host: '192.168.88.1' }),
+        expect.objectContaining({ name: 'Direct-10M' }),
+        expect.any(Function),
+      );
+      // No agent queue when directly connected
+      expect(agentService.queueCommand).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadGatewayException and NOT persist when router profile creation fails', async () => {
+      prisma.mikroTikDevice.findUnique.mockResolvedValueOnce(directDevice);
+      prisma.subscription.findFirst.mockResolvedValueOnce({
+        id: 'sub-1',
+        status: 'ACTIVE',
+        expiresAt: new Date(Date.now() + 86400000),
+      });
+      prisma.pppoeProfile.findUnique.mockResolvedValueOnce(null);
+
+      mockExecutor.executePppProfileCreate.mockResolvedValueOnce({
+        status: 'FAILED',
+        errorArabic: 'فشل الاتصال بالراوتر',
+        phase: 'CONNECTION',
+      });
+
+      await expect(
+        directService.createProfile(
+          mockTenantId,
+          mockDeviceId,
+          { name: 'Failing-Prof' },
+          mockUserId,
+        ),
+      ).rejects.toThrow('فشل إنشاء بروفايل PPPoE على راوتر MikroTik');
+
+      expect(prisma.pppoeProfile.create).not.toHaveBeenCalled();
+    });
+
+    it('should create subscriber account directly on MikroTik and mark SYNCED on verified success', async () => {
+      prisma.mikroTikDevice.findUnique.mockResolvedValueOnce(directDevice);
+      prisma.subscription.findFirst.mockResolvedValueOnce({
+        id: 'sub-1',
+        status: 'ACTIVE',
+        expiresAt: new Date(Date.now() + 86400000),
+      });
+      prisma.pppoeProfile.findFirst.mockResolvedValueOnce(mockProfile);
+      prisma.pppoeAccount.findUnique.mockResolvedValueOnce(null);
+
+      mockExecutor.executePppSecretCreate.mockImplementation(
+        async (_cfg: any, _payload: any, persistFn: () => Promise<void>) => {
+          await persistFn();
+          return { status: 'SUCCESS', verified: true };
+        },
+      );
+
+      prisma.pppoeAccount.create.mockResolvedValueOnce({
+        ...mockAccount,
+        username: 'sub_direct_1',
+        syncStatus: SyncStatus.SYNCED,
+        profile: { name: mockProfile.name },
+      });
+
+      const res = await directService.createAccount(
+        mockTenantId,
+        mockDeviceId,
+        {
+          username: 'sub_direct_1',
+          password: 'pass',
+          profileId: mockProfile.id,
+        },
+        mockUserId,
+      );
+
+      expect(res.username).toBe('sub_direct_1');
+      expect(res.syncStatus).toBe(SyncStatus.SYNCED);
+      expect(mockExecutor.executePppSecretCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ host: '192.168.88.1' }),
+        expect.objectContaining({ name: 'sub_direct_1', service: 'pppoe' }),
+        expect.any(Function),
+      );
+    });
+
+    it('should disable account on router and kick active session directly', async () => {
+      prisma.mikroTikDevice.findUnique.mockResolvedValueOnce(directDevice);
+      prisma.subscription.findFirst.mockResolvedValueOnce({
+        id: 'sub-1',
+        status: 'ACTIVE',
+        expiresAt: new Date(Date.now() + 86400000),
+      });
+      prisma.pppoeAccount.findFirst.mockResolvedValueOnce({
+        ...mockAccount,
+        profile: { name: mockProfile.name },
+      });
+
+      mockExecutor.executePppSecretUpdate.mockImplementation(
+        async (_cfg: any, _name: string, _payload: any, persistFn: () => Promise<void>) => {
+          await persistFn();
+          return { status: 'SUCCESS', verified: true };
+        },
+      );
+      mockExecutor.executePppActiveSessionRemove.mockResolvedValueOnce({ status: 'SUCCESS' });
+
+      prisma.pppoeAccount.update.mockResolvedValueOnce({
+        ...mockAccount,
+        status: PppoeAccountStatus.DISABLED,
+        syncStatus: SyncStatus.SYNCED,
+        profile: { name: mockProfile.name },
+      });
+
+      const res = await directService.disableAccount(mockTenantId, mockDeviceId, mockAccount.id, mockUserId);
+
+      expect(res.status).toBe(PppoeAccountStatus.DISABLED);
+      expect(res.syncStatus).toBe(SyncStatus.SYNCED);
+      expect(mockExecutor.executePppSecretUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        mockAccount.username,
+        expect.objectContaining({ disabled: true }),
+        expect.any(Function),
+      );
+      expect(mockExecutor.executePppActiveSessionRemove).toHaveBeenCalledWith(
+        expect.anything(),
+        mockAccount.username,
+      );
+    });
+
+    it('should delete account from router and kick active session on deletion', async () => {
+      prisma.mikroTikDevice.findUnique.mockResolvedValueOnce(directDevice);
+      prisma.subscription.findFirst.mockResolvedValueOnce({
+        id: 'sub-1',
+        status: 'ACTIVE',
+        expiresAt: new Date(Date.now() + 86400000),
+      });
+      prisma.pppoeAccount.findFirst.mockResolvedValueOnce(mockAccount);
+
+      mockExecutor.executePppSecretDelete.mockImplementation(
+        async (_cfg: any, _name: string, persistFn: () => Promise<void>) => {
+          await persistFn();
+          return { status: 'SUCCESS', verified: true };
+        },
+      );
+      mockExecutor.executePppActiveSessionRemove.mockResolvedValueOnce({ status: 'SUCCESS' });
+
+      const res = await directService.deleteAccount(mockTenantId, mockDeviceId, mockAccount.id, mockUserId);
+
+      expect(res.success).toBe(true);
+      expect(mockExecutor.executePppSecretDelete).toHaveBeenCalledWith(
+        expect.anything(),
+        mockAccount.username,
+        expect.any(Function),
+      );
+      expect(prisma.pppoeAccount.delete).toHaveBeenCalledWith({ where: { id: mockAccount.id } });
+    });
+
+    it('should disconnect active broadband session directly on router', async () => {
+      prisma.mikroTikDevice.findUnique.mockResolvedValueOnce(directDevice);
+      prisma.subscription.findFirst.mockResolvedValueOnce({
+        id: 'sub-1',
+        status: 'ACTIVE',
+        expiresAt: new Date(Date.now() + 86400000),
+      });
+      prisma.pppoeAccount.findUnique.mockResolvedValueOnce(mockAccount);
+
+      mockExecutor.executePppActiveSessionRemove.mockResolvedValueOnce({ status: 'SUCCESS' });
+
+      const res = await directService.disconnectActiveSession(
+        mockTenantId,
+        mockDeviceId,
+        { username: mockAccount.username },
+        mockUserId,
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.queuedCommandId).toBe('direct');
+      expect(mockExecutor.executePppActiveSessionRemove).toHaveBeenCalledWith(
+        expect.anything(),
+        mockAccount.username,
+      );
+    });
+  });
 });

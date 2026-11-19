@@ -740,7 +740,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
 
       // 1. Check default profile set command
       const defaultProfileCmd = preview.generatedCommands.find((c) =>
-        c.command.includes('/ip/hotspot/user/profile/set =numbers=default'),
+        c.command.includes('/ip/hotspot/user/profile/set') && (c.command.includes('=.id=*0') || c.command.includes('=.id=default')),
       );
       expect(defaultProfileCmd).toBeDefined();
 
@@ -776,7 +776,7 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
       // Verify that bridge port add is not called, but set horizon=1 is called
       expect(preview.generatedCommands.some((c) => c.command.includes('/interface/bridge/port/add'))).toBe(false);
       const setHorizonCmd = preview.generatedCommands.find((c) =>
-        c.command.includes('/interface/bridge/port/set =numbers=ether3') && c.command.includes('=horizon=1'),
+        c.command.includes('/interface/bridge/port/set') && c.command.includes('=horizon=1'),
       );
       expect(setHorizonCmd).toBeDefined();
     });

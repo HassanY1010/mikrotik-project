@@ -544,8 +544,17 @@ class _AutoProvisioningScreenState extends ConsumerState<AutoProvisioningScreen>
               _step = 4;
             });
           }
-        } catch (_) {
-          if (mounted) setState(() => _step = 4);
+        } catch (e) {
+          debugPrint('[AutoProvisioning] Local sync error: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('تنبيه: تعذر مزامنة نتيجة البرمجة مع الخادم: $e'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            setState(() => _step = 4);
+          }
         }
         await _loadBackupsAndHistory();
         return;

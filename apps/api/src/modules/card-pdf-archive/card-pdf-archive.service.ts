@@ -317,11 +317,12 @@ export class CardPdfArchiveService {
       throw new NotFoundException('PDF archive not found or access denied');
     }
 
-    // 1. Try to delete from Supabase Storage (warning only if already deleted)
-    try {
-      await this.supabaseStorage.deleteFile(archive.storagePath);
-    } catch (storageErr) {
-      this.logger.warn(`Storage file deletion warning for ${archive.storagePath}: ${storageErr}`);
+    // 1. Try to delete from Supabase Storage (fail and preserve DB record if storage delete fails)
+    const storageDeleted = await this.supabaseStorage.deleteFile(archive.storagePath);
+    if (!storageDeleted) {
+      throw new InternalServerErrorException(
+        `Failed to delete PDF file from storage (${archive.storagePath})`,
+      );
     }
 
     // 2. Delete from database

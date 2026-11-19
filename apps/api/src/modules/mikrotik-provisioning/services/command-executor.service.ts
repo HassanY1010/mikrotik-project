@@ -290,7 +290,7 @@ export class CommandExecutorService implements OnModuleInit {
       commandLogIdByOrder,
     });
 
-    if (asyncExecution) {
+    if (asyncExecution && dto.executionMode !== 'LOCAL') {
       runPromise.catch((err) => {
         this.logger.error(
           `Unhandled async execution failure (${operationId}): ${err instanceof Error ? err.message : String(err)}`,
@@ -326,6 +326,12 @@ export class CommandExecutorService implements OnModuleInit {
       stepIdByStage,
       commandLogIdByOrder,
     } = params;
+
+    // LOCAL EXECUTION MODE: Router was configured directly by client over LAN
+    // Prevents Cloud Backend from attempting direct connections to RFC1918 private IPs
+    if (dto.executionMode === 'LOCAL') {
+      return this.handleLocalExecutionResult(params);
+    }
 
     const rollbackStack: TrackedCreatedResource[] = [];
     let succeededCount = 0;
@@ -720,6 +726,148 @@ export class CommandExecutorService implements OnModuleInit {
       return this.loggerService.getOperationDetails(tenantId, operationId);
     } finally {
       this.activeCancellations.delete(operationId);
+      DevicesService.activeDeviceOperations.delete(deviceId);
+    }
+  }
+
+  private async handleLocalExecutionResult(params: {
+    operationId: string;
+    startMs: number;
+    tenantId: string;
+    deviceId: string;
+    device: any;
+    userId?: string;
+    dto: StartAutoProvisioningDto;
+    plan: AutoProvisioningPlan;
+    stepIdByStage: Map<string, string>;
+    commandLogIdByOrder: Map<number, string>;
+  }) {
+    const {
+      operationId,
+      startMs,
+      tenantId,
+      deviceId,
+      userId,
+      dto,
+      plan,
+      stepIdByStage,
+      commandLogIdByOrder,
+    } = params;
+
+    const clientRes = (dto.clientExecutionResult || {}) as Record<string, any>;
+    const isSuccess = clientRes.success === true;
+    const failureReason = clientRes.failureReason ? String(clientRes.failureReason) : undefined;
+    const executedStages = Array.isArray(clientRes.executedStages) ? clientRes.executedStages : [];
+    const verification = clientRes.verification || {
+      overallStatus: isSuccess ? 'VERIFIED_READY' : 'VERIFICATION_FAILED',
+      diagnosticsMessage: failureReason || (isSuccess ? 'تم تطبيق البرمجة بنجاح محلياً.' : 'فشل التطبيق محلياً.'),
+    };
+
+    try {
+      if (isSuccess) {
+        // Mark all steps in the plan as COMPLETED
+        for (const [stageName, stepId] of stepIdByStage.entries()) {
+          const executed = executedStages.find((s: any) => s.stage === stageName);
+          await this.prisma.provisioningStep
+            .update({
+              where: { id: stepId },
+              data: {
+                status: executed && executed.status === 'FAILED' ? 'FAILED' : 'COMPLETED',
+                errorMessage: executed?.error || null,
+                completedAt: new Date(),
+              },
+            })
+            .catch(() => {});
+        }
+
+        // Mark all command logs as SUCCESS
+        for (const [, logId] of commandLogIdByOrder.entries()) {
+          await this.prisma.provisioningCommandLog
+            .update({
+              where: { id: logId },
+              data: {
+                status: 'SUCCESS',
+                completedAt: new Date(),
+              },
+            })
+            .catch(() => {});
+        }
+
+        await this.prisma.provisioningOperation.update({
+          where: { id: operationId },
+          data: {
+            status: 'COMPLETED',
+            progressPercent: 100,
+            verificationResult: verification as any,
+            succeededCommands: plan.totalPlannedCommands,
+            failedCommands: 0,
+            skippedCommands: 0,
+            failureReason: null,
+            completedAt: new Date(),
+            durationMs: Math.max(Date.now() - startMs, 1),
+          },
+        });
+
+        await this.prisma.mikroTikDevice
+          .update({
+            where: { id: deviceId },
+            data: {
+              isOnline: true,
+              status: DeviceStatus.ONLINE,
+              lastSyncAt: new Date(),
+            },
+          })
+          .catch(() => {});
+
+        this.discoveryService.clearCache(tenantId, deviceId);
+
+        await this.auditLogsService
+          .log({
+            tenantId,
+            userId: userId ?? null,
+            action: 'AUTO_PROVISIONING_COMPLETED',
+            entity: 'provisioning_operation',
+            entityId: operationId,
+            newValues: {
+              deviceId,
+              template: plan.template || dto.template,
+              executionMode: 'LOCAL',
+              overallVerificationStatus: verification.overallStatus,
+              succeededCommands: plan.totalPlannedCommands,
+            },
+          })
+          .catch(() => {});
+      } else {
+        const failedStageName = clientRes.failedStage || 'EXECUTION';
+        const stepId = stepIdByStage.get(failedStageName);
+        if (stepId) {
+          await this.prisma.provisioningStep
+            .update({
+              where: { id: stepId },
+              data: {
+                status: 'FAILED',
+                errorMessage: failureReason || 'فشل تطبيق المرحلة على الراوتر محلياً.',
+                completedAt: new Date(),
+              },
+            })
+            .catch(() => {});
+        }
+
+        await this.prisma.provisioningOperation.update({
+          where: { id: operationId },
+          data: {
+            status: 'FAILED',
+            failureReason: failureReason || 'فشل تطبيق البرمجة على الراوتر محلياً.',
+            verificationResult: verification as any,
+            failedCommands: 1,
+            completedAt: new Date(),
+            durationMs: Math.max(Date.now() - startMs, 1),
+          },
+        });
+      }
+
+      return await this.loggerService.getOperationDetails(tenantId, operationId);
+    } finally {
       DevicesService.activeDeviceOperations.delete(deviceId);
     }
   }

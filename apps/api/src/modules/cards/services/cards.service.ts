@@ -7,11 +7,17 @@ import {
   Logger,
   OnModuleInit,
   OnModuleDestroy,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/security/encryption.service';
 import { MikrotikClientFactory } from '../../../core/mikrotik/mikrotik-client.factory';
+import { MikrotikOperationExecutorService } from '../../../core/mikrotik/services/mikrotik-operation-executor.service';
+import {
+  DeviceConnectionConfig,
+  OperationExecutionStatus,
+} from '../../../core/mikrotik/interfaces/mikrotik-operation.interface';
 import { CardCodeGeneratorService } from './card-code-generator.service';
 import { DevicesService } from '../../devices/devices.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
@@ -294,13 +300,34 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
     return isNoSuchItem || isSpecificHotspotRest404;
   }
 
+  private readonly mikrotikExecutor: MikrotikOperationExecutorService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryptionService: EncryptionService,
     private readonly mikrotikClientFactory: MikrotikClientFactory,
     private readonly codeGenerator: CardCodeGeneratorService,
     private readonly quotasService: QuotasService,
-  ) {}
+    @Optional() mikrotikExecutor?: MikrotikOperationExecutorService,
+  ) {
+    this.mikrotikExecutor = mikrotikExecutor || new MikrotikOperationExecutorService(mikrotikClientFactory);
+  }
+
+  private toDeviceConfig(device: any): DeviceConnectionConfig {
+    return {
+      id: device.id,
+      name: device.name,
+      host: device.host,
+      apiPort: device.apiPort,
+      restPort: device.restPort,
+      useSsl: device.useSsl,
+      username: device.username,
+      passwordEncrypted: device.passwordEncrypted,
+      iv: device.iv,
+      authTag: device.authTag,
+      rosVersion: device.rosVersion,
+    };
+  }
 
   async createBatch(tenantId?: string | null, userId?: string | null, dto?: CreateBatchDto) {
     if (!dto) {
@@ -500,14 +527,14 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
           },
         );
 
-        const collisions = await tx.card.findMany({
+        const collisions = (await tx.card.findMany({
           where: {
             tenantId: resolvedTenantId,
             deviceId: effectiveDeviceId,
             username: { in: usernames },
           },
           select: { username: true },
-        });
+        })) ?? [];
 
         if (collisions.length > 0) {
           const collisionSet = new Set(collisions.map((c) => c.username));
@@ -597,42 +624,28 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
 
     if (dto.syncToRouter !== false && device.isOnline && !isLocalPrivateLan) {
       try {
-        const client = await this.mikrotikClientFactory.getClient({
-          id: device.id,
-          name: device.name,
-          host: device.host,
-          apiPort: device.apiPort,
-          restPort: device.restPort,
-          useSsl: device.useSsl,
-          username: device.username,
-          passwordEncrypted: device.passwordEncrypted,
-          iv: device.iv,
-          authTag: device.authTag,
-          rosVersion: device.rosVersion,
-        });
+        const deviceConfig = this.toDeviceConfig(device);
 
         for (const cred of plainCredentials) {
-          try {
-            await client.createHotspotUser({
+          const opResult = await this.mikrotikExecutor.executeHotspotUserCreate(
+            deviceConfig,
+            {
               name: cred.username,
               password: cred.password,
               profile: profile.name,
               limitUptime: timeLimit ?? undefined,
               limitBytesTotal: dataLimitBytes ? Number(dataLimitBytes) : undefined,
               comment: batchNumber,
-            });
+            },
+          );
+
+          if (opResult.status === OperationExecutionStatus.SUCCESS) {
             syncedCount++;
             syncedUsernames.push(cred.username);
-          } catch (itemErr: any) {
-            const errStr = itemErr instanceof Error ? itemErr.message : String(itemErr);
-            // Handle idempotent creation: if user exists already on router, mark as success
-            if (errStr.includes('already have') || errStr.includes('already exists')) {
-              syncedCount++;
-              syncedUsernames.push(cred.username);
-            } else {
-              this.logger.warn(`Failed to sync card ${cred.username} to router: ${errStr}`);
-              failedUsernames.push(cred.username);
-            }
+          } else {
+            const errStr = opResult.errorArabic || opResult.error || 'Failed to sync';
+            this.logger.warn(`Failed to sync card ${cred.username} to router: ${errStr}`);
+            failedUsernames.push(cred.username);
           }
         }
 
@@ -718,29 +731,29 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
 
     return {
       batch: {
-        id: updatedBatch!.id,
-        batchNumber: updatedBatch!.batchNumber,
-        totalCards: updatedBatch!.totalCards,
-        deviceName: updatedBatch!.device.name,
-        profileName: updatedBatch!.profile.name,
-        price: Number(updatedBatch!.price),
-        status: updatedBatch!.status,
+        id: updatedBatch?.id ?? batch.id,
+        batchNumber: updatedBatch?.batchNumber ?? batch.batchNumber,
+        totalCards: updatedBatch?.totalCards ?? effectiveTotalCards,
+        deviceName: updatedBatch?.device?.name ?? device.name,
+        profileName: updatedBatch?.profile?.name ?? profile.name,
+        price: Number(updatedBatch?.price ?? dto.price ?? 0),
+        status: updatedBatch?.status ?? CardBatchStatus.COMPLETED,
         syncedToRouter: isFullySynced,
         routerSyncStatus,
         syncedCount,
         failedCount,
         syncError,
-        themePreset: updatedBatch!.themePreset ?? resolvedThemePreset,
+        themePreset: updatedBatch?.themePreset ?? resolvedThemePreset,
         templateId: matchedTemplate?.id ?? (effectiveTemplateId.length > 0 ? effectiveTemplateId : null),
         templateName: matchedTemplate?.name ?? null,
-        createdAt: updatedBatch!.createdAt,
+        createdAt: updatedBatch?.createdAt ?? new Date(),
       },
       quota: {
         limit: quotaInfo.cardLimit,
         used: finalUsedCards,
         remaining: finalRemainingCards,
         isUnlimited: quotaInfo.isUnlimited,
-        resetsAt: quotaInfo.cycleEnd.toISOString(),
+        resetsAt: quotaInfo.cycleEnd?.toISOString?.() ?? new Date().toISOString(),
       },
       syncedToRouter: isFullySynced,
       routerSyncStatus,
@@ -1661,48 +1674,24 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
         }
 
         for (const { device, cards: devCards } of cardsByDevice.values()) {
-          try {
-            const client = await this.mikrotikClientFactory.getClient({
-              id: device.id,
-              name: device.name,
-              host: device.host,
-              apiPort: device.apiPort,
-              restPort: device.restPort,
-              useSsl: device.useSsl,
-              username: device.username,
-              passwordEncrypted: device.passwordEncrypted,
-              iv: device.iv,
-              authTag: device.authTag,
-              rosVersion: device.rosVersion,
-            });
+          const deviceConfig = this.toDeviceConfig(device);
 
-            for (const card of devCards) {
-              try {
-                await client.deleteHotspotUser(card.username);
-                mikrotikRemovedCount++;
-                fullyRemovedCards.push(card);
-              } catch (userErr: any) {
-                const msg = userErr instanceof Error ? userErr.message : String(userErr);
-                if (this.isHotspotUserNotFoundError(userErr)) {
-                  // User already deleted or not present on router
-                  mikrotikRemovedCount++;
-                  fullyRemovedCards.push(card);
-                } else {
-                  this.logger.warn(
-                    `Could not remove user ${card.username} from router ${device.name}: ${msg}`,
-                  );
-                  mikrotikPendingCount++;
-                  pendingRouterCards.push(card);
-                }
-              }
-            }
-          } catch (connErr: any) {
-            const connMsg = connErr instanceof Error ? connErr.message : String(connErr);
-            this.logger.warn(
-              `Router ${device.name} (${device.host}) unreachable during card deletion: ${connMsg}`,
+          for (const card of devCards) {
+            const opResult = await this.mikrotikExecutor.executeHotspotUserDelete(
+              deviceConfig,
+              card.username,
             );
-            mikrotikPendingCount += devCards.length;
-            pendingRouterCards.push(...devCards);
+
+            if (opResult.status === OperationExecutionStatus.SUCCESS) {
+              mikrotikRemovedCount++;
+              fullyRemovedCards.push(card);
+            } else {
+              this.logger.warn(
+                `Could not remove user ${card.username} from router ${device.name}: ${opResult.errorArabic || opResult.error}`,
+              );
+              mikrotikPendingCount++;
+              pendingRouterCards.push(card);
+            }
           }
         }
 
@@ -1877,54 +1866,41 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
       }
 
       for (const { device, cards: devCards } of cardsByDevice.values()) {
-        try {
-          const client = await this.mikrotikClientFactory.getClient({
-            id: device.id,
-            name: device.name,
-            host: device.host,
-            apiPort: device.apiPort,
-            restPort: device.restPort,
-            useSsl: device.useSsl,
-            username: device.username,
-            passwordEncrypted: device.passwordEncrypted,
-            iv: device.iv,
-            authTag: device.authTag,
-            rosVersion: device.rosVersion,
-          });
+        const deviceConfig = this.toDeviceConfig(device);
+        const deletedIds: string[] = [];
 
-          const deletedIds: string[] = [];
-          for (const c of devCards) {
-            // Guard against concurrent deletion on the same card ID
-            if (this.activeCardLocks.has(c.id)) {
-              stillPendingCount++;
-              continue;
-            }
-            this.activeCardLocks.add(c.id);
+        for (const c of devCards) {
+          // Guard against concurrent deletion on the same card ID
+          if (this.activeCardLocks.has(c.id)) {
+            stillPendingCount++;
+            continue;
+          }
+          this.activeCardLocks.add(c.id);
 
-            try {
-              await client.deleteHotspotUser(c.username);
+          try {
+            const opResult = await this.mikrotikExecutor.executeHotspotUserDelete(
+              deviceConfig,
+              c.username,
+            );
+
+            if (opResult.status === OperationExecutionStatus.SUCCESS) {
               deletedIds.push(c.id);
               cleanedCount++;
-            } catch (err: any) {
-              if (this.isHotspotUserNotFoundError(err)) {
-                deletedIds.push(c.id);
-                cleanedCount++;
-              } else {
-                stillPendingCount++;
-              }
-            } finally {
-              this.activeCardLocks.delete(c.id);
+            } else {
+              stillPendingCount++;
             }
+          } catch {
+            stillPendingCount++;
+          } finally {
+            this.activeCardLocks.delete(c.id);
           }
+        }
 
-          if (deletedIds.length > 0) {
-            await this.prisma.$transaction(async (tx) => {
-              await tx.hotspotActiveSession.deleteMany({ where: { cardId: { in: deletedIds } } });
-              await tx.card.deleteMany({ where: { tenantId, id: { in: deletedIds } } });
-            });
-          }
-        } catch (connErr) {
-          stillPendingCount += devCards.length;
+        if (deletedIds.length > 0) {
+          await this.prisma.$transaction(async (tx) => {
+            await tx.hotspotActiveSession.deleteMany({ where: { cardId: { in: deletedIds } } });
+            await tx.card.deleteMany({ where: { tenantId, id: { in: deletedIds } } });
+          });
         }
       }
 

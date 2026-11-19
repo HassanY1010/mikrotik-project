@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HotspotService } from './hotspot.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MikrotikClientFactory } from '../../core/mikrotik/mikrotik-client.factory';
+import { MikrotikOperationExecutorService } from '../../core/mikrotik/services/mikrotik-operation-executor.service';
 import { CardsService } from '../cards/services/cards.service';
 import { QuotasService } from '../cards/services/quotas.service';
 import { CardCodeGeneratorService } from '../cards/services/card-code-generator.service';
@@ -11,15 +12,47 @@ import { isValidValidityDuration, parseValidityParts } from '../../common/utils/
 describe('Hotspot Validity Duration Integration & MikroTik Provisioning (m, h, d)', () => {
   let hotspotService: HotspotService;
   let cardsService: CardsService;
+  let routerProfilesStore: any[] = [];
+  let routerUsersStore: any[] = [];
 
   const mockMikrotikClient = {
     connect: jest.fn().mockResolvedValue(undefined),
     disconnect: jest.fn().mockResolvedValue(undefined),
     isConnected: jest.fn().mockReturnValue(true),
-    createHotspotProfile: jest.fn().mockResolvedValue('prof-1'),
-    updateHotspotProfile: jest.fn().mockResolvedValue(undefined),
-    createHotspotUser: jest.fn().mockResolvedValue('user-1'),
-    listHotspotProfiles: jest.fn().mockResolvedValue([]),
+    createHotspotProfile: jest.fn().mockImplementation(async (p: any) => {
+      routerProfilesStore.push(p);
+      return '*1';
+    }),
+    listHotspotProfiles: jest.fn().mockImplementation(async () => {
+      if (routerProfilesStore.length > 0) return routerProfilesStore;
+      const p = await mockPrisma.hotspotProfile.findFirst();
+      if (p?.name) {
+        return [{ name: p.name, rateLimit: p.rateLimit, sessionTimeout: p.sessionTimeout, sharedUsers: p.sharedUsers ?? 1 }];
+      }
+      return [];
+    }),
+    updateHotspotProfile: jest.fn().mockImplementation(async (name: string, payload: any) => {
+      let found = routerProfilesStore.find((p) => p.name === name);
+      if (!found) {
+        found = { name, ...payload };
+        routerProfilesStore.push(found);
+      } else {
+        Object.assign(found, payload);
+      }
+    }),
+    deleteHotspotProfile: jest.fn().mockImplementation(async (name: string) => {
+      routerProfilesStore = routerProfilesStore.filter((p) => p.name !== name);
+    }),
+    createHotspotUser: jest.fn().mockImplementation(async (u: any) => {
+      routerUsersStore.push(u);
+      return 'user-1';
+    }),
+    getHotspotUser: jest.fn().mockImplementation(async (name: string) => {
+      return routerUsersStore.find((u) => u.name === name) || null;
+    }),
+    listHotspotUsers: jest.fn().mockImplementation(async () => {
+      return routerUsersStore;
+    }),
     listActiveSessions: jest.fn().mockResolvedValue([]),
   };
 
@@ -70,12 +103,15 @@ describe('Hotspot Validity Duration Integration & MikroTik Provisioning (m, h, d
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    routerProfilesStore = [];
+    routerUsersStore = [];
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         HotspotService,
         CardsService,
         CardCodeGeneratorService,
+        MikrotikOperationExecutorService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: MikrotikClientFactory, useValue: mockMikrotikFactory },
         { provide: QuotasService, useValue: mockQuotasService },
@@ -257,6 +293,7 @@ describe('Hotspot Validity Duration Integration & MikroTik Provisioning (m, h, d
         id: 'device-01',
         name: 'Core Router',
         tenantId: 'tenant-01',
+        host: '192.168.88.1',
         isOnline: true,
       };
 

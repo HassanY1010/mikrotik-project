@@ -276,6 +276,44 @@ export interface RouterPppoeClientItem {
   comment?: string;
 }
 
+export interface RouterPppProfileItem {
+  id?: string;
+  name: string;
+  localAddress?: string;
+  remoteAddress?: string;
+  rateLimit?: string;
+  dnsServer?: string;
+  onlyOne?: boolean | string;
+  comment?: string;
+}
+
+export interface RouterPppSecretItem {
+  id?: string;
+  name: string;
+  password?: string;
+  service?: string;
+  profile?: string;
+  localAddress?: string;
+  remoteAddress?: string;
+  callerId?: string;
+  comment?: string;
+  disabled?: boolean;
+  lastLoggedOut?: string;
+  uptime?: string;
+}
+
+export interface RouterPppActiveSessionItem {
+  id: string;
+  name: string;
+  service?: string;
+  callerId?: string;
+  address?: string;
+  uptime?: string;
+  encoding?: string;
+  sessionId?: string;
+  comment?: string;
+}
+
 export interface RouterHotspotServerItem {
   id?: string;
   name: string;
@@ -367,6 +405,7 @@ export interface IMikrotikClient {
   updateHotspotProfile(name: string, profile: Partial<HotspotProfileItem>): Promise<void>;
   deleteHotspotProfile(name: string): Promise<void>;
   listHotspotUsers(): Promise<HotspotUserItem[]>;
+  getHotspotUser(nameOrId: string): Promise<HotspotUserItem | null>;
   createHotspotUser(user: HotspotUserItem): Promise<string>;
   updateHotspotUser(name: string, user: Partial<HotspotUserItem>): Promise<void>;
   disableHotspotUser(name: string): Promise<void>;
@@ -419,10 +458,31 @@ export interface IMikrotikClient {
   listQueueTypes?(): Promise<RouterQueueTypeItem[]>;
   listSchedulers?(): Promise<RouterSchedulerItem[]>;
   listFiles?(): Promise<RouterBackupItem[]>;
+  uploadFile?(
+    filename: string,
+    content: Buffer | string,
+  ): Promise<{ filename: string; size: number }>;
+  deleteFile?(filename: string): Promise<void>;
   createRscExport?(
     name?: string,
     redactSensitive?: boolean,
   ): Promise<{ filename: string; size?: number; creationTime?: string }>;
   downloadFile?(filename: string): Promise<Buffer>;
+
+  // PPPoE / PPP Management
+  listPppProfiles?(): Promise<RouterPppProfileItem[]>;
+  createPppProfile?(profile: RouterPppProfileItem): Promise<string>;
+  updatePppProfile?(name: string, profile: Partial<RouterPppProfileItem>): Promise<void>;
+  deletePppProfile?(name: string): Promise<void>;
+
+  listPppSecrets?(): Promise<RouterPppSecretItem[]>;
+  createPppSecret?(secret: RouterPppSecretItem): Promise<string>;
+  updatePppSecret?(name: string, secret: Partial<RouterPppSecretItem>): Promise<void>;
+  deletePppSecret?(name: string): Promise<void>;
+  enablePppSecret?(name: string): Promise<void>;
+  disablePppSecret?(name: string): Promise<void>;
+
+  listPppActiveSessions?(): Promise<RouterPppActiveSessionItem[]>;
+  removePppActiveSession?(sessionOrUsername: string): Promise<void>;
 }
 

@@ -459,6 +459,28 @@ export class DevicesController {
     return this.devicesService.getRouterHotspotUsers(tenantId, id, currentUser);
   }
 
+  @Post(':id/reconcile')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+  )
+  @ApiOperation({
+    summary: 'Reverse synchronization: Reconcile external changes from MikroTik (WinBox, WebFig, Terminal) into SudaFi database',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Detailed reconciliation summary of added, updated, and missing items',
+  })
+  async reconcile(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() currentUser?: RequestUser,
+  ): Promise<any> {
+    return this.devicesService.reconcile(tenantId, id, currentUser);
+  }
+
   @Get(':id/local-credentials')
   @Roles(
     RoleName.SUPER_ADMIN,
