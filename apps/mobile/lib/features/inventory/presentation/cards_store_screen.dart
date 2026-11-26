@@ -25,13 +25,15 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
   final Set<String> _selectedCardIds = {};
   bool _isDeleting = false;
   bool _isActivating = false;
-  int _visibleRouterCardsCount = 50;
+  bool _isDisabling = false;
+  int _routerPage = 1;
+  static const int _routerPageSize = 50;
 
   final List<Map<String, String>> _statusFilters = [
     {'key': 'ALL', 'label': 'الكل'},
     {'key': 'AVAILABLE', 'label': 'متاح'},
     {'key': 'SOLD', 'label': 'مباع'},
-    {'key': 'ACTIVE', 'label': 'نشط ومستخدم'},
+    {'key': 'ACTIVE', 'label': 'مستخدم'},
     {'key': 'DISABLED', 'label': 'ملغي ومعطل'},
     {'key': 'ROUTER', 'label': 'كروت الراوتر'},
   ];
@@ -187,14 +189,232 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     });
 
     final success = result['success'] == true;
+    final failedCount = (result['failedCount'] as num?)?.toInt() ?? 0;
     final message = result['message']?.toString() ??
         (success ? 'تمت عملية التفعيل بنجاح' : 'فشلت عملية التفعيل');
 
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-        duration: const Duration(seconds: 4),
+    if (failedCount > 0) {
+      await _showBulkResultDialog(
+        title: 'نتائج التفعيل الجماعي',
+        summary: message,
+        result: result,
+        detailKeys: const {'failed': 'فشل التفعيل', 'activated': 'تم التفعيل'},
+      );
+    } else {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleBulkDisable(List<CardModel> currentCards) async {
+    if (_selectedCardIds.isEmpty || _isDisabling || _isActivating || _isDeleting) return;
+
+    final List<String> disableableIds = [];
+    int alreadyDisabledOrExpiredCount = 0;
+
+    for (final id in _selectedCardIds) {
+      final card = currentCards.cast<CardModel?>().firstWhere(
+            (c) => c?.id == id,
+            orElse: () => null,
+          );
+      if (card != null) {
+        if (card.isExpired || card.status == 'EXPIRED' || card.status == 'DISABLED') {
+          alreadyDisabledOrExpiredCount++;
+        } else {
+          disableableIds.add(id);
+        }
+      } else {
+        disableableIds.add(id);
+      }
+    }
+
+    if (disableableIds.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: context.bgCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 24),
+              SizedBox(width: 8),
+              Text(
+                'تعذر التعطيل',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Text(
+            'الكروت المحددة ($alreadyDisabledOrExpiredCount كرت) معطلة مسبقاً أو منتهية الصلاحية.',
+            style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('حسناً'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final disableableCount = disableableIds.length;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.block, color: Color(0xFFF59E0B), size: 24),
+            const SizedBox(width: 8),
+            Text(
+              'تأكيد التعطيل الجماعي',
+              style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Text(
+          'هل تريد بالتأكيد تعطيل الكروت المحددة وعددها $disableableCount كرت؟\nسيتم تعطيلها على راوتر MikroTik أولاً ثم تحديث حالتها في النظام.',
+          style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF59E0B),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('نعم، تعطيل $disableableCount كرت'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    setState(() => _isDisabling = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    final result = await ref
+        .read(cardsInventoryProvider.notifier)
+        .bulkDisableCards(disableableIds);
+
+    if (!mounted) return;
+    setState(() {
+      _isDisabling = false;
+      _selectedCardIds.clear();
+      _isSelectionMode = false;
+    });
+
+    final success = result['success'] == true;
+    final failedCount = (result['failedCount'] as num?)?.toInt() ?? 0;
+    final skippedCount = (result['skippedCount'] as num?)?.toInt() ?? 0;
+    final message = result['message']?.toString() ??
+        (success ? 'تمت عملية التعطيل بنجاح' : 'فشلت عملية التعطيل');
+
+    if (failedCount > 0 || skippedCount > 0) {
+      await _showBulkResultDialog(
+        title: 'نتائج التعطيل الجماعي',
+        summary: message,
+        result: result,
+        detailKeys: const {'failed': 'فشل التعطيل', 'skipped': 'تم التجاوز', 'disabled': 'تم التعطيل'},
+      );
+    } else {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
+  Future<void> _showBulkResultDialog({
+    required String title,
+    required String summary,
+    required Map<String, dynamic> result,
+    required Map<String, String> detailKeys,
+  }) async {
+    final details = result['details'] is Map ? result['details'] as Map : const {};
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          title,
+          style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  summary,
+                  style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.5),
+                ),
+                for (final entry in detailKeys.entries)
+                  if (details[entry.key] is List && (details[entry.key] as List).isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      '${entry.value} (${(details[entry.key] as List).length}):',
+                      style: TextStyle(
+                        color: entry.key == 'failed'
+                            ? const Color(0xFFEF4444)
+                            : (entry.key == 'skipped' ? Colors.amber : const Color(0xFF10B981)),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ...(details[entry.key] as List).take(10).map((item) {
+                      final m = item is Map ? item : const {};
+                      final uname = m['username']?.toString() ?? m['id']?.toString() ?? '';
+                      final reason = m['reason']?.toString() ?? m['status']?.toString() ?? '';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Text(
+                          reason.isNotEmpty ? '• $uname: $reason' : '• $uname',
+                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                        ),
+                      );
+                    }),
+                  ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('حسناً'),
+          ),
+        ],
       ),
     );
   }
@@ -217,11 +437,16 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
 
   void _onSearchChanged(String value) {
     _debounceTimer?.cancel();
+    setState(() {
+      if (_selectedStatus == 'ROUTER') {
+        _routerPage = 1;
+      }
+    });
     _debounceTimer = Timer(const Duration(milliseconds: 350), () {
       if (mounted) {
         if (_selectedStatus == 'ROUTER') {
           setState(() {
-            _visibleRouterCardsCount = 50;
+            _routerPage = 1;
           });
           return;
         }
@@ -232,7 +457,6 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             );
       }
     });
-    setState(() {});
   }
 
   void _clearSearch() {
@@ -240,7 +464,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     _debounceTimer?.cancel();
     if (_selectedStatus == 'ROUTER') {
       setState(() {
-        _visibleRouterCardsCount = 50;
+        _routerPage = 1;
       });
       return;
     }
@@ -256,19 +480,34 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     if (_selectedStatus == statusKey) return;
     setState(() {
       _selectedStatus = statusKey;
-      _visibleRouterCardsCount = 50;
+      _routerPage = 1;
+      _selectedCardIds.clear();
+      _isSelectionMode = false;
     });
     if (statusKey == 'ROUTER') {
-      ref.read(routerHotspotCardsProvider.notifier).refresh(fullDetails: true);
+      ref.read(routerHotspotCardsProvider.notifier).refresh(showLoading: true, fullDetails: true);
+    } else {
+      ref.read(cardsInventoryProvider.notifier).loadInventory(
+            search: _searchController.text.trim(),
+            status: statusKey,
+            page: 1,
+          );
     }
-    ref.read(cardsInventoryProvider.notifier).loadInventory(
-          search: _searchController.text.trim(),
-          status: statusKey,
-          page: 1,
-        );
+  }
+
+  Future<void> _handleRefresh() async {
+    if (_selectedStatus == 'ROUTER') {
+      await Future.wait([
+        ref.read(routerHotspotCardsProvider.notifier).refresh(showLoading: true, fullDetails: true),
+        ref.read(cardsInventoryProvider.notifier).refresh(),
+      ]);
+    } else {
+      await ref.read(cardsInventoryProvider.notifier).refresh();
+    }
   }
 
   void _onPageChanged(int page) {
+    if (ref.read(cardsInventoryProvider).isLoading) return;
     ref.read(cardsInventoryProvider.notifier).loadInventory(
           page: page,
         );
@@ -472,16 +711,28 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
     });
 
     final success = result['success'] == true;
+    final failedCount = (result['failedCount'] as num?)?.toInt() ?? 0;
+    final pendingCount = (result['pendingCount'] as num?)?.toInt() ?? 0;
+    final skippedCount = (result['skippedCount'] as num?)?.toInt() ?? 0;
     final message = result['message']?.toString() ??
         (success ? 'تم تنفيذ عملية الحذف بنجاح' : 'فشلت عملية الحذف');
 
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-        duration: const Duration(seconds: 4),
-      ),
-    );
+    if (failedCount > 0 || pendingCount > 0 || skippedCount > 0) {
+      await _showBulkResultDialog(
+        title: 'نتائج الحذف الجماعي',
+        summary: message,
+        result: result,
+        detailKeys: const {'failed': 'فشل الحذف', 'skipped': 'تم الاستثناء'},
+      );
+    } else {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   Future<void> _handleDeleteSingleCard(CardModel card) async {
@@ -620,17 +871,18 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
 
     if (confirm == true && mounted) {
       final messenger = ScaffoldMessenger.of(context);
-      final success = await ref
+      final res = await ref
           .read(cardsInventoryProvider.notifier)
-          .updateCardStatus(card.id, targetStatus);
+          .updateCardStatusDetailed(card.id, targetStatus);
+      final success = res['success'] == true;
 
       if (mounted) {
         messenger.showSnackBar(
           SnackBar(
             content: Text(
               success
-                  ? (isCurrentlyDisabled ? 'تمت إعادة تفعيل الكرت بنجاح' : 'تم تعطيل الكرت بنجاح')
-                  : 'فشل تعديل حالة الكرت، يرجى المحاولة مرة أخرى',
+                  ? (isCurrentlyDisabled ? 'تمت إعادة تفعيل الكرت بنجاح على الراوتر والنظام' : 'تم تعطيل الكرت بنجاح على الراوتر والنظام')
+                  : (res['message']?.toString() ?? 'فشل تعديل حالة الكرت، يرجى المحاولة مرة أخرى'),
             ),
             backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
           ),
@@ -726,23 +978,29 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             if (_selectedCardIds.isNotEmpty) ...[
               IconButton(
                 icon: const Icon(Icons.bolt_rounded, color: Color(0xFF10B981)),
-                onPressed: (_isActivating || _isDeleting) ? null : () => _handleBulkActivate(state.cards),
+                onPressed: (_isActivating || _isDisabling || _isDeleting) ? null : () => _handleBulkActivate(state.cards),
                 tooltip: 'تفعيل المحدد (${_selectedCardIds.length})',
               ),
               IconButton(
+                icon: const Icon(Icons.block, color: Color(0xFFF59E0B)),
+                onPressed: (_isActivating || _isDisabling || _isDeleting) ? null : () => _handleBulkDisable(state.cards),
+                tooltip: 'تعطيل المحدد (${_selectedCardIds.length})',
+              ),
+              IconButton(
                 icon: const Icon(Icons.delete_sweep, color: Color(0xFFEF4444)),
-                onPressed: (_isActivating || _isDeleting) ? null : () => _handleBulkDelete(state.cards),
+                onPressed: (_isActivating || _isDisabling || _isDeleting) ? null : () => _handleBulkDelete(state.cards),
                 tooltip: 'حذف المحدد (${_selectedCardIds.length})',
               ),
             ],
           ] else ...[
+            if (_selectedStatus != 'ROUTER')
+              IconButton(
+                onPressed: _toggleSelectionMode,
+                icon: const Icon(Icons.checklist_rtl_rounded, color: AppTheme.primary),
+                tooltip: 'تحديد كروت متعددة للعمليات الجماعية',
+              ),
             IconButton(
-              onPressed: _toggleSelectionMode,
-              icon: const Icon(Icons.checklist_rtl_rounded, color: AppTheme.primary),
-              tooltip: 'تحديد كروت متعددة للعمليات الجماعية',
-            ),
-            IconButton(
-              onPressed: () => ref.read(cardsInventoryProvider.notifier).refresh(),
+              onPressed: _handleRefresh,
               icon: const Icon(Icons.refresh, color: Color(0xFF94A3B8)),
               tooltip: 'تحديث الكروت',
             ),
@@ -751,7 +1009,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
       ),
       bottomNavigationBar: (_isSelectionMode && _selectedCardIds.isNotEmpty)
           ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: context.bgCard,
                 border: Border(top: BorderSide(color: context.borderColor)),
@@ -772,7 +1030,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
-                          fontSize: 13,
+                          fontSize: 12,
                         ),
                       ),
                     ),
@@ -780,36 +1038,54 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF10B981),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      onPressed: (_isActivating || _isDeleting) ? null : () => _handleBulkActivate(state.cards),
+                      onPressed: (_isActivating || _isDisabling || _isDeleting) ? null : () => _handleBulkActivate(state.cards),
                       icon: _isActivating
                           ? const SizedBox(
                               width: 14,
                               height: 14,
                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                             )
-                          : const Icon(Icons.bolt_rounded, size: 18),
-                      label: Text(_isActivating ? 'جارٍ التفعيل...' : 'تفعيل المحدد'),
+                          : const Icon(Icons.bolt_rounded, size: 16),
+                      label: Text(_isActivating ? 'جارٍ...' : 'تفعيل المحدد', style: const TextStyle(fontSize: 12)),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF59E0B),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: (_isActivating || _isDisabling || _isDeleting) ? null : () => _handleBulkDisable(state.cards),
+                      icon: _isDisabling
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.block, size: 16),
+                      label: Text(_isDisabling ? 'جارٍ...' : 'تعطيل', style: const TextStyle(fontSize: 12)),
+                    ),
+                    const SizedBox(width: 6),
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEF4444),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      onPressed: (_isActivating || _isDeleting) ? null : () => _handleBulkDelete(state.cards),
+                      onPressed: (_isActivating || _isDisabling || _isDeleting) ? null : () => _handleBulkDelete(state.cards),
                       icon: _isDeleting
                           ? const SizedBox(
                               width: 14,
                               height: 14,
                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                             )
-                          : const Icon(Icons.delete_sweep, size: 18),
-                      label: Text(_isDeleting ? 'جارٍ الحذف...' : 'حذف المحدد'),
+                          : const Icon(Icons.delete_sweep, size: 16),
+                      label: Text(_isDeleting ? 'جارٍ...' : 'حذف المحدد', style: const TextStyle(fontSize: 12)),
                     ),
                   ],
                 ),
@@ -817,7 +1093,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             )
           : null,
       body: RefreshIndicator(
-        onRefresh: () => ref.read(cardsInventoryProvider.notifier).refresh(),
+        onRefresh: _handleRefresh,
         color: AppTheme.primary,
         backgroundColor: context.bgCard,
         child: Column(
@@ -867,21 +1143,21 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
                   final key = f['key']!;
                   final isSelected = _selectedStatus == key;
 
-                  // Label with badge count if available
+                  // Label with badge count
                   String countSuffix = '';
-                  if (key == 'ALL' && state.totalInventory > 0) {
+                  if (key == 'ALL') {
                     countSuffix = ' (${state.totalInventory})';
-                  } else if (key == 'AVAILABLE' && state.availableCount > 0) {
+                  } else if (key == 'AVAILABLE') {
                     countSuffix = ' (${state.availableCount})';
-                  } else if (key == 'SOLD' && state.soldCount > 0) {
+                  } else if (key == 'SOLD') {
                     countSuffix = ' (${state.soldCount})';
-                  } else if (key == 'ACTIVE' && state.activeCount > 0) {
+                  } else if (key == 'ACTIVE') {
                     countSuffix = ' (${state.activeCount})';
-                  } else if (key == 'DISABLED' && state.disabledCount > 0) {
+                  } else if (key == 'DISABLED') {
                     countSuffix = ' (${state.disabledCount})';
                   } else if (key == 'ROUTER') {
                     final routerCount = ref.watch(routerCardsCountProvider);
-                    if (routerCount > 0) countSuffix = ' ($routerCount)';
+                    countSuffix = ' ($routerCount)';
                   }
 
                   return Padding(
@@ -903,51 +1179,52 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
               ),
             ),
 
-            // Live Counters & Inventory Breakdown Strip
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: context.bgCard,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: context.borderColor, width: 0.8),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.filter_list, size: 14, color: context.textSecondary),
-                        const SizedBox(width: 4),
-                        Text(
-                          'عدد النتائج: ${state.totalMatching} كرت',
-                          style: TextStyle(
-                            color: context.textPrimary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+            // Live Counters & Inventory Breakdown Strip (for DB tabs)
+            if (_selectedStatus != 'ROUTER')
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: context.bgCard,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: context.borderColor, width: 0.8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.filter_list, size: 14, color: context.textSecondary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'عدد النتائج: ${state.totalMatching} كرت',
+                            style: TextStyle(
+                              color: context.textPrimary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        const Icon(Icons.storage_rounded, size: 14, color: AppTheme.primary),
-                        const SizedBox(width: 4),
-                        Text(
-                          'إجمالي الكروت: ${state.totalInventory} كرت',
-                          style: const TextStyle(
-                            color: AppTheme.primary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          const Icon(Icons.storage_rounded, size: 14, color: AppTheme.primary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'إجمالي الكروت: ${state.totalInventory} كرت',
+                            style: const TextStyle(
+                              color: AppTheme.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
 
             // Smart Bulk Selection Banner across pages
             if (_isSelectionMode && _selectedCardIds.isNotEmpty && state.totalMatching > state.cards.length)
@@ -1014,8 +1291,8 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
               child: _buildBody(state),
             ),
 
-            // Pagination Controls (when more than 1 page exists)
-            if (state.totalPages > 1) _buildPaginationBar(state),
+            // Pagination Controls (when more than 1 page exists on DB tabs)
+            if (_selectedStatus != 'ROUTER' && state.totalPages > 1) _buildPaginationBar(state),
           ],
         ),
       ),
@@ -1023,6 +1300,11 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
   }
 
   Widget _buildBody(CardsInventoryState state) {
+    // 0. Live MikroTik Router Cards view (independent of DB cards list state)
+    if (_selectedStatus == 'ROUTER') {
+      return _buildRouterCardsView();
+    }
+
     // 1. Initial Full Loading State
     if (state.isLoading && state.cards.isEmpty) {
       return const Center(
@@ -1164,231 +1446,6 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
       );
     }
 
-    // 4.5. Live MikroTik Router Cards view
-    if (_selectedStatus == 'ROUTER') {
-      final routerCardsAsync = ref.watch(routerHotspotCardsProvider);
-      return routerCardsAsync.when(
-        data: (rCards) {
-          final query = _searchController.text.trim().toLowerCase();
-          final filtered = query.isEmpty
-              ? rCards
-              : rCards.where((c) {
-                  final name = (c['name'] ?? '').toString().toLowerCase();
-                  final prof = (c['profile'] ?? '').toString().toLowerCase();
-                  final comm = (c['comment'] ?? '').toString().toLowerCase();
-                  return name.contains(query) || prof.contains(query) || comm.contains(query);
-                }).toList();
-
-          if (filtered.isEmpty) {
-            if (query.isNotEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.search_off_rounded, size: 52, color: Color(0xFF64748B)),
-                    const SizedBox(height: 12),
-                    Text(
-                      'لم يتم العثور على كروت في الراوتر تطابق "$query"',
-                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                    ),
-                    const SizedBox(height: 14),
-                    OutlinedButton.icon(
-                      onPressed: _clearSearch,
-                      icon: const Icon(Icons.clear, size: 16),
-                      label: const Text('مسح البحث'),
-                    ),
-                  ],
-                ),
-              );
-            }
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.memory_rounded, size: 52, color: Color(0xFF64748B)),
-                  const SizedBox(height: 12),
-                  Text(
-                    'لا توجد كروت مسجلة في ذاكرة الراوتر حالياً',
-                    style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'تأكد من اتصال الراوتر وتشغيل الهوتسبوت',
-                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                  ),
-                  const SizedBox(height: 14),
-                  ElevatedButton.icon(
-                    onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(fullDetails: true),
-                    icon: const Icon(Icons.refresh, size: 16),
-                    label: const Text('تحديث كروت الراوتر'),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          final displayCount = filtered.length > _visibleRouterCardsCount
-              ? _visibleRouterCardsCount
-              : filtered.length;
-          final hasMore = filtered.length > _visibleRouterCardsCount;
-
-          return Column(
-            children: [
-              // Info summary bar
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.memory_rounded, size: 18, color: AppTheme.primary),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'كروت الراوتر: ${filtered.length} كرت${query.isNotEmpty ? ' (تصفية)' : ''} | المعروض: $displayCount',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primary),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.refresh, size: 18, color: AppTheme.primary),
-                      tooltip: 'تحديث من الراوتر',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(fullDetails: true),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  itemCount: displayCount + (hasMore ? 1 : 0),
-                  itemBuilder: (ctx, idx) {
-                    if (idx == displayCount) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () {
-                                setState(() {
-                                  _visibleRouterCardsCount += 50;
-                                });
-                              },
-                              icon: const Icon(Icons.expand_more, size: 18),
-                              label: Text('عرض المزيد (+50) - المتبقي: ${filtered.length - displayCount}'),
-                            ),
-                            const SizedBox(width: 8),
-                            OutlinedButton(
-                              onPressed: () {
-                                setState(() {
-                                  _visibleRouterCardsCount = filtered.length;
-                                });
-                              },
-                              child: const Text('عرض الكل'),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    final rCard = filtered[idx];
-                    final name = rCard['name']?.toString() ?? 'بدون اسم';
-                    final prof = rCard['profile']?.toString() ?? 'default';
-                    final comm = rCard['comment']?.toString() ?? '';
-                    final email = rCard['email']?.toString() ?? '';
-                    final disabled = rCard['disabled'] == true || rCard['disabled'] == 'true';
-
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: disabled
-                              ? Colors.red.withValues(alpha: 0.15)
-                              : Colors.green.withValues(alpha: 0.15),
-                          child: Icon(
-                            Icons.memory_rounded,
-                            color: disabled ? Colors.red : Colors.green,
-                            size: 20,
-                          ),
-                        ),
-                        title: Row(
-                          children: [
-                            Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primary.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                prof,
-                                style: const TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ],
-                        ),
-                        subtitle: comm.isNotEmpty
-                            ? Text(
-                                comm,
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              )
-                            : (email.isNotEmpty
-                                ? Text(email, style: const TextStyle(fontSize: 11, color: Colors.grey))
-                                : null),
-                        trailing: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: disabled
-                                ? Colors.red.withValues(alpha: 0.1)
-                                : Colors.green.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            disabled ? 'معطل' : 'نشط بالراوتر',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: disabled ? Colors.red : Colors.green,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 10),
-              Text('تعذر جلب كروت الراوتر: $err', textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(fullDetails: true),
-                child: const Text('إعادة المحاولة'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     // 5. Specific Status Filter returned 0 results
     if (state.cards.isEmpty && _selectedStatus != 'ALL') {
       final currentFilterLabel = _statusFilters
@@ -1429,6 +1486,294 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       itemCount: state.cards.length,
       itemBuilder: (ctx, idx) => _buildCardTile(state.cards[idx]),
+    );
+  }
+
+  Widget _buildRouterCardsView() {
+    final routerCardsAsync = ref.watch(routerHotspotCardsProvider);
+    return routerCardsAsync.when(
+      data: (rawRouterCards) {
+        final rCards = rawRouterCards.where((c) => c['_placeholder'] != true).toList();
+        if (rawRouterCards.isNotEmpty && rCards.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final query = _searchController.text.trim().toLowerCase();
+        final filtered = query.isEmpty
+            ? rCards
+            : rCards.where((c) {
+                final name = (c['name'] ?? '').toString().toLowerCase();
+                final prof = (c['profile'] ?? '').toString().toLowerCase();
+                final comm = (c['comment'] ?? '').toString().toLowerCase();
+                return name.contains(query) || prof.contains(query) || comm.contains(query);
+              }).toList();
+
+        if (filtered.isEmpty) {
+          if (query.isNotEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.search_off_rounded, size: 52, color: Color(0xFF64748B)),
+                  const SizedBox(height: 12),
+                  Text(
+                    'لم يتم العثور على كروت في الراوتر تطابق "$query"',
+                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                  ),
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    onPressed: _clearSearch,
+                    icon: const Icon(Icons.clear, size: 16),
+                    label: const Text('مسح البحث'),
+                  ),
+                ],
+              ),
+            );
+          }
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.memory_rounded, size: 52, color: Color(0xFF64748B)),
+                const SizedBox(height: 12),
+                Text(
+                  'لا توجد كروت مسجلة في ذاكرة الراوتر حالياً',
+                  style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'تأكد من اتصال الراوتر وتشغيل الهوتسبوت',
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                ),
+                const SizedBox(height: 14),
+                ElevatedButton.icon(
+                  onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(showLoading: true, fullDetails: true),
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('تحديث كروت الراوتر'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final totalRouterPages = (filtered.length / _routerPageSize).ceil().clamp(1, 9999);
+        final safePage = _routerPage.clamp(1, totalRouterPages);
+        final startIdx = (safePage - 1) * _routerPageSize;
+        final endIdx = (startIdx + _routerPageSize) > filtered.length
+            ? filtered.length
+            : (startIdx + _routerPageSize);
+        final pageCards = filtered.sublist(startIdx, endIdx);
+
+        final appSyncedCount = rCards.where((c) => c['source'] == 'APP').length;
+        final routerOnlyCount = rCards.where((c) => c['source'] == 'ROUTER_ONLY').length;
+        final missingOnRouterCount = rCards.where((c) => c['syncState'] == 'DB_ONLY_MISSING_ON_ROUTER').length;
+        final onlineCount = rCards.where((c) => c['isOnline'] == true).length;
+
+        return Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.memory_rounded, size: 18, color: AppTheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'كروت الراوتر والمقارنة: ${filtered.length} كرت${query.isNotEmpty ? ' (نتائج البحث)' : ''}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primary),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 18, color: AppTheme.primary),
+                        tooltip: 'تحديث من الراوتر',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(showLoading: true, fullDetails: true),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'من التطبيق: $appSyncedCount • خارجي: $routerOnlyCount • مفقود من الراوتر: $missingOnRouterCount • متصل: $onlineCount',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                itemCount: pageCards.length,
+                itemBuilder: (ctx, idx) {
+                  final rCard = pageCards[idx];
+                  final name = rCard['name']?.toString() ?? 'بدون اسم';
+                  final prof = rCard['profile']?.toString() ?? 'default';
+                  final comm = rCard['comment']?.toString() ?? '';
+                  final email = rCard['email']?.toString() ?? '';
+                  final disabled = rCard['disabled'] == true || rCard['disabled'] == 'true';
+                  final isOnline = rCard['isOnline'] == true;
+                  final source = rCard['source']?.toString() ?? 'ROUTER_ONLY';
+                  final syncState = rCard['syncState']?.toString() ?? 'ROUTER_ONLY';
+                  final dbStatus = rCard['dbStatus']?.toString();
+
+                  String sourceLabel = 'من الراوتر فقط (خارجي)';
+                  Color sourceColor = const Color(0xFFA855F7);
+                  if (syncState == 'DB_ONLY_MISSING_ON_ROUTER') {
+                    sourceLabel = 'في التطبيق فقط • مفقود من الراوتر';
+                    sourceColor = const Color(0xFFEF4444);
+                  } else if (source == 'APP') {
+                    if (syncState == 'MISMATCH_STATUS') {
+                      sourceLabel = 'تعارض حالة (القاعدة: ${dbStatus ?? '-'})';
+                      sourceColor = Colors.amber;
+                    } else if (syncState == 'MISMATCH_PROFILE') {
+                      sourceLabel = 'تعارض بروفايل (${rCard['dbProfileName'] ?? '-'})';
+                      sourceColor = Colors.amber;
+                    } else {
+                      sourceLabel = 'من التطبيق • متزامن';
+                      sourceColor = const Color(0xFF3B82F6);
+                    }
+                  }
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: disabled
+                            ? Colors.red.withValues(alpha: 0.15)
+                            : (isOnline ? const Color(0xFF10B981).withValues(alpha: 0.2) : Colors.green.withValues(alpha: 0.15)),
+                        child: Icon(
+                          isOnline ? Icons.wifi : Icons.memory_rounded,
+                          color: disabled ? Colors.red : Colors.green,
+                          size: 20,
+                        ),
+                      ),
+                      title: Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              prof,
+                              style: const TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          if (isOnline)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                'متصل الآن',
+                                style: TextStyle(fontSize: 10, color: Color(0xFF10B981), fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                        ],
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 3),
+                          Text(
+                            sourceLabel,
+                            style: TextStyle(fontSize: 11, color: sourceColor, fontWeight: FontWeight.w600),
+                          ),
+                          if (comm.isNotEmpty)
+                            Text(
+                              comm,
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            )
+                          else if (email.isNotEmpty)
+                            Text(email, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                        ],
+                      ),
+                      trailing: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: disabled
+                              ? Colors.red.withValues(alpha: 0.1)
+                              : Colors.green.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          disabled ? 'معطل بالراوتر' : 'نشط بالراوتر',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: disabled ? Colors.red : Colors.green,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            if (totalRouterPages > 1)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: context.bgCard,
+                  border: Border(top: BorderSide(color: context.borderColor, width: 0.8)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton.icon(
+                      onPressed: safePage > 1 ? () => setState(() => _routerPage = safePage - 1) : null,
+                      icon: const Icon(Icons.chevron_right, size: 18),
+                      label: const Text('السابق'),
+                    ),
+                    Text(
+                      'صفحة $safePage من $totalRouterPages (${filtered.length} كرت)',
+                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    TextButton.icon(
+                      onPressed: safePage < totalRouterPages ? () => setState(() => _routerPage = safePage + 1) : null,
+                      icon: const Icon(Icons.chevron_left, size: 18),
+                      label: const Text('التالي'),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, _) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            const SizedBox(height: 10),
+            Text('تعذر جلب كروت الراوتر: $err', textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: () => ref.read(routerHotspotCardsProvider.notifier).refresh(showLoading: true, fullDetails: true),
+              child: const Text('إعادة المحاولة'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1807,7 +2152,7 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           TextButton.icon(
-            onPressed: state.page > 1 ? () => _onPageChanged(state.page - 1) : null,
+            onPressed: (!state.isLoading && state.page > 1) ? () => _onPageChanged(state.page - 1) : null,
             icon: const Icon(Icons.chevron_right, size: 18),
             label: const Text('السابق'),
             style: TextButton.styleFrom(
@@ -1816,11 +2161,11 @@ class _CardsStoreScreenState extends ConsumerState<CardsStoreScreen> {
             ),
           ),
           Text(
-            'صفحة ${state.page} من ${state.totalPages}',
+            'صفحة ${state.page} من ${state.totalPages} (${state.totalMatching})',
             style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.bold),
           ),
           TextButton.icon(
-            onPressed: state.page < state.totalPages ? () => _onPageChanged(state.page + 1) : null,
+            onPressed: (!state.isLoading && state.page < state.totalPages) ? () => _onPageChanged(state.page + 1) : null,
             icon: const Icon(Icons.chevron_left, size: 18),
             label: const Text('التالي'),
             style: TextButton.styleFrom(

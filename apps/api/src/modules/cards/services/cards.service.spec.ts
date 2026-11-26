@@ -1864,4 +1864,64 @@ describe('CardsService', () => {
       await promise1;
     });
   });
+
+  describe('bulkDisableCards & strict router-first updateCardStatus', () => {
+    it('should NOT update DB in updateCardStatus if router is offline', async () => {
+      prisma.card.findFirst.mockResolvedValue({
+        id: 'card-off-1',
+        username: 'u-off-1',
+        status: CardStatus.AVAILABLE,
+        syncStatus: SyncStatus.SYNCED,
+        device: { ...mockDevice, isOnline: false },
+      });
+
+      await expect(
+        service.updateCardStatus(mockTenantId, 'card-off-1', { status: CardStatus.DISABLED }),
+      ).rejects.toThrow();
+      expect(prisma.card.update).not.toHaveBeenCalled();
+    });
+
+    it('should disable cards on router first then DB, skip expired, and report offline failures', async () => {
+      prisma.card.findMany.mockResolvedValue([
+        {
+          id: 'c-avail',
+          username: 'u-avail',
+          status: CardStatus.AVAILABLE,
+          syncStatus: SyncStatus.SYNCED,
+          expiresAt: null,
+          deviceId: mockDeviceId,
+          device: { ...mockDevice, isOnline: true },
+        },
+        {
+          id: 'c-exp',
+          username: 'u-exp',
+          status: CardStatus.EXPIRED,
+          syncStatus: SyncStatus.SYNCED,
+          expiresAt: new Date(Date.now() - 10000),
+          deviceId: mockDeviceId,
+          device: { ...mockDevice, isOnline: true },
+        },
+        {
+          id: 'c-off',
+          username: 'u-off',
+          status: CardStatus.AVAILABLE,
+          syncStatus: SyncStatus.SYNCED,
+          expiresAt: null,
+          deviceId: 'dev-offline',
+          device: { ...mockDevice, id: 'dev-offline', name: 'Offline Router', isOnline: false },
+        },
+      ]);
+      prisma.card.updateMany.mockResolvedValue({ count: 1 });
+
+      const res = await service.bulkDisableCards(mockTenantId, {
+        cardIds: ['c-avail', 'c-exp', 'c-off'],
+      });
+
+      expect(mockClient.disableHotspotUser).toHaveBeenCalledWith('u-avail');
+      expect(res.disabledCount).toBe(1);
+      expect(res.skippedCount).toBe(1);
+      expect(res.failedCount).toBe(1);
+      expect(res.success).toBe(false);
+    });
+  });
 });

@@ -2727,17 +2727,91 @@ export class DevicesService {
     }
 
     try {
-      const users = await client.listHotspotUsers();
-      return users.map((u: any) => ({
-        id: u.id,
-        name: u.name,
-        profile: u.profile,
-        limitUptime: u.limitUptime,
-        limitBytesTotal: u.limitBytesTotal,
-        comment: u.comment,
-        email: u.email,
-        disabled: u.disabled === true || u.disabled === 'true',
-      }));
+      const [users, activeSessions, dbCards] = await Promise.all([
+        client.listHotspotUsers(),
+        typeof client.listActiveSessions === 'function'
+          ? client.listActiveSessions().catch(() => [])
+          : Promise.resolve([]),
+        this.prisma.card.findMany({
+          where: { deviceId: device.id },
+          select: {
+            id: true,
+            username: true,
+            status: true,
+            syncStatus: true,
+            profile: { select: { name: true } },
+          },
+        }),
+      ]);
+
+      const activeUsernames = new Set(
+        (activeSessions || []).map((s: any) => (s.user || '').toString()),
+      );
+      const dbCardMap = new Map(dbCards.map((c) => [c.username, c]));
+      const routerUsernames = new Set<string>();
+
+      const comparedRouterUsers = users.map((u: any) => {
+        routerUsernames.add(u.name);
+        const routerDisabled = u.disabled === true || u.disabled === 'true';
+        const dbCard = dbCardMap.get(u.name);
+        const isOnline = activeUsernames.has(u.name);
+        let source: 'APP' | 'ROUTER_ONLY' = 'ROUTER_ONLY';
+        let syncState: 'SYNCED' | 'ROUTER_ONLY' | 'MISMATCH_STATUS' | 'MISMATCH_PROFILE' = 'ROUTER_ONLY';
+
+        if (dbCard) {
+          source = 'APP';
+          const dbDisabled = dbCard.status === 'DISABLED' || dbCard.status === 'EXPIRED';
+          if (dbDisabled !== routerDisabled) {
+            syncState = 'MISMATCH_STATUS';
+          } else if (
+            dbCard.profile?.name &&
+            u.profile &&
+            dbCard.profile.name !== u.profile
+          ) {
+            syncState = 'MISMATCH_PROFILE';
+          } else {
+            syncState = 'SYNCED';
+          }
+        }
+
+        return {
+          id: u.id,
+          name: u.name,
+          profile: u.profile,
+          limitUptime: u.limitUptime,
+          limitBytesTotal: u.limitBytesTotal,
+          comment: u.comment,
+          email: u.email,
+          disabled: routerDisabled,
+          isOnline,
+          source,
+          syncState,
+          dbCardId: dbCard?.id ?? null,
+          dbStatus: dbCard?.status ?? null,
+          dbProfileName: dbCard?.profile?.name ?? null,
+        };
+      });
+
+      const missingFromRouter = dbCards
+        .filter((c) => !routerUsernames.has(c.username))
+        .map((c) => ({
+          id: null,
+          name: c.username,
+          profile: c.profile?.name ?? '',
+          limitUptime: null,
+          limitBytesTotal: null,
+          comment: 'مفقود من الراوتر',
+          email: null,
+          disabled: c.status === 'DISABLED' || c.status === 'EXPIRED',
+          isOnline: false,
+          source: 'DB_ONLY' as const,
+          syncState: 'DB_ONLY_MISSING_ON_ROUTER' as const,
+          dbCardId: c.id,
+          dbStatus: c.status,
+          dbProfileName: c.profile?.name ?? null,
+        }));
+
+      return [...comparedRouterUsers, ...missingFromRouter];
     } catch (err) {
       this.logger.warn(`Failed to fetch hotspot users for router ${device.name}: ${err}`);
       throw new BadGatewayException({

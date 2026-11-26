@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  BadGatewayException,
   ConflictException,
   ForbiddenException,
   Logger,
@@ -24,6 +25,7 @@ import { CreateBatchDto } from '../dto/create-batch.dto';
 import { UpdateCardStatusDto } from '../dto/update-card-status.dto';
 import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
 import { BulkActivateCardsDto } from '../dto/bulk-activate-cards.dto';
+import { BulkDisableCardsDto } from '../dto/bulk-disable-cards.dto';
 import { CardStatus, CardBatchStatus, SyncStatus, PrintJobStatus, Prisma } from '@prisma/client';
 import { QuotasService } from './quotas.service';
 import { normalizeValidityDuration } from '../../../common/utils/validity-duration.util';
@@ -44,6 +46,22 @@ export interface BulkActivateResult {
     activated: Array<{ id: string; username: string; status: string }>;
     failed: Array<{ id: string; username: string; reason: string }>;
     alreadyActive: Array<{ id: string; username: string; status: string }>;
+  };
+  message: string;
+}
+
+export interface BulkDisableResult {
+  success: boolean;
+  totalRequested: number;
+  disabledCount: number;
+  failedCount: number;
+  alreadyDisabledCount: number;
+  skippedCount: number;
+  details: {
+    disabled: Array<{ id: string; username: string; status: string }>;
+    failed: Array<{ id: string; username: string; reason: string }>;
+    alreadyDisabled: Array<{ id: string; username: string; status: string }>;
+    skipped: Array<{ id: string; username: string; reason: string }>;
   };
   message: string;
 }
@@ -957,50 +975,73 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    // If disabling or re-enabling, sync to MikroTik router (if online)
-    if (dto.status === CardStatus.DISABLED && card.device?.isOnline) {
-      try {
-        const client = await this.mikrotikClientFactory.getClient({
-          id: card.device.id,
-          name: card.device.name,
-          host: card.device.host,
-          apiPort: card.device.apiPort,
-          restPort: card.device.restPort,
-          useSsl: card.device.useSsl,
-          username: card.device.username,
-          passwordEncrypted: card.device.passwordEncrypted,
-          iv: card.device.iv,
-          authTag: card.device.authTag,
-          rosVersion: card.device.rosVersion,
+    // If disabling or re-enabling, sync to MikroTik router first and fail if router is unreachable/errors
+    const requiresRouterSync =
+      card.device != null &&
+      (card.syncStatus === SyncStatus.SYNCED ||
+        dto.status === CardStatus.DISABLED ||
+        card.status === CardStatus.DISABLED);
+
+    if (requiresRouterSync) {
+      if (!card.device?.isOnline) {
+        throw new BadGatewayException({
+          code: 'ROUTER_OFFLINE',
+          message: `تعذر تحديث حالة الكرت: جهاز الراوتر "${card.device?.name ?? card.deviceId}" غير متصل حالياً`,
         });
-        await client.disableHotspotUser(card.username);
-      } catch (err) {
-        this.logger.warn(`Could not disable hotspot user on router: ${err}`);
       }
-    } else if (card.status === CardStatus.DISABLED && card.device?.isOnline) {
-      try {
-        const client = await this.mikrotikClientFactory.getClient({
-          id: card.device.id,
-          name: card.device.name,
-          host: card.device.host,
-          apiPort: card.device.apiPort,
-          restPort: card.device.restPort,
-          useSsl: card.device.useSsl,
-          username: card.device.username,
-          passwordEncrypted: card.device.passwordEncrypted,
-          iv: card.device.iv,
-          authTag: card.device.authTag,
-          rosVersion: card.device.rosVersion,
-        });
-        await client.enableHotspotUser(card.username);
-      } catch (err) {
-        this.logger.warn(`Could not enable hotspot user on router: ${err}`);
+
+      const client = await this.mikrotikClientFactory.getClient({
+        id: card.device.id,
+        name: card.device.name,
+        host: card.device.host,
+        apiPort: card.device.apiPort,
+        restPort: card.device.restPort,
+        useSsl: card.device.useSsl,
+        username: card.device.username,
+        passwordEncrypted: card.device.passwordEncrypted,
+        iv: card.device.iv,
+        authTag: card.device.authTag,
+        rosVersion: card.device.rosVersion,
+      });
+
+      if (dto.status === CardStatus.DISABLED) {
+        try {
+          if (typeof client.listActiveSessions === 'function' && typeof client.removeActiveSession === 'function') {
+            try {
+              const sessions = await client.listActiveSessions();
+              const active = sessions.find((s: any) => s.user === card.username);
+              if (active && (active.id || active.sessionId)) {
+                await client.removeActiveSession((active.id || active.sessionId) as string);
+              }
+            } catch (_) {}
+          }
+          await client.disableHotspotUser(card.username);
+        } catch (err: any) {
+          this.logger.warn(`Could not disable hotspot user on router: ${err}`);
+          throw new BadGatewayException({
+            code: 'ROUTER_DISABLE_FAILED',
+            message: `فشل تعطيل الكرت على راوتر MikroTik: ${err?.message || err}`,
+          });
+        }
+      } else if (card.status === CardStatus.DISABLED) {
+        try {
+          await client.enableHotspotUser(card.username);
+        } catch (err: any) {
+          this.logger.warn(`Could not enable hotspot user on router: ${err}`);
+          throw new BadGatewayException({
+            code: 'ROUTER_ENABLE_FAILED',
+            message: `فشل تفعيل الكرت على راوتر MikroTik: ${err?.message || err}`,
+          });
+        }
       }
     }
 
     const updated = await this.prisma.card.update({
       where: { id: cardId },
-      data: { status: dto.status },
+      data: {
+        status: dto.status,
+        ...(requiresRouterSync ? { syncStatus: SyncStatus.SYNCED, syncError: null } : {}),
+      },
     });
 
     return {
@@ -1388,7 +1429,10 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
       this.prisma.card.count({ where }),
       this.prisma.card.groupBy({
         by: ['status'],
-        where: { tenantId: resolvedTenantId },
+        where: {
+          tenantId: resolvedTenantId,
+          ...(query.deviceId ? { deviceId: query.deviceId } : {}),
+        },
         _count: { status: true },
       }),
     ]);
@@ -1500,6 +1544,7 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
       totalPages: Math.max(1, Math.ceil(totalMatching / limit)),
       counts: {
         total: totalInventory,
+        totalInventory,
         available: availableCount,
         sold: soldCount,
         active: activeCount,
@@ -2434,6 +2479,217 @@ export class CardsService implements OnModuleInit, OnModuleDestroy {
           activated: activatedList,
           failed: failedList,
           alreadyActive: alreadyActiveList,
+        },
+        message,
+      };
+    } finally {
+      for (const id of lockedIds) {
+        this.activeCardLocks.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Bulk disables cards on MikroTik router first, then updates PostgreSQL only for confirmed cards.
+   */
+  async bulkDisableCards(
+    tenantId: string,
+    dto: BulkDisableCardsDto,
+  ): Promise<BulkDisableResult> {
+    const cardIds = Array.from(new Set((dto.cardIds || []).filter(Boolean)));
+    if (cardIds.length === 0) {
+      throw new BadRequestException('يجب تحديد كرت واحد على الأقل للتعطيل');
+    }
+
+    const lockedIds: string[] = [];
+    for (const id of cardIds) {
+      if (this.activeCardLocks.has(id)) {
+        throw new ConflictException({
+          code: 'CARDS_LOCKED',
+          message: 'يتم حالياً تنفيذ عملية على بعض الكروت المحددة، يرجى الانتظار والمحاولة لاحقاً',
+        });
+      }
+    }
+    for (const id of cardIds) {
+      this.activeCardLocks.add(id);
+      lockedIds.push(id);
+    }
+
+    try {
+      const cards = await this.prisma.card.findMany({
+        where: { id: { in: cardIds }, tenantId },
+        include: {
+          device: true,
+        },
+      });
+
+      const foundIds = new Set(cards.map((c) => c.id));
+      const missingIds = cardIds.filter((id) => !foundIds.has(id));
+
+      const disabledList: Array<{ id: string; username: string; status: string }> = [];
+      const failedList: Array<{ id: string; username: string; reason: string }> = [];
+      const alreadyDisabledList: Array<{ id: string; username: string; status: string }> = [];
+      const skippedList: Array<{ id: string; username: string; reason: string }> = [];
+
+      for (const missingId of missingIds) {
+        failedList.push({
+          id: missingId,
+          username: 'UNKNOWN',
+          reason: 'الكرت غير موجود أو لا ينتمي إلى هذا المشترك',
+        });
+      }
+
+      const cardsByDevice = new Map<string, typeof cards>();
+      for (const c of cards) {
+        const dId = c.deviceId || 'NO_DEVICE';
+        if (!cardsByDevice.has(dId)) {
+          cardsByDevice.set(dId, []);
+        }
+        cardsByDevice.get(dId)!.push(c);
+      }
+
+      const now = new Date();
+
+      for (const [deviceId, devCards] of cardsByDevice.entries()) {
+        const device = devCards[0]?.device;
+
+        let client: any = null;
+        if (device?.isOnline) {
+          try {
+            client = await this.mikrotikClientFactory.getClient({
+              id: device.id,
+              name: device.name,
+              host: device.host,
+              apiPort: device.apiPort,
+              restPort: device.restPort,
+              useSsl: device.useSsl,
+              username: device.username,
+              passwordEncrypted: device.passwordEncrypted,
+              iv: device.iv,
+              authTag: device.authTag,
+              rosVersion: device.rosVersion,
+            });
+          } catch (connErr: any) {
+            this.logger.warn(`Could not connect to router ${device.name}: ${connErr}`);
+            client = null;
+          }
+        }
+
+        let activeSessions: any[] = [];
+        if (client && typeof client.listActiveSessions === 'function') {
+          try {
+            activeSessions = await client.listActiveSessions();
+          } catch (_) {}
+        }
+
+        for (const card of devCards) {
+          if (card.status === CardStatus.EXPIRED || (card.expiresAt != null && card.expiresAt <= now)) {
+            skippedList.push({
+              id: card.id,
+              username: card.username,
+              reason: 'لا يمكن تعطيل كرت منتهي الصلاحية',
+            });
+            continue;
+          }
+
+          if (card.status === CardStatus.DISABLED) {
+            alreadyDisabledList.push({
+              id: card.id,
+              username: card.username,
+              status: card.status,
+            });
+            continue;
+          }
+
+          const needsRouterDisable = device != null && card.syncStatus === SyncStatus.SYNCED;
+          if (needsRouterDisable && !client) {
+            failedList.push({
+              id: card.id,
+              username: card.username,
+              reason: `جهاز الراوتر "${device?.name ?? deviceId}" غير متصل حالياً (OFFLINE)`,
+            });
+            continue;
+          }
+
+          let routerDisabled = false;
+          try {
+            if (needsRouterDisable && client) {
+              const active = activeSessions.find((s: any) => s.user === card.username);
+              if (active && (active.id || active.sessionId) && typeof client.removeActiveSession === 'function') {
+                try {
+                  await client.removeActiveSession((active.id || active.sessionId) as string);
+                } catch (_) {}
+              }
+              await client.disableHotspotUser(card.username);
+              routerDisabled = true;
+            }
+
+            const updateRes = await this.prisma.card.updateMany({
+              where: {
+                id: card.id,
+                tenantId,
+                status: { notIn: [CardStatus.DISABLED, CardStatus.EXPIRED] },
+              },
+              data: {
+                status: CardStatus.DISABLED,
+                ...(needsRouterDisable ? { syncStatus: SyncStatus.SYNCED, syncError: null } : {}),
+              },
+            });
+
+            if (updateRes.count === 0) {
+              alreadyDisabledList.push({
+                id: card.id,
+                username: card.username,
+                status: CardStatus.DISABLED,
+              });
+              continue;
+            }
+
+            disabledList.push({
+              id: card.id,
+              username: card.username,
+              status: CardStatus.DISABLED,
+            });
+          } catch (err: any) {
+            if (routerDisabled && client) {
+              try {
+                await client.enableHotspotUser(card.username);
+              } catch (_) {}
+            }
+            failedList.push({
+              id: card.id,
+              username: card.username,
+              reason: `فشل تعطيل الكرت على الراوتر: ${err?.message || err}`,
+            });
+          }
+        }
+      }
+
+      const totalRequested = cardIds.length;
+      const disabledCount = disabledList.length;
+      const failedCount = failedList.length;
+      const alreadyDisabledCount = alreadyDisabledList.length;
+      const skippedCount = skippedList.length;
+
+      const parts: string[] = [];
+      if (disabledCount > 0) parts.push(`تم تعطيل ${disabledCount} كرت بنجاح`);
+      if (alreadyDisabledCount > 0) parts.push(`${alreadyDisabledCount} كرت معطل مسبقاً`);
+      if (skippedCount > 0) parts.push(`تم تجاوز ${skippedCount} كرت منتهي الصلاحية`);
+      if (failedCount > 0) parts.push(`فشل ${failedCount} كرت`);
+      const message = parts.length > 0 ? parts.join('، ') : 'لم يتم تعطيل أي كرت';
+
+      return {
+        success: failedCount === 0 && (disabledCount > 0 || alreadyDisabledCount > 0),
+        totalRequested,
+        disabledCount,
+        failedCount,
+        alreadyDisabledCount,
+        skippedCount,
+        details: {
+          disabled: disabledList,
+          failed: failedList,
+          alreadyDisabled: alreadyDisabledList,
+          skipped: skippedList,
         },
         message,
       };

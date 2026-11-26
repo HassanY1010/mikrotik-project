@@ -2045,7 +2045,7 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
             if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
               return const [];
             }
-            return List.filled(count, const <String, dynamic>{});
+            return List.filled(count, const <String, dynamic>{'_placeholder': true});
           } else {
             // Full user list when explicitly requested in store
             final users = await discoveryService.fetchRouterHotspotUsersLocally(
@@ -2060,9 +2060,99 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
             if (reqId != null && (reqId != _activeRequestId || ref.read(selectedRouterIdProvider) != deviceId)) {
               return const [];
             }
-            return users;
+            // Fetch active sessions and DB cards for this device to compare source & online status
+            Set<String> activeUsernames = {};
+            try {
+              final sessions = await discoveryService.fetchLocalActiveSessions(
+                device: targetRouter,
+                password: pwd,
+              );
+              activeUsernames = sessions.map((s) => (s['user'] ?? '').toString()).where((u) => u.isNotEmpty).toSet();
+            } catch (_) {}
+
+            final Map<String, Map<String, dynamic>> dbCardsByUsername = {};
+            try {
+              final apiClient = ref.read(apiClientProvider);
+              final dbRes = await apiClient.get(
+                ApiEndpoints.cards,
+                queryParameters: {'deviceId': targetRouter.id, 'limit': 200, 'page': 1},
+              );
+              final rawDb = dbRes.data;
+              final list = (rawDb is Map && rawDb['data'] is Map && rawDb['data']['data'] is List)
+                  ? rawDb['data']['data'] as List
+                  : (rawDb is Map && rawDb['data'] is List ? rawDb['data'] as List : []);
+              for (final item in list) {
+                if (item is Map) {
+                  final uname = item['username']?.toString();
+                  if (uname != null && uname.isNotEmpty) {
+                    dbCardsByUsername[uname] = Map<String, dynamic>.from(item);
+                  }
+                }
+              }
+            } catch (_) {}
+
+            final routerUsernames = <String>{};
+            final compared = users.map((u) {
+              final name = u['name'] ?? '';
+              routerUsernames.add(name);
+              final routerDisabled = u['disabled'] == 'true';
+              final dbCard = dbCardsByUsername[name];
+              final isOnline = activeUsernames.contains(name);
+              String source = 'ROUTER_ONLY';
+              String syncState = 'ROUTER_ONLY';
+              String? dbStatus;
+              String? dbProfileName;
+              if (dbCard != null) {
+                source = 'APP';
+                dbStatus = dbCard['status']?.toString();
+                final profMap = dbCard['profile'] as Map?;
+                dbProfileName = profMap?['name']?.toString();
+                final dbDisabled = dbStatus == 'DISABLED' || dbStatus == 'EXPIRED';
+                if (dbDisabled != routerDisabled) {
+                  syncState = 'MISMATCH_STATUS';
+                } else if (dbProfileName != null && (u['profile'] ?? '').isNotEmpty && dbProfileName != u['profile']) {
+                  syncState = 'MISMATCH_PROFILE';
+                } else {
+                  syncState = 'SYNCED';
+                }
+              }
+              return <String, dynamic>{
+                ...u,
+                'disabled': routerDisabled,
+                'isOnline': isOnline,
+                'source': source,
+                'syncState': syncState,
+                'dbCardId': dbCard?['id']?.toString(),
+                'dbStatus': dbStatus,
+                'dbProfileName': dbProfileName,
+              };
+            }).toList();
+
+            final missingFromRouter = dbCardsByUsername.entries
+                .where((e) => !routerUsernames.contains(e.key))
+                .map((e) {
+              final dbCard = e.value;
+              final dbStatus = dbCard['status']?.toString();
+              final profMap = dbCard['profile'] as Map?;
+              final dbProfileName = profMap?['name']?.toString() ?? '';
+              return <String, dynamic>{
+                'name': e.key,
+                'profile': dbProfileName,
+                'comment': 'مفقود من الراوتر',
+                'disabled': dbStatus == 'DISABLED' || dbStatus == 'EXPIRED',
+                'isOnline': false,
+                'source': 'DB_ONLY',
+                'syncState': 'DB_ONLY_MISSING_ON_ROUTER',
+                'dbCardId': dbCard['id']?.toString(),
+                'dbStatus': dbStatus,
+                'dbProfileName': dbProfileName,
+              };
+            }).toList();
+
+            return [...compared, ...missingFromRouter];
           }
-        } catch (_) {
+        } catch (e) {
+          if (_loadFullDetails) rethrow;
           return const [];
         }
       }
@@ -2088,7 +2178,8 @@ class RouterHotspotCardsNotifier extends AsyncNotifier<List<Map<String, dynamic>
         return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
       return const [];
-    } catch (_) {
+    } catch (e) {
+      if (_loadFullDetails) rethrow;
       return const [];
     }
   }
@@ -2925,6 +3016,7 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
   String _searchQuery = '';
   String _selectedStatus = 'ALL';
   int _currentPage = 1;
+  int _activeRequestId = 0;
   static const int _limit = 50;
 
   String get currentSearch => _searchQuery;
@@ -2948,14 +3040,28 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
     int? page,
     bool isRefresh = false,
   }) async {
+    final bool statusChanged = status != null && status != _selectedStatus;
+    final bool searchChanged = search != null && search != _searchQuery;
+
     if (search != null) _searchQuery = search;
     if (status != null) _selectedStatus = status;
-    if (page != null) _currentPage = page;
+    if (page != null) {
+      _currentPage = page;
+    } else if (statusChanged || searchChanged) {
+      _currentPage = 1;
+    }
 
-    state = state.copyWith(isLoading: true, errorMessage: null);
+    final reqId = ++_activeRequestId;
+
+    // Clear stale cards when switching categories or doing a full refresh
+    state = state.copyWith(
+      cards: (statusChanged || isRefresh) ? const [] : state.cards,
+      isLoading: true,
+      errorMessage: null,
+      page: _currentPage,
+    );
 
     final apiClient = ref.read(apiClientProvider);
-    final storage = ref.read(localStorageProvider);
 
     try {
       final queryParams = <String, dynamic>{
@@ -2965,7 +3071,7 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
       if (_searchQuery.trim().isNotEmpty) {
         queryParams['search'] = _searchQuery.trim();
       }
-      if (_selectedStatus != 'ALL') {
+      if (_selectedStatus != 'ALL' && _selectedStatus != 'ROUTER') {
         queryParams['status'] = _selectedStatus;
       }
 
@@ -2973,6 +3079,8 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
         ApiEndpoints.cards,
         queryParameters: queryParams,
       );
+
+      if (reqId != _activeRequestId) return;
 
       final rawData = response.data;
       Map<String, dynamic> dataMap = {};
@@ -3003,7 +3111,7 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
 
         if (dataMap['counts'] is Map) {
           final c = dataMap['counts'] as Map;
-          totalInventory = c['totalInventory'] as int? ?? totalMatching;
+          totalInventory = (c['totalInventory'] as int?) ?? (c['total'] as int?) ?? totalMatching;
           availableCount = c['available'] as int? ?? 0;
           soldCount = c['sold'] as int? ?? 0;
           activeCount = c['active'] as int? ?? 0;
@@ -3033,68 +3141,44 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
         totalPages: totalPages,
       );
     } catch (e) {
-      // Offline fallback: try reading from offline storage if available
-      final offlineCards = storage.getOfflineCards();
-      if (offlineCards.isNotEmpty) {
-        final query = _searchQuery.trim().toLowerCase();
-        final filtered = offlineCards.where((c) {
-          if (_selectedStatus != 'ALL' && c.status != _selectedStatus) {
-            return false;
-          }
-          if (query.isNotEmpty) {
-            return c.username.toLowerCase().contains(query) ||
-                c.serialNumber.toLowerCase().contains(query) ||
-                c.profileName.toLowerCase().contains(query);
-          }
-          return true;
-        }).toList();
-
-        final converted = filtered.map((c) => CardModel(
-          id: c.id,
-          serialNumber: c.serialNumber,
-          username: c.username,
-          clearPassword: c.clearPassword,
-          pinCode: null,
-          price: c.price,
-          status: c.status,
-          profileName: c.profileName,
-          createdAt: DateTime.now(),
-        )).toList();
-
-        state = CardsInventoryState(
-          cards: converted,
-          totalMatching: converted.length,
-          totalInventory: offlineCards.length,
-          availableCount: offlineCards.where((c) => c.status == 'AVAILABLE').length,
-          soldCount: offlineCards.where((c) => c.status == 'SOLD').length,
-          activeCount: offlineCards.where((c) => c.status == 'ACTIVE' || c.status == 'USED').length,
-          disabledCount: offlineCards.where((c) => c.status == 'DISABLED' || c.status == 'CANCELLED').length,
-          isLoading: false,
-          errorMessage: null,
-          page: 1,
-          totalPages: 1,
-        );
-      } else {
-        state = state.copyWith(
-          isLoading: false,
-          errorMessage: 'تعذر الاتصال بالخادم لجلب بيانات الكروت. يرجى التحقق من الشبكة وإعادة المحاولة.',
-        );
+      if (reqId != _activeRequestId) return;
+      String errMsg = 'تعذر الاتصال بالخادم لجلب بيانات الكروت. يرجى التحقق من الشبكة وإعادة المحاولة.';
+      if (e is DioException && e.response?.data is Map) {
+        final d = e.response!.data as Map;
+        if (d['message'] != null) {
+          errMsg = d['message'].toString();
+        }
       }
+      state = state.copyWith(
+        cards: (statusChanged || isRefresh) ? const [] : state.cards,
+        isLoading: false,
+        errorMessage: errMsg,
+      );
     }
   }
 
-  Future<bool> updateCardStatus(String cardId, String newStatus) async {
+  Future<Map<String, dynamic>> updateCardStatusDetailed(String cardId, String newStatus) async {
     final apiClient = ref.read(apiClientProvider);
     try {
       await apiClient.patch(
         ApiEndpoints.cardStatus(cardId),
         data: {'status': newStatus},
       );
-      await loadInventory();
-      return true;
-    } catch (_) {
-      return false;
+      await loadInventory(isRefresh: true);
+      return {'success': true};
+    } catch (e) {
+      String msg = 'فشل تعديل حالة الكرت على الراوتر أو الخادم';
+      if (e is DioException && e.response?.data is Map) {
+        final d = e.response!.data as Map;
+        if (d['message'] != null) msg = d['message'].toString();
+      }
+      return {'success': false, 'message': msg};
     }
+  }
+
+  Future<bool> updateCardStatus(String cardId, String newStatus) async {
+    final res = await updateCardStatusDetailed(cardId, newStatus);
+    return res['success'] == true;
   }
 
   Future<List<String>> fetchAllMatchingCardIds({String? search, String? status}) async {
@@ -3141,6 +3225,8 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
     int totalPending = 0;
     int totalSkipped = 0;
     int totalFailed = 0;
+    final List<dynamic> skippedDetails = [];
+    final List<dynamic> failedDetails = [];
     String lastMsg = '';
 
     try {
@@ -3161,6 +3247,11 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
           totalPending += (raw['pendingCount'] as num?)?.toInt() ?? 0;
           totalSkipped += (raw['skippedCount'] as num?)?.toInt() ?? 0;
           totalFailed += (raw['failedCount'] as num?)?.toInt() ?? 0;
+          if (raw['details'] is Map) {
+            final d = raw['details'] as Map;
+            if (d['skipped'] is List) skippedDetails.addAll(d['skipped'] as List);
+            if (d['failed'] is List) failedDetails.addAll(d['failed'] as List);
+          }
           if (raw['message'] != null) {
             lastMsg = raw['message'].toString();
           }
@@ -3169,7 +3260,7 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
 
       await loadInventory(isRefresh: true);
 
-      final hasSuccess = totalDeleted > 0 || (totalPending > 0 && totalFailed == 0);
+      final hasSuccess = totalFailed == 0 && totalPending == 0 && (totalDeleted > 0 || totalSkipped > 0);
       String finalMsg = lastMsg;
       if (totalDeleted > 0) {
         finalMsg = 'تم حذف $totalDeleted كرت بنجاح من قاعدة البيانات والراوتر';
@@ -3178,6 +3269,9 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
         }
         if (totalPending > 0) {
           finalMsg += '، وتعذر حذف $totalPending كرت من الراوتر وتم تعطيلها';
+        }
+        if (totalFailed > 0) {
+          finalMsg += '، وفشل $totalFailed كرت';
         }
       } else if (totalPending > 0) {
         finalMsg = 'تعذر الاتصال بالراوتر لحذف $totalPending كرت، تم تعطيلها في النظام لحين عودة الاتصال';
@@ -3191,6 +3285,10 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
         'pendingCount': totalPending,
         'skippedCount': totalSkipped,
         'failedCount': totalFailed,
+        'details': {
+          'skipped': skippedDetails,
+          'failed': failedDetails,
+        },
         'message': finalMsg.isNotEmpty ? finalMsg : 'تمت عملية الحذف بنجاح',
       };
     } catch (e) {
@@ -3217,6 +3315,9 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
     int totalActivated = 0;
     int totalAlreadyActive = 0;
     int totalFailed = 0;
+    final List<dynamic> activatedDetails = [];
+    final List<dynamic> alreadyActiveDetails = [];
+    final List<dynamic> failedDetails = [];
     String lastMsg = '';
 
     try {
@@ -3236,6 +3337,12 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
           totalActivated += (raw['activatedCount'] as num?)?.toInt() ?? 0;
           totalAlreadyActive += (raw['alreadyActiveCount'] as num?)?.toInt() ?? 0;
           totalFailed += (raw['failedCount'] as num?)?.toInt() ?? 0;
+          if (raw['details'] is Map) {
+            final d = raw['details'] as Map;
+            if (d['activated'] is List) activatedDetails.addAll(d['activated'] as List);
+            if (d['alreadyActive'] is List) alreadyActiveDetails.addAll(d['alreadyActive'] as List);
+            if (d['failed'] is List) failedDetails.addAll(d['failed'] as List);
+          }
           if (raw['message'] != null) {
             lastMsg = raw['message'].toString();
           }
@@ -3244,7 +3351,7 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
 
       await loadInventory(isRefresh: true);
 
-      final hasSuccess = totalActivated > 0 || totalAlreadyActive > 0;
+      final hasSuccess = totalFailed == 0 && (totalActivated > 0 || totalAlreadyActive > 0);
       String finalMsg = lastMsg;
       if (totalActivated > 0) {
         finalMsg = 'تم تفعيل $totalActivated كرت بنجاح على النظام والراوتر';
@@ -3254,7 +3361,7 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
         if (totalFailed > 0) {
           finalMsg += '، وفشل $totalFailed كرت';
         }
-      } else if (totalAlreadyActive > 0) {
+      } else if (totalAlreadyActive > 0 && totalFailed == 0) {
         finalMsg = 'جميع الكروت المحددة ($totalAlreadyActive كرت) مفعلة وجاهزة للعمل مسبقاً';
       }
 
@@ -3263,10 +3370,106 @@ class CardsInventoryNotifier extends Notifier<CardsInventoryState> {
         'activatedCount': totalActivated,
         'alreadyActiveCount': totalAlreadyActive,
         'failedCount': totalFailed,
+        'details': {
+          'activated': activatedDetails,
+          'alreadyActive': alreadyActiveDetails,
+          'failed': failedDetails,
+        },
         'message': finalMsg.isNotEmpty ? finalMsg : 'تمت عملية التفعيل بنجاح',
       };
     } catch (e) {
       String msg = 'فشل تفعيل الكروت المحددة';
+      if (e is DioException && e.response?.data is Map) {
+        final d = e.response!.data as Map;
+        msg = d['message']?.toString() ?? msg;
+      }
+      return {'success': false, 'message': msg};
+    }
+  }
+
+  Future<Map<String, dynamic>> bulkDisableCards(List<String> cardIds) async {
+    if (cardIds.isEmpty) {
+      return {'success': false, 'message': 'لم يتم تحديد أي كروت للتعطيل'};
+    }
+
+    final apiClient = ref.read(apiClientProvider);
+    const chunkSize = 250;
+    int totalDisabled = 0;
+    int totalAlreadyDisabled = 0;
+    int totalSkipped = 0;
+    int totalFailed = 0;
+    final List<dynamic> disabledDetails = [];
+    final List<dynamic> alreadyDisabledDetails = [];
+    final List<dynamic> skippedDetails = [];
+    final List<dynamic> failedDetails = [];
+    String lastMsg = '';
+
+    try {
+      for (var i = 0; i < cardIds.length; i += chunkSize) {
+        final chunk = cardIds.sublist(
+          i,
+          i + chunkSize > cardIds.length ? cardIds.length : i + chunkSize,
+        );
+
+        final res = await apiClient.post(
+          ApiEndpoints.cardsBulkDisable,
+          data: {'cardIds': chunk},
+        );
+
+        final raw = res.data;
+        if (raw is Map<String, dynamic>) {
+          totalDisabled += (raw['disabledCount'] as num?)?.toInt() ?? 0;
+          totalAlreadyDisabled += (raw['alreadyDisabledCount'] as num?)?.toInt() ?? 0;
+          totalSkipped += (raw['skippedCount'] as num?)?.toInt() ?? 0;
+          totalFailed += (raw['failedCount'] as num?)?.toInt() ?? 0;
+          if (raw['details'] is Map) {
+            final d = raw['details'] as Map;
+            if (d['disabled'] is List) disabledDetails.addAll(d['disabled'] as List);
+            if (d['alreadyDisabled'] is List) alreadyDisabledDetails.addAll(d['alreadyDisabled'] as List);
+            if (d['skipped'] is List) skippedDetails.addAll(d['skipped'] as List);
+            if (d['failed'] is List) failedDetails.addAll(d['failed'] as List);
+          }
+          if (raw['message'] != null) {
+            lastMsg = raw['message'].toString();
+          }
+        }
+      }
+
+      await loadInventory(isRefresh: true);
+
+      final hasSuccess = totalFailed == 0 && (totalDisabled > 0 || totalAlreadyDisabled > 0);
+      String finalMsg = lastMsg;
+      if (totalDisabled > 0) {
+        finalMsg = 'تم تعطيل $totalDisabled كرت بنجاح على الراوتر والنظام';
+        if (totalAlreadyDisabled > 0) {
+          finalMsg += '، و$totalAlreadyDisabled كرت معطل مسبقاً';
+        }
+        if (totalSkipped > 0) {
+          finalMsg += '، وتم تجاوز $totalSkipped كرت منتهي الصلاحية';
+        }
+        if (totalFailed > 0) {
+          finalMsg += '، وفشل $totalFailed كرت';
+        }
+      } else if (totalAlreadyDisabled > 0 && totalFailed == 0) {
+        finalMsg = 'جميع الكروت المحددة ($totalAlreadyDisabled كرت) معطلة مسبقاً';
+      }
+
+      return {
+        'success': hasSuccess,
+        'disabledCount': totalDisabled,
+        'alreadyDisabledCount': totalAlreadyDisabled,
+        'skippedCount': totalSkipped,
+        'failedCount': totalFailed,
+        'details': {
+          'disabled': disabledDetails,
+          'alreadyDisabled': alreadyDisabledDetails,
+          'skipped': skippedDetails,
+          'failed': failedDetails,
+        },
+        'message': finalMsg.isNotEmpty ? finalMsg : 'تمت عملية التعطيل بنجاح',
+      };
+    } catch (e) {
+      String msg = 'فشل تعطيل الكروت المحددة';
       if (e is DioException && e.response?.data is Map) {
         final d = e.response!.data as Map;
         msg = d['message']?.toString() ?? msg;

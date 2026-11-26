@@ -71,6 +71,7 @@ class ApiEndpoints {
   static const String cardsMatchingIds = '/cards/matching-ids';
   static const String cardsBulkDelete = '/cards/bulk-delete';
   static const String cardsBulkActivate = '/cards/bulk-activate';
+  static const String cardsBulkDisable = '/cards/bulk-disable';
   static String cardStatus(String id) => '/cards/$id/status';
   static const String cardBatches = '/cards/batches';
   static String cardBatchMarkLocalSynced(String id) => '/cards/batches/$id/mark-local-synced';

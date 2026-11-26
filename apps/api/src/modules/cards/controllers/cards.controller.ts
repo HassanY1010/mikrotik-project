@@ -20,6 +20,7 @@ import {
   CardItemResponse,
   BulkDeleteResult,
   BulkActivateResult,
+  BulkDisableResult,
   CardDetailResponse,
 } from '../services/cards.service';
 import { CreateBatchDto } from '../dto/create-batch.dto';
@@ -27,6 +28,7 @@ import { MarkBatchLocalSyncedDto } from '../dto/mark-batch-local-synced.dto';
 import { UpdateCardStatusDto } from '../dto/update-card-status.dto';
 import { BulkDeleteCardsDto } from '../dto/bulk-delete-cards.dto';
 import { BulkActivateCardsDto } from '../dto/bulk-activate-cards.dto';
+import { BulkDisableCardsDto } from '../dto/bulk-disable-cards.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { TenantGuard } from '../../../core/multi-tenancy/tenant.guard';
 import { RolesGuard } from '../../../core/guards/roles.guard';
@@ -294,6 +296,30 @@ export class CardsController {
   ): Promise<BulkActivateResult> {
     const effectiveTenantId = userTenantId || headerTenantId || '';
     return this.cardsService.bulkActivateCards(effectiveTenantId, dto);
+  }
+
+  @Post('bulk-disable')
+  @RequirePermissions('cards:disable')
+  @Roles(
+    RoleName.SUPER_ADMIN,
+    RoleName.OWNER,
+    RoleName.TENANT_ADMIN,
+    RoleName.ADMIN,
+    RoleName.MANAGER,
+    RoleName.CASHIER,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Bulk disable cards on MikroTik routers and database',
+  })
+  @ApiResponse({ status: 200, description: 'Bulk disable summary' })
+  async bulkDisableCards(
+    @CurrentUser('tenantId') userTenantId: string,
+    @TenantId() headerTenantId: string,
+    @Body() dto: BulkDisableCardsDto,
+  ): Promise<BulkDisableResult> {
+    const effectiveTenantId = userTenantId || headerTenantId || '';
+    return this.cardsService.bulkDisableCards(effectiveTenantId, dto);
   }
 
   @Get('matching-ids')
