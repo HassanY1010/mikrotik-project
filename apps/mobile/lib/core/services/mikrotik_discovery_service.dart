@@ -1682,7 +1682,8 @@ class MikrotikDiscoveryService {
     final executedStages = <ExecutedStageLogModel>[];
     String? backupFilename;
     final nowStr = DateTime.now().toIso8601String().replaceAll(RegExp(r'[:.]'), '-');
-    final safeBackupName = (customBackupName ?? 'pre-sudafi-$nowStr').substring(0, 25);
+    final rawBackupName = customBackupName ?? 'pre-sudafi-$nowStr';
+    final safeBackupName = rawBackupName.length > 25 ? rawBackupName.substring(0, 25) : rawBackupName;
     final bPass = customBackupPassword ?? 'SudafiBackup2026!';
 
     // 1. Try Native Binary API (Port 8728) as the primary execution engine
@@ -1808,11 +1809,87 @@ class MikrotikDiscoveryService {
             } catch (e) {
               final errMsg = e.toString().replaceFirst('Exception: ', '');
 
-              // 1. Success on add if already exists
+              // 1. Safe reconciliation if resource already exists (including "pool with such name exists")
               if (errMsg.contains('already exists') ||
                   errMsg.contains('already have') ||
                   errMsg.contains('already has') ||
+                  errMsg.contains('with such name exists') ||
                   errMsg.contains('failure: already')) {
+                if (item.stage == 'DHCP_POOL' && item.command.contains('/ip/pool/add')) {
+                  final nameMatch = RegExp(r'=name=([^\s]+)').firstMatch(item.command);
+                  final rangeMatch = RegExp(r'=ranges=([^\s]+)').firstMatch(item.command);
+                  final targetPoolName = nameMatch?.group(1) ?? 'hs-pool-sudafi';
+                  final desiredRange = (rangeMatch?.group(1) ?? '').trim();
+
+                  final pools = await binClient!.sendCommand(['/ip/pool/print']);
+                  final existingPool = pools.cast<Map<String, String>?>().firstWhere(
+                        (p) => p?['name'] == targetPoolName,
+                        orElse: () => null,
+                      );
+
+                  if (existingPool == null) {
+                    lastErrorMsg =
+                        'النطاق ($targetPoolName) موجود مسبقاً وتعذر قراءته للتحقق من خصائصه. الخطأ الأصلي: $errMsg';
+                    break;
+                  }
+
+                  final currentRange = (existingPool['ranges'] ?? '').trim();
+                  if (desiredRange.isEmpty || currentRange == desiredRange) {
+                    success = true;
+                    executedStages.add(ExecutedStageLogModel(
+                      stage: item.stage,
+                      command: item.command,
+                      status: 'SUCCESS',
+                      error: 'تم استخدام النطاق الموجود مسبقاً ($targetPoolName: $currentRange) لتطابقه مع المطلوب.',
+                      timestamp: DateTime.now().toIso8601String(),
+                    ));
+                    break;
+                  }
+
+                  // Check active DHCP leases & Hotspot sessions before modifying pool
+                  int activeCount = 0;
+                  try {
+                    final leases = await binClient.sendCommand(['/ip/dhcp-server/lease/print']);
+                    final hsActive = await binClient.sendCommand(['/ip/hotspot/active/print']);
+                    activeCount = leases.length + hsActive.length;
+                  } catch (_) {}
+
+                  if (activeCount > 0) {
+                    lastErrorMsg =
+                        'تعارض في IP Pool ($targetPoolName): النطاق الحالي ($currentRange) يختلف عن المطلوب ($desiredRange) ويوجد $activeCount مستخدم/تأجير نشط. تم إيقاف التعديل لحماية المشتركين.';
+                    break;
+                  }
+
+                  final poolId = existingPool['.id'] ?? targetPoolName;
+                  await binClient.sendCommand([
+                    '/ip/pool/set',
+                    '=.id=$poolId',
+                    '=ranges=$desiredRange',
+                    '=comment=SudaFi Hotspot Pool',
+                  ]);
+                  // Re-read to verify update
+                  final recheckPools = await binClient.sendCommand(['/ip/pool/print']);
+                  final updatedPool = recheckPools.cast<Map<String, String>?>().firstWhere(
+                        (p) => p?['name'] == targetPoolName,
+                        orElse: () => null,
+                      );
+                  if (updatedPool == null || (updatedPool['ranges'] ?? '').trim() != desiredRange) {
+                    lastErrorMsg =
+                        'فشل التحقق بعد تحديث نطاق ($targetPoolName): القيمة الحالية (${updatedPool?['ranges'] ?? '-'}) لا تطابق ($desiredRange).';
+                    break;
+                  }
+
+                  success = true;
+                  executedStages.add(ExecutedStageLogModel(
+                    stage: item.stage,
+                    command: '/ip/pool/set =.id=$poolId =ranges=$desiredRange',
+                    status: 'SUCCESS',
+                    error: 'تم تحديث النطاق الموجود ($targetPoolName) من ($currentRange) إلى ($desiredRange) والتحقق منه.',
+                    timestamp: DateTime.now().toIso8601String(),
+                  ));
+                  break;
+                }
+
                 success = true;
                 executedStages.add(ExecutedStageLogModel(
                   stage: item.stage,
@@ -1907,12 +1984,16 @@ class MikrotikDiscoveryService {
         bool securityPoliciesVerified = false;
         bool bridgeConfigured = false;
         bool internetReachable = false;
+        bool poolAndDhcpVerified = false;
 
         try {
           final activeClient = binClient;
           if (activeClient != null) {
             final bridges = await activeClient.sendCommand(['/interface/bridge/print']);
             final ips = await activeClient.sendCommand(['/ip/address/print']);
+            final pools = await activeClient.sendCommand(['/ip/pool/print']);
+            final dhcpServers = await activeClient.sendCommand(['/ip/dhcp-server/print']);
+            final dhcpNetworks = await activeClient.sendCommand(['/ip/dhcp-server/network/print']);
             final hs = await activeClient.sendCommand(['/ip/hotspot/print']);
             final hsProfiles = await activeClient.sendCommand(['/ip/hotspot/profile/print']);
             final nats = await activeClient.sendCommand(['/ip/firewall/nat/print']);
@@ -1923,6 +2004,11 @@ class MikrotikDiscoveryService {
                 (b['name'] ?? '').contains('hotspot') ||
                 (b['name'] ?? '').contains('bridge') ||
                 (b['comment'] ?? '').contains('SudaFi'));
+
+            final hasPool = pools.any((p) => (p['name'] ?? '') == 'hs-pool-sudafi' || pools.isNotEmpty);
+            final hasDhcpServer = dhcpServers.any((d) => d['disabled'] != 'true');
+            final hasDhcpNet = dhcpNetworks.isNotEmpty;
+            poolAndDhcpVerified = hasPool && hasDhcpServer && hasDhcpNet;
 
             wanConfigured = ips.isNotEmpty || dhcpClients.any((d) => d['disabled'] != 'true');
 
@@ -1939,7 +2025,8 @@ class MikrotikDiscoveryService {
           }
         } catch (_) {}
 
-        final bool is100PercentVerified = bridgeConfigured && hotspotOperational && securityPoliciesVerified;
+        final bool is100PercentVerified =
+            bridgeConfigured && poolAndDhcpVerified && hotspotOperational && securityPoliciesVerified;
         final String overallStatus = is100PercentVerified
             ? 'VERIFIED_READY'
             : (hotspotOperational ? 'DEGRADED' : 'VERIFICATION_FAILED');

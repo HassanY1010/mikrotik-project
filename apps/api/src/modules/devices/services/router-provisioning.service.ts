@@ -32,6 +32,7 @@ import {
   ProvisioningConflict,
   ProvisioningWarning,
   PlannedProvisioningStep,
+  PlannedResourceAudit,
   GeneratedCommandItem,
   ProvisioningPreviewResponse,
   ExecutedStageLog,
@@ -161,6 +162,14 @@ export class RouterProvisioningService {
       mangleRules: normalizeArray(raw?.mangleRules),
       filterRules: normalizeArray(raw?.filterRules),
       hotspotUserProfiles: normalizeArray(raw?.hotspotUserProfiles),
+      pools: normalizeArray(raw?.pools ?? raw?.ipPools),
+      dhcpNetworks: normalizeArray(raw?.dhcpNetworks),
+      hotspotServerProfiles: normalizeArray(raw?.hotspotServerProfiles ?? raw?.hotspotProfiles),
+      dns: raw?.dns && typeof raw.dns === 'object' ? raw.dns : undefined,
+      activeHotspotSessionsCount:
+        typeof raw?.activeHotspotSessionsCount === 'number' ? raw.activeHotspotSessionsCount : undefined,
+      activeDhcpLeasesCount:
+        typeof raw?.activeDhcpLeasesCount === 'number' ? raw.activeDhcpLeasesCount : undefined,
     };
   }
 
@@ -237,6 +246,12 @@ export class RouterProvisioningService {
         mangleRules,
         filterRules,
         hotspotUserProfiles,
+        dhcpNetworks,
+        hotspotServerProfiles,
+        dnsConfig,
+        activeSessions,
+        dhcpLeases,
+        rawPools,
       ] = await Promise.all([
         safeQuery(
           'systemResource',
@@ -264,6 +279,25 @@ export class RouterProvisioningService {
         safeQuery('mangleRules', () => (client.listMangleRules ? client.listMangleRules() : Promise.resolve([])), []),
         safeQuery('filterRules', () => (client.listFilterRules ? client.listFilterRules() : Promise.resolve([])), []),
         safeQuery('hotspotUserProfiles', () => (client.listHotspotProfiles ? client.listHotspotProfiles() : Promise.resolve([])), []),
+        safeQuery('dhcpNetworks', () => (client.listDhcpNetworks ? client.listDhcpNetworks() : Promise.resolve([])), []),
+        safeQuery('hotspotServerProfiles', () => (client.listHotspotServerProfiles ? client.listHotspotServerProfiles() : Promise.resolve([])), []),
+        safeQuery('dns', () => (client.getDnsConfig ? client.getDnsConfig() : Promise.resolve(undefined)), undefined),
+        safeQuery('activeSessions', () => (client.listActiveSessions ? client.listActiveSessions() : Promise.resolve([])), []),
+        safeQuery('dhcpLeases', () => (client.listDhcpLeases ? client.listDhcpLeases() : Promise.resolve([])), []),
+        safeQuery('pools', async () => {
+          if (typeof (client as any).listIpPools === 'function') {
+            return await (client as any).listIpPools();
+          }
+          if (typeof (client as any).executeCommand === 'function') {
+            const res = await (client as any).executeCommand(['/ip/pool/print']);
+            if (Array.isArray(res)) {
+              return res
+                .filter((r: any) => !r?.type || r.type === '!re')
+                .map((r: any) => (r?.attributes ? { id: r.attributes['.id'], ...r.attributes } : r));
+            }
+          }
+          return [];
+        }, []),
       ]);
 
       const snapshot: RouterDiscoverySnapshot = this.normalizeSnapshot({
@@ -280,6 +314,12 @@ export class RouterProvisioningService {
         mangleRules,
         filterRules,
         hotspotUserProfiles,
+        dhcpNetworks,
+        hotspotServerProfiles,
+        dns: dnsConfig,
+        activeHotspotSessionsCount: Array.isArray(activeSessions) ? activeSessions.length : 0,
+        activeDhcpLeasesCount: Array.isArray(dhcpLeases) ? dhcpLeases.length : 0,
+        pools: rawPools,
       });
 
       // Cache snapshot for future steps
@@ -679,11 +719,21 @@ export class RouterProvisioningService {
         this.logger.warn(`[Preview Warning] Error building security policies report: ${secErr instanceof Error ? secErr.message : String(secErr)}`);
       }
 
-      // Generate RouterOS commands for preview (with duplicate prevention based on discovery)
+      // Generate RouterOS commands for preview (with unified inspect-compare-classify reconciliation)
       let generatedCommands: GeneratedCommandItem[] = [];
       const resolvedConflictKeys = new Set<string>();
+      const resourceAudits: PlannedResourceAudit[] = [];
+      const reconcileConflicts: ProvisioningConflict[] = [];
       try {
-        generatedCommands = this.generateRouterCommands(dto, isV7, discovery, effectiveDevice, resolvedConflictKeys);
+        generatedCommands = this.generateRouterCommands(
+          dto,
+          isV7,
+          discovery,
+          effectiveDevice,
+          resolvedConflictKeys,
+          resourceAudits,
+          reconcileConflicts,
+        );
       } catch (cmdErr) {
         this.logger.error(`[Preview Error] Error generating router commands: ${cmdErr instanceof Error ? cmdErr.message : String(cmdErr)}`);
         warnings.push({
@@ -810,6 +860,13 @@ export class RouterProvisioningService {
       const signResult = signService.signPlan(signPayload);
       const { commandsHash } = signService.buildCanonicalPayload(signPayload);
 
+      const allConflicts = [...annotatedConflicts, ...reconcileConflicts];
+      const finalCanProceed =
+        activeHardConflicts.length === 0 &&
+        reconcileConflicts.every((c) => c.isOverridable && Boolean((dto as any).allowOverwrite)) &&
+        sanitizedCommands.length > 0 &&
+        plannedSteps.length > 0;
+
       return {
         template: dto.template,
         routerVersion: device.rosVersion || 'V7',
@@ -817,9 +874,10 @@ export class RouterProvisioningService {
         plannedSteps,
         securityPoliciesReport,
         generatedCommands: sanitizedCommands,
+        resourceAudits,
         warnings,
-        conflicts: annotatedConflicts,
-        canProceed,
+        conflicts: allConflicts,
+        canProceed: finalCanProceed,
         requiresCleanConfirmation,
         backupRecommended: true,
         planToken: {
@@ -1150,7 +1208,16 @@ export class RouterProvisioningService {
     const isV7 = (device.rosVersion || '').toUpperCase().includes('V7');
     const applyMgmtCtx = this.resolveEffectiveManagementContext(device.host || '', previewRes.discovery, dto);
     const effectiveApplyDevice = { ...device, host: applyMgmtCtx.effectiveHost };
-    const commands = this.generateRouterCommands(dto, isV7, previewRes.discovery, effectiveApplyDevice);
+    // Record any resources that were already MATCHED & verified in discovery
+    const matchedAudits: PlannedResourceAudit[] = [];
+    const commands = this.generateRouterCommands(
+      dto,
+      isV7,
+      previewRes.discovery,
+      effectiveApplyDevice,
+      undefined,
+      matchedAudits,
+    );
     const cleanupCommands = commands.filter((c) => c.stage === 'PRE_CLEANUP');
 
     let liveIps: RouterIpAddressItem[] = [];
@@ -1672,14 +1739,140 @@ export class RouterProvisioningService {
         });
       } catch (cmdErr: any) {
         const errMsg = cmdErr instanceof Error ? cmdErr.message : String(cmdErr);
-        // Idempotent error handling: if resource already exists or identical, continue safely
+        // Idempotent & Safe Verification error handling: if resource already exists, NEVER assume success blindly
         if (
           errMsg.includes('already exists') ||
           errMsg.includes('already have') ||
+          errMsg.includes('already has') ||
+          errMsg.includes('with such name exists') ||
           errMsg.includes('failure: already')
         ) {
-          // Special verification for HOTSPOT_PROFILE: Do NOT silently accept if speed differs or cannot be verified!
-          if (item.stage === 'HOTSPOT_PROFILE' && item.command.includes('/ip/hotspot/user/profile/add')) {
+          // Special verification for DHCP_POOL (e.g. pool with such name exists)
+          if (item.stage === 'DHCP_POOL' && item.command.includes('/ip/pool/add')) {
+            const poolName = 'hs-pool-sudafi';
+            const desiredRange = dto.lan?.poolRange || this.generateDefaultPoolRange((dto.lan?.gatewayIp || '10.5.50.1/24').trim());
+            let matchedPool: any;
+            if (typeof client.runRawCommand === 'function') {
+              try {
+                const poolsRes = await client.runRawCommand(['/ip/pool/print']);
+                if (Array.isArray(poolsRes)) {
+                  const normalizedPools = poolsRes.map((r: any) => (r?.attributes ? { id: r.attributes['.id'], ...r.attributes } : r));
+                  matchedPool = normalizedPools.find((p: any) => p?.name === poolName);
+                }
+              } catch (_) {}
+            }
+
+            if (!matchedPool) {
+              executedStages.push({
+                stage: item.stage,
+                command: this.sanitizeCommandForDisplay(item.command),
+                status: 'FAILED',
+                action: 'FAILED',
+                verified: false,
+                error: `تعذر قراءة نطاق العناوين (${poolName}) من الراوتر للتحقق بعد الخطأ: ${errMsg}`,
+                timestamp: new Date().toISOString(),
+              });
+              return {
+                success: false,
+                deviceId: device.id,
+                deviceName: device.name,
+                backupFilename,
+                executedStages,
+                failedStage: item.stage,
+                failureReason: `النطاق (${poolName}) موجود مسبقاً وتعذر التحقق من خصائصه الفعلية. الخطأ الأصلي: ${errMsg}`,
+                recoveryInstructions: backupFilename
+                  ? `تم إجراء تغييرات سابقة؟ ${executedStages.some((s) => s.stage !== 'PRE_BACKUP' && s.status === 'SUCCESS') ? 'نعم' : 'لا'}. يمكنك استعادة النسخة الاحتياطية (${backupFilename}) أو مراجعة IP Pools في WinBox.`
+                  : 'راجع IP Pools في WinBox يدوياً.',
+                verification: {
+                  internetReachable: false,
+                  wanConfigured: false,
+                  defaultRouteActive: false,
+                  hotspotOperational: false,
+                  pingPacketsReceived: 0,
+                  securityPoliciesVerified: false,
+                  overallStatus: 'VERIFICATION_FAILED',
+                  diagnosticsMessage: `توقف الإعداد عند مرحلة [${item.stage}] لعدم إمكانية التحقق من [${poolName}].`,
+                },
+              };
+            }
+
+            const existingRange = String(matchedPool.ranges || '').trim();
+            if (existingRange === desiredRange.trim()) {
+              executedStages.push({
+                stage: item.stage,
+                command: this.sanitizeCommandForDisplay(item.command),
+                status: 'SUCCESS',
+                action: 'MATCHED_EXISTING',
+                previousValue: existingRange,
+                verified: true,
+                error: `Notice: النطاق (${poolName}) موجود مسبقاً ومطابق (${existingRange})`,
+                timestamp: new Date().toISOString(),
+              });
+            } else {
+              // Check active subscribers/leases before modifying existing pool
+              let activeCount = 0;
+              try {
+                if (client.listActiveSessions) {
+                  activeCount += (await client.listActiveSessions()).length;
+                }
+                if (client.listDhcpLeases) {
+                  activeCount += (await client.listDhcpLeases()).length;
+                }
+              } catch (_) {}
+
+              if (activeCount > 0 && !dto.allowOverwrite) {
+                executedStages.push({
+                  stage: item.stage,
+                  command: this.sanitizeCommandForDisplay(item.command),
+                  status: 'FAILED',
+                  action: 'CONFLICT_BLOCKED',
+                  previousValue: existingRange,
+                  verified: false,
+                  error: `تعارض في النطاق (${poolName}): الحالي (${existingRange}) والمطلوب (${desiredRange}) مع وجود ${activeCount} جلسة/تأجير نشط.`,
+                  timestamp: new Date().toISOString(),
+                });
+                return {
+                  success: false,
+                  deviceId: device.id,
+                  deviceName: device.name,
+                  backupFilename,
+                  executedStages,
+                  failedStage: item.stage,
+                  failureReason: `تعارض في IP Pool (${poolName}): النطاق الحالي (${existingRange}) يختلف عن المطلوب (${desiredRange}) ومرتبط بـ ${activeCount} مشترك/جهاز نشط.`,
+                  recoveryInstructions: `تم إيقاف التعديل لحماية المشتركين. راجع النطاق أو استعد النسخة (${backupFilename ?? 'غير متوفرة'}).`,
+                  verification: {
+                    internetReachable: false,
+                    wanConfigured: false,
+                    defaultRouteActive: false,
+                    hotspotOperational: false,
+                    pingPacketsReceived: 0,
+                    securityPoliciesVerified: false,
+                    overallStatus: 'VERIFICATION_FAILED',
+                    diagnosticsMessage: `توقف الإعداد عند [${item.stage}] بسبب تعارض نطاق IP Pool.`,
+                  },
+                };
+              }
+
+              // Safe to update via set
+              const poolTarget = matchedPool.id ? `=.id=${matchedPool.id}` : `=.id=${poolName}`;
+              await client.runRawCommand?.([
+                '/ip/pool/set',
+                poolTarget,
+                `=ranges=${desiredRange}`,
+                '=comment=SudaFi Hotspot Pool',
+              ]);
+              executedStages.push({
+                stage: item.stage,
+                command: `/ip/pool/set ${poolTarget} =ranges=${desiredRange}`,
+                status: 'SUCCESS',
+                action: 'UPDATED',
+                previousValue: existingRange,
+                verified: true,
+                error: `Notice: تم تحديث النطاق (${poolName}) من (${existingRange}) إلى (${desiredRange})`,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          } else if (item.stage === 'HOTSPOT_PROFILE' && item.command.includes('/ip/hotspot/user/profile/add')) {
             const hsProfileName = dto.hotspot?.profileName || 'hsp-sudafi';
             const desiredRateLimit = dto.hotspot?.defaultRateLimit || '2M/5M';
             let matchedProfile: HotspotProfileItem | undefined;
@@ -1848,6 +2041,20 @@ export class RouterProvisioningService {
     // =========================================================================
     // STAGE 3: Multi-Point Verification
     // =========================================================================
+    for (const audit of matchedAudits) {
+      if (audit.state === 'MATCHED' && !executedStages.some((s) => s.stage === audit.stage)) {
+        executedStages.push({
+          stage: audit.stage,
+          status: 'SUCCESS',
+          action: 'MATCHED_EXISTING',
+          previousValue: audit.previousValue,
+          verified: true,
+          error: `Notice: ${audit.reason}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+
     const verification = await this.verifyProvisioning(client, dto);
 
     // =========================================================================
@@ -3088,8 +3295,114 @@ export class RouterProvisioningService {
   }
 
   /**
+   * Unified 5-state inspection & classification helper for Stage 6 provisioning resources:
+   * MISSING -> CREATE | MATCHED -> USE_EXISTING | DIFFERENT -> UPDATE (if safe) or CONFLICT (if unsafe)
+   */
+  private reconcileResource<T>(params: {
+    stage: string;
+    resourceType: string;
+    identifier: string;
+    existingItem: T | undefined;
+    isMatch: (item: T) => boolean;
+    previousSummary?: (item: T) => string;
+    desiredSummary: string;
+    addCommand: GeneratedCommandItem;
+    setCommand?: (item: T) => GeneratedCommandItem | undefined;
+    dependencies?: string[];
+    hasActiveSubscribers?: boolean;
+    allowSafeUpdate?: boolean;
+    resourceAudits?: PlannedResourceAudit[];
+    reconcileConflicts?: ProvisioningConflict[];
+  }): GeneratedCommandItem | undefined {
+    const {
+      stage,
+      resourceType,
+      identifier,
+      existingItem,
+      isMatch,
+      previousSummary,
+      desiredSummary,
+      addCommand,
+      setCommand,
+      dependencies = [],
+      hasActiveSubscribers = false,
+      allowSafeUpdate = false,
+      resourceAudits,
+      reconcileConflicts,
+    } = params;
+
+    if (!existingItem) {
+      resourceAudits?.push({
+        stage,
+        resourceType,
+        identifier,
+        state: 'MISSING',
+        action: 'CREATE',
+        reason: `العنصر (${identifier}) غير موجود على الراوتر وسيتم إنشاؤه.`,
+        desiredValue: desiredSummary,
+      });
+      return addCommand;
+    }
+
+    if (isMatch(existingItem)) {
+      resourceAudits?.push({
+        stage,
+        resourceType,
+        identifier,
+        state: 'MATCHED',
+        action: 'USE_EXISTING',
+        reason: `العنصر (${identifier}) موجود ومطابق للإعدادات المطلوبة؛ سيتم استخدامه دون تعديل.`,
+        previousValue: previousSummary ? previousSummary(existingItem) : desiredSummary,
+        desiredValue: desiredSummary,
+      });
+      return undefined;
+    }
+
+    const prevVal = previousSummary ? previousSummary(existingItem) : 'قيمة مختلفة';
+    const isBlockedByActiveUsage = hasActiveSubscribers || (dependencies.length > 0 && !allowSafeUpdate);
+    const updateCmd = setCommand ? setCommand(existingItem) : undefined;
+
+    if (isBlockedByActiveUsage || !updateCmd) {
+      const depText = dependencies.length > 0 ? ` الارتباطات: [${dependencies.join('، ')}].` : '';
+      const activeText = hasActiveSubscribers ? ' يوجد مشتركين أو جلسات نشطة حالياً.' : '';
+      resourceAudits?.push({
+        stage,
+        resourceType,
+        identifier,
+        state: 'CONFLICT',
+        action: 'SKIP_CONFLICT',
+        reason: `العنصر (${identifier}) موجود بقيمة مختلفة (${prevVal} ≠ ${desiredSummary}) وتعديله غير آمن تلقائياً.${activeText}${depText}`,
+        previousValue: prevVal,
+        desiredValue: desiredSummary,
+        dependencies,
+      });
+      reconcileConflicts?.push({
+        resource: `${resourceType}:${identifier}`,
+        existingValue: prevVal,
+        proposedValue: desiredSummary,
+        details: `العنصر (${identifier}) موجود مسبقاً بإعدادات مختلفة.${activeText}${depText} لن يتم حذفه أو تعديله عشوائياً.`,
+        isOverridable: !hasActiveSubscribers,
+      });
+      return undefined;
+    }
+
+    resourceAudits?.push({
+      stage,
+      resourceType,
+      identifier,
+      state: 'DIFFERENT',
+      action: 'UPDATE',
+      reason: `العنصر (${identifier}) موجود بقيمة مختلفة (${prevVal}) وسيتم تحديثه بأمان إلى (${desiredSummary}).`,
+      previousValue: prevVal,
+      desiredValue: desiredSummary,
+      dependencies,
+    });
+    return updateCmd;
+  }
+
+  /**
    * Generates RouterOS command list formatted for v6 and v7
-   * Orders LAN_IP on bridge before adding member ports, and avoids duplicate rules when discovery is provided
+   * Uses unified Inspect-Compare-Classify reconciliation across all Stage 6 resources.
    */
   private generateRouterCommands(
     dto: ProvisionPreviewDto,
@@ -3097,6 +3410,8 @@ export class RouterProvisioningService {
     discovery?: RouterDiscoverySnapshot,
     device?: { host?: string },
     resolvedConflictKeys?: Set<string>,
+    resourceAudits?: PlannedResourceAudit[],
+    reconcileConflicts?: ProvisioningConflict[],
   ): GeneratedCommandItem[] {
     const commands: GeneratedCommandItem[] = [];
     const bridgeName = dto.lan?.bridgeName || 'bridge-hotspot';
@@ -3111,6 +3426,10 @@ export class RouterProvisioningService {
     const security = dto.securityPolicies || {};
 
     const isClean = dto.template === 'CLEAN_SETUP';
+    const allowOverwrite = Boolean((dto as any).allowOverwrite);
+    const hasActiveSubscribers =
+      (discovery?.activeHotspotSessionsCount ?? 0) > 0 ||
+      (discovery?.activeDhcpLeasesCount ?? 0) > 0;
 
     // 0. Pre-Cleanup for CLEAN_SETUP: safely remove conflicting IPs on member ports and overlapping subnets
     if (isClean && discovery) {
@@ -3188,27 +3507,55 @@ export class RouterProvisioningService {
       // and NEVER deleted via PRE_CLEANUP. Any subnet overlap on them remains an unresolvable hard conflict.
     }
 
-    // 1. LAN Bridge Creation (only if not already created, or full clean template)
-    const bridgeExists = !isClean && discovery?.bridges?.some((b) => b?.name === bridgeName);
-    if (!bridgeExists) {
-      commands.push({
+    // 1. LAN Bridge Creation (Inspect & Reconcile — never blindly add if bridge already exists)
+    const existingBridge = discovery?.bridges?.find((b) => b?.name === bridgeName);
+    const bridgeCmd = this.reconcileResource({
+      stage: 'BRIDGE_SETUP',
+      resourceType: 'Bridge',
+      identifier: bridgeName,
+      existingItem: existingBridge,
+      isMatch: () => true,
+      desiredSummary: `name=${bridgeName}`,
+      addCommand: {
         stage: 'BRIDGE_SETUP',
         command: `/interface/bridge/add =name=${bridgeName} =comment=SudaFi Hotspot Bridge`,
         description: `إنشاء جسر موحد لمنافذ المشتركين (${bridgeName})`,
-      });
-    }
+      },
+      resourceAudits,
+      reconcileConflicts,
+    });
+    if (bridgeCmd) commands.push(bridgeCmd);
 
-    // 2. Gateway IP on LAN Bridge (Assigned FIRST to ensure bridge has IP before member ports join)
-    const ipExistsOnBridge = !isClean && discovery?.ipAddresses?.some(
+    // 2. Gateway IP on LAN Bridge (Inspect & Reconcile)
+    const existingBridgeIp = discovery?.ipAddresses?.find(
       (ip) => ip?.interface === bridgeName && ip?.address === gatewayIp,
     );
-    if (!ipExistsOnBridge) {
-      commands.push({
+    const lanIpCmd = this.reconcileResource({
+      stage: 'LAN_IP',
+      resourceType: 'IP Address',
+      identifier: `${bridgeName}:${gatewayIp}`,
+      existingItem: existingBridgeIp,
+      isMatch: (ip) => ip.address === gatewayIp && !ip.disabled,
+      previousSummary: (ip) => `${ip.address} (disabled=${Boolean(ip.disabled)})`,
+      desiredSummary: gatewayIp,
+      addCommand: {
         stage: 'LAN_IP',
         command: `/ip/address/add =address=${gatewayIp} =interface=${bridgeName} =comment=SudaFi Hotspot Gateway`,
         description: `تعيين عنوان بوابة الهوتسبوت (${gatewayIp}) على الجسر`,
-      });
-    }
+      },
+      setCommand: (ip) =>
+        ip.id
+          ? {
+              stage: 'LAN_IP',
+              command: `/ip/address/set =.id=${ip.id} =disabled=no =comment=SudaFi Hotspot Gateway`,
+              description: `تفعيل عنوان بوابة الهوتسبوت (${gatewayIp}) على الجسر`,
+            }
+          : undefined,
+      allowSafeUpdate: allowOverwrite,
+      resourceAudits,
+      reconcileConflicts,
+    });
+    if (lanIpCmd) commands.push(lanIpCmd);
 
     // 3. Member Ports Assignment (only if port is not already member of this bridge)
     const rawMemberPorts = Array.isArray(dto.lan?.memberInterfaces) ? dto.lan.memberInterfaces : [];
@@ -3236,17 +3583,36 @@ export class RouterProvisioningService {
       }
     }
 
-    // 4. WAN Configuration
+    // 4. WAN Configuration (Inspect & Reconcile)
     const wanIface = (dto.wan?.interface || 'ether1').trim();
     if (dto.wan?.mode === 'DHCP') {
-      const dhcpClientExists = !isClean && discovery?.dhcpClients?.some((c) => c?.interface === wanIface);
-      if (!dhcpClientExists) {
-        commands.push({
+      const existingDhcpClient = discovery?.dhcpClients?.find((c) => c?.interface === wanIface);
+      const wanDhcpCmd = this.reconcileResource({
+        stage: 'WAN_CONFIG',
+        resourceType: 'DHCP Client',
+        identifier: wanIface,
+        existingItem: existingDhcpClient,
+        isMatch: (c) => !c.disabled,
+        previousSummary: (c) => `iface=${c.interface}, disabled=${Boolean(c.disabled)}`,
+        desiredSummary: `iface=${wanIface}, disabled=no`,
+        addCommand: {
           stage: 'WAN_CONFIG',
           command: `/ip/dhcp-client/add =interface=${wanIface} =add-default-route=yes =use-peer-dns=yes =use-peer-ntp=yes =disabled=no =comment=SudaFi WAN DHCP`,
           description: `تفعيل DHCP Client على منفذ الإنترنت (${wanIface})`,
-        });
-      }
+        },
+        setCommand: (c) =>
+          c.id
+            ? {
+                stage: 'WAN_CONFIG',
+                command: `/ip/dhcp-client/set =.id=${c.id} =disabled=no =add-default-route=yes`,
+                description: `تفعيل DHCP Client القائم على (${wanIface})`,
+              }
+            : undefined,
+        allowSafeUpdate: allowOverwrite,
+        resourceAudits,
+        reconcileConflicts,
+      });
+      if (wanDhcpCmd) commands.push(wanDhcpCmd);
     } else if (dto.wan?.mode === 'PPPOE') {
       commands.push({
         stage: 'WAN_CONFIG',
@@ -3255,30 +3621,50 @@ export class RouterProvisioningService {
       });
     } else if (dto.wan?.mode === 'STATIC') {
       if (dto.wan?.staticIp) {
-        const staticIpExists = !isClean && discovery?.ipAddresses?.some(
+        const existingStaticIp = discovery?.ipAddresses?.find(
           (ip) => ip?.interface === wanIface && ip?.address === dto.wan?.staticIp,
         );
-        if (!staticIpExists) {
-          commands.push({
+        const wanStaticCmd = this.reconcileResource({
+          stage: 'WAN_CONFIG',
+          resourceType: 'WAN Static IP',
+          identifier: `${wanIface}:${dto.wan.staticIp}`,
+          existingItem: existingStaticIp,
+          isMatch: (ip) => !ip.disabled,
+          previousSummary: (ip) => `${ip.address} (disabled=${Boolean(ip.disabled)})`,
+          desiredSummary: dto.wan.staticIp,
+          addCommand: {
             stage: 'WAN_CONFIG',
             command: `/ip/address/add =address=${dto.wan.staticIp} =interface=${wanIface} =comment=SudaFi WAN Static`,
             description: `تعيين عنوان IP ثابت لمنفذ الإنترنت (${dto.wan.staticIp})`,
-          });
-        }
+          },
+          resourceAudits,
+          reconcileConflicts,
+        });
+        if (wanStaticCmd) commands.push(wanStaticCmd);
       }
       if (dto.wan?.staticGateway) {
-        const routeExists = !isClean && discovery?.routes?.some(
+        const existingRoute = discovery?.routes?.find(
           (r) =>
             (r?.dstAddress === '0.0.0.0/0' || r?.dstAddress === '0.0.0.0') &&
             r?.gateway === dto.wan?.staticGateway,
         );
-        if (!routeExists) {
-          commands.push({
+        const routeCmd = this.reconcileResource({
+          stage: 'WAN_CONFIG',
+          resourceType: 'Default Route',
+          identifier: `0.0.0.0/0->${dto.wan.staticGateway}`,
+          existingItem: existingRoute,
+          isMatch: (r) => !r.disabled,
+          previousSummary: (r) => `gw=${r.gateway ?? '-'}, disabled=${Boolean(r.disabled)}`,
+          desiredSummary: `0.0.0.0/0->${dto.wan.staticGateway}`,
+          addCommand: {
             stage: 'WAN_CONFIG',
             command: `/ip/route/add =dst-address=0.0.0.0/0 =gateway=${dto.wan.staticGateway} =comment=SudaFi Default Route`,
             description: `إضافة المسار الافتراضي للتوجيه عبر البوابة (${dto.wan.staticGateway})`,
-          });
-        }
+          },
+          resourceAudits,
+          reconcileConflicts,
+        });
+        if (routeCmd) commands.push(routeCmd);
       }
       if (dto.wan?.staticDns && dto.wan.staticDns.length > 0) {
         commands.push({
@@ -3289,52 +3675,146 @@ export class RouterProvisioningService {
       }
     }
 
-    // 5. NAT Masquerade (only if matching rule does not exist)
+    // 5. NAT Masquerade (Inspect & Reconcile)
     if (dto.wan?.enableNat !== false) {
       const outIface = dto.wan?.mode === 'PPPOE' ? 'pppoe-out1' : wanIface;
-      const natExists = !isClean && discovery?.natRules?.some(
+      const existingNat = discovery?.natRules?.find(
         (r) => r?.action === 'masquerade' && r?.outInterface === outIface,
       );
-      if (!natExists) {
-        commands.push({
+      const natCmd = this.reconcileResource({
+        stage: 'FIREWALL_NAT',
+        resourceType: 'NAT Masquerade',
+        identifier: `srcnat:${outIface}`,
+        existingItem: existingNat,
+        isMatch: (r) => !r.disabled,
+        previousSummary: (r) => `out=${r.outInterface}, disabled=${Boolean(r.disabled)}`,
+        desiredSummary: `chain=srcnat, out=${outIface}, action=masquerade`,
+        addCommand: {
           stage: 'FIREWALL_NAT',
           command: `/ip/firewall/nat/add =chain=srcnat =out-interface=${outIface} =action=masquerade =comment=SudaFi NAT Masquerade`,
           description: `تفعيل قاعدة تحويل العناوين (Masquerade) لمنفذ الإنترنت (${outIface})`,
-        });
-      }
+        },
+        resourceAudits,
+        reconcileConflicts,
+      });
+      if (natCmd) commands.push(natCmd);
     }
 
-    // 6. IP Pool for DHCP
+    // 6. IP Pool for DHCP (Inspect & Reconcile — prevents "pool with such name exists")
     const poolRange = dto.lan?.poolRange || this.generateDefaultPoolRange(gatewayIp);
-    commands.push({
+    const existingPool = discovery?.pools?.find((p) => p?.name === poolName);
+    const poolDeps: string[] = [];
+    for (const ds of discovery?.dhcpServers || []) {
+      if ((ds as any)?.addressPool === poolName || (ds as any)?.['address-pool'] === poolName) {
+        poolDeps.push(`DHCP:${ds.name}`);
+      }
+    }
+    for (const hs of discovery?.hotspotServers || []) {
+      if ((hs as any)?.addressPool === poolName || (hs as any)?.['address-pool'] === poolName) {
+        poolDeps.push(`Hotspot:${hs.name}`);
+      }
+    }
+    const poolCmd = this.reconcileResource({
       stage: 'DHCP_POOL',
-      command: `/ip/pool/add =name=${poolName} =ranges=${poolRange} =comment=SudaFi Hotspot Pool`,
-      description: `إنشاء نطاق توزيع العناوين (${poolRange})`,
+      resourceType: 'IP Pool',
+      identifier: poolName,
+      existingItem: existingPool,
+      isMatch: (p) => String(p.ranges || '').trim() === poolRange.trim(),
+      previousSummary: (p) => String(p.ranges || 'غير محدد'),
+      desiredSummary: poolRange,
+      addCommand: {
+        stage: 'DHCP_POOL',
+        command: `/ip/pool/add =name=${poolName} =ranges=${poolRange} =comment=SudaFi Hotspot Pool`,
+        description: `إنشاء نطاق توزيع العناوين (${poolRange})`,
+      },
+      setCommand: (p) => {
+        const target = p.id ? `=.id=${p.id}` : `=.id=${poolName}`;
+        return {
+          stage: 'DHCP_POOL',
+          command: `/ip/pool/set ${target} =ranges=${poolRange} =comment=SudaFi Hotspot Pool`,
+          description: `تحديث نطاق توزيع العناوين (${poolName}) إلى (${poolRange})`,
+        };
+      },
+      dependencies: poolDeps,
+      hasActiveSubscribers,
+      allowSafeUpdate: allowOverwrite,
+      resourceAudits,
+      reconcileConflicts,
     });
+    if (poolCmd) commands.push(poolCmd);
 
-    // 7. DHCP Server and Network
+    // 7. DHCP Server and Network (Inspect & Reconcile)
     const leaseTime = dto.lan?.dhcpLeaseTime || '1h';
     const dnsList =
       dto.lan?.dnsServers && dto.lan.dnsServers.length > 0
         ? dto.lan.dnsServers.join(',')
         : `${cleanIp},8.8.8.8`;
 
-    const dhcpServerExists = !isClean && discovery?.dhcpServers?.some(
-      (s) => s?.name === dhcpServerName && s?.interface === bridgeName,
+    const existingDhcpServer = discovery?.dhcpServers?.find(
+      (s) => s?.name === dhcpServerName || s?.interface === bridgeName,
     );
-    if (!dhcpServerExists) {
-      commands.push({
+    const dhcpServerCmd = this.reconcileResource({
+      stage: 'DHCP_SERVER',
+      resourceType: 'DHCP Server',
+      identifier: dhcpServerName,
+      existingItem: existingDhcpServer,
+      isMatch: (s) =>
+        s.name === dhcpServerName &&
+        s.interface === bridgeName &&
+        !s.disabled &&
+        (!s.addressPool || s.addressPool === poolName),
+      previousSummary: (s) => `iface=${s.interface}, pool=${s.addressPool ?? '-'}, disabled=${Boolean(s.disabled)}`,
+      desiredSummary: `iface=${bridgeName}, pool=${poolName}`,
+      addCommand: {
         stage: 'DHCP_SERVER',
         command: `/ip/dhcp-server/add =name=${dhcpServerName} =interface=${bridgeName} =address-pool=${poolName} =lease-time=${leaseTime} =disabled=no =comment=SudaFi DHCP Server`,
         description: `إنشاء خادم توزيع العناوين DHCP على الجسر`,
-      });
-    }
-
-    commands.push({
-      stage: 'DHCP_NETWORK',
-      command: `/ip/dhcp-server/network/add =address=${networkBase} =gateway=${cleanIp} =dns-server=${dnsList} =comment=SudaFi DHCP Network`,
-      description: `ضبط شبكة DHCP للبوابة (${cleanIp}) و DNS (${dnsList})`,
+      },
+      setCommand: (s) => {
+        const target = s.id ? `=.id=${s.id}` : `=.id=${s.name}`;
+        return {
+          stage: 'DHCP_SERVER',
+          command: `/ip/dhcp-server/set ${target} =interface=${bridgeName} =address-pool=${poolName} =lease-time=${leaseTime} =disabled=no`,
+          description: `تحديث خادم DHCP (${s.name}) ليرتبط بالجسر (${bridgeName}) والنطاق (${poolName})`,
+        };
+      },
+      hasActiveSubscribers,
+      allowSafeUpdate: allowOverwrite,
+      resourceAudits,
+      reconcileConflicts,
     });
+    if (dhcpServerCmd) commands.push(dhcpServerCmd);
+
+    const existingDhcpNetwork = discovery?.dhcpNetworks?.find((n) => n?.address === networkBase);
+    const dhcpNetCmd = this.reconcileResource({
+      stage: 'DHCP_NETWORK',
+      resourceType: 'DHCP Network',
+      identifier: networkBase,
+      existingItem: existingDhcpNetwork,
+      isMatch: (n) =>
+        String(n.gateway || '').trim() === cleanIp &&
+        (!n.dnsServer || String(n.dnsServer).trim() === dnsList),
+      previousSummary: (n) => `gw=${n.gateway ?? '-'}, dns=${n.dnsServer ?? '-'}`,
+      desiredSummary: `gw=${cleanIp}, dns=${dnsList}`,
+      addCommand: {
+        stage: 'DHCP_NETWORK',
+        command: `/ip/dhcp-server/network/add =address=${networkBase} =gateway=${cleanIp} =dns-server=${dnsList} =comment=SudaFi DHCP Network`,
+        description: `ضبط شبكة DHCP للبوابة (${cleanIp}) و DNS (${dnsList})`,
+      },
+      setCommand: (n) =>
+        n.id
+          ? {
+              stage: 'DHCP_NETWORK',
+              command: `/ip/dhcp-server/network/set =.id=${n.id} =gateway=${cleanIp} =dns-server=${dnsList}`,
+              description: `تحديث شبكة DHCP (${networkBase}) للبوابة (${cleanIp}) و DNS (${dnsList})`,
+            }
+          : undefined,
+      hasActiveSubscribers,
+      allowSafeUpdate: allowOverwrite,
+      resourceAudits,
+      reconcileConflicts,
+    });
+    if (dhcpNetCmd) commands.push(dhcpNetCmd);
 
     // 8. DNS Allow Remote Requests
     commands.push({
@@ -3343,13 +3823,40 @@ export class RouterProvisioningService {
       description: `السماح للراوتر بالاستجابة لطلبات DNS لخدمة صفحة الدخول`,
     });
 
-    // 9. Hotspot Server Profile (with Single Device mac-cookie integration)
+    // 9. Hotspot Server Profile (Inspect & Reconcile)
     const loginBy = dto.hotspot?.loginBy || 'http-chap,http-pap,mac-cookie';
-    commands.push({
+    const htmlDir = dto.hotspot?.htmlDirectory || 'hotspot';
+    const existingHsServerProf = discovery?.hotspotServerProfiles?.find((p) => p?.name === hsProfileName);
+    const hsServerProfCmd = this.reconcileResource({
       stage: 'HOTSPOT_PROFILE',
-      command: `/ip/hotspot/profile/add =name=${hsProfileName} =hotspot-address=${cleanIp} =dns-name=${dnsName} =html-directory=${dto.hotspot?.htmlDirectory || 'hotspot'} =login-by=${loginBy} =use-radius=no`,
-      description: `إنشاء ملف تعريف خادم الهوتسبوت بالدومين (${dnsName})`,
+      resourceType: 'Hotspot Server Profile',
+      identifier: hsProfileName,
+      existingItem: existingHsServerProf,
+      isMatch: (p) =>
+        String(p.hotspotAddress || '').trim() === cleanIp &&
+        String(p.dnsName || '').trim() === dnsName &&
+        (!p.htmlDirectory || String(p.htmlDirectory).trim() === htmlDir),
+      previousSummary: (p) => `addr=${p.hotspotAddress ?? '-'}, dns=${p.dnsName ?? '-'}`,
+      desiredSummary: `addr=${cleanIp}, dns=${dnsName}`,
+      addCommand: {
+        stage: 'HOTSPOT_PROFILE',
+        command: `/ip/hotspot/profile/add =name=${hsProfileName} =hotspot-address=${cleanIp} =dns-name=${dnsName} =html-directory=${htmlDir} =login-by=${loginBy} =use-radius=no`,
+        description: `إنشاء ملف تعريف خادم الهوتسبوت بالدومين (${dnsName})`,
+      },
+      setCommand: (p) => {
+        const target = p.id ? `=.id=${p.id}` : `=.id=${hsProfileName}`;
+        return {
+          stage: 'HOTSPOT_PROFILE',
+          command: `/ip/hotspot/profile/set ${target} =hotspot-address=${cleanIp} =dns-name=${dnsName} =html-directory=${htmlDir} =login-by=${loginBy}`,
+          description: `تحديث ملف تعريف خادم الهوتسبوت (${hsProfileName})`,
+        };
+      },
+      hasActiveSubscribers,
+      allowSafeUpdate: allowOverwrite,
+      resourceAudits,
+      reconcileConflicts,
     });
+    if (hsServerProfCmd) commands.push(hsServerProfCmd);
 
     // Hotspot User Profile (Enforce Single Device per Card & Keepalive on Default Profile)
     const sharedUsersCount = security.enforceSingleDevice !== false ? 1 : 1;
@@ -3391,17 +3898,41 @@ export class RouterProvisioningService {
       }
     }
 
-    // 10. Hotspot Server (only if not already running on bridge, or full clean template)
-    const hsServerExists = !isClean && discovery?.hotspotServers?.some(
-      (s) => s?.name === hsServerName && s?.interface === bridgeName,
+    // 10. Hotspot Server (Inspect & Reconcile)
+    const existingHsServer = discovery?.hotspotServers?.find(
+      (s) => s?.name === hsServerName || s?.interface === bridgeName,
     );
-    if (!hsServerExists) {
-      commands.push({
+    const hsServerCmd = this.reconcileResource({
+      stage: 'HOTSPOT_SERVER',
+      resourceType: 'Hotspot Server',
+      identifier: hsServerName,
+      existingItem: existingHsServer,
+      isMatch: (s) =>
+        s.name === hsServerName &&
+        s.interface === bridgeName &&
+        !s.disabled &&
+        (!s.profile || s.profile === hsProfileName),
+      previousSummary: (s) => `iface=${s.interface}, prof=${s.profile ?? '-'}, disabled=${Boolean(s.disabled)}`,
+      desiredSummary: `iface=${bridgeName}, pool=${poolName}, prof=${hsProfileName}`,
+      addCommand: {
         stage: 'HOTSPOT_SERVER',
         command: `/ip/hotspot/add =name=${hsServerName} =interface=${bridgeName} =address-pool=${poolName} =profile=${hsProfileName} =disabled=no`,
         description: `إنشاء خادم الهوتسبوت الرئيسي وتفعيله على (${bridgeName})`,
-      });
-    }
+      },
+      setCommand: (s) => {
+        const target = s.id ? `=.id=${s.id}` : `=.id=${s.name}`;
+        return {
+          stage: 'HOTSPOT_SERVER',
+          command: `/ip/hotspot/set ${target} =interface=${bridgeName} =address-pool=${poolName} =profile=${hsProfileName} =disabled=no`,
+          description: `تحديث خادم الهوتسبوت (${s.name}) ليرتبط بالجسر (${bridgeName})`,
+        };
+      },
+      hasActiveSubscribers,
+      allowSafeUpdate: allowOverwrite,
+      resourceAudits,
+      reconcileConflicts,
+    });
+    if (hsServerCmd) commands.push(hsServerCmd);
 
     // 11. Walled Garden Rules for SudaFi Platform and Gateway
     commands.push({

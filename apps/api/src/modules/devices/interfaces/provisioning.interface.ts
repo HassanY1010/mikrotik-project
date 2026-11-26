@@ -44,6 +44,25 @@ export interface HotspotServerConfig {
   defaultSessionTimeout?: string; // e.g. 1d
 }
 
+export type ProvisioningResourceState =
+  | 'MISSING'
+  | 'MATCHED'
+  | 'DIFFERENT'
+  | 'CONFLICT'
+  | 'VERIFICATION_FAILED';
+
+export interface PlannedResourceAudit {
+  stage: string;
+  resourceType: string;
+  identifier: string;
+  state: ProvisioningResourceState;
+  action: 'CREATE' | 'USE_EXISTING' | 'UPDATE' | 'SKIP_CONFLICT';
+  reason: string;
+  previousValue?: string;
+  desiredValue?: string;
+  dependencies?: string[];
+}
+
 export interface RouterDiscoverySnapshot {
   resource: RouterResource;
   interfaces: RouterInterfaceItem[];
@@ -56,6 +75,12 @@ export interface RouterDiscoverySnapshot {
   mangleRules?: Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>;
   filterRules?: Array<{ id?: string; chain?: string; action?: string; comment?: string; disabled?: boolean }>;
   hotspotUserProfiles?: Array<{ id?: string; name: string; sharedUsers?: number; rateLimit?: string }>;
+  pools?: Array<{ id?: string; name: string; ranges?: string; comment?: string; nextPool?: string }>;
+  dhcpNetworks?: Array<{ id?: string; address: string; gateway?: string; dnsServer?: string; comment?: string }>;
+  hotspotServerProfiles?: Array<{ id?: string; name: string; hotspotAddress?: string; dnsName?: string; htmlDirectory?: string; loginBy?: string }>;
+  dns?: { servers?: string[]; dynamicServers?: string[]; allowRemoteRequests?: boolean };
+  activeHotspotSessionsCount?: number;
+  activeDhcpLeasesCount?: number;
   routes: RouterRouteItem[];
   hotspotServers: RouterHotspotServerItem[];
 }
@@ -122,6 +147,7 @@ export interface ProvisioningPreviewResponse {
   discovery: RouterDiscoverySnapshot;
   plannedSteps: PlannedProvisioningStep[];
   generatedCommands: GeneratedCommandItem[];
+  resourceAudits?: PlannedResourceAudit[];
   warnings: ProvisioningWarning[];
   conflicts: ProvisioningConflict[];
   securityPoliciesReport: SecurityPolicyReportItem[];
@@ -145,6 +171,9 @@ export interface ExecutedStageLog {
   stage: string;
   command?: string;
   status: 'SUCCESS' | 'FAILED' | 'SKIPPED';
+  action?: 'CREATED' | 'MATCHED_EXISTING' | 'UPDATED' | 'CONFLICT_BLOCKED' | 'FAILED' | 'SKIPPED' | 'VERIFIED';
+  previousValue?: string;
+  verified?: boolean;
   error?: string;
   timestamp: string;
 }

@@ -4837,6 +4837,133 @@ describe('RouterProvisioningService (MikroTik Provisioning Engine Phase 1)', () 
         expect(unsafePreview.conflicts.some((c) => c.resource === 'MANAGEMENT_PORT_BRIDGED')).toBe(true);
       });
     });
+
+    describe('Stage 6 Inspect-Compare-Classify & IP Pool Reconciliation', () => {
+      it('Scenario 3: should classify matching hs-pool-sudafi as MATCHED and NOT emit /ip/pool/add', async () => {
+        mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({ ...sampleDevice, host: '192.168.1.50' });
+        const dto: ProvisionPreviewDto = {
+          template: 'HOTSPOT_ON_EXISTING',
+          wan: { interface: 'ether1', mode: 'DHCP', enableNat: true },
+          lan: {
+            bridgeName: 'bridge-hotspot',
+            memberInterfaces: ['ether2'],
+            gatewayIp: '10.5.50.1/24',
+            poolRange: '10.5.50.10-10.5.50.254',
+          },
+          snapshot: {
+            resource: { uptime: '1d', version: '7.15.2', cpuLoad: 3, freeMemory: 100, totalMemory: 200, freeHdd: 10, totalHdd: 20 },
+            interfaces: [
+              { name: 'ether1', type: 'ether', running: true, disabled: false },
+              { name: 'ether2', type: 'ether', running: true, disabled: false },
+            ],
+            bridges: [{ name: 'bridge-hotspot' }],
+            bridgePorts: [{ bridge: 'bridge-hotspot', interface: 'ether2', horizon: 1 }],
+            ipAddresses: [
+              { address: '192.168.1.50/24', interface: 'ether1', disabled: false },
+              { address: '10.5.50.1/24', interface: 'bridge-hotspot', disabled: false },
+            ],
+            dhcpClients: [{ interface: 'ether1', disabled: false }],
+            dhcpServers: [{ name: 'dhcp-sudafi', interface: 'bridge-hotspot', addressPool: 'hs-pool-sudafi', disabled: false }],
+            dhcpNetworks: [{ id: '*1', address: '10.5.50.0/24', gateway: '10.5.50.1' }],
+            pools: [{ id: '*1', name: 'hs-pool-sudafi', ranges: '10.5.50.10-10.5.50.254' }],
+            natRules: [{ action: 'masquerade', outInterface: 'ether1' }],
+            routes: [{ dstAddress: '0.0.0.0/0', gateway: '192.168.1.1', disabled: false }],
+            hotspotServers: [{ name: 'hs-sudafi', interface: 'bridge-hotspot', profile: 'hsp-sudafi', disabled: false }],
+            hotspotServerProfiles: [{ id: '*1', name: 'hsp-sudafi', hotspotAddress: '10.5.50.1', dnsName: 'login.sudafi.net' }],
+            hotspotUserProfiles: [{ id: '*1', name: 'hsp-sudafi', rateLimit: '2M/5M', sharedUsers: 1 }],
+          },
+          discoveredAt: new Date().toISOString(),
+        };
+
+        const preview = await service.preview('tenant-001', 'dev-001', dto);
+        expect(preview.generatedCommands.some((c) => c.command.includes('/ip/pool/add'))).toBe(false);
+        expect(preview.generatedCommands.some((c) => c.command.includes('/ip/dhcp-server/add'))).toBe(false);
+        expect(preview.generatedCommands.some((c) => c.command.includes('/ip/hotspot/add'))).toBe(false);
+        const poolAudit = preview.resourceAudits?.find((a) => a.identifier === 'hs-pool-sudafi');
+        expect(poolAudit?.state).toBe('MATCHED');
+        expect(poolAudit?.action).toBe('USE_EXISTING');
+      });
+
+      it('Scenario 4 & 6: should block hs-pool-sudafi modification as CONFLICT when ranges differ and active subscribers exist', async () => {
+        mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({ ...sampleDevice, host: '192.168.1.50' });
+        const dto: ProvisionPreviewDto = {
+          template: 'HOTSPOT_ON_EXISTING',
+          wan: { interface: 'ether1', mode: 'DHCP', enableNat: true },
+          lan: {
+            bridgeName: 'bridge-hotspot',
+            memberInterfaces: ['ether2'],
+            gatewayIp: '10.5.50.1/24',
+            poolRange: '10.5.50.10-10.5.50.254',
+          },
+          snapshot: {
+            resource: { uptime: '1d', version: '7.15.2', cpuLoad: 3, freeMemory: 100, totalMemory: 200, freeHdd: 10, totalHdd: 20 },
+            interfaces: [
+              { name: 'ether1', type: 'ether', running: true, disabled: false },
+              { name: 'ether2', type: 'ether', running: true, disabled: false },
+            ],
+            bridges: [{ name: 'bridge-hotspot' }],
+            bridgePorts: [],
+            ipAddresses: [{ address: '192.168.1.50/24', interface: 'ether1', disabled: false }],
+            dhcpClients: [],
+            dhcpServers: [{ name: 'dhcp-sudafi', interface: 'bridge-hotspot', addressPool: 'hs-pool-sudafi', disabled: false }],
+            pools: [{ id: '*1', name: 'hs-pool-sudafi', ranges: '10.5.50.50-10.5.50.200' }],
+            natRules: [],
+            routes: [{ dstAddress: '0.0.0.0/0', gateway: '192.168.1.1', disabled: false }],
+            hotspotServers: [],
+            activeHotspotSessionsCount: 4,
+          },
+          discoveredAt: new Date().toISOString(),
+        };
+
+        const preview = await service.preview('tenant-001', 'dev-001', dto);
+        const poolAudit = preview.resourceAudits?.find((a) => a.identifier === 'hs-pool-sudafi');
+        expect(poolAudit?.state).toBe('CONFLICT');
+        expect(poolAudit?.action).toBe('SKIP_CONFLICT');
+        expect(preview.conflicts.some((c) => c.resource === 'IP Pool:hs-pool-sudafi')).toBe(true);
+        expect(preview.generatedCommands.some((c) => c.command.includes('/ip/pool/add'))).toBe(false);
+        expect(preview.generatedCommands.some((c) => c.command.includes('/ip/pool/set'))).toBe(false);
+      });
+
+      it('Scenario 4b: should safely emit /ip/pool/set when hs-pool-sudafi has different range and allowOverwrite=true with 0 active subscribers', async () => {
+        mockPrisma.mikroTikDevice.findFirst.mockResolvedValue({ ...sampleDevice, host: '192.168.1.50' });
+        const dto: ProvisionPreviewDto = {
+          template: 'HOTSPOT_ON_EXISTING',
+          allowOverwrite: true,
+          wan: { interface: 'ether1', mode: 'DHCP', enableNat: true },
+          lan: {
+            bridgeName: 'bridge-hotspot',
+            memberInterfaces: ['ether2'],
+            gatewayIp: '10.5.50.1/24',
+            poolRange: '10.5.50.10-10.5.50.254',
+          },
+          snapshot: {
+            resource: { uptime: '1d', version: '7.15.2', cpuLoad: 3, freeMemory: 100, totalMemory: 200, freeHdd: 10, totalHdd: 20 },
+            interfaces: [
+              { name: 'ether1', type: 'ether', running: true, disabled: false },
+              { name: 'ether2', type: 'ether', running: true, disabled: false },
+            ],
+            bridges: [{ name: 'bridge-hotspot' }],
+            bridgePorts: [],
+            ipAddresses: [{ address: '192.168.1.50/24', interface: 'ether1', disabled: false }],
+            dhcpClients: [],
+            dhcpServers: [],
+            pools: [{ id: '*A', name: 'hs-pool-sudafi', ranges: '10.5.50.50-10.5.50.200' }],
+            natRules: [],
+            routes: [{ dstAddress: '0.0.0.0/0', gateway: '192.168.1.1', disabled: false }],
+            hotspotServers: [],
+            activeHotspotSessionsCount: 0,
+            activeDhcpLeasesCount: 0,
+          },
+          discoveredAt: new Date().toISOString(),
+        };
+
+        const preview = await service.preview('tenant-001', 'dev-001', dto);
+        const poolAudit = preview.resourceAudits?.find((a) => a.identifier === 'hs-pool-sudafi');
+        expect(poolAudit?.state).toBe('DIFFERENT');
+        expect(poolAudit?.action).toBe('UPDATE');
+        expect(preview.generatedCommands.some((c) => c.command.includes('/ip/pool/set =.id=*A =ranges=10.5.50.10-10.5.50.254'))).toBe(true);
+      });
+    });
   });
 });
 
