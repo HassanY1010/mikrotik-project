@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../router_setup/presentation/router_setup_screen.dart';
+import 'quick_add_router_sheet.dart';
 
 class MyRoutersScreen extends ConsumerStatefulWidget {
   const MyRoutersScreen({super.key});
@@ -508,9 +508,7 @@ class _MyRoutersScreenState extends ConsumerState<MyRoutersScreen> {
                     child: ElevatedButton.icon(
                       onPressed: () {
                         HapticFeedback.mediumImpact();
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const RouterSetupScreen()),
-                        );
+                        showQuickAddRouterModal(context, ref);
                       },
                       icon: const Icon(Icons.add, color: Colors.white, size: 22),
                       label: const Text(
