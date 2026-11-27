@@ -660,6 +660,154 @@ class MikrotikDiscoveryService {
     return tryBinary();
   }
 
+  /// Lightweight live CPU & resource reader for high-frequency dashboard polling.
+  /// Queries ONLY /system/resource/print (without active hotspot sessions) to minimize router load & latency.
+  Future<Map<String, dynamic>> fetchLiveCpuAndResourcesLocally({
+    required String host,
+    required String username,
+    required String password,
+    int apiPort = 8728,
+    int restPort = 80,
+    String rosVersion = 'V7',
+    bool useSsl = false,
+  }) async {
+    final normalizedRos = rosVersion.toUpperCase();
+    final preferBinaryFirst = normalizedRos.contains('V6') && !normalizedRos.contains('V7');
+
+    Future<Map<String, dynamic>> tryBinaryFast() async {
+      final start = DateTime.now();
+      final binClient = _LocalMikrotikBinaryApiClient(
+        host: host,
+        port: apiPort,
+        useSsl: useSsl,
+      );
+      try {
+        await binClient.connect(timeout: const Duration(seconds: 3));
+        final authOk = await binClient.login(username, password);
+        final latency = DateTime.now().difference(start).inMilliseconds;
+        if (!authOk) {
+          return {
+            'success': false,
+            'code': 'INVALID_CREDENTIALS',
+            'message': 'بيانات تسجيل الدخول غير صحيحة عبر منفذ API ($apiPort)',
+          };
+        }
+
+        Map<String, dynamic> resAttrs = {};
+        int? avgCpu;
+        final resRows = await binClient.sendCommand(
+          ['/system/resource/print'],
+          timeout: const Duration(seconds: 3),
+        );
+        if (resRows.isNotEmpty) {
+          resAttrs = Map<String, dynamic>.from(resRows.first);
+        }
+
+        if (resAttrs['cpu-load'] == null && resAttrs['cpuLoad'] == null) {
+          try {
+            final cpuRows = await binClient.sendCommand(
+              ['/system/resource/cpu/print'],
+              timeout: const Duration(seconds: 2),
+            );
+            if (cpuRows.isNotEmpty) {
+              int sum = 0;
+              int count = 0;
+              for (final c in cpuRows) {
+                final l = _parseMikrotikInt(c['load'] ?? c['cpu-load']);
+                if (l != null) {
+                  sum += l;
+                  count++;
+                }
+              }
+              if (count > 0) avgCpu = (sum / count).round();
+            }
+          } catch (_) {}
+        }
+
+        return {
+          'success': true,
+          'code': 'CONNECTED_SUCCESS',
+          'latencyMs': latency,
+          'verifiedAt': DateTime.now().toUtc().toIso8601String(),
+          'routerInfo': _buildRouterInfo(
+            rawResource: resAttrs,
+            fallbackVersion: rosVersion,
+            protocol: 'API Socket (Live CPU)',
+            avgCpuLoad: avgCpu,
+          ),
+        };
+      } on _LocalBinaryAuthException catch (authErr) {
+        return {
+          'success': false,
+          'code': 'INVALID_CREDENTIALS',
+          'message': authErr.message,
+        };
+      } catch (_) {
+        return {
+          'success': false,
+          'code': 'CONNECTION_FAILED',
+          'message': 'تعذر الاتصال بالراوتر محلياً ($host)',
+        };
+      } finally {
+        await binClient.close();
+      }
+    }
+
+    Future<Map<String, dynamic>?> tryRestFast() async {
+      final start = DateTime.now();
+      HttpClient? httpClient;
+      try {
+        httpClient = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 2)
+          ..badCertificateCallback = (cert, h, p) => true;
+        final targetRestPort = useSsl ? (restPort == 80 ? 443 : restPort) : (restPort == 443 ? 80 : restPort);
+        final scheme = useSsl ? 'https' : 'http';
+        final authHeader = 'Basic ${base64Encode(utf8.encode('$username:$password'))}';
+        final req = await httpClient.getUrl(Uri.parse('$scheme://$host:$targetRestPort/rest/system/resource')).timeout(const Duration(seconds: 2));
+        req.headers.set('Authorization', authHeader);
+        req.headers.set('Accept', 'application/json');
+        final res = await req.close().timeout(const Duration(seconds: 3));
+        final latency = DateTime.now().difference(start).inMilliseconds;
+        if (res.statusCode == 401) {
+          return {
+            'success': false,
+            'code': 'INVALID_CREDENTIALS',
+            'message': 'بيانات تسجيل الدخول غير صحيحة عبر REST',
+          };
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          final body = await utf8.decodeStream(res).timeout(const Duration(seconds: 2));
+          final decoded = jsonDecode(body);
+          if (decoded is Map) {
+            return {
+              'success': true,
+              'code': 'CONNECTED_SUCCESS',
+              'latencyMs': latency,
+              'verifiedAt': DateTime.now().toUtc().toIso8601String(),
+              'routerInfo': _buildRouterInfo(
+                rawResource: Map<String, dynamic>.from(decoded),
+                fallbackVersion: rosVersion,
+                protocol: 'REST API (Live CPU)',
+              ),
+            };
+          }
+        }
+      } catch (_) {
+        return null;
+      } finally {
+        httpClient?.close(force: true);
+      }
+      return null;
+    }
+
+    if (preferBinaryFirst) {
+      return tryBinaryFast();
+    }
+    final rest = await tryRestFast();
+    if (rest != null) return rest;
+    return tryBinaryFast();
+  }
+
   /// Fetch active Hotspot sessions directly over the client LAN (fallback when cloud cannot reach private LAN IP).
   Future<List<Map<String, dynamic>>> fetchLocalActiveSessions({
     required RouterDeviceModel device,

@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsIn,
@@ -10,9 +12,57 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { RouterOsVersion } from '@prisma/client';
+
+export class CpuDiagnosticLogDto {
+  @IsInt()
+  @Min(0)
+  seq!: number;
+
+  @IsISO8601()
+  timestamp!: string;
+
+  @IsIn(['OK', 'FAIL', 'TIMEOUT', 'SKIP_OVERLAP'])
+  status!: 'OK' | 'FAIL' | 'TIMEOUT' | 'SKIP_OVERLAP';
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  cpuLoad?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(120000)
+  rttMs?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(3600000)
+  deltaMs?: number;
+
+  @IsInt()
+  @Min(0)
+  ok!: number;
+
+  @IsInt()
+  @Min(0)
+  fail!: number;
+
+  @IsInt()
+  @Min(0)
+  timeout!: number;
+
+  @IsInt()
+  @Min(0)
+  skippedOverlaps!: number;
+}
 
 export class ReportLocalTelemetryDto {
   @ApiProperty({ description: 'Whether the local LAN probe succeeded' })
@@ -140,4 +190,15 @@ export class ReportLocalTelemetryDto {
   @IsString()
   @MaxLength(32)
   protocol?: string;
+
+  @ApiPropertyOptional({
+    description: 'Bounded batch of client CPU polling diagnostic logs (printed to server logs only, never stored in DB)',
+    type: [CpuDiagnosticLogDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => CpuDiagnosticLogDto)
+  cpuDiagnostics?: CpuDiagnosticLogDto[];
 }

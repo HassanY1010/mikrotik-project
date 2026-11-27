@@ -65,11 +65,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   bool _isSyncing = false;
   DateTime? _lastResumeRefreshAt;
 
-  // Real-time live polling engine
+  // Real-time live polling engine (decoupled fast CPU telemetry vs heavy secondary refreshes)
   Timer? _livePollingTimer;
+  Timer? _heavyRefreshTimer;
   bool _isPollingMetrics = false;
+  bool _isRefreshingHeavy = false;
   DateTime? _lastMetricsPollSuccessAt;
-  int _pollCycleCounter = 0;
   FinancialReportModel? _lastKnownFinance;
 
   @override
@@ -82,6 +83,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   @override
   void dispose() {
     _livePollingTimer?.cancel();
+    _heavyRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -98,23 +100,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       }
     } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       _livePollingTimer?.cancel();
+      _heavyRefreshTimer?.cancel();
     }
   }
 
   void _startLiveDashboardPolling() {
     _livePollingTimer?.cancel();
-    // Immediate initial poll on start
+    _heavyRefreshTimer?.cancel();
+    // Immediate initial polls on start
     Future.microtask(() => _executeDashboardPollingTick());
-    // Live polling every 5 seconds for router resources & active users
-    _livePollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    Future.microtask(() => _executeHeavyDashboardRefresh());
+    // Fast CPU & resource polling every 1.5 seconds (strictly serialized, never blocked by heavy queries)
+    _livePollingTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
       _executeDashboardPollingTick();
+    });
+    // Heavy secondary refreshes (sessions, reports, cards) every 10 seconds on independent timer
+    _heavyRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _executeHeavyDashboardRefresh();
     });
   }
 
   Future<void> _executeDashboardPollingTick() async {
     if (_isPollingMetrics || !mounted) return;
     _isPollingMetrics = true;
-    _pollCycleCounter++;
 
     try {
       final selectedId = ref.read(selectedRouterIdProvider);
@@ -124,7 +132,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           : (routers.isNotEmpty ? routers.first : null);
 
       if (currentRouter != null) {
-        // Poll live router resources (CPU, RAM, DISK, Uptime)
         final updatedRouter = await ref
             .read(routersProvider.notifier)
             .pollRouterTelemetry(currentRouter.id);
@@ -135,21 +142,28 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           });
         }
       }
-
-      // Refresh Active Hotspot Users, Card inventory & Financial report concurrently every other cycle (every ~10s)
-      if (_pollCycleCounter % 2 == 0 || _lastMetricsPollSuccessAt == null) {
-        ref.read(offlineCardsProvider.notifier).refresh();
-        await Future.wait([
-          ref.read(activeSessionsProvider.notifier).refresh(),
-          ref.read(financialReportProvider.notifier).refresh(),
-          ref.read(cardsInventoryProvider.notifier).refresh(),
-          ref.read(routerHotspotCardsProvider.notifier).refresh(),
-        ]);
-      }
     } catch (err) {
       debugPrint('Dashboard live polling tick warning: $err');
     } finally {
       _isPollingMetrics = false;
+    }
+  }
+
+  Future<void> _executeHeavyDashboardRefresh() async {
+    if (_isRefreshingHeavy || !mounted) return;
+    _isRefreshingHeavy = true;
+    try {
+      ref.read(offlineCardsProvider.notifier).refresh();
+      await Future.wait([
+        ref.read(activeSessionsProvider.notifier).refresh(),
+        ref.read(financialReportProvider.notifier).refresh(),
+        ref.read(cardsInventoryProvider.notifier).refresh(),
+        ref.read(routerHotspotCardsProvider.notifier).refresh(),
+      ]);
+    } catch (err) {
+      debugPrint('Dashboard heavy refresh warning: $err');
+    } finally {
+      _isRefreshingHeavy = false;
     }
   }
 

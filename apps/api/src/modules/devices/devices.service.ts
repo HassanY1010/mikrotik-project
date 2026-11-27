@@ -1143,6 +1143,14 @@ export class DevicesService {
   ): Promise<DeviceResponse> {
     const device = await this.assertUserDeviceAccess(tenantId, id, currentUser);
 
+    if (dto.cpuDiagnostics?.length) {
+      for (const entry of dto.cpuDiagnostics.slice(0, 20)) {
+        this.logger.log(
+          `[CpuTelemetryDiag] device=${device.id} tenant=${device.tenantId} seq=${entry.seq} status=${entry.status} cpu=${entry.cpuLoad ?? '-'} rttMs=${entry.rttMs ?? '-'} deltaMs=${entry.deltaMs ?? 'first'} ok=${entry.ok} fail=${entry.fail} timeout=${entry.timeout} skippedOverlaps=${entry.skippedOverlaps} ts=${entry.timestamp}`,
+        );
+      }
+    }
+
     const now = new Date();
     let verifiedAt = now;
     if (dto.verifiedAt) {

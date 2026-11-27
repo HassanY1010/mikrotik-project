@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -813,16 +814,159 @@ final selectedRouterIdProvider = NotifierProvider<SelectedRouterNotifier, String
   SelectedRouterNotifier.new,
 );
 
-/// Per-router synchronization lock and timestamp fence preventing duplicate sockets and stale data
+/// In-memory diagnostic counters & monotonic timing snapshot for CPU polling.
+class CpuTelemetryDiagSnapshot {
+  int skippedOverlaps = 0;
+  int successCount = 0;
+  int failureCount = 0;
+  int timeoutCount = 0;
+  int? lastRttMs;
+  int? lastDeltaMs;
+  int? lastSampleMonotonicMs;
+  int? lastCpuLoad;
+
+  CpuTelemetryDiagSnapshot copy() => CpuTelemetryDiagSnapshot()
+    ..skippedOverlaps = skippedOverlaps
+    ..successCount = successCount
+    ..failureCount = failureCount
+    ..timeoutCount = timeoutCount
+    ..lastRttMs = lastRttMs
+    ..lastDeltaMs = lastDeltaMs
+    ..lastSampleMonotonicMs = lastSampleMonotonicMs
+    ..lastCpuLoad = lastCpuLoad;
+}
+
+/// Per-router synchronization lock and monotonic sequence/timestamp fence preventing duplicate sockets and stale data
 class RouterSyncCoordinator {
   static final Map<String, bool> _activeLocks = {};
   static final Map<String, int> _lastCompletedTimestamps = {};
+  static final Map<String, int> _seqCounters = {};
+  static final Map<String, int> _lastCompletedSeq = {};
+  static final Stopwatch _monotonicClock = Stopwatch()..start();
+  static final Map<String, CpuTelemetryDiagSnapshot> _diagnostics = {};
+  static const int maxDiagBatchSize = 20;
+  static final Map<String, List<Map<String, dynamic>>> _pendingDiagLogs = {};
+
+  static int currentMonotonicMs() => _monotonicClock.elapsedMilliseconds;
+
+  static CpuTelemetryDiagSnapshot getDiagnostics(String deviceId) =>
+      (_diagnostics[deviceId] ?? CpuTelemetryDiagSnapshot()).copy();
+
+  static void resetDiagnostics([String? deviceId]) {
+    if (deviceId != null) {
+      _diagnostics.remove(deviceId);
+      _pendingDiagLogs.remove(deviceId);
+    } else {
+      _diagnostics.clear();
+      _pendingDiagLogs.clear();
+    }
+  }
+
+  static void _enqueueDiagLog(String deviceId, Map<String, dynamic> entry) {
+    final queue = _pendingDiagLogs.putIfAbsent(deviceId, () => []);
+    if (queue.length >= maxDiagBatchSize) {
+      queue.removeAt(0);
+    }
+    queue.add(entry);
+  }
+
+  static List<Map<String, dynamic>> drainDiagLogs(String deviceId, {int maxCount = maxDiagBatchSize}) {
+    final queue = _pendingDiagLogs[deviceId];
+    if (queue == null || queue.isEmpty) return const [];
+    final takeCount = queue.length > maxCount ? maxCount : queue.length;
+    final batch = List<Map<String, dynamic>>.from(queue.take(takeCount));
+    queue.clear();
+    return batch;
+  }
+
+  static void recordSkippedOverlap(String deviceId) {
+    final diag = _diagnostics.putIfAbsent(deviceId, CpuTelemetryDiagSnapshot.new);
+    diag.skippedOverlaps++;
+    final nowMono = _monotonicClock.elapsedMilliseconds;
+    _enqueueDiagLog(deviceId, {
+      'seq': _seqCounters[deviceId] ?? 0,
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
+      'status': 'SKIP_OVERLAP',
+      'ok': diag.successCount,
+      'fail': diag.failureCount,
+      'timeout': diag.timeoutCount,
+      'skippedOverlaps': diag.skippedOverlaps,
+    });
+    debugPrint(
+      '[CpuTelemetryDiag] device=$deviceId event=SKIP_OVERLAP '
+      'monotonicMs=$nowMono skippedOverlaps=${diag.skippedOverlaps}',
+    );
+  }
+
+  static void recordTelemetrySample({
+    required String deviceId,
+    required int seq,
+    required int rttMs,
+    required bool success,
+    bool isTimeout = false,
+    int? cpuLoad,
+  }) {
+    final diag = _diagnostics.putIfAbsent(deviceId, CpuTelemetryDiagSnapshot.new);
+    final nowMono = _monotonicClock.elapsedMilliseconds;
+    final prevMono = diag.lastSampleMonotonicMs;
+    final deltaMs = prevMono != null ? (nowMono - prevMono) : null;
+    diag.lastSampleMonotonicMs = nowMono;
+    diag.lastRttMs = rttMs;
+    diag.lastDeltaMs = deltaMs;
+    if (success) {
+      diag.successCount++;
+      diag.lastCpuLoad = cpuLoad;
+    } else {
+      diag.failureCount++;
+      if (isTimeout) {
+        diag.timeoutCount++;
+      }
+    }
+    final status = success ? 'OK' : (isTimeout ? 'TIMEOUT' : 'FAIL');
+    _enqueueDiagLog(deviceId, {
+      'seq': seq,
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
+      'status': status,
+      if (cpuLoad != null) 'cpuLoad': cpuLoad,
+      'rttMs': rttMs,
+      if (deltaMs != null) 'deltaMs': deltaMs,
+      'ok': diag.successCount,
+      'fail': diag.failureCount,
+      'timeout': diag.timeoutCount,
+      'skippedOverlaps': diag.skippedOverlaps,
+    });
+    debugPrint(
+      '[CpuTelemetryDiag] device=$deviceId seq=$seq status=$status '
+      'cpu=${cpuLoad ?? '-'} rttMs=$rttMs deltaMs=${deltaMs ?? 'first'} '
+      'monotonicMs=$nowMono ok=${diag.successCount} fail=${diag.failureCount} '
+      'timeout=${diag.timeoutCount} skippedOverlaps=${diag.skippedOverlaps}',
+    );
+  }
 
   static bool isLocked(String deviceId) => _activeLocks[deviceId] == true;
 
+  static int nextSeq(String deviceId) {
+    final next = (_seqCounters[deviceId] ?? 0) + 1;
+    _seqCounters[deviceId] = next;
+    return next;
+  }
+
+  static bool isSeqStale(String deviceId, int seq) {
+    final last = _lastCompletedSeq[deviceId];
+    if (last == null) return false;
+    return seq < last;
+  }
+
+  static void recordSeq(String deviceId, int seq) {
+    final prev = _lastCompletedSeq[deviceId] ?? 0;
+    if (seq > prev) {
+      _lastCompletedSeq[deviceId] = seq;
+    }
+  }
+
   static Future<T?> runLocked<T>(String deviceId, Future<T?> Function() action) async {
     if (_activeLocks[deviceId] == true) {
-      debugPrint('[RouterSyncCoordinator] Skipped overlapping sync for device $deviceId');
+      recordSkippedOverlap(deviceId);
       return null;
     }
     _activeLocks[deviceId] = true;
@@ -841,6 +985,12 @@ class RouterSyncCoordinator {
     final last = _lastCompletedTimestamps[deviceId];
     if (last == null) return false;
     return startedAtMs < last;
+  }
+
+  static bool hasRecentLiveSample(String deviceId, {int maxAgeMs = 10000}) {
+    final last = _lastCompletedTimestamps[deviceId];
+    if (last == null) return false;
+    return (DateTime.now().millisecondsSinceEpoch - last) <= maxAgeMs;
   }
 }
 
@@ -899,8 +1049,29 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
 
   Future<void> refresh() async {
     try {
+      final previousById = <String, RouterDeviceModel>{
+        for (final r in (state.asData?.value ?? const <RouterDeviceModel>[])) r.id: r,
+      };
       final fresh = await _fetch();
-      state = AsyncValue.data(fresh);
+      // Preserve fresher live CPU/resource telemetry if polled recently (never overwrite with stale DB CPU)
+      final merged = fresh.map((item) {
+        final prev = previousById[item.id];
+        if (prev != null &&
+            prev.cpuLoad != null &&
+            RouterSyncCoordinator.hasRecentLiveSample(item.id, maxAgeMs: 10000)) {
+          return item.copyWith(
+            cpuLoad: prev.cpuLoad,
+            memoryUsagePercent: prev.memoryUsagePercent ?? item.memoryUsagePercent,
+            diskUsagePercent: prev.diskUsagePercent ?? item.diskUsagePercent,
+            uptime: prev.uptime ?? item.uptime,
+            isOnline: prev.isOnline,
+            status: prev.status,
+            connectivityState: prev.connectivityState,
+          );
+        }
+        return item;
+      }).toList();
+      state = AsyncValue.data(merged);
     } catch (e, st) {
       // If we already hold routers, preserve them non-destructively
       if (state.hasValue && state.value!.isNotEmpty) {
@@ -1056,7 +1227,13 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
     required Map<String, dynamic> verificationResult,
     required String reportedHost,
     String? rosVersion,
+    int? seq,
+    bool skipDiskCache = false,
+    bool skipCloudSync = false,
   }) async {
+    if (seq != null && RouterSyncCoordinator.isSeqStale(deviceId, seq)) {
+      return null;
+    }
     final isSuccess = verificationResult['success'] == true;
     final routerInfo = (verificationResult['routerInfo'] is Map)
         ? Map<String, dynamic>.from(verificationResult['routerInfo'] as Map)
@@ -1156,37 +1333,72 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         clearMetrics: !isSuccess,
       );
       existingList[idx] = localUpdatedModel;
-      debugPrint('[reportLocalTelemetry -> Dashboard State] Device: $deviceId | Host: $reportedHost | CPU: ${localUpdatedModel.cpuLoad}% | RAM: ${localUpdatedModel.effectiveMemoryUsagePercent}% | DISK: ${localUpdatedModel.effectiveDiskUsagePercent}% | Timestamp: ${payload['verifiedAt']}');
+      if (seq != null) {
+        RouterSyncCoordinator.recordSeq(deviceId, seq);
+      }
       state = AsyncValue.data(existingList);
-      ref.read(localStorageProvider).saveCachedRouters(existingList);
+      if (!skipDiskCache) {
+        ref.read(localStorageProvider).saveCachedRouters(existingList);
+      }
     }
 
     // 2. Non-blocking asynchronous cloud sync (fire & sync without stalling UI)
-    Future.microtask(() async {
-      try {
-        final apiClient = ref.read(apiClientProvider);
-        await apiClient.post(
-          ApiEndpoints.deviceLocalTelemetry(deviceId),
-          data: payload,
-          options: Options(
-            sendTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 10),
-          ),
-        );
-      } catch (_) {
-        // Ignored: local telemetry is already authoritatively persisted on phone
+    if (!skipCloudSync && _cloudSyncInFlight[deviceId] != true) {
+      final diagBatch = RouterSyncCoordinator.drainDiagLogs(deviceId);
+      if (diagBatch.isNotEmpty) {
+        payload['cpuDiagnostics'] = diagBatch;
       }
-    });
+      _cloudSyncInFlight[deviceId] = true;
+      Future.microtask(() async {
+        try {
+          final apiClient = ref.read(apiClientProvider);
+          await apiClient.post(
+            ApiEndpoints.deviceLocalTelemetry(deviceId),
+            data: payload,
+            options: Options(
+              sendTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 10),
+            ),
+          );
+        } catch (_) {
+          // Ignored: local telemetry is already authoritatively persisted on phone
+        } finally {
+          _cloudSyncInFlight[deviceId] = false;
+        }
+      });
+    }
 
     return localUpdatedModel;
   }
 
+  static final Map<String, int> _lastCloudSyncMs = {};
+  static final Map<String, bool> _cloudSyncInFlight = {};
+
+  static bool _isTimeoutError(Object e) {
+    if (e is TimeoutException) return true;
+    if (e is DioException) {
+      return e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.sendTimeout;
+    }
+    final msg = e.toString().toLowerCase();
+    return msg.contains('timeout') || msg.contains('timed out');
+  }
+
+  static bool _isTimeoutResult(Map<String, dynamic> res) {
+    final code = (res['code'] ?? '').toString().toUpperCase();
+    if (code.contains('TIMEOUT')) return true;
+    final msg = (res['message'] ?? '').toString().toLowerCase();
+    return msg.contains('timeout') || msg.contains('timed out') || msg.contains('انتهت مهلة');
+  }
+
   /// Polls router telemetry (CPU, RAM, DISK, Uptime, Active Sessions) periodically.
-  /// For private LAN routers, directly probes the router on the local network.
+  /// For private LAN routers, directly probes the router on the local network using fast CPU/resource path.
   /// For cloud-connected routers, queries the diagnostics endpoint.
   Future<RouterDeviceModel?> pollRouterTelemetry(String deviceId) async {
     return RouterSyncCoordinator.runLocked(deviceId, () async {
       final startedAtMs = DateTime.now().millisecondsSinceEpoch;
+      final seq = RouterSyncCoordinator.nextSeq(deviceId);
       final routers = state.asData?.value ?? const <RouterDeviceModel>[];
       final targetDevice = routers.cast<RouterDeviceModel?>().firstWhere(
             (r) => r?.id == deviceId,
@@ -1212,8 +1424,9 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
         }
 
         if (pwd != null && pwd.isNotEmpty) {
+          final rttWatch = Stopwatch()..start();
           try {
-            final localRes = await discovery.verifyCredentialsLocally(
+            final localRes = await discovery.fetchLiveCpuAndResourcesLocally(
               host: targetDevice.host,
               username: targetDevice.username,
               password: pwd,
@@ -1222,34 +1435,83 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
               rosVersion: targetDevice.rosVersion,
               useSsl: targetDevice.useSsl,
             );
+            rttWatch.stop();
 
-            if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
+            if (RouterSyncCoordinator.isSeqStale(deviceId, seq) ||
+                RouterSyncCoordinator.isStale(deviceId, startedAtMs)) {
+              return null;
+            }
+
+            final isSuccess = localRes['success'] == true;
+            final newCpuRaw = localRes['routerInfo'] is Map
+                ? (localRes['routerInfo'] as Map)['cpuLoad']
+                : null;
+            final newCpuInt = newCpuRaw is num
+                ? newCpuRaw.toInt()
+                : int.tryParse(newCpuRaw?.toString() ?? '');
+            RouterSyncCoordinator.recordTelemetrySample(
+              deviceId: deviceId,
+              seq: seq,
+              rttMs: rttWatch.elapsedMilliseconds,
+              success: isSuccess,
+              isTimeout: !isSuccess && _isTimeoutResult(localRes),
+              cpuLoad: isSuccess ? newCpuInt : null,
+            );
+
+            final nowMs = DateTime.now().millisecondsSinceEpoch;
+            final lastCloud = _lastCloudSyncMs[deviceId] ?? 0;
+            final shouldSyncCloud = (nowMs - lastCloud) >= 10000 ||
+                isSuccess != targetDevice.isEffectiveOnline;
+            if (shouldSyncCloud) {
+              _lastCloudSyncMs[deviceId] = nowMs;
+            }
+
+            final cpuUnchanged = newCpuRaw == targetDevice.cpuLoad &&
+                isSuccess == targetDevice.isEffectiveOnline;
 
             final updated = await reportLocalTelemetry(
               deviceId: deviceId,
               verificationResult: localRes,
               reportedHost: targetDevice.host,
               rosVersion: targetDevice.rosVersion,
+              seq: seq,
+              skipDiskCache: cpuUnchanged && !shouldSyncCloud,
+              skipCloudSync: !shouldSyncCloud,
             );
 
-            if (localRes['success'] == true) {
+            if (isSuccess) {
               ref.read(radarLastUpdatedProvider.notifier).update(DateTime.now());
             }
 
             RouterSyncCoordinator.recordCompleted(deviceId, startedAtMs);
             return updated;
           } catch (e) {
+            rttWatch.stop();
             debugPrint('Local LAN telemetry poll error for ${targetDevice.name}: $e');
-            if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
+            if (RouterSyncCoordinator.isSeqStale(deviceId, seq) ||
+                RouterSyncCoordinator.isStale(deviceId, startedAtMs)) {
+              return null;
+            }
+            final isTimeout = _isTimeoutError(e);
+            RouterSyncCoordinator.recordTelemetrySample(
+              deviceId: deviceId,
+              seq: seq,
+              rttMs: rttWatch.elapsedMilliseconds,
+              success: false,
+              isTimeout: isTimeout,
+            );
             final updated = await reportLocalTelemetry(
               deviceId: deviceId,
               verificationResult: {
                 'success': false,
-                'code': 'OFFLINE',
-                'message': 'انقطع الاتصال بالراوتر (الجهاز مطفأ أو مفصول عن الشبكة)',
+                'code': isTimeout ? 'TIMEOUT' : 'OFFLINE',
+                'message': isTimeout
+                    ? 'انتهت مهلة الاتصال بالراوتر'
+                    : 'انقطع الاتصال بالراوتر (الجهاز مطفأ أو مفصول عن الشبكة)',
               },
               reportedHost: targetDevice.host,
               rosVersion: targetDevice.rosVersion,
+              seq: seq,
             );
             RouterSyncCoordinator.recordCompleted(deviceId, startedAtMs);
             return updated;
@@ -1300,6 +1562,7 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
       }
 
       // 2. If cloud-connected router, call diagnostics endpoint
+      final cloudRttWatch = Stopwatch()..start();
       try {
         final res = await apiClient.get(
           ApiEndpoints.deviceDiagnostics(deviceId),
@@ -1308,9 +1571,22 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
             receiveTimeout: const Duration(seconds: 10),
           ),
         );
+        cloudRttWatch.stop();
         final data = unwrapApiEnvelope(res.data);
         final isLive = data['isLive'] == true;
-        if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
+        if (RouterSyncCoordinator.isSeqStale(deviceId, seq) ||
+            RouterSyncCoordinator.isStale(deviceId, startedAtMs)) {
+          return null;
+        }
+        final cloudCpu = isLive && data['cpuLoad'] is num ? (data['cpuLoad'] as num).toInt() : null;
+        RouterSyncCoordinator.recordTelemetrySample(
+          deviceId: deviceId,
+          seq: seq,
+          rttMs: cloudRttWatch.elapsedMilliseconds,
+          success: isLive,
+          cpuLoad: cloudCpu,
+        );
+        RouterSyncCoordinator.recordSeq(deviceId, seq);
         final existingList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
         final idx = existingList.indexWhere((r) => r.id == deviceId);
         if (idx >= 0) {
@@ -1352,8 +1628,19 @@ class RoutersNotifier extends AsyncNotifier<List<RouterDeviceModel>> {
           return updated;
         }
       } catch (e) {
+        cloudRttWatch.stop();
         debugPrint('Cloud router diagnostics poll error for $deviceId: $e');
-        if (RouterSyncCoordinator.isStale(deviceId, startedAtMs)) return null;
+        if (RouterSyncCoordinator.isSeqStale(deviceId, seq) ||
+            RouterSyncCoordinator.isStale(deviceId, startedAtMs)) {
+          return null;
+        }
+        RouterSyncCoordinator.recordTelemetrySample(
+          deviceId: deviceId,
+          seq: seq,
+          rttMs: cloudRttWatch.elapsedMilliseconds,
+          success: false,
+          isTimeout: _isTimeoutError(e),
+        );
         final existingList = List<RouterDeviceModel>.from(state.asData?.value ?? const []);
         final idx = existingList.indexWhere((r) => r.id == deviceId);
         if (idx >= 0) {
