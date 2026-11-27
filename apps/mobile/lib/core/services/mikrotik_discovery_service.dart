@@ -2704,6 +2704,7 @@ class MikrotikDiscoveryService {
       final stagingDir = '$targetDir-staging';
 
       final filesWritten = <String>[];
+      final expectedSizes = <String, int>{};
       for (final rawFile in files) {
         if (rawFile is! Map) continue;
         final file = Map<String, dynamic>.from(rawFile);
@@ -2715,37 +2716,78 @@ class MikrotikDiscoveryService {
         final encoding = file['encoding']?.toString();
 
         Object contentsWord;
+        int expectedLen;
         if (encoding == 'base64') {
           final binBytes = base64Decode(contentStr);
+          expectedLen = binBytes.length;
           final prefix = utf8.encode('=contents=');
           final combined = Uint8List(prefix.length + binBytes.length);
           combined.setRange(0, prefix.length, prefix);
           combined.setRange(prefix.length, combined.length, binBytes);
           contentsWord = combined;
         } else {
+          expectedLen = utf8.encode(contentStr).length;
           contentsWord = '=contents=$contentStr';
         }
+        expectedSizes[fName] = expectedLen;
 
         final existing = await client.sendCommand([
           '/file/print',
           '?name=$filePath',
         ]);
 
-        if (existing.isNotEmpty && existing.first['.id'] != null) {
-          final id = existing.first['.id']!;
-          await client.sendRawCommand([
-            '/file/set',
-            '=.id=$id',
-            contentsWord,
-          ]);
+        String? targetId = existing.isNotEmpty ? existing.first['.id'] : null;
+
+        if (targetId == null) {
+          try {
+            await client.sendRawCommand([
+              '/file/add',
+              '=name=$filePath',
+              contentsWord,
+            ]);
+          } catch (_) {
+            // RouterOS v6 fallback: create empty file via /file/print =file= then set contents
+            try {
+              await client.sendCommand(['/file/print', '=file=$filePath']);
+            } catch (_) {}
+            final created = await client.sendCommand(['/file/print', '?name=$filePath']);
+            targetId = created.isNotEmpty ? created.first['.id'] : null;
+            if (targetId != null) {
+              await client.sendRawCommand(['/file/set', '=.id=$targetId', contentsWord]);
+            } else {
+              rethrow;
+            }
+          }
         } else {
           await client.sendRawCommand([
-            '/file/add',
-            '=name=$filePath',
+            '/file/set',
+            '=.id=$targetId',
             contentsWord,
           ]);
         }
         filesWritten.add(fName);
+      }
+
+      // Post-upload verification: verify all files exist in stagingDir with non-truncated size
+      final postFileList = await client.sendCommand(['/file/print']);
+      final postSizes = <String, int>{};
+      for (final f in postFileList) {
+        final name = f['name'] ?? '';
+        final size = int.tryParse(f['size'] ?? '0') ?? 0;
+        if (name.isNotEmpty) postSizes[name] = size;
+      }
+
+      final filesVerified = <String>[];
+      for (final fName in filesWritten) {
+        final fullPath = '$stagingDir/$fName';
+        final actualSize = postSizes[fullPath] ?? postSizes[fName];
+        final expectedLen = expectedSizes[fName] ?? 0;
+        if (actualSize == null || actualSize <= 0 || (expectedLen > 0 && actualSize < expectedLen)) {
+          throw Exception(
+            'فشل التحقق من ملف ($fName) بعد الرفع: الحجم الفعلي ($actualSize) أقل من المتوقع ($expectedLen بايت). لم يتم تفعيل البروفايل.',
+          );
+        }
+        filesVerified.add(fName);
       }
 
       // 1. Query active hotspot servers and profile definitions

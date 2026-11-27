@@ -155,7 +155,7 @@ describe('PortalService & PortalCompilerService (Task 5.1)', () => {
 
       expect(res.status).toBe('PENDING');
       expect(res.directoryName).toBe('hotspot');
-      expect(res.filesCount).toBe(2); // login.html, status.html
+      expect(res.filesCount).toBe(3); // login.html, status.html, md5.js
 
       // Check agentService.queueCommand was called
       expect(agentService.queueCommand).toHaveBeenCalledWith(
@@ -604,6 +604,107 @@ describe('PortalService & PortalCompilerService (Task 5.1)', () => {
       expect(loginHtmlFile.content).toContain('Starlink Custom WiFi');
       expect(loginHtmlFile.content).toContain('كود كرت الإنترنت');
       expect(loginHtmlFile.content).toContain('type="hidden" id="password"');
+    });
+
+    it('should keep compiled login.html under 4096 bytes with visible username field, valid JS, CHAP+PAP support, and light theme contrast', () => {
+      const modes = [
+        HotspotPortalLoginMethod.VOUCHER,
+        HotspotPortalLoginMethod.USER_PASS,
+        HotspotPortalLoginMethod.BOTH,
+      ];
+
+      for (const loginMethod of modes) {
+        const html = compilerService.compileLoginHtml(
+          {
+            id: 'tpl-light',
+            tenantId: mockTenantId,
+            name: 'Minimal Light',
+            themePreset: HotspotPortalThemePreset.MINIMAL_LIGHT,
+            networkName: 'SudaFi Test Net',
+            title: 'أهلاً بك',
+            subtitle: 'أدخل الكرت',
+            primaryColor: '#2563EB',
+            accentColor: '#10B981',
+            backgroundColor: '#F8FAFC',
+            cardColor: '#FFFFFF',
+            textColor: '#0F172A',
+            loginMethod,
+            showRemainingTime: true,
+            footerText: 'SudaFi',
+          } as any,
+          'router',
+        );
+
+        const byteLen = Buffer.byteLength(html, 'utf8');
+        expect(byteLen).toBeLessThan(4096);
+        expect(html).toContain('id="username"');
+        expect(html).toContain('name="username"');
+        expect(html).toContain('id="password"');
+        expect(html).toContain('name="password"');
+        expect(html).toContain('id="submitBtn"');
+        expect(html).toContain('$(link-login-only)');
+        expect(html).toContain('$(link-orig)');
+        expect(html).toContain('$(error)');
+        expect(html).toContain('$(if chap-id)');
+        expect(html).toContain('$(chap-id)');
+        expect(html).toContain('$(chap-challenge)');
+        expect(html).toContain('color:#0F172A');
+
+        const scriptMatches = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g));
+        expect(scriptMatches.length).toBeGreaterThan(0);
+        for (const m of scriptMatches) {
+          expect(() => new Function(m[1])).not.toThrow();
+        }
+        const md5Js = compilerService.compileMd5Js();
+        expect(Buffer.byteLength(md5Js, 'utf8')).toBeLessThan(4096);
+        expect(() => new Function(md5Js)).not.toThrow();
+      }
+    });
+
+    it('should reject post-upload verification if RouterOS truncated login.html size', async () => {
+      const mockClient = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        executeCommand: jest.fn(async (cmd: (string | Buffer)[]) => {
+          if (cmd[0] === '/ip/hotspot/profile/print') {
+            return [{ type: '!re', attributes: { '.id': '*1', name: 'hsprof1', 'html-directory': 'hotspot' } }];
+          }
+          if (cmd[0] === '/file/print' && typeof cmd[1] === 'string' && cmd[1].startsWith('?name=')) {
+            return [];
+          }
+          if (cmd[0] === '/file/print') {
+            return [
+              { type: '!re', attributes: { name: 'hotspot-staging/login.html', size: '10' } },
+            ];
+          }
+          return [{ type: '!done' }];
+        }),
+      };
+
+      const mockFactory: any = { getClient: jest.fn().mockResolvedValue(mockClient) };
+      devicesService.findById.mockResolvedValueOnce({
+        id: mockDeviceId,
+        name: 'CCR Router',
+        passwordEncrypted: 'enc-pass',
+      });
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          PortalService,
+          PortalCompilerService,
+          { provide: DevicesService, useValue: devicesService },
+          { provide: AgentService, useValue: agentService },
+          { provide: MikrotikClientFactory, useValue: mockFactory },
+        ],
+      }).compile();
+
+      const service = module.get<PortalService>(PortalService);
+      await expect(
+        service.publishToRouter(mockTenantId, mockDeviceId, {
+          directoryName: 'hotspot',
+          files: [{ name: 'login.html', content: '<html><body><input id="username" name="username"></body></html>' }],
+          overwriteConfirmed: true,
+        }),
+      ).rejects.toThrow('رُفع بحجم ناقص على الراوتر');
     });
   });
 });

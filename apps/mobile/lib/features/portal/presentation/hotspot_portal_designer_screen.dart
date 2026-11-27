@@ -365,7 +365,7 @@ class _HotspotPortalDesignerScreenState extends ConsumerState<HotspotPortalDesig
           routerName: selectedRouter.name,
           routerId: targetId,
           message: msg.toString(),
-          filesCount: isReadyMade ? 2 : (_importedBundle?.files.length ?? 1),
+          filesCount: isReadyMade ? 3 : (_importedBundle?.files.length ?? 1),
           stagingDirectory: stagingDir,
           originalHtmlDirectory: origDir,
           profileName: origProf,

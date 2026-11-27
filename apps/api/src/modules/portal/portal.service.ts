@@ -734,20 +734,33 @@ export class PortalService {
         try {
           const postFileRes = await client.executeCommand(['/file/print']);
           const postRecs = postFileRes.filter((r: any) => r.type === '!re');
-          const postFilesMap = new Map<string, number>();
+          const postFilesMap = new Map<string, { size: number; hasSizeAttr: boolean }>();
           for (const pr of postRecs) {
             const fName = pr.attributes['name'] ?? '';
+            const hasSizeAttr = pr.attributes['size'] !== undefined;
             const fSize = parseInt(pr.attributes['size'] ?? '0', 10);
-            postFilesMap.set(fName, fSize);
+            postFilesMap.set(fName, { size: fSize, hasSizeAttr });
           }
 
-          for (const w of filesWritten) {
-            const fullStagingPath = `${stagingDir}/${w}`;
-            if (postFilesMap.has(fullStagingPath) || postFilesMap.has(w)) {
-              filesVerified.push(w);
+          for (const file of filesToWrite) {
+            const fullStagingPath = `${stagingDir}/${file.name}`;
+            const entry = postFilesMap.get(fullStagingPath) ?? postFilesMap.get(file.name);
+            if (!entry) continue;
+            if (entry.hasSizeAttr) {
+              const expectedBytes =
+                file.encoding === 'base64'
+                  ? Buffer.from(file.content ?? '', 'base64').length
+                  : Buffer.byteLength(file.content ?? '', 'utf8');
+              if (entry.size <= 0 || (expectedBytes > 0 && entry.size < expectedBytes)) {
+                throw new BadGatewayException(
+                  `الملف (${file.name}) رُفع بحجم ناقص على الراوتر (${entry.size} من أصل ${expectedBytes} بايت). تم إلغاء تفعيل البروفايل لضمان سلامة صفحة الدخول.`,
+                );
+              }
             }
+            filesVerified.push(file.name);
           }
-        } catch {
+        } catch (verifErr) {
+          if (verifErr instanceof BadGatewayException) throw verifErr;
           filesVerified.push(...filesWritten);
         }
 
